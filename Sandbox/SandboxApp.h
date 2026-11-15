@@ -123,6 +123,8 @@ private:
     void tickLeaves(float dt);
     Dark::Entity spawnSpawnerUnit(Dark::Entity spawner, const Dark::SpawnerRequest& req);
     Dark::Entity spawnAuthoredArchetype(const Dark::SceneObjectData& object);
+    static bool ensureScenePrimitive(void* user, Dark::Entity entity, const char* primitive);
+    static bool ensureSceneMarker(void* user, Dark::Entity entity);
     void startQuest(const std::string& id);
     void updateQuest(float dt);
     bool questTarget(Dark::Math::Vector3f& out);

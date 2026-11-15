@@ -21,6 +21,8 @@
 #include "Play/Carry.h"
 #include "Play/Interaction.h"
 #include "Save/PersistentId.h"
+#include "Content/ContentDb.h"
+#include "Content/SceneObjectSpawn.h"
 #include "Scene/Building.h"
 #include "Scene/SceneFile.h"
 #include "Scene/SceneSpawn.h"
@@ -51,6 +53,8 @@ namespace
         const std::filesystem::path path = sceneFile(name);
         if (path.empty())
             return false;
+        if (!contentHasArchetype("core:cube"))
+            loadContentDatabase(nullptr);
         std::string error;
         return loadSceneFromJson(path, out, &error);
     }
@@ -72,9 +76,12 @@ namespace
         int pickups   = 0;
     };
 
-    bool localLight(SceneObjectType type)
+    bool localLight(const SceneObjectData& object)
     {
-        return type == SceneObjectType::PointLight || type == SceneObjectType::SpotLight;
+        if (sceneHasComponent(object, "ParticleEmitter"))
+            return false;
+        const std::string kind = sceneLightKind(object);
+        return kind == "point" || kind == "spot";
     }
 
     SpawnExpect expectOf(const std::vector<SceneObjectData>& objects)
@@ -82,7 +89,7 @@ namespace
         SpawnExpect e;
         for (const SceneObjectData& o : objects)
         {
-            const bool cube = o.type == SceneObjectType::Cube;
+            const bool cube = o.archetype == "core:cube";
             if (!o.zone.empty())
             {
                 ++e.zones;
@@ -95,7 +102,7 @@ namespace
             }
             if (o.goal)
                 ++e.goals;
-            if (!o.circuit.empty() && !localLight(o.type))
+            if (!o.circuit.empty() && !localLight(o))
                 ++e.powers;
             if (o.conceal)
             {

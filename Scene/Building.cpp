@@ -91,7 +91,6 @@ namespace Dark
                 const Math::Vector3f a = point(x0, y0, z0);
                 const Math::Vector3f b = point(x1, y1, z1);
                 SceneObjectData      o;
-                o.type      = SceneObjectType::Cube;
                 o.archetype = "core:cube";
                 o.position  = Math::Vector3f{ (a.x + b.x) * 0.5f, (a.y + b.y) * 0.5f, (a.z + b.z) * 0.5f };
                 o.scale    = Math::Vector3f{ std::fabs(b.x - a.x), std::fabs(b.y - a.y), std::fabs(b.z - a.z) };
@@ -413,7 +412,6 @@ namespace Dark
         for (const BuildingPickupDef& p : def.pickups)
         {
             SceneObjectData o;
-            o.type        = SceneObjectType::Cube;
             o.archetype   = "core:cube";
             o.position    = at.point(p.pos.x, 0.35f, p.pos.y);
             o.scale       = Math::Vector3f{ 0.4f, 0.4f, 0.4f };
@@ -442,7 +440,6 @@ namespace Dark
         for (const BuildingGuardDef& g : def.guards)
         {
             SceneObjectData o;
-            o.type      = SceneObjectType::Hunter;
             o.archetype = "core:hunter";
             o.position  = at.point(g.pos.x, 0.5f, g.pos.y);
             o.squad    = g.squad.empty() ? "building:" + def.id : g.squad;

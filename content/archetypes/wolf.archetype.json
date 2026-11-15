@@ -1,7 +1,7 @@
 {
   "id": "core:wolf",
   "version": 1,
-  "editor": { "label": "Wolf", "category": "Creatures", "icon": "bug", "modes": ["3d"], "matchModel": "wolf" },
+  "editor": { "label": "Wolf", "category": "Creatures", "icon": "bug", "hotkey": "8", "modes": ["3d"], "matchModel": "wolf" },
   "components": {
     "Model": { "gltf": "models/wolf.gltf", "anim": "models/wolf.anim.json" },
     "Physics": { "file": "models/wolf.physics.json" },

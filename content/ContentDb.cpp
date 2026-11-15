@@ -100,26 +100,42 @@ namespace Dark
 
         void seedLegacyAliases()
         {
-            const char* names[] = {
-                "cube", "sphere", "particle_emitter", "emitter", "particle", "platform", "coin", "spawn", "player_spawn",
-                "point_light", "spot_light", "ambient_light", "ambient", "directional_light", "directional", "sun",
-                "player", "hunter", "enemy", "wolf", "model", "gltf", "water", "cloud_volume", "cloud", "clouds",
-                "stream", "spawner", "movie", "crow"
+            const char* rows[][2] = {
+                { "cube", "core:cube" },
+                { "sphere", "core:sphere" },
+                { "particle_emitter", "core:particle_emitter" },
+                { "emitter", "core:particle_emitter" },
+                { "particle", "core:particle_emitter" },
+                { "platform", "core:platform" },
+                { "coin", "core:coin" },
+                { "spawn", "core:spawn" },
+                { "player_spawn", "core:spawn" },
+                { "point_light", "core:point_light" },
+                { "spot_light", "core:spot_light" },
+                { "ambient_light", "core:ambient_light" },
+                { "ambient", "core:ambient_light" },
+                { "directional_light", "core:directional_light" },
+                { "directional", "core:directional_light" },
+                { "sun", "core:directional_light" },
+                { "player", "core:player" },
+                { "hunter", "core:hunter" },
+                { "enemy", "core:hunter" },
+                { "wolf", "core:wolf" },
+                { "model", "core:model" },
+                { "gltf", "core:model" },
+                { "water", "core:water" },
+                { "cloud_volume", "core:cloud_volume" },
+                { "cloud", "core:cloud_volume" },
+                { "clouds", "core:cloud_volume" },
+                { "stream", "core:stream" },
+                { "spawner", "core:spawner" },
+                { "movie", "core:movie" },
+                { "crow", "core:crow" },
             };
-            for (const char* name : names)
+            for (const auto& row : rows)
             {
-                SceneObjectType type{};
-                if (name == std::string_view("crow"))
-                {
-                    rememberAlias(name, "core:crow");
-                    rememberAlias("core:crow", "core:crow");
-                    continue;
-                }
-                if (!tryParseSceneObjectType(name, type))
-                    continue;
-                const std::string canonical = legacyArchetypeName(type);
-                rememberAlias(name, canonical);
-                rememberAlias(canonical, canonical);
+                rememberAlias(row[0], row[1]);
+                rememberAlias(row[1], row[1]);
             }
         }
 
@@ -223,6 +239,32 @@ namespace Dark
                 out.editor.hotkey     = jsonString(editor, "hotkey");
                 out.editor.matchModel = jsonString(editor, "matchModel");
                 readStringList(editor, "modes", out.editor.modes);
+                const auto scale = editor.find("defaultScale");
+                if (scale != editor.end() && scale->is_array() && scale->size() >= 3)
+                {
+                    int n = 0;
+                    for (const json& item : *scale)
+                    {
+                        if (n >= 3)
+                            break;
+                        if (item.is_number())
+                            out.editor.defaultScale[n++] = item.get<float>();
+                    }
+                    out.editor.hasDefaultScale = n == 3;
+                }
+                const auto color = editor.find("defaultColor");
+                if (color != editor.end() && color->is_array() && color->size() >= 3)
+                {
+                    int n = 0;
+                    for (const json& item : *color)
+                    {
+                        if (n >= 4)
+                            break;
+                        if (item.is_number())
+                            out.editor.defaultColor[n++] = item.get<float>();
+                    }
+                    out.editor.hasDefaultColor = n >= 3;
+                }
             }
             if (out.editor.label.empty())
             {
@@ -272,6 +314,7 @@ namespace Dark
                 const auto rep = root["net"].find("replicate");
                 if (rep != root["net"].end() && rep->is_boolean())
                     out.replicate = rep->get<bool>();
+                out.netPrefab = jsonString(root["net"], "prefab");
             }
             return true;
         }
@@ -377,15 +420,13 @@ namespace Dark
                 const std::string id = canonicalContentId(master.type);
                 if (gDb.byName.contains(id))
                     continue;
-                SceneObjectType legacy{};
-                const bool      isLegacy = legacySceneTypeForId(id, legacy);
-                Archetype       archetype;
+                Archetype archetype;
                 archetype.packageId = package.id;
                 archetype.name      = id;
                 archetype.version   = master.version;
                 archetype.editor.label = master.type;
-                archetype.editor.category = isLegacy ? "Legacy" : "Creatures";
-                archetype.editor.icon = isLegacy ? "cube" : "bug";
+                archetype.editor.category = "Creatures";
+                archetype.editor.icon = "bug";
                 archetype.editor.modes.push_back("3d");
                 archetype.editor.matchModel = master.type;
                 if (!master.gltf.empty() || !master.anim.empty())
@@ -403,8 +444,7 @@ namespace Dark
                     physics["file"] = master.physics;
                     archetype.components.push_back(ArchetypeComponent{ "Physics", physics.dump() });
                 }
-                if (!isLegacy)
-                    archetype.behaviors.push_back(ArchetypeBehavior{ "ai.animal", "{}" });
+                archetype.behaviors.push_back(ArchetypeBehavior{ "ai.animal", "{}" });
                 adopt(std::move(archetype), taken);
             }
         }
@@ -496,6 +536,20 @@ namespace Dark
                         archetype.editor.matchModel = base.editor.matchModel;
                     if (archetype.editor.modes.empty())
                         archetype.editor.modes = base.editor.modes;
+                    if (!archetype.editor.hasDefaultScale && base.editor.hasDefaultScale)
+                    {
+                        archetype.editor.hasDefaultScale = true;
+                        for (int i = 0; i < 3; ++i)
+                            archetype.editor.defaultScale[i] = base.editor.defaultScale[i];
+                    }
+                    if (!archetype.editor.hasDefaultColor && base.editor.hasDefaultColor)
+                    {
+                        archetype.editor.hasDefaultColor = true;
+                        for (int i = 0; i < 4; ++i)
+                            archetype.editor.defaultColor[i] = base.editor.defaultColor[i];
+                    }
+                    if (archetype.netPrefab.empty())
+                        archetype.netPrefab = base.netPrefab;
                     archetype.baseName.clear();
                     progress = true;
                 }
@@ -568,6 +622,7 @@ namespace Dark
                     blob += '\n';
                 }
                 blob += archetype->replicate ? '1' : '0';
+                blob += archetype->netPrefab;
                 blob += '\n';
             }
             gDb.setHash = Save::fnv1a64(blob.data(), blob.size());
@@ -917,34 +972,6 @@ namespace Dark
                 return &info;
         }
         return nullptr;
-    }
-
-    std::string legacyArchetypeName(SceneObjectType type)
-    {
-        return std::string("core:") + toString(type);
-    }
-
-    bool legacySceneTypeForId(std::string_view idOrShort, SceneObjectType& out)
-    {
-        if (idOrShort.empty())
-            return false;
-        std::string_view bare = idOrShort;
-        const auto       colon = idOrShort.rfind(':');
-        if (colon != std::string_view::npos)
-        {
-            const std::string_view package = idOrShort.substr(0, colon);
-            if (package != "core")
-                return false;
-            bare = idOrShort.substr(colon + 1);
-        }
-        if (const std::string* aliased = aliasTarget(bare))
-        {
-            const auto aliasColon = aliased->rfind(':');
-            const std::string_view aliasBare = aliasColon == std::string::npos ? std::string_view(*aliased) : std::string_view(*aliased).substr(aliasColon + 1);
-            if (tryParseSceneObjectType(aliasBare, out))
-                return true;
-        }
-        return tryParseSceneObjectType(bare, out);
     }
 
     bool loadContentDatabase(ContentError* err)

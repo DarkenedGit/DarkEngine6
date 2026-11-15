@@ -1,8 +1,11 @@
 #include "SandboxApp.h"
 #include "SandboxInternal.h"
 
+#include "AI/AiComponents.h"
+#include "Content/ArchetypeParams.h"
 #include "Content/ArchetypeSpawn.h"
 #include "Content/ContentDb.h"
+#include "Content/SceneObjectSpawn.h"
 
 #include "Assets/Image.h"
 #include "Assets/Material.h"
@@ -39,6 +42,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <cstring>
 #include <format>
 #include <memory>
 #include <string>
@@ -93,6 +97,11 @@ float sandboxBootGroundY(void* user, float x, float z)
 }
 
 constexpr int kBootSpawnBatch = 32;
+
+bool zeroScale(const Vector3f& scale)
+{
+    return scale.x == 0.0f && scale.y == 0.0f && scale.z == 0.0f;
+}
 
 } // namespace
 
@@ -722,7 +731,7 @@ bool SandboxApp::advanceBootSlice()
                     boot.foliageIn.water.push_back(lake);
                     for (const SceneObjectData& object : boot.scene.objects)
                     {
-                        if (object.type != SceneObjectType::Water)
+                        if (!sceneHasComponent(object, "Water"))
                             continue;
                         float minX = 0.0f;
                         float maxX = 0.0f;
@@ -893,7 +902,7 @@ bool SandboxApp::advanceBootSlice()
         while (boot.streamCursor < boot.scene.objects.size() && m_streams.size() < 16)
         {
             const SceneObjectData& o = boot.scene.objects[boot.streamCursor++];
-            if (o.type != SceneObjectType::Stream || !o.hasStream)
+            if (!sceneHasComponent(o, "Stream") || !o.hasStream)
                 continue;
             Dark::StreamDesc desc;
             desc.width        = o.streamWidth;
@@ -995,33 +1004,90 @@ bool SandboxApp::advanceBootSlice()
     return false;
 }
 
+bool SandboxApp::ensureScenePrimitive(void* user, Entity entity, const char* primitive)
+{
+    auto* app = static_cast<SandboxApp*>(user);
+    if (!app || !entity.valid() || !primitive || primitive[0] == '\0')
+        return false;
+    const bool sphere = std::strcmp(primitive, "sphere") == 0;
+    const bool cube   = std::strcmp(primitive, "cube") == 0;
+    if (!sphere && !cube)
+        return true;
+
+    const ArchetypeParamsComponent* params = app->world().get<ArchetypeParamsComponent>(entity);
+    const float c0 = params ? params->color[0] : 1.0f;
+    const float c1 = params ? params->color[1] : 1.0f;
+    const float c2 = params ? params->color[2] : 1.0f;
+    const uint8_t r = static_cast<uint8_t>(Math::Clamp(c0, 0.0f, 1.0f) * 255.0f);
+    const uint8_t g = static_cast<uint8_t>(Math::Clamp(c1, 0.0f, 1.0f) * 255.0f);
+    const uint8_t b = static_cast<uint8_t>(Math::Clamp(c2, 0.0f, 1.0f) * 255.0f);
+    const std::string key = std::format("runtime:/scene/{}-{:02x}{:02x}{:02x}", sphere ? "sphere" : "box", r, g, b);
+
+    MeshData mesh;
+    const bool built = sphere ? CreateSphere(mesh, 0.5f) : CreateCube(mesh, 1.0f);
+    if (!built)
+        return false;
+    AssetRef<Model> model = internAndUploadProceduralModel(app->renderer(), app->assets(), std::move(mesh),
+        internSolidMaterial(app->assets(), r, g, b, 255, key + "-mat"), key);
+    if (!model)
+        return false;
+    ModelComponent mc{};
+    mc.modelAssetID = model->id;
+    mc.castShadow   = true;
+    setModelComponent(app->world(), app->pins(), app->assets(), entity, mc);
+    return true;
+}
+
+bool SandboxApp::ensureSceneMarker(void* user, Entity entity)
+{
+    auto* app = static_cast<SandboxApp*>(user);
+    if (!app || !entity.valid() || !app->m_boot)
+        return false;
+    const SandboxBootLoad& boot = *app->m_boot;
+    AssetRef<Model> marker;
+    if (app->world().has<SpawnerComponent>(entity))
+        marker = boot.spawnerMarker;
+    else if (app->world().has<MovieCueComponent>(entity))
+        marker = boot.movieMarker;
+    if (!marker)
+        return true;
+    ModelComponent mc{};
+    mc.modelAssetID = marker->id;
+    mc.castShadow   = true;
+    setModelComponent(app->world(), app->pins(), app->assets(), entity, mc);
+    return true;
+}
+
 Dark::Entity SandboxApp::spawnAuthoredArchetype(const Dark::SceneObjectData& object)
 {
-    if (object.archetype.empty())
+    if (object.placeholder)
         return {};
+    SceneObjectData placed = object;
+    if (placed.archetype.empty())
+        return {};
+    if (zeroScale(placed.scale))
+        placed.scale = Vector3f{ 1.0f, 1.0f, 1.0f };
     ArchetypeSpawnHost host{};
-    host.world      = &world();
-    host.assets     = &assets();
-    host.pins       = &pins();
-    host.renderer   = &renderer();
-    host.audio      = &audio();
-    host.ground     = &m_ground;
-    host.ai         = m_chaseOk ? const_cast<AiSystem*>(&m_chase.ai()) : nullptr;
-    host.ensureMesh = [](void*, Entity) { return true; };
-    host.user       = this;
-    ArchetypeSpawnPose pose{};
-    pose.position = object.position;
-    pose.rotation = object.rotation;
-    const bool zeroScale = object.scale.x == 0.0f && object.scale.y == 0.0f && object.scale.z == 0.0f;
-    pose.scale    = zeroScale ? Vector3f{ 1.0f, 1.0f, 1.0f } : object.scale;
+    host.world           = &world();
+    host.assets          = &assets();
+    host.pins            = &pins();
+    host.renderer        = &renderer();
+    host.audio           = &audio();
+    host.ground          = &m_ground;
+    host.ai              = m_chaseOk ? const_cast<AiSystem*>(&m_chase.ai()) : nullptr;
+    host.ensurePrimitive = &SandboxApp::ensureScenePrimitive;
+    host.ensureMarker    = &SandboxApp::ensureSceneMarker;
+    host.onWeaponHit     = &SandboxApp::onWeaponHitThunk;
+    host.weaponHitUser   = this;
+    host.user            = this;
     ContentError err;
-    const Entity e = instantiateArchetype(host, object.archetype, pose, object.overridesJson, &err);
+    const Entity e = instantiateSceneObject(host, placed, &err);
     if (!e.valid())
     {
-        DE_LOG_WARN(LogCategory::AI, "Sandbox: archetype '{}' failed ({})", object.archetype, err.message);
+        DE_LOG_WARN(LogCategory::AI, "Sandbox: archetype '{}' failed ({})", placed.archetype, err.message);
         return {};
     }
-    stampProceduralId(world(), e, std::format("sandbox/level/archetype/{}", e.id()), object.archetype);
+    stampProceduralId(world(), e, std::format("sandbox/level/archetype/{}", e.id()), placed.archetype);
     return e;
 }
 
@@ -1038,6 +1104,23 @@ bool SandboxApp::advanceSpawnBatch()
         cloud.desc = desc;
         world().emplace<CloudVolumeComponent>(e, cloud);
     };
+    auto sceneHost = [&](bool animatedOnly) {
+        ArchetypeSpawnHost host{};
+        host.world             = &world();
+        host.assets            = &assets();
+        host.pins              = &pins();
+        host.renderer          = &renderer();
+        host.audio             = &audio();
+        host.ground            = &m_ground;
+        host.ai                = m_chaseOk ? const_cast<AiSystem*>(&m_chase.ai()) : nullptr;
+        host.ensurePrimitive   = &SandboxApp::ensureScenePrimitive;
+        host.ensureMarker      = &SandboxApp::ensureSceneMarker;
+        host.onWeaponHit       = &SandboxApp::onWeaponHitThunk;
+        host.weaponHitUser     = this;
+        host.modelAnimatedOnly = animatedOnly;
+        host.user              = this;
+        return host;
+    };
 
     for (int guard = 0; guard < 64; ++guard)
     {
@@ -1053,27 +1136,52 @@ bool SandboxApp::advanceSpawnBatch()
             {
                 if (o.placeholder)
                     continue;
-                if (o.dataDriven)
+                if (sceneHasBehavior(o, "player.controller"))
                 {
-                    boot.archetypes.push_back(o);
+                    m_chase.setPlayerStart(o.position);
                     continue;
                 }
-                if (o.type == SceneObjectType::Hunter || o.type == SceneObjectType::Wolf)
+                if (sceneHasBehavior(o, "ai.hunter") || sceneHasBehavior(o, "ai.wolf") || sceneHasBehavior(o, "ai.animal"))
+                {
                     boot.pawns.push_back(o);
-                if (o.type == SceneObjectType::Spawner)
+                    continue;
+                }
+                if (sceneHasComponent(o, "Spawner"))
+                {
                     boot.spawners.push_back(o);
-                if (o.type == SceneObjectType::Movie)
+                    continue;
+                }
+                if (sceneHasComponent(o, "Movie"))
+                {
                     boot.movies.push_back(o);
-                if (o.type == SceneObjectType::Cube)
+                    continue;
+                }
+                // Particles list a local light for the glow. They are not light entities.
+                if (sceneHasComponent(o, "ParticleEmitter"))
+                    continue;
+                const bool platform = sceneHasBehavior(o, "platform.marker");
+                if (!platform && (sceneHasBehavior(o, "prop.solid") || sceneHasComponent(o, "Mesh")))
+                {
                     boot.boxes.push_back(o);
-                if (o.type == SceneObjectType::PointLight || o.type == SceneObjectType::SpotLight)
+                    continue;
+                }
+                if (sceneHasComponent(o, "LocalLight"))
+                {
                     boot.lights.push_back(o);
-                if (o.type == SceneObjectType::Model)
+                    continue;
+                }
+                if (sceneHasBehavior(o, "model"))
+                {
                     boot.models.push_back(o);
-                if (o.type == SceneObjectType::Player)
-                    m_chase.setPlayerStart(o.position);
-                if (o.type == SceneObjectType::CloudVolume)
+                    continue;
+                }
+                if (sceneHasComponent(o, "CloudVolume"))
+                {
                     boot.clouds.push_back(o);
+                    continue;
+                }
+                if (o.dataDriven)
+                    boot.archetypes.push_back(o);
             }
             boot.phase = SandboxBootLoad::SpawnPhase::Clouds;
             return true;
@@ -1083,11 +1191,12 @@ bool SandboxApp::advanceSpawnBatch()
             while (boot.cloudCursor < boot.clouds.size() && spawned < kBootSpawnBatch)
             {
                 const SceneObjectData& o = boot.clouds[boot.cloudCursor++];
-                CloudVolumeDesc desc{};
-                if (o.hasCloud)
-                    cloudDescFromSceneData(o, desc);
-                spawnCloud(o.position, o.scale, desc);
-                ++boot.spawnedClouds;
+                ContentError err;
+                const Entity e = instantiateSceneObject(sceneHost(false), o, &err);
+                if (!e.valid())
+                    DE_LOG_WARN(LogCategory::Render, "SandboxApp: cloud failed ({})", err.message);
+                else
+                    ++boot.spawnedClouds;
                 ++spawned;
             }
             if (spawned > 0)
@@ -1258,7 +1367,7 @@ bool SandboxApp::advanceSpawnBatch()
             while (boot.grassCursor < boot.boxes.size())
             {
                 const SceneObjectData& o = boot.boxes[boot.grassCursor++];
-                if (!o.conceal)
+                if (!o.conceal || sceneMeshPrimitive(o) != "cube")
                     continue;
                 const uint8_t r = static_cast<uint8_t>(Math::Clamp(o.color[0], 0.0f, 1.0f) * 255.0f);
                 const uint8_t g = static_cast<uint8_t>(Math::Clamp(o.color[1], 0.0f, 1.0f) * 255.0f);
@@ -1287,19 +1396,14 @@ bool SandboxApp::advanceSpawnBatch()
             while (boot.lightCursor < boot.lights.size() && spawned < kBootSpawnBatch)
             {
                 const SceneObjectData& o = boot.lights[boot.lightCursor++];
-                const Entity e = world().createEntity();
-                world().emplace<TagComponent>(e, "SceneLight");
-                world().emplace<TransformComponent>(e, o.position, o.rotation, Vector3f{ 1.0f, 1.0f, 1.0f });
-                auto& light        = world().emplace<LocalLightComponent>(e);
-                light.type         = o.type == SceneObjectType::SpotLight ? LocalLightType::Spot : LocalLightType::Point;
-                light.color        = Vector3f{ o.color[0], o.color[1], o.color[2] };
-                light.intensity    = o.lightIntensity;
-                light.range        = o.lightRange;
-                light.innerConeDeg = o.lightInnerDeg;
-                light.outerConeDeg = o.lightOuterDeg;
-                light.enabled      = o.lightEnabled;
-                light.castShadow   = o.lightCastShadow;
-                applySceneActor(world(), e, o, nullptr, nullptr);
+                SceneObjectData placed = o;
+                placed.scale = Vector3f{ 1.0f, 1.0f, 1.0f };
+                ContentError err;
+                const Entity e = instantiateSceneObject(sceneHost(false), placed, &err);
+                if (!e.valid())
+                    DE_LOG_WARN(LogCategory::Render, "SandboxApp: light failed ({})", err.message);
+                else
+                    applySceneActor(world(), e, o, nullptr, nullptr);
                 ++spawned;
             }
             if (spawned > 0)
@@ -1313,22 +1417,10 @@ bool SandboxApp::advanceSpawnBatch()
                 const SceneObjectData& o = boot.boxes[boot.boxCursor++];
                 if (o.conceal || !o.zone.empty() || !o.pickup.empty())
                     continue;
-                const uint8_t r = static_cast<uint8_t>(Math::Clamp(o.color[0], 0.0f, 1.0f) * 255.0f);
-                const uint8_t g = static_cast<uint8_t>(Math::Clamp(o.color[1], 0.0f, 1.0f) * 255.0f);
-                const uint8_t b = static_cast<uint8_t>(Math::Clamp(o.color[2], 0.0f, 1.0f) * 255.0f);
-                const std::string key = std::format("runtime:/scene/box-{:02x}{:02x}{:02x}", r, g, b);
-                MeshData mesh;
-                if (!CreateCube(mesh, 1.0f))
-                    return true;
-                AssetRef<Model> box = internAndUploadProceduralModel(renderer(), assets(), std::move(mesh), internSolidMaterial(assets(), r, g, b, 255, key + "-mat"), key);
-                if (!box)
-                    return true;
-                const Entity e = world().createEntity();
-                world().emplace<TransformComponent>(e, o.position, o.rotation, o.scale);
-                ModelComponent mc{};
-                mc.modelAssetID = box->id;
-                mc.castShadow   = true;
-                setModelComponent(world(), pins(), assets(), e, mc);
+                ContentError err;
+                const Entity e = instantiateSceneObject(sceneHost(false), o, &err);
+                if (!e.valid())
+                    DE_LOG_WARN(LogCategory::Render, "SandboxApp: scene prop failed ({})", err.message);
                 return true;
             }
             boot.phase = SandboxBootLoad::SpawnPhase::ChasePhysics;
@@ -1356,33 +1448,35 @@ bool SandboxApp::advanceSpawnBatch()
             if (m_chaseOk && boot.pawnCursor < boot.pawns.size())
             {
                 const SceneObjectData& o = boot.pawns[boot.pawnCursor++];
-                const bool wolf = o.type == SceneObjectType::Wolf;
-                TransformComponent xf{};
-                xf.position = o.position;
-                xf.rotation = o.rotation;
-                const bool zeroScale = o.scale.x == 0.0f && o.scale.y == 0.0f && o.scale.z == 0.0f;
-                xf.scale = zeroScale ? Vector3f{ 1.0f, 1.0f, 1.0f } : o.scale;
-                const Entity hunter = m_chase.spawnListedHunter(world(), pins(), assets(), xf);
-                if (hunter.valid())
+                const bool wolf = sceneHasBehavior(o, "ai.wolf") || sceneHasBehavior(o, "ai.animal");
+                SceneObjectData placedObject = o;
+                if (zeroScale(placedObject.scale))
+                    placedObject.scale = Vector3f{ 1.0f, 1.0f, 1.0f };
+                ContentError err;
+                const Entity hunter = instantiateSceneObject(sceneHost(true), placedObject, &err);
+                if (!hunter.valid())
                 {
-                    applySceneActor(world(), hunter, o, &sandboxBootGroundY, &m_terrain);
-                    const TransformComponent* placed = world().get<TransformComponent>(hunter);
-                    const float placedX = placed ? placed->position.x : xf.position.x;
-                    const float placedZ = placed ? placed->position.z : xf.position.z;
-                    if (!m_chase.ai().walkability().walkableWorld(placedX, placedZ))
-                    {
-                        DE_LOG_WARN(LogCategory::AI, "SandboxApp: scene {} at ({:.1f}, {:.1f}) is not walkable",
-                            wolf ? "wolf" : "hunter", placedX, placedZ);
-                    }
-                    const CharacterHost host{ world(), renderer(), assets(), pins(), audio(), m_ground };
-                    attachNpcVisual(host, hunter, wolf ? NpcKind::Wolf : NpcKind::Hunter, ModelAttach::AnimatedOnly);
-                    const int stamp = wolf ? boot.wolfStamp++ : boot.hunterStamp++;
-                    stampProceduralId(world(), hunter, std::format("sandbox/level/{}/{}", wolf ? "wolf" : "hunter", stamp), wolf ? "wolf" : "hunter");
-                    if (!wolf)
-                    {
-                        const Entity torch = spawnGuardTorch(world(), hunter, placed ? placed->position : xf.position);
-                        stampProceduralId(world(), torch, std::format("sandbox/level/torch/{}", stamp), "torch");
-                    }
+                    DE_LOG_WARN(LogCategory::AI, "SandboxApp: scene {} failed ({})", wolf ? "wolf" : "hunter", err.message);
+                    return true;
+                }
+                if (PathAgentComponent* path = world().get<PathAgentComponent>(hunter))
+                    path->repathAt = static_cast<float>(m_chase.hunterCount()) * (0.5f / 3.0f);
+                m_chase.addHunter(hunter);
+                applySceneActor(world(), hunter, o, &sandboxBootGroundY, &m_terrain);
+                const TransformComponent* placed = world().get<TransformComponent>(hunter);
+                const float placedX = placed ? placed->position.x : o.position.x;
+                const float placedZ = placed ? placed->position.z : o.position.z;
+                if (!m_chase.ai().walkability().walkableWorld(placedX, placedZ))
+                {
+                    DE_LOG_WARN(LogCategory::AI, "SandboxApp: scene {} at ({:.1f}, {:.1f}) is not walkable",
+                        wolf ? "wolf" : "hunter", placedX, placedZ);
+                }
+                const int stamp = wolf ? boot.wolfStamp++ : boot.hunterStamp++;
+                stampProceduralId(world(), hunter, std::format("sandbox/level/{}/{}", wolf ? "wolf" : "hunter", stamp), wolf ? "wolf" : "hunter");
+                if (!wolf)
+                {
+                    const Entity torch = spawnGuardTorch(world(), hunter, placed ? placed->position : o.position);
+                    stampProceduralId(world(), torch, std::format("sandbox/level/torch/{}", stamp), "torch");
                 }
                 return true;
             }
@@ -1402,21 +1496,15 @@ bool SandboxApp::advanceSpawnBatch()
                     DE_LOG_WARN(LogCategory::Render, "SandboxApp: scene model has no path");
                     continue;
                 }
-                const bool zeroScale = o.scale.x == 0.0f && o.scale.y == 0.0f && o.scale.z == 0.0f;
-                TransformComponent xf{};
-                xf.position = o.position;
-                xf.rotation = o.rotation;
-                xf.scale    = zeroScale ? Vector3f{ 1.0f, 1.0f, 1.0f } : o.scale;
-                const Entity e = world().createEntity();
-                const std::string name = std::filesystem::path(o.modelPath).stem().string();
-                world().emplace<TagComponent>(e, name.empty() ? std::string("Model") : name);
-                world().emplace<TransformComponent>(e, xf);
-                const Vector3f authoredScale = xf.scale;
-                if (!attachAnimatedCharacter(e, o.modelPath.c_str()))
+                SceneObjectData placedObject = o;
+                if (zeroScale(placedObject.scale))
+                    placedObject.scale = Vector3f{ 1.0f, 1.0f, 1.0f };
+                const Vector3f authoredScale = placedObject.scale;
+                ContentError err;
+                const Entity e = instantiateSceneObject(sceneHost(true), placedObject, &err);
+                if (!e.valid())
                 {
-                    onEntityRemoved(world(), e, &pins());
-                    world().destroyEntity(e);
-                    DE_LOG_WARN(LogCategory::Render, "SandboxApp: scene model '{}' did not attach", o.modelPath);
+                    DE_LOG_WARN(LogCategory::Render, "SandboxApp: scene model '{}' did not attach ({})", o.modelPath, err.message);
                     return true;
                 }
                 if (TransformComponent* placed = world().get<TransformComponent>(e))
@@ -1466,29 +1554,16 @@ bool SandboxApp::advanceSpawnBatch()
             while (boot.spawnerCursor < boot.spawners.size() && spawned < kBootSpawnBatch)
             {
                 const SceneObjectData& o = boot.spawners[boot.spawnerCursor++];
-                const bool zeroScale = o.scale.x == 0.0f && o.scale.y == 0.0f && o.scale.z == 0.0f;
-                const Vector3f scale = zeroScale ? Vector3f{ 0.8f, 0.8f, 0.8f } : o.scale;
-                TransformComponent xf{};
-                xf.rotation = o.rotation;
-                xf.scale    = scale;
-                xf.position = o.position;
-                xf.position.y = m_terrain.heightAtWorld(o.position.x, o.position.z) + 0.5f * std::fabs(scale.y);
-                const Entity e = world().createEntity();
-                world().emplace<TagComponent>(e, "Spawner");
-                world().emplace<TransformComponent>(e, xf);
-                SpawnerComponent spawner{};
-                if (o.hasSpawner)
-                    spawner.desc = o.spawner;
-                clampSpawnerDesc(spawner.desc);
-                world().emplace<SpawnerComponent>(e, spawner);
-                if (boot.spawnerMarker)
-                {
-                    ModelComponent mc{};
-                    mc.modelAssetID = boot.spawnerMarker->id;
-                    mc.castShadow   = true;
-                    setModelComponent(world(), pins(), assets(), e, mc);
-                }
-                stampProceduralId(world(), e, std::format("sandbox/level/spawner/{}", boot.spawnerStamp++), "spawner");
+                SceneObjectData placedObject = o;
+                if (zeroScale(placedObject.scale))
+                    placedObject.scale = Vector3f{ 0.8f, 0.8f, 0.8f };
+                placedObject.position.y = m_terrain.heightAtWorld(o.position.x, o.position.z) + 0.5f * std::fabs(placedObject.scale.y);
+                ContentError err;
+                const Entity e = instantiateSceneObject(sceneHost(false), placedObject, &err);
+                if (!e.valid())
+                    DE_LOG_WARN(LogCategory::AI, "SandboxApp: spawner failed ({})", err.message);
+                else
+                    stampProceduralId(world(), e, std::format("sandbox/level/spawner/{}", boot.spawnerStamp++), "spawner");
                 ++spawned;
             }
             if (spawned > 0)
@@ -1526,25 +1601,16 @@ bool SandboxApp::advanceSpawnBatch()
             while (boot.movieCursor < boot.movies.size() && spawned < kBootSpawnBatch)
             {
                 const SceneObjectData& o = boot.movies[boot.movieCursor++];
-                const bool zeroScale = o.scale.x == 0.0f && o.scale.y == 0.0f && o.scale.z == 0.0f;
-                const Vector3f scale = zeroScale ? Vector3f{ 0.8f, 0.8f, 0.8f } : o.scale;
-                TransformComponent xf{};
-                xf.rotation = o.rotation;
-                xf.scale    = scale;
-                xf.position = o.position;
-                xf.position.y = m_terrain.heightAtWorld(o.position.x, o.position.z) + 0.5f * std::fabs(scale.y);
-                const Entity e = world().createEntity();
-                world().emplace<TagComponent>(e, "Movie");
-                world().emplace<TransformComponent>(e, xf);
-                applyMovieCue(world(), e, o);
-                if (boot.movieMarker)
-                {
-                    ModelComponent mc{};
-                    mc.modelAssetID = boot.movieMarker->id;
-                    mc.castShadow   = true;
-                    setModelComponent(world(), pins(), assets(), e, mc);
-                }
-                stampProceduralId(world(), e, std::format("sandbox/level/movie/{}", boot.movieStamp++), "movie");
+                SceneObjectData placedObject = o;
+                if (zeroScale(placedObject.scale))
+                    placedObject.scale = Vector3f{ 0.8f, 0.8f, 0.8f };
+                placedObject.position.y = m_terrain.heightAtWorld(o.position.x, o.position.z) + 0.5f * std::fabs(placedObject.scale.y);
+                ContentError err;
+                const Entity e = instantiateSceneObject(sceneHost(false), placedObject, &err);
+                if (!e.valid())
+                    DE_LOG_WARN(LogCategory::Media, "SandboxApp: movie failed ({})", err.message);
+                else
+                    stampProceduralId(world(), e, std::format("sandbox/level/movie/{}", boot.movieStamp++), "movie");
                 ++spawned;
             }
             if (spawned > 0)

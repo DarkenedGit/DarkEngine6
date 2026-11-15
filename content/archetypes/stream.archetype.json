@@ -2,6 +2,6 @@
   "id": "core:stream",
   "version": 1,
   "editor": { "label": "Stream", "category": "Environment", "icon": "water", "modes": ["3d"] },
-  "components": { "Stream": {} },
-  "behaviors": []
+  "components": { "Stream": { "width": 3.5, "flowSpeed": 1.6 } },
+  "behaviors": [ { "name": "stream.ribbon" } ]
 }

@@ -35,7 +35,7 @@ namespace
     {
         int n = 0;
         for (const SceneObjectData& o : out.objects)
-            n += (o.type == SceneObjectType::Cube && o.block && o.pickup.empty() && o.scale.y >= 0.3f) ? 1 : 0;
+            n += (o.archetype == "core:cube" && o.block && o.pickup.empty() && o.scale.y >= 0.3f) ? 1 : 0;
         return n;
     }
 } // namespace
@@ -54,7 +54,7 @@ TEST(Building, ExpandsLayoutPropsPickupsAndGuards)
     int guards = 0, pickups = 0;
     for (const SceneObjectData& o : out.objects)
     {
-        if (o.type == SceneObjectType::Hunter)
+        if (o.archetype == "core:hunter")
         {
             ++guards;
             EXPECT_EQ(o.squad, "building:hut");
@@ -142,7 +142,7 @@ TEST(Building, ShippedLabGuardsCanWalkIntoEveryRoom)
     std::vector<Math::AABox3f> cubes;
     for (const SceneObjectData& o : out.objects)
     {
-        if (o.type == SceneObjectType::Cube && o.block && o.pickup.empty() && o.scale.y >= 0.3f)
+        if (o.archetype == "core:cube" && o.block && o.pickup.empty() && o.scale.y >= 0.3f)
             cubes.push_back(Math::AABox3f::FromCenterExtents(o.position, o.scale * 0.5f));
     }
     Terrain::HeightMap hm;
@@ -185,7 +185,7 @@ TEST(Building, ShippedWarehouseGuardsReachEveryArea)
     std::vector<Math::AABox3f> cubes;
     for (const SceneObjectData& o : out.objects)
     {
-        if (o.type == SceneObjectType::Cube && o.block && o.pickup.empty() && o.scale.y >= 0.3f)
+        if (o.archetype == "core:cube" && o.block && o.pickup.empty() && o.scale.y >= 0.3f)
             cubes.push_back(Math::AABox3f::FromCenterExtents(o.position, o.scale * 0.5f));
     }
     Terrain::HeightMap hm;

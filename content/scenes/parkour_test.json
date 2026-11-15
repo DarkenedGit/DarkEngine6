@@ -113,14 +113,6 @@
         0.2199999988079071,
         1.0
       ],
-      "light": {
-        "enabled": true,
-        "inner": 12.0,
-        "intensity": 1.0,
-        "outer": 25.0,
-        "range": 8.0,
-        "sourceRadius": 0.05000000074505806
-      },
       "position": [
         -4.0,
         6.0,
@@ -137,7 +129,17 @@
         1.0,
         1.0
       ],
-      "type": "ambient_light"
+      "archetype": "core:ambient_light",
+      "overrides": {
+        "AmbientLight": {
+          "enabled": true,
+          "inner": 12.0,
+          "intensity": 1.0,
+          "outer": 25.0,
+          "range": 8.0,
+          "sourceRadius": 0.05000000074505806
+        }
+      }
     },
     {
       "color": [
@@ -146,14 +148,6 @@
         0.3437933623790741,
         1.0
       ],
-      "light": {
-        "enabled": true,
-        "inner": 12.0,
-        "intensity": 3.252000093460083,
-        "outer": 25.0,
-        "range": 8.0,
-        "sourceRadius": 0.05000000074505806
-      },
       "position": [
         4.0,
         8.0,
@@ -170,10 +164,20 @@
         1.0,
         1.0
       ],
-      "type": "directional_light"
+      "archetype": "core:directional_light",
+      "overrides": {
+        "DirectionalLight": {
+          "enabled": true,
+          "inner": 12.0,
+          "intensity": 3.252000093460083,
+          "outer": 25.0,
+          "range": 8.0,
+          "sourceRadius": 0.05000000074505806
+        }
+      }
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.33,
         0.35,
@@ -198,7 +202,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.25,
         0.45,
@@ -223,7 +227,7 @@
       ]
     },
     {
-      "type": "player",
+      "archetype": "core:player",
       "color": [
         0.35,
         0.85,
@@ -248,7 +252,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.85,
         0.62,
@@ -273,7 +277,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.8,
         0.5,
@@ -298,7 +302,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.75,
         0.4,
@@ -323,7 +327,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.65,
         0.35,
@@ -348,7 +352,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.5,
         0.35,
@@ -373,7 +377,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.5,
         0.35,
@@ -398,7 +402,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.55,
         0.55,
@@ -423,7 +427,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.55,
         0.55,
@@ -448,7 +452,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.85,
         0.62,
@@ -473,7 +477,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.8,
         0.5,
@@ -498,7 +502,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.75,
         0.4,
@@ -523,7 +527,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.65,
         0.35,
@@ -548,7 +552,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.7,
         0.7,

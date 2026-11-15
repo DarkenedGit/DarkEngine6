@@ -1,8 +1,11 @@
 {
   "id": "core:sphere",
   "version": 1,
-  "editor": { "label": "Sphere", "category": "Props", "icon": "circle", "modes": ["3d"], "matchModel": "sphere" },
-  "components": { "Physics": { "file": "entities/sphere.physics.json" } },
+  "editor": { "label": "Sphere", "category": "Props", "icon": "circle", "hotkey": "2", "modes": ["3d"], "matchModel": "sphere" },
+  "components": {
+    "Mesh": { "primitive": "sphere" },
+    "Physics": { "file": "entities/sphere.physics.json" }
+  },
   "behaviors": [ { "name": "prop.solid" } ],
-  "net": { "replicate": true }
+  "net": { "replicate": true, "prefab": "sphere" }
 }

@@ -1,7 +1,18 @@
 {
   "id": "core:spot_light",
   "version": 1,
-  "editor": { "label": "Spot Light", "category": "Lights", "icon": "lightbulb", "modes": ["3d"] },
-  "components": { "LocalLight": {} },
+  "editor": { "label": "Spot Light", "category": "Lights", "icon": "lightbulb", "hotkey": "5", "modes": ["3d"] },
+  "components": {
+    "LocalLight": {
+      "kind": "spot",
+      "intensity": 2513.0,
+      "range": 16.0,
+      "inner": 12.0,
+      "outer": 25.0,
+      "sourceRadius": 0.05,
+      "enabled": true,
+      "castShadow": false
+    }
+  },
   "behaviors": [ { "name": "light.searchlight" } ]
 }

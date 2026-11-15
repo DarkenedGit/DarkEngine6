@@ -3,6 +3,7 @@
 #include "Animation/AnimGraphJson.h"
 #include "Animation/AnimationSet.h"
 #include "Assets/GltfLoader.h"
+#include "Content/ContentDb.h"
 #include "Core/ContentRoots.h"
 #include "Scene/EntityMaster.h"
 #include "Scene/SceneFile.h"
@@ -121,6 +122,8 @@ TEST(AnimatedAnimals, ViewScenePlacesEachModel)
     const auto scenePath = findContentFile("scenes/viewmodel.json");
     ASSERT_FALSE(scenePath.empty());
 
+    if (!contentHasArchetype("core:model"))
+        ASSERT_TRUE(loadContentDatabase(nullptr));
     SceneFileData scene;
     std::string   error;
     ASSERT_TRUE(loadSceneFromJson(scenePath, scene, &error)) << error;
@@ -130,7 +133,7 @@ TEST(AnimatedAnimals, ViewScenePlacesEachModel)
     std::vector<std::string> placed;
     for (const SceneObjectData& object : scene.objects)
     {
-        if (object.type != SceneObjectType::Model)
+        if (object.modelPath.empty())
             continue;
         placed.push_back(object.modelPath);
     }

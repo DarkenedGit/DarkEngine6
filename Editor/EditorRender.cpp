@@ -102,14 +102,14 @@ void EditorApp::renderScene2D(ID3D12GraphicsCommandList* cmd)
         float z = 2.0f;
         float uvx = size.x;
         float uvy = size.y;
-        if (so.type == SceneObjectType::Coin)
+        if (sceneHasComponent(so.source, "Pickup"))
         {
             tex = &m_texCoin;
             z   = 1.2f;
             uvx = 1.0f;
             uvy = 1.0f;
         }
-        else if (so.type == SceneObjectType::Spawn)
+        else if (sceneHasComponent(so.source, "Spawn"))
         {
             tex = &m_texSpawn;
             z   = 1.0f;
@@ -120,7 +120,7 @@ void EditorApp::renderScene2D(ID3D12GraphicsCommandList* cmd)
     };
 
     world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
-        if (!isScene2DType(so.type))
+        if (!editorShownInMode(so.source, "2d"))
             return;
         const auto* xf = world().get<TransformComponent>(e);
         if (xf)
@@ -149,7 +149,7 @@ void EditorApp::renderScene2D(ID3D12GraphicsCommandList* cmd)
             if (const auto* xf = world().get<TransformComponent>(m_selected))
             {
                 const GpuScope gizmos(cmd, "Gizmos", ProfileColor::Gizmos);
-                const AABox2f  box   = objectBounds2D(so->type, xf->position, xf->scale);
+                const AABox2f  box   = objectBounds2D(so->source, xf->position, xf->scale);
                 const Vector2f c = box.Center();
                 const Vector2f s = box.Size();
                 const Matrix4f world = Matrix4f::ScaleMatrixXYZ(s.x, s.y, 1.0f)

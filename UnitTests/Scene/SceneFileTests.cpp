@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include "Content/ContentDb.h"
 #include "Core/ContentRoots.h"
 #include "Core/Log.h"
 #include "Core/Paths.h"
@@ -85,85 +86,33 @@ void captureSceneLog(LogLevel, LogCategory, const char* message)
 
 } // namespace
 
+struct SceneFile : ::testing::Test
+{
+    void SetUp() override
+    {
+        if (!contentHasArchetype("core:cube"))
+            ASSERT_TRUE(loadContentDatabase(nullptr));
+    }
+};
+
 TEST(SceneTypes, Parse2DAnd3D)
 {
-    SceneObjectType t{};
-    EXPECT_TRUE(tryParseSceneObjectType("platform", t));
-    EXPECT_EQ(t, SceneObjectType::Platform);
-    EXPECT_TRUE(tryParseSceneObjectType("coin", t));
-    EXPECT_TRUE(tryParseSceneObjectType("spawn", t));
-    EXPECT_TRUE(isScene2DType(SceneObjectType::Platform));
-    EXPECT_FALSE(isScene2DType(SceneObjectType::Cube));
-    EXPECT_TRUE(isScene3DType(SceneObjectType::Sphere));
-    EXPECT_TRUE(tryParseSceneObjectType("point_light", t));
-    EXPECT_EQ(t, SceneObjectType::PointLight);
-    EXPECT_TRUE(tryParseSceneObjectType("spot_light", t));
-    EXPECT_EQ(t, SceneObjectType::SpotLight);
-    EXPECT_TRUE(tryParseSceneObjectType("ambient_light", t));
-    EXPECT_EQ(t, SceneObjectType::AmbientLight);
-    EXPECT_TRUE(tryParseSceneObjectType("directional_light", t));
-    EXPECT_EQ(t, SceneObjectType::DirectionalLight);
-    EXPECT_TRUE(isScene3DType(SceneObjectType::PointLight));
-    EXPECT_TRUE(isScene3DType(SceneObjectType::SpotLight));
-    EXPECT_TRUE(isScene3DType(SceneObjectType::AmbientLight));
-    EXPECT_TRUE(isScene3DType(SceneObjectType::DirectionalLight));
-    EXPECT_TRUE(isGlobalLightType(SceneObjectType::AmbientLight));
-    EXPECT_TRUE(isGlobalLightType(SceneObjectType::DirectionalLight));
-    EXPECT_FALSE(isGlobalLightType(SceneObjectType::PointLight));
-    EXPECT_STREQ(toString(SceneObjectType::PointLight), "point_light");
-    EXPECT_STREQ(toString(SceneObjectType::SpotLight), "spot_light");
-    EXPECT_STREQ(toString(SceneObjectType::AmbientLight), "ambient_light");
-    EXPECT_STREQ(toString(SceneObjectType::DirectionalLight), "directional_light");
-    EXPECT_TRUE(tryParseSceneObjectType("player", t));
-    EXPECT_EQ(t, SceneObjectType::Player);
-    EXPECT_TRUE(tryParseSceneObjectType("hunter", t));
-    EXPECT_EQ(t, SceneObjectType::Hunter);
-    EXPECT_TRUE(tryParseSceneObjectType("enemy", t));
-    EXPECT_EQ(t, SceneObjectType::Hunter);
-    EXPECT_TRUE(tryParseSceneObjectType("wolf", t));
-    EXPECT_EQ(t, SceneObjectType::Wolf);
-    EXPECT_TRUE(isScene3DType(SceneObjectType::Player));
-    EXPECT_TRUE(isScene3DType(SceneObjectType::Hunter));
-    EXPECT_TRUE(isScene3DType(SceneObjectType::Wolf));
-    EXPECT_TRUE(isPawnType(SceneObjectType::Player));
-    EXPECT_TRUE(isPawnType(SceneObjectType::Hunter));
-    EXPECT_TRUE(isPawnType(SceneObjectType::Wolf));
-    EXPECT_FALSE(isPawnType(SceneObjectType::Cube));
-    EXPECT_STREQ(toString(SceneObjectType::Player), "player");
-    EXPECT_STREQ(toString(SceneObjectType::Hunter), "hunter");
-    EXPECT_STREQ(toString(SceneObjectType::Wolf), "wolf");
-    EXPECT_TRUE(tryParseSceneObjectType("model", t));
-    EXPECT_EQ(t, SceneObjectType::Model);
-    EXPECT_TRUE(tryParseSceneObjectType("gltf", t));
-    EXPECT_EQ(t, SceneObjectType::Model);
-    EXPECT_TRUE(isScene3DType(SceneObjectType::Model));
-    EXPECT_FALSE(isPawnType(SceneObjectType::Model));
-    EXPECT_TRUE(usesModelBounds(SceneObjectType::Model));
-    EXPECT_TRUE(usesModelBounds(SceneObjectType::Wolf));
-    EXPECT_STREQ(toString(SceneObjectType::Model), "model");
-    EXPECT_TRUE(tryParseSceneObjectType("water", t));
-    EXPECT_EQ(t, SceneObjectType::Water);
-    EXPECT_TRUE(isScene3DType(SceneObjectType::Water));
-    EXPECT_FALSE(isScene2DType(SceneObjectType::Water));
-    EXPECT_STREQ(toString(SceneObjectType::Water), "water");
-    EXPECT_TRUE(tryParseSceneObjectType("stream", t));
-    EXPECT_EQ(t, SceneObjectType::Stream);
-    EXPECT_TRUE(isScene3DType(SceneObjectType::Stream));
-    EXPECT_STREQ(toString(SceneObjectType::Stream), "stream");
-    EXPECT_TRUE(tryParseSceneObjectType("cloud_volume", t));
-    EXPECT_EQ(t, SceneObjectType::CloudVolume);
-    EXPECT_TRUE(tryParseSceneObjectType("cloud", t));
-    EXPECT_TRUE(isScene3DType(SceneObjectType::CloudVolume));
-    EXPECT_FALSE(isScene2DType(SceneObjectType::CloudVolume));
-    EXPECT_STREQ(toString(SceneObjectType::CloudVolume), "cloud_volume");
-    EXPECT_TRUE(tryParseSceneObjectType("spawner", t));
-    EXPECT_EQ(t, SceneObjectType::Spawner);
-    EXPECT_TRUE(isScene3DType(SceneObjectType::Spawner));
-    EXPECT_FALSE(isScene2DType(SceneObjectType::Spawner));
-    EXPECT_FALSE(isPawnType(SceneObjectType::Spawner));
-    EXPECT_STREQ(toString(SceneObjectType::Spawner), "spawner");
-    EXPECT_TRUE(tryParseSceneObjectType("spawn", t));
-    EXPECT_EQ(t, SceneObjectType::Spawn);
+    if (!contentHasArchetype("core:cube"))
+        ASSERT_TRUE(loadContentDatabase(nullptr));
+    EXPECT_NE(findArchetype("core:cube"), nullptr);
+    EXPECT_NE(findArchetype("enemy"), nullptr);
+    EXPECT_EQ(findArchetype("enemy")->name, "core:hunter");
+    EXPECT_EQ(findArchetype("gltf")->name, "core:model");
+    EXPECT_EQ(findArchetype("sun")->name, "core:directional_light");
+    EXPECT_EQ(findArchetype("player_spawn")->name, "core:spawn");
+    const Archetype* platform = findArchetype("core:platform");
+    ASSERT_NE(platform, nullptr);
+    EXPECT_EQ(platform->editor.modes.size(), 1u);
+    EXPECT_EQ(platform->editor.modes[0], "2d");
+    const Archetype* cube = findArchetype("core:cube");
+    ASSERT_NE(cube, nullptr);
+    EXPECT_TRUE(archetypeVisibleInMode(*cube, "3d"));
+    EXPECT_FALSE(archetypeVisibleInMode(*platform, "3d"));
 
     SceneMode mode{};
     EXPECT_TRUE(tryParseSceneMode("2d", mode));
@@ -172,7 +121,7 @@ TEST(SceneTypes, Parse2DAnd3D)
     EXPECT_EQ(mode, SceneMode::Scene3D);
 }
 
-TEST(SceneFile, RoundTrip2D)
+TEST_F(SceneFile, RoundTrip2D)
 {
     SceneFileData in{};
     in.version  = 1;
@@ -182,7 +131,7 @@ TEST(SceneFile, RoundTrip2D)
     in.worldMax = Vector2f(40.0f, 12.0f);
 
     SceneObjectData plat{};
-    plat.type     = SceneObjectType::Platform;
+    plat.archetype     = "core:platform";
     plat.position = Vector3f(10.0f, 1.0f, 0.0f);
     plat.scale    = Vector3f(8.0f, 2.0f, 1.0f);
     plat.color[0] = 0.5f;
@@ -192,7 +141,7 @@ TEST(SceneFile, RoundTrip2D)
     in.objects.push_back(plat);
 
     SceneObjectData coin{};
-    coin.type     = SceneObjectType::Coin;
+    coin.archetype     = "core:coin";
     coin.position = Vector3f(4.0f, 3.0f, 0.0f);
     coin.scale    = Vector3f(0.5f, 0.5f, 1.0f);
     in.objects.push_back(coin);
@@ -207,22 +156,22 @@ TEST(SceneFile, RoundTrip2D)
     EXPECT_EQ(out.name, "ut_level2d");
     EXPECT_NEAR(out.worldMax.x, 40.0f, 1.0e-4f);
     ASSERT_EQ(out.objects.size(), 2u);
-    EXPECT_EQ(out.objects[0].type, SceneObjectType::Platform);
+    EXPECT_EQ(out.objects[0].archetype, "core:platform");
     EXPECT_NEAR(out.objects[0].position.x, 10.0f, 1.0e-4f);
     EXPECT_NEAR(out.objects[0].scale.x, 8.0f, 1.0e-4f);
-    EXPECT_EQ(out.objects[1].type, SceneObjectType::Coin);
+    EXPECT_EQ(out.objects[1].archetype, "core:coin");
 
     std::error_code ec;
     std::filesystem::remove(path, ec);
 }
 
-TEST(SceneFile, MissingModeDefaultsTo3D)
+TEST_F(SceneFile, MissingModeDefaultsTo3D)
 {
     const auto path = tempScenePath("darkengine6_scene3d_legacy_ut.json");
     {
         std::ofstream out(path, std::ios::binary | std::ios::trunc);
         ASSERT_TRUE(static_cast<bool>(out));
-        out << R"({"version":1,"name":"legacy","objects":[{"type":"cube","position":[1,2,3]}]})";
+        out << R"({"version":1,"name":"legacy","objects":[{"archetype":"core:cube","position":[1,2,3]}]})";
     }
 
     SceneFileData data{};
@@ -230,21 +179,21 @@ TEST(SceneFile, MissingModeDefaultsTo3D)
     ASSERT_TRUE(loadSceneFromJson(path, data, &err)) << err;
     EXPECT_EQ(data.mode, SceneMode::Scene3D);
     ASSERT_EQ(data.objects.size(), 1u);
-    EXPECT_EQ(data.objects[0].type, SceneObjectType::Cube);
+    EXPECT_EQ(data.objects[0].archetype, "core:cube");
     EXPECT_NEAR(data.objects[0].position.y, 2.0f, 1.0e-4f);
 
     std::error_code ec;
     std::filesystem::remove(path, ec);
 }
 
-TEST(SceneFile, DefaultScenePathUsesScenesFolder)
+TEST_F(SceneFile, DefaultScenePathUsesScenesFolder)
 {
     const auto p = defaultScenePath("level2d.json");
     EXPECT_EQ(p.filename(), "level2d.json");
     EXPECT_EQ(p.parent_path().filename(), "scenes");
 }
 
-TEST(SceneFile, DefaultScenePathAvoidsExeContentCopy)
+TEST_F(SceneFile, DefaultScenePathAvoidsExeContentCopy)
 {
     namespace fs = std::filesystem;
     const fs::path authoring = authoringContentRoot();
@@ -289,7 +238,7 @@ TEST(SceneFile, DefaultScenePathAvoidsExeContentCopy)
     EXPECT_EQ(weaklyCanonical(scene).parent_path().parent_path(), weaklyCanonical(authoring));
 }
 
-TEST(SceneFile, V1RoundTripStillLoads)
+TEST_F(SceneFile, V1RoundTripStillLoads)
 {
     SceneFileData in{};
     in.version = 1;
@@ -297,7 +246,7 @@ TEST(SceneFile, V1RoundTripStillLoads)
     in.mode    = SceneMode::Scene3D;
 
     SceneObjectData cube{};
-    cube.type     = SceneObjectType::Cube;
+    cube.archetype     = "core:cube";
     cube.position = Vector3f(1.0f, 2.0f, 3.0f);
     cube.color[0] = 0.2f;
     cube.color[1] = 0.3f;
@@ -313,7 +262,7 @@ TEST(SceneFile, V1RoundTripStillLoads)
     ASSERT_TRUE(loadSceneFromJson(path, out, &err)) << err;
     EXPECT_EQ(out.version, 1);
     ASSERT_EQ(out.objects.size(), 1u);
-    EXPECT_EQ(out.objects[0].type, SceneObjectType::Cube);
+    EXPECT_EQ(out.objects[0].archetype, "core:cube");
     EXPECT_FALSE(out.objects[0].hasLight);
     EXPECT_NEAR(out.objects[0].emissive, 0.0f, 1.0e-5f);
     EXPECT_NEAR(out.objects[0].position.z, 3.0f, 1.0e-4f);
@@ -322,7 +271,7 @@ TEST(SceneFile, V1RoundTripStillLoads)
     std::filesystem::remove(path, ec);
 }
 
-TEST(SceneFile, V2LocalLightRoundTrip)
+TEST_F(SceneFile, V2LocalLightRoundTrip)
 {
     SceneFileData in{};
     in.version = 2;
@@ -330,7 +279,9 @@ TEST(SceneFile, V2LocalLightRoundTrip)
     in.mode    = SceneMode::Scene3D;
 
     SceneObjectData point{};
-    point.type              = SceneObjectType::PointLight;
+    point.archetype              = "core:point_light";
+    point.lightKind = "point";
+    point.hasLight = true;
     point.position          = Vector3f(4.0f, 1.5f, -2.0f);
     point.color[0]          = 1.0f;
     point.color[1]          = 0.92f;
@@ -346,7 +297,9 @@ TEST(SceneFile, V2LocalLightRoundTrip)
     in.objects.push_back(point);
 
     SceneObjectData spot{};
-    spot.type              = SceneObjectType::SpotLight;
+    spot.archetype              = "core:spot_light";
+    spot.lightKind = "spot";
+    spot.hasLight = true;
     spot.position          = Vector3f(0.0f, 2.0f, 1.0f);
     spot.rotation          = Quaternion(0.70710678f, 0.0f, 0.70710678f, 0.0f);
     spot.color[0]          = 0.8f;
@@ -363,7 +316,7 @@ TEST(SceneFile, V2LocalLightRoundTrip)
     in.objects.push_back(spot);
 
     SceneObjectData glow{};
-    glow.type     = SceneObjectType::Sphere;
+    glow.archetype     = "core:sphere";
     glow.position = Vector3f(1.0f, 0.5f, 0.0f);
     glow.emissive = 1.0f;
     in.objects.push_back(glow);
@@ -378,7 +331,7 @@ TEST(SceneFile, V2LocalLightRoundTrip)
     EXPECT_EQ(out.version, 2);
     ASSERT_EQ(out.objects.size(), 3u);
 
-    EXPECT_EQ(out.objects[0].type, SceneObjectType::PointLight);
+    EXPECT_EQ(out.objects[0].archetype, "core:point_light");
     EXPECT_TRUE(out.objects[0].hasLight);
     EXPECT_NEAR(out.objects[0].position.y, 1.5f, 1.0e-4f);
     EXPECT_NEAR(out.objects[0].lightIntensity, 600.0f, 1.0e-4f);
@@ -390,7 +343,7 @@ TEST(SceneFile, V2LocalLightRoundTrip)
     EXPECT_NEAR(out.objects[0].color[1], 0.92f, 1.0e-4f);
     EXPECT_EQ(out.objects[0].emissiveMeshIndex, 2);
 
-    EXPECT_EQ(out.objects[1].type, SceneObjectType::SpotLight);
+    EXPECT_EQ(out.objects[1].archetype, "core:spot_light");
     EXPECT_TRUE(out.objects[1].hasLight);
     EXPECT_NEAR(out.objects[1].lightIntensity, 800.0f, 1.0e-4f);
     EXPECT_NEAR(out.objects[1].lightRange, 16.0f, 1.0e-4f);
@@ -400,7 +353,7 @@ TEST(SceneFile, V2LocalLightRoundTrip)
     EXPECT_FALSE(out.objects[1].lightEnabled);
     EXPECT_NEAR(out.objects[1].rotation.y, 0.70710678f, 1.0e-4f);
 
-    EXPECT_EQ(out.objects[2].type, SceneObjectType::Sphere);
+    EXPECT_EQ(out.objects[2].archetype, "core:sphere");
     EXPECT_NEAR(out.objects[2].emissive, 1.0f, 1.0e-4f);
     EXPECT_FALSE(out.objects[2].hasLight);
     EXPECT_EQ(out.objects[2].emissiveMeshIndex, -1);
@@ -409,7 +362,7 @@ TEST(SceneFile, V2LocalLightRoundTrip)
     std::filesystem::remove(path, ec);
 }
 
-TEST(SceneFile, V1FileStillLoadsAndSkipsUnknownKeepsKnownLights)
+TEST_F(SceneFile, V1FileStillLoadsAndSkipsUnknownKeepsKnownLights)
 {
     const auto path = tempScenePath("darkengine6_scene_v1_mixed_ut.json");
     {
@@ -419,9 +372,9 @@ TEST(SceneFile, V1FileStillLoadsAndSkipsUnknownKeepsKnownLights)
   "version": 1,
   "name": "legacy_mix",
   "objects": [
-    {"type": "cube", "position": [1, 2, 3]},
-    {"type": "not_a_real_type", "position": [0, 0, 0]},
-    {"type": "point_light", "position": [4, 1.5, -2], "color": [1, 0.92, 0.75, 1]}
+    {"archetype": "core:cube", "position": [1, 2, 3]},
+    {"archetype": "not_a_real_type", "position": [0, 0, 0]},
+    {"archetype": "core:point_light", "position": [4, 1.5, -2], "color": [1, 0.92, 0.75, 1]}
   ]
 })";
     }
@@ -431,11 +384,11 @@ TEST(SceneFile, V1FileStillLoadsAndSkipsUnknownKeepsKnownLights)
     ASSERT_TRUE(loadSceneFromJson(path, data, &err)) << err;
     EXPECT_EQ(data.version, 1);
     ASSERT_EQ(data.objects.size(), 3u);
-    EXPECT_EQ(data.objects[0].type, SceneObjectType::Cube);
+    EXPECT_EQ(data.objects[0].archetype, "core:cube");
     EXPECT_TRUE(data.objects[1].placeholder);
     EXPECT_EQ(data.objects[1].archetype, "core:not_a_real_type");
     EXPECT_NE(data.objects[1].rawJson.find("not_a_real_type"), std::string::npos);
-    EXPECT_EQ(data.objects[2].type, SceneObjectType::PointLight);
+    EXPECT_EQ(data.objects[2].archetype, "core:point_light");
     EXPECT_TRUE(data.objects[2].hasLight);
     EXPECT_NEAR(data.objects[2].lightIntensity, 1885.0f, 1.0e-4f);
     EXPECT_NEAR(data.objects[2].position.x, 4.0f, 1.0e-4f);
@@ -446,13 +399,13 @@ TEST(SceneFile, V1FileStillLoadsAndSkipsUnknownKeepsKnownLights)
     ASSERT_EQ(again.objects.size(), 3u);
     EXPECT_TRUE(again.objects[1].placeholder);
     EXPECT_NE(again.objects[1].rawJson.find("not_a_real_type"), std::string::npos);
-    EXPECT_EQ(again.objects[2].type, SceneObjectType::PointLight);
+    EXPECT_EQ(again.objects[2].archetype, "core:point_light");
 
     std::error_code ec;
     std::filesystem::remove(path, ec);
 }
 
-TEST(SceneFile, MinimalSpotLightGetsSpotDefaults)
+TEST_F(SceneFile, MinimalSpotLightGetsSpotDefaults)
 {
     const auto path = tempScenePath("darkengine6_scene_spot_min_ut.json");
     {
@@ -462,7 +415,7 @@ TEST(SceneFile, MinimalSpotLightGetsSpotDefaults)
   "version": 2,
   "name": "spot_min",
   "objects": [
-    {"type": "spot_light", "position": [0, 2, 0], "color": [1, 0.92, 0.75, 1]}
+    {"archetype": "core:spot_light", "position": [0, 2, 0], "color": [1, 0.92, 0.75, 1]}
   ]
 })";
     }
@@ -471,7 +424,7 @@ TEST(SceneFile, MinimalSpotLightGetsSpotDefaults)
     std::string err;
     ASSERT_TRUE(loadSceneFromJson(path, data, &err)) << err;
     ASSERT_EQ(data.objects.size(), 1u);
-    EXPECT_EQ(data.objects[0].type, SceneObjectType::SpotLight);
+    EXPECT_EQ(data.objects[0].archetype, "core:spot_light");
     EXPECT_TRUE(data.objects[0].hasLight);
     EXPECT_NEAR(data.objects[0].lightIntensity, 2513.0f, 1.0e-4f);
     EXPECT_NEAR(data.objects[0].lightRange, 16.0f, 1.0e-4f);
@@ -482,7 +435,7 @@ TEST(SceneFile, MinimalSpotLightGetsSpotDefaults)
     std::filesystem::remove(path, ec);
 }
 
-TEST(SceneFile, UnauthoredGlobalLightsSplitIntensity)
+TEST_F(SceneFile, UnauthoredGlobalLightsSplitIntensity)
 {
     const auto path = tempScenePath("darkengine6_scene_global_min_ut.json");
     {
@@ -492,8 +445,8 @@ TEST(SceneFile, UnauthoredGlobalLightsSplitIntensity)
   "version": 2,
   "name": "global_min",
   "objects": [
-    {"type": "directional_light", "position": [4, 8, -4]},
-    {"type": "ambient_light", "position": [0, 0, 0]}
+    {"archetype": "core:directional_light", "position": [4, 8, -4]},
+    {"archetype": "core:ambient_light", "position": [0, 0, 0]}
   ]
 })";
     }
@@ -502,10 +455,10 @@ TEST(SceneFile, UnauthoredGlobalLightsSplitIntensity)
     std::string err;
     ASSERT_TRUE(loadSceneFromJson(path, data, &err)) << err;
     ASSERT_EQ(data.objects.size(), 2u);
-    EXPECT_EQ(data.objects[0].type, SceneObjectType::DirectionalLight);
+    EXPECT_EQ(data.objects[0].archetype, "core:directional_light");
     EXPECT_TRUE(data.objects[0].hasLight);
     EXPECT_NEAR(data.objects[0].lightIntensity, Pi, 1.0e-5f);
-    EXPECT_EQ(data.objects[1].type, SceneObjectType::AmbientLight);
+    EXPECT_EQ(data.objects[1].archetype, "core:ambient_light");
     EXPECT_TRUE(data.objects[1].hasLight);
     EXPECT_NEAR(data.objects[1].lightIntensity, 1.0f, 1.0e-5f);
 
@@ -513,7 +466,7 @@ TEST(SceneFile, UnauthoredGlobalLightsSplitIntensity)
     std::filesystem::remove(path, ec);
 }
 
-TEST(SceneFile, IblRoundTripRadians)
+TEST_F(SceneFile, IblRoundTripRadians)
 {
     SceneFileData in{};
     in.version           = 2;
@@ -544,7 +497,7 @@ TEST(SceneFile, IblRoundTripRadians)
     std::filesystem::remove(path, ec);
 }
 
-TEST(SceneFile, IblEmptyEnvironmentMeansOff)
+TEST_F(SceneFile, IblEmptyEnvironmentMeansOff)
 {
     SceneFileData in{};
     in.version     = 2;
@@ -563,7 +516,7 @@ TEST(SceneFile, IblEmptyEnvironmentMeansOff)
     std::filesystem::remove(path, ec);
 }
 
-TEST(SceneFile, IblMissingKeysDefaultPath)
+TEST_F(SceneFile, IblMissingKeysDefaultPath)
 {
     const auto path = tempScenePath("darkengine6_scene_ibl_missing_ut.json");
     {
@@ -583,7 +536,7 @@ TEST(SceneFile, IblMissingKeysDefaultPath)
     std::filesystem::remove(path, ec);
 }
 
-TEST(SceneFile, Ibl2DIgnoresKeys)
+TEST_F(SceneFile, Ibl2DIgnoresKeys)
 {
     SceneFileData in{};
     in.version           = 2;
@@ -625,7 +578,7 @@ TEST(SceneFile, Ibl2DIgnoresKeys)
     std::filesystem::remove(path, ec);
 }
 
-TEST(SceneFile, TerrainRoundTrip)
+TEST_F(SceneFile, TerrainRoundTrip)
 {
     SceneFileData in{};
     in.version           = 2;
@@ -687,7 +640,7 @@ TEST(SceneFile, TerrainRoundTrip)
     std::filesystem::remove(path, removeEc);
 }
 
-TEST(SceneFile, TerrainUnknownBindLayoutSkipped)
+TEST_F(SceneFile, TerrainUnknownBindLayoutSkipped)
 {
     const auto path = tempScenePath("darkengine6_scene_terrain_layout_ut.json");
     {
@@ -707,7 +660,7 @@ TEST(SceneFile, TerrainUnknownBindLayoutSkipped)
     std::filesystem::remove(path, removeEc);
 }
 
-TEST(SceneFile, Terrain2DIgnores)
+TEST_F(SceneFile, Terrain2DIgnores)
 {
     SceneFileData in{};
     in.version    = 2;
@@ -748,7 +701,7 @@ TEST(SceneFile, Terrain2DIgnores)
     std::filesystem::remove(path, removeEc);
 }
 
-TEST(SceneFile, PlayerAndHunterRoundTrip)
+TEST_F(SceneFile, PlayerAndHunterRoundTrip)
 {
     SceneFileData in{};
     in.version = 2;
@@ -756,7 +709,7 @@ TEST(SceneFile, PlayerAndHunterRoundTrip)
     in.mode    = SceneMode::Scene3D;
 
     SceneObjectData player{};
-    player.type     = SceneObjectType::Player;
+    player.archetype     = "core:player";
     player.position = Vector3f(2.0f, 0.5f, -4.0f);
     player.color[0] = 0.35f;
     player.color[1] = 0.85f;
@@ -765,7 +718,7 @@ TEST(SceneFile, PlayerAndHunterRoundTrip)
     in.objects.push_back(player);
 
     SceneObjectData hunter{};
-    hunter.type     = SceneObjectType::Hunter;
+    hunter.archetype     = "core:hunter";
     hunter.position = Vector3f(8.0f, 1.0f, 3.0f);
     hunter.color[0] = 0.85f;
     hunter.color[1] = 0.28f;
@@ -780,16 +733,16 @@ TEST(SceneFile, PlayerAndHunterRoundTrip)
     SceneFileData out{};
     ASSERT_TRUE(loadSceneFromJson(path, out, &err)) << err;
     ASSERT_EQ(out.objects.size(), 2u);
-    EXPECT_EQ(out.objects[0].type, SceneObjectType::Player);
+    EXPECT_EQ(out.objects[0].archetype, "core:player");
     EXPECT_NEAR(out.objects[0].position.x, 2.0f, 1.0e-4f);
-    EXPECT_EQ(out.objects[1].type, SceneObjectType::Hunter);
+    EXPECT_EQ(out.objects[1].archetype, "core:hunter");
     EXPECT_NEAR(out.objects[1].position.z, 3.0f, 1.0e-4f);
 
     std::error_code ec;
     std::filesystem::remove(path, ec);
 }
 
-TEST(SceneFile, WolfRoundTrip)
+TEST_F(SceneFile, WolfRoundTrip)
 {
     SceneFileData in{};
     in.version = 2;
@@ -797,7 +750,7 @@ TEST(SceneFile, WolfRoundTrip)
     in.mode    = SceneMode::Scene3D;
 
     SceneObjectData wolf{};
-    wolf.type     = SceneObjectType::Wolf;
+    wolf.archetype     = "core:wolf";
     wolf.position = Vector3f(-6.0f, 0.5f, 12.0f);
     wolf.color[0] = 0.52f;
     wolf.color[1] = 0.46f;
@@ -812,7 +765,7 @@ TEST(SceneFile, WolfRoundTrip)
     SceneFileData out{};
     ASSERT_TRUE(loadSceneFromJson(path, out, &err)) << err;
     ASSERT_EQ(out.objects.size(), 1u);
-    EXPECT_EQ(out.objects[0].type, SceneObjectType::Wolf);
+    EXPECT_EQ(out.objects[0].archetype, "core:wolf");
     EXPECT_NEAR(out.objects[0].position.x, -6.0f, 1.0e-4f);
     EXPECT_NEAR(out.objects[0].position.z, 12.0f, 1.0e-4f);
 
@@ -820,7 +773,7 @@ TEST(SceneFile, WolfRoundTrip)
     std::filesystem::remove(path, ec);
 }
 
-TEST(SceneFile, ModelPathRoundTrip)
+TEST_F(SceneFile, ModelPathRoundTrip)
 {
     SceneFileData in{};
     in.version = 2;
@@ -828,7 +781,7 @@ TEST(SceneFile, ModelPathRoundTrip)
     in.mode    = SceneMode::Scene3D;
 
     SceneObjectData model{};
-    model.type      = SceneObjectType::Model;
+    model.archetype      = "core:model";
     model.position  = Vector3f(4.0f, 0.5f, -2.0f);
     model.modelPath = "models/wolf.gltf";
     in.objects.push_back(model);
@@ -840,7 +793,7 @@ TEST(SceneFile, ModelPathRoundTrip)
     SceneFileData out{};
     ASSERT_TRUE(loadSceneFromJson(path, out, &err)) << err;
     ASSERT_EQ(out.objects.size(), 1u);
-    EXPECT_EQ(out.objects[0].type, SceneObjectType::Model);
+    EXPECT_EQ(out.objects[0].archetype, "core:model");
     EXPECT_EQ(out.objects[0].modelPath, "models/wolf.gltf");
     EXPECT_NEAR(out.objects[0].position.x, 4.0f, 1.0e-4f);
 
@@ -848,7 +801,7 @@ TEST(SceneFile, ModelPathRoundTrip)
     std::filesystem::remove(path, ec);
 }
 
-TEST(SceneFile, TerrainGrid_RoundTrip)
+TEST_F(SceneFile, TerrainGrid_RoundTrip)
 {
     SceneFileData in{};
     in.version    = 2;
@@ -955,7 +908,7 @@ TEST(SceneFile, TerrainGrid_RoundTrip)
     std::filesystem::remove(path8, removeEc);
 }
 
-TEST(SceneFile, TerrainFoliage_RoundTrip)
+TEST_F(SceneFile, TerrainFoliage_RoundTrip)
 {
     SceneFileData in{};
     in.version    = 2;
@@ -1148,7 +1101,7 @@ TEST(SceneFile, TerrainFoliage_RoundTrip)
     std::filesystem::remove(omitted, removeEc);
 }
 
-TEST(SceneFile, TerrainFoliage_SpeciesListRoundTrip)
+TEST_F(SceneFile, TerrainFoliage_SpeciesListRoundTrip)
 {
     const auto path = tempScenePath("darkengine6_scene_foliage_species_ut.json");
     {
@@ -1213,7 +1166,7 @@ TEST(SceneFile, TerrainFoliage_SpeciesListRoundTrip)
     std::filesystem::remove(saved, removeEc);
 }
 
-TEST(SceneFile, TerrainFoliage_LegacyTreeModelOneEntry)
+TEST_F(SceneFile, TerrainFoliage_LegacyTreeModelOneEntry)
 {
     const auto path = tempScenePath("darkengine6_scene_foliage_legacy_model_ut.json");
     {
@@ -1245,7 +1198,7 @@ TEST(SceneFile, TerrainFoliage_LegacyTreeModelOneEntry)
     std::filesystem::remove(path, removeEc);
 }
 
-TEST(SceneFile, TerrainFoliage_MissingKey_Defaults)
+TEST_F(SceneFile, TerrainFoliage_MissingKey_Defaults)
 {
     const auto path = tempScenePath("darkengine6_scene_terrain_foliage_missing_ut.json");
     {
@@ -1328,7 +1281,7 @@ TEST(SceneFile, TerrainFoliage_MissingKey_Defaults)
     std::filesystem::remove(path, removeEc);
 }
 
-TEST(SceneFile, TerrainFoliage_ClampDensities)
+TEST_F(SceneFile, TerrainFoliage_ClampDensities)
 {
     const auto path = tempScenePath("darkengine6_scene_terrain_foliage_clamp_ut.json");
     {
@@ -1456,7 +1409,7 @@ TEST(SceneFile, TerrainFoliage_ClampDensities)
     std::filesystem::remove(lowPath, removeEc);
 }
 
-TEST(SceneFile, TerrainFoliage_TrailsMissingLoadsEmpty)
+TEST_F(SceneFile, TerrainFoliage_TrailsMissingLoadsEmpty)
 {
     const auto path = tempScenePath("darkengine6_scene_terrain_trails_missing_ut.json");
     {
@@ -1491,7 +1444,7 @@ TEST(SceneFile, TerrainFoliage_TrailsMissingLoadsEmpty)
     std::filesystem::remove(path, removeEc);
 }
 
-TEST(SceneFile, TerrainFoliage_TrailsMissingAuthoredAndClamp)
+TEST_F(SceneFile, TerrainFoliage_TrailsMissingAuthoredAndClamp)
 {
     const auto path = tempScenePath("darkengine6_scene_terrain_trails_authored_ut.json");
     {
@@ -1650,7 +1603,7 @@ TEST(SceneFile, TerrainFoliage_TrailsMissingAuthoredAndClamp)
     std::filesystem::remove(saved, removeEc);
 }
 
-TEST(SceneFile, FoliageShedScale_RoundTripClampAndMissing)
+TEST_F(SceneFile, FoliageShedScale_RoundTripClampAndMissing)
 {
     SceneFileData in{};
     in.version                 = 2;
@@ -1753,7 +1706,7 @@ TEST(SceneFile, FoliageShedScale_RoundTripClampAndMissing)
     std::filesystem::remove(clampPath, removeEc);
 }
 
-TEST(SceneFile, LevelJson_MissingShedScaleDefaultsToOne)
+TEST_F(SceneFile, LevelJson_MissingShedScaleDefaultsToOne)
 {
     const auto path = defaultScenePath("level.json");
     std::error_code existsEc;
@@ -1765,7 +1718,7 @@ TEST(SceneFile, LevelJson_MissingShedScaleDefaultsToOne)
     EXPECT_NEAR(data.terrain.foliage.shedScale, 1.0f, 1.0e-5f);
 }
 
-TEST(SceneFile, TerrainGrass_RoundTrip)
+TEST_F(SceneFile, TerrainGrass_RoundTrip)
 {
     const auto missingPath = tempScenePath("darkengine6_scene_terrain_grass_missing_ut.json");
     {
@@ -2081,7 +2034,7 @@ TEST(SceneFile, TerrainGrass_RoundTrip)
     std::filesystem::remove(zeroPath, removeEc);
 }
 
-TEST(SceneFile, TerrainWind_RoundTrip)
+TEST_F(SceneFile, TerrainWind_RoundTrip)
 {
     SceneFileData scene{};
     scene.version             = 2;
@@ -2138,7 +2091,7 @@ TEST(SceneFile, TerrainWind_RoundTrip)
     std::filesystem::remove(omitPath, removeEc);
 }
 
-TEST(SceneFile, Terrain_LegacyHeightFile_StillLoads)
+TEST_F(SceneFile, Terrain_LegacyHeightFile_StillLoads)
 {
     const auto path = tempScenePath("darkengine6_scene_terrain_legacy_hf_ut.json");
     {
@@ -2176,7 +2129,7 @@ TEST(SceneFile, Terrain_LegacyHeightFile_StillLoads)
     std::filesystem::remove(path, removeEc);
 }
 
-TEST(SceneFile, TerrainGrid_TilesX9Rejected)
+TEST_F(SceneFile, TerrainGrid_TilesX9Rejected)
 {
     const auto path = tempScenePath("darkengine6_scene_terrain_grid_9_ut.json");
     {
@@ -2212,7 +2165,7 @@ TEST(SceneFile, TerrainGrid_TilesX9Rejected)
     std::filesystem::remove(path, removeEc);
 }
 
-TEST(SceneFile, AtmosphereAndTerrainSourceRoundTrip)
+TEST_F(SceneFile, AtmosphereAndTerrainSourceRoundTrip)
 {
     SceneFileData in{};
     in.version = 2;
@@ -2340,7 +2293,7 @@ TEST(SceneFile, AtmosphereAndTerrainSourceRoundTrip)
     std::filesystem::remove(omittedPath, ec);
 }
 
-TEST(SceneFile, CastShadowMissingKeyStaysFalse)
+TEST_F(SceneFile, CastShadowMissingKeyStaysFalse)
 {
     const auto path = tempScenePath("darkengine6_scene_cast_missing_ut.json");
     {
@@ -2350,7 +2303,7 @@ TEST(SceneFile, CastShadowMissingKeyStaysFalse)
   "version": 2,
   "name": "cast_missing",
   "objects": [
-    {"type": "point_light", "light": {"intensity": 4, "range": 3, "enabled": true}}
+    {"archetype": "core:point_light", "overrides": {"LocalLight": {"intensity": 4, "range": 3, "enabled": true}}}
   ]
 })";
     }
@@ -2366,14 +2319,15 @@ TEST(SceneFile, CastShadowMissingKeyStaysFalse)
     std::filesystem::remove(path, ec);
 }
 
-TEST(SceneFile, StreamRoundTrip)
+TEST_F(SceneFile, StreamRoundTrip)
 {
     SceneFileData in{};
     in.version = 3;
     in.mode = SceneMode::Scene3D;
     in.name = "streams";
     SceneObjectData stream;
-    stream.type = SceneObjectType::Stream;
+    stream.archetype = "core:stream";
+    stream.hasStream = true;
     stream.hasStream = true;
     stream.position = Vector3f(9.0f, 8.0f, 7.0f);
     stream.streamWidth = 4.0f;
@@ -2390,7 +2344,7 @@ TEST(SceneFile, StreamRoundTrip)
     SceneFileData out{};
     ASSERT_TRUE(loadSceneFromJson(path, out, &err)) << err;
     ASSERT_EQ(out.objects.size(), 1u);
-    EXPECT_EQ(out.objects[0].type, SceneObjectType::Stream);
+    EXPECT_EQ(out.objects[0].archetype, "core:stream");
     EXPECT_TRUE(out.objects[0].hasStream);
     EXPECT_NEAR(out.objects[0].streamWidth, 4.0f, 1.0e-4f);
     EXPECT_NEAR(out.objects[0].streamFlowSpeed, 2.0f, 1.0e-4f);
@@ -2417,7 +2371,7 @@ TEST(SceneFile, StreamRoundTrip)
     std::filesystem::remove(path, ec);
 }
 
-TEST(SceneFile, CastShadowTrueRoundTrip)
+TEST_F(SceneFile, CastShadowTrueRoundTrip)
 {
     SceneFileData in{};
     in.version = 2;
@@ -2425,7 +2379,9 @@ TEST(SceneFile, CastShadowTrueRoundTrip)
     in.mode    = SceneMode::Scene3D;
 
     SceneObjectData point{};
-    point.type           = SceneObjectType::PointLight;
+    point.archetype           = "core:point_light";
+    point.lightKind = "point";
+    point.hasLight = true;
     point.hasLight       = true;
     point.lightIntensity = 10.0f;
     point.lightRange     = 4.0f;
@@ -2448,7 +2404,7 @@ TEST(SceneFile, CastShadowTrueRoundTrip)
     std::filesystem::remove(path, ec);
 }
 
-TEST(SceneFile, DirectionalLightDoesNotGainCastShadow)
+TEST_F(SceneFile, DirectionalLightDoesNotGainCastShadow)
 {
     SceneFileData in{};
     in.version = 2;
@@ -2456,7 +2412,9 @@ TEST(SceneFile, DirectionalLightDoesNotGainCastShadow)
     in.mode    = SceneMode::Scene3D;
 
     SceneObjectData sun{};
-    sun.type            = SceneObjectType::DirectionalLight;
+    sun.archetype            = "core:directional_light";
+    sun.lightKind = "directional";
+    sun.hasLight = true;
     sun.hasLight        = true;
     sun.lightIntensity  = 3.0f;
     sun.lightCastShadow = true;
@@ -2474,14 +2432,14 @@ TEST(SceneFile, DirectionalLightDoesNotGainCastShadow)
     SceneFileData out{};
     ASSERT_TRUE(loadSceneFromJson(path, out, &err)) << err;
     ASSERT_EQ(out.objects.size(), 1u);
-    EXPECT_EQ(out.objects[0].type, SceneObjectType::DirectionalLight);
+    EXPECT_EQ(out.objects[0].archetype, "core:directional_light");
     EXPECT_FALSE(out.objects[0].lightCastShadow);
 
     std::error_code ec;
     std::filesystem::remove(path, ec);
 }
 
-TEST(SceneFile, CastShadowNonBoolStaysFalse)
+TEST_F(SceneFile, CastShadowNonBoolStaysFalse)
 {
     const auto path = tempScenePath("darkengine6_scene_cast_bad_ut.json");
     {
@@ -2491,8 +2449,8 @@ TEST(SceneFile, CastShadowNonBoolStaysFalse)
   "version": 2,
   "name": "cast_bad",
   "objects": [
-    {"type": "point_light", "light": {"intensity": 4, "range": 3, "enabled": true, "castShadow": 1}},
-    {"type": "spot_light", "light": {"intensity": 4, "range": 3, "enabled": true, "castShadow": "true"}}
+    {"archetype": "core:point_light", "overrides": {"LocalLight": {"intensity": 4, "range": 3, "enabled": true, "castShadow": 1}}},
+    {"archetype": "core:spot_light", "overrides": {"LocalLight": {"intensity": 4, "range": 3, "enabled": true, "castShadow": "true"}}}
   ]
 })";
     }
@@ -2508,7 +2466,7 @@ TEST(SceneFile, CastShadowNonBoolStaysFalse)
     std::filesystem::remove(path, ec);
 }
 
-TEST(SceneFile, CloudDeckRoundTrip)
+TEST_F(SceneFile, CloudDeckRoundTrip)
 {
     SceneFileData in{};
     in.version = 2;
@@ -2551,7 +2509,7 @@ TEST(SceneFile, CloudDeckRoundTrip)
     std::filesystem::remove(path, ecRemove);
 }
 
-TEST(SceneFile, CloudDeckMissingKeysUseDefaults)
+TEST_F(SceneFile, CloudDeckMissingKeysUseDefaults)
 {
     const auto path = tempScenePath("darkengine6_scene_cloud_old_ut.json");
     {
@@ -2586,7 +2544,7 @@ TEST(SceneFile, CloudDeckMissingKeysUseDefaults)
     std::filesystem::remove(path, ecRemove);
 }
 
-TEST(SceneFile, SpawnerRoundTrip)
+TEST_F(SceneFile, SpawnerRoundTrip)
 {
     SceneFileData in{};
     in.version = 3;
@@ -2594,7 +2552,8 @@ TEST(SceneFile, SpawnerRoundTrip)
     in.mode    = SceneMode::Scene3D;
 
     SceneObjectData spawner{};
-    spawner.type                 = SceneObjectType::Spawner;
+    spawner.archetype                 = "core:spawner";
+    spawner.hasSpawner = true;
     spawner.hasSpawner           = true;
     spawner.position             = Vector3f(12.0f, 0.5f, -6.0f);
     spawner.spawner.mode         = SpawnerMode::Waves;
@@ -2616,7 +2575,7 @@ TEST(SceneFile, SpawnerRoundTrip)
     SceneFileData out{};
     ASSERT_TRUE(loadSceneFromJson(path, out, &err)) << err;
     ASSERT_EQ(out.objects.size(), 1u);
-    EXPECT_EQ(out.objects[0].type, SceneObjectType::Spawner);
+    EXPECT_EQ(out.objects[0].archetype, "core:spawner");
     EXPECT_TRUE(out.objects[0].hasSpawner);
     EXPECT_EQ(out.objects[0].spawner.mode, SpawnerMode::Waves);
     EXPECT_EQ(out.objects[0].spawner.unit, SpawnerUnit::Wolf);
@@ -2635,7 +2594,7 @@ TEST(SceneFile, SpawnerRoundTrip)
     std::filesystem::remove(path, ec);
 }
 
-TEST(SceneFile, SpawnerMistypedFieldsKeepDefaults)
+TEST_F(SceneFile, SpawnerMistypedFieldsKeepDefaults)
 {
     const auto path = tempScenePath("darkengine6_scene_spawner_bad_ut.json");
     {
@@ -2645,7 +2604,7 @@ TEST(SceneFile, SpawnerMistypedFieldsKeepDefaults)
   "version": 3,
   "name": "spawner_bad",
   "objects": [
-    {"type": "spawner", "spawner": {"mode": 1, "unit": false, "gate": "nope", "count": "x", "radius": true, "enabled": "yes", "seed": -4, "maxWaves": 0}}
+    {"archetype": "core:spawner", "overrides": {"Spawner": {"mode": 1, "unit": false, "gate": "nope", "count": "x", "radius": true, "enabled": "yes", "seed": -4, "maxWaves": 0}}}
   ]
 })";
     }
@@ -2694,7 +2653,7 @@ TEST(SceneFile, SpawnerMistypedFieldsKeepDefaults)
     std::filesystem::remove(path, ec);
 }
 
-TEST(SceneFile, StealthRoundTrip)
+TEST_F(SceneFile, StealthRoundTrip)
 {
     SceneFileData in{};
     in.version = 2;
@@ -2733,7 +2692,7 @@ TEST(SceneFile, StealthRoundTrip)
     std::filesystem::remove(path, ecRemove);
 }
 
-TEST(SceneFile, StealthMissingKeyStaysOff)
+TEST_F(SceneFile, StealthMissingKeyStaysOff)
 {
     const auto path = tempScenePath("darkengine6_scene_stealth_off_ut.json");
     {
@@ -2757,7 +2716,7 @@ TEST(SceneFile, StealthMissingKeyStaysOff)
     std::filesystem::remove(path, ecRemove);
 }
 
-TEST(SceneFile, StealthBooleanAndHearOnly)
+TEST_F(SceneFile, StealthBooleanAndHearOnly)
 {
     const auto flagPath = tempScenePath("darkengine6_scene_stealth_flag_ut.json");
     {
@@ -2807,7 +2766,7 @@ TEST(SceneFile, StealthBooleanAndHearOnly)
     std::filesystem::remove(hearPath, ecRemove);
 }
 
-TEST(SceneFile, StealthSettingsRoundTrip)
+TEST_F(SceneFile, StealthSettingsRoundTrip)
 {
     const auto path = tempScenePath("darkengine6_scene_stealth_settings_ut.json");
     {
@@ -2900,7 +2859,7 @@ TEST(SceneFile, StealthSettingsRoundTrip)
     std::filesystem::remove(roundPath, ecRemove);
 }
 
-TEST(SceneFile, QuestTagsWrongTypeLogsAndKeepsDefaults)
+TEST_F(SceneFile, QuestTagsWrongTypeLogsAndKeepsDefaults)
 {
     const auto goodPath = tempScenePath("darkengine6_scene_quest_tags_ut.json");
     {
@@ -2911,7 +2870,7 @@ TEST(SceneFile, QuestTagsWrongTypeLogsAndKeepsDefaults)
   "name": "quest_tags",
   "quest": "north_lab",
   "objects": [
-    { "type": "cube", "conceal": true, "goal": true, "circuit": "power", "zone": "gate", "pickup": "rock", "pickupCount": 3, "dialogue": "dialogue/hunter_gate.dlg.json", "squad": "gate", "block": false, "patrol": [[1, 2], [3, 4]] }
+    { "archetype": "core:cube", "conceal": true, "goal": true, "circuit": "power", "zone": "gate", "pickup": "rock", "pickupCount": 3, "dialogue": "dialogue/hunter_gate.dlg.json", "squad": "gate", "block": false, "patrol": [[1, 2], [3, 4]] }
   ]
 })";
     }
@@ -2965,7 +2924,7 @@ TEST(SceneFile, QuestTagsWrongTypeLogsAndKeepsDefaults)
   "name": "quest_tags_bad",
   "quest": 12,
   "objects": [
-    { "type": "cube", "conceal": "yes", "goal": 1, "circuit": true, "zone": 4, "pickup": false, "pickupCount": "two", "dialogue": 1 }
+    { "archetype": "core:cube", "conceal": "yes", "goal": 1, "circuit": true, "zone": 4, "pickup": false, "pickupCount": "two", "dialogue": 1 }
   ]
 })";
     }
@@ -3017,31 +2976,21 @@ TEST(SceneFile, QuestTagsWrongTypeLogsAndKeepsDefaults)
     std::filesystem::remove(roundPath, ecRemove);
 }
 
-TEST(SceneFile, MovieRoundTrip)
+TEST_F(SceneFile, MovieRoundTrip)
 {
-    SceneObjectType parsed{};
-    EXPECT_TRUE(tryParseSceneObjectType("movie", parsed));
-    EXPECT_EQ(parsed, SceneObjectType::Movie);
-    EXPECT_FALSE(tryParseSceneObjectType("Movie", parsed));
-    EXPECT_STREQ(toString(SceneObjectType::Movie), "movie");
-    EXPECT_TRUE(isScene3DType(SceneObjectType::Movie));
-    EXPECT_FALSE(isScene2DType(SceneObjectType::Movie));
-    EXPECT_FALSE(isPawnType(SceneObjectType::Movie));
-    EXPECT_FALSE(usesModelBounds(SceneObjectType::Movie));
-
     SceneFileData in{};
     in.version = 3;
     in.name    = "movie_cue";
     in.mode    = SceneMode::Scene3D;
     SceneObjectData movie{};
-    movie.type        = SceneObjectType::Movie;
+    movie.archetype        = "core:movie";
     movie.movie       = "movies/intro.mp4";
     movie.movieRadius = 4.5f;
     movie.movieLoop   = true;
     movie.position    = Vector3f{ 1.0f, 2.0f, 3.0f };
     in.objects.push_back(movie);
     SceneObjectData plain{};
-    plain.type = SceneObjectType::Cube;
+    plain.archetype = "core:cube";
     in.objects.push_back(plain);
 
     const auto path = tempScenePath("darkengine6_scene_movie_round_ut.json");
@@ -3051,21 +3000,27 @@ TEST(SceneFile, MovieRoundTrip)
         std::ifstream saved(path, std::ios::binary);
         ASSERT_TRUE(static_cast<bool>(saved));
         const std::string text((std::istreambuf_iterator<char>(saved)), std::istreambuf_iterator<char>());
-        EXPECT_NE(text.find("\"movie\":"), std::string::npos);
+        EXPECT_NE(text.find("\"Movie\""), std::string::npos);
         EXPECT_NE(text.find("movies/intro.mp4"), std::string::npos);
-        EXPECT_NE(text.find("\"movieRadius\""), std::string::npos);
-        EXPECT_NE(text.find("\"movieLoop\""), std::string::npos);
-        EXPECT_EQ(text.find("\"movieRadius\"", text.find("\"type\": \"cube\"")), std::string::npos);
+        EXPECT_NE(text.find("\"path\""), std::string::npos);
+        EXPECT_NE(text.find("\"radius\""), std::string::npos);
+        EXPECT_NE(text.find("\"loop\""), std::string::npos);
+        EXPECT_EQ(text.find("\"movie\":"), std::string::npos);
+        EXPECT_EQ(text.find("\"movieRadius\""), std::string::npos);
+        EXPECT_EQ(text.find("\"movieLoop\""), std::string::npos);
+        const auto cubeAt = text.find("\"archetype\": \"core:cube\"");
+        ASSERT_NE(cubeAt, std::string::npos);
+        EXPECT_EQ(text.find("\"Movie\"", cubeAt), std::string::npos);
     }
 
     SceneFileData out{};
     ASSERT_TRUE(loadSceneFromJson(path, out, &err)) << err;
     ASSERT_EQ(out.objects.size(), 2u);
-    EXPECT_EQ(out.objects[0].type, SceneObjectType::Movie);
+    EXPECT_EQ(out.objects[0].archetype, "core:movie");
     EXPECT_EQ(out.objects[0].movie, "movies/intro.mp4");
     EXPECT_NEAR(out.objects[0].movieRadius, 4.5f, 1.0e-4f);
     EXPECT_TRUE(out.objects[0].movieLoop);
-    EXPECT_EQ(out.objects[1].type, SceneObjectType::Cube);
+    EXPECT_EQ(out.objects[1].archetype, "core:cube");
     EXPECT_TRUE(out.objects[1].movie.empty());
     EXPECT_NEAR(out.objects[1].movieRadius, 2.0f, 1.0e-5f);
     EXPECT_FALSE(out.objects[1].movieLoop);
@@ -3075,7 +3030,7 @@ TEST(SceneFile, MovieRoundTrip)
     defaults.name    = "movie_defaults";
     defaults.mode    = SceneMode::Scene3D;
     SceneObjectData untouched{};
-    untouched.type = SceneObjectType::Movie;
+    untouched.archetype = "core:movie";
     defaults.objects.push_back(untouched);
     const auto defaultPath = tempScenePath("darkengine6_scene_movie_defaults_ut.json");
     ASSERT_TRUE(saveSceneToJson(defaultPath, defaults, &err)) << err;
@@ -3083,6 +3038,7 @@ TEST(SceneFile, MovieRoundTrip)
         std::ifstream saved(defaultPath, std::ios::binary);
         ASSERT_TRUE(static_cast<bool>(saved));
         const std::string text((std::istreambuf_iterator<char>(saved)), std::istreambuf_iterator<char>());
+        EXPECT_EQ(text.find("\"Movie\""), std::string::npos);
         EXPECT_EQ(text.find("\"movie\":"), std::string::npos);
         EXPECT_EQ(text.find("\"movieRadius\""), std::string::npos);
         EXPECT_EQ(text.find("\"movieLoop\""), std::string::npos);
@@ -3090,7 +3046,7 @@ TEST(SceneFile, MovieRoundTrip)
     SceneFileData loadedDefaults{};
     ASSERT_TRUE(loadSceneFromJson(defaultPath, loadedDefaults, &err)) << err;
     ASSERT_EQ(loadedDefaults.objects.size(), 1u);
-    EXPECT_EQ(loadedDefaults.objects[0].type, SceneObjectType::Movie);
+    EXPECT_EQ(loadedDefaults.objects[0].archetype, "core:movie");
     EXPECT_TRUE(loadedDefaults.objects[0].movie.empty());
     EXPECT_NEAR(loadedDefaults.objects[0].movieRadius, 2.0f, 1.0e-5f);
     EXPECT_FALSE(loadedDefaults.objects[0].movieLoop);
@@ -3103,8 +3059,8 @@ TEST(SceneFile, MovieRoundTrip)
   "version": 2,
   "name": "movie_raw",
   "objects": [
-    { "type": "movie" },
-    { "type": "movie", "movie": "movies/a.mp4", "movieRadius": -3.5, "movieLoop": true }
+    { "archetype": "core:movie" },
+    { "archetype": "core:movie", "overrides": { "Movie": { "path": "movies/a.mp4", "radius": -3.5, "loop": true } } }
   ]
 })";
     }
@@ -3122,4 +3078,269 @@ TEST(SceneFile, MovieRoundTrip)
     std::filesystem::remove(path, ecRemove);
     std::filesystem::remove(defaultPath, ecRemove);
     std::filesystem::remove(rawPath, ecRemove);
+}
+
+TEST_F(SceneFile, ComponentOverridesRoundTrip)
+{
+    SceneFileData in{};
+    in.version = 3;
+    in.name    = "ut_overrides";
+    in.mode    = SceneMode::Scene3D;
+
+    SceneObjectData point{};
+    point.archetype           = "core:point_light";
+    point.lightKind = "point";
+    point.hasLight = true;
+    point.hasLight       = true;
+    point.lightIntensity = 600.0f;
+    point.lightRange     = 8.0f;
+    point.lightEnabled   = true;
+    point.circuit        = "gate";
+    in.objects.push_back(point);
+
+    SceneObjectData cloud{};
+    cloud.archetype         = "core:cloud_volume";
+    cloud.hasCloud = true;
+    cloud.hasCloud     = true;
+    cloud.cloudShape   = 0;
+    cloud.cloudDensity = 2.0f;
+    in.objects.push_back(cloud);
+
+    SceneObjectData stream{};
+    stream.archetype            = "core:stream";
+    stream.hasStream = true;
+    stream.hasStream       = true;
+    stream.position        = Vector3f(9.0f, 8.0f, 7.0f);
+    stream.streamWidth     = 4.0f;
+    stream.streamFlowSpeed = 2.0f;
+    stream.streamPoints.push_back(Vector2f(1.0f, 2.0f));
+    stream.streamPoints.push_back(Vector2f(3.0f, 4.0f));
+    in.objects.push_back(stream);
+
+    SceneObjectData spawner{};
+    spawner.archetype          = "core:spawner";
+    spawner.hasSpawner = true;
+    spawner.hasSpawner    = true;
+    spawner.spawner.mode  = SpawnerMode::Waves;
+    spawner.spawner.unit  = SpawnerUnit::Wolf;
+    spawner.spawner.count = 4;
+    spawner.spawner.seed  = 99;
+    in.objects.push_back(spawner);
+
+    SceneObjectData model{};
+    model.archetype      = "core:model";
+    model.modelPath = "models/wolf.gltf";
+    in.objects.push_back(model);
+
+    SceneObjectData glow{};
+    glow.archetype     = "core:sphere";
+    glow.emissive = 1.0f;
+    in.objects.push_back(glow);
+
+    const auto path = tempScenePath("darkengine6_scene_overrides_ut.json");
+    std::string err;
+    ASSERT_TRUE(saveSceneToJson(path, in, &err)) << err;
+    {
+        std::ifstream saved(path, std::ios::binary);
+        ASSERT_TRUE(static_cast<bool>(saved));
+        const std::string text((std::istreambuf_iterator<char>(saved)), std::istreambuf_iterator<char>());
+        EXPECT_NE(text.find("\"LocalLight\""), std::string::npos);
+        EXPECT_NE(text.find("\"CloudVolume\""), std::string::npos);
+        EXPECT_NE(text.find("\"Stream\""), std::string::npos);
+        EXPECT_NE(text.find("\"Spawner\""), std::string::npos);
+        EXPECT_NE(text.find("\"Model\""), std::string::npos);
+        EXPECT_NE(text.find("\"Mesh\""), std::string::npos);
+        EXPECT_NE(text.find("models/wolf.gltf"), std::string::npos);
+        EXPECT_EQ(text.find("\"light\":"), std::string::npos);
+        EXPECT_EQ(text.find("\"particle\":"), std::string::npos);
+        EXPECT_EQ(text.find("\"cloud\":"), std::string::npos);
+        EXPECT_EQ(text.find("\"stream\":"), std::string::npos);
+        EXPECT_EQ(text.find("\"spawner\":"), std::string::npos);
+        EXPECT_EQ(text.find("\"model\":"), std::string::npos);
+        const auto meshAt = text.find("\"Mesh\"");
+        ASSERT_NE(meshAt, std::string::npos);
+        EXPECT_EQ(text.find("\"emissive\":"), text.find("\"emissive\":", meshAt));
+        EXPECT_NE(text.find("\"circuit\""), std::string::npos);
+    }
+
+    SceneFileData out{};
+    ASSERT_TRUE(loadSceneFromJson(path, out, &err)) << err;
+    ASSERT_EQ(out.objects.size(), 6u);
+    EXPECT_EQ(out.version, 3);
+    EXPECT_NEAR(out.objects[0].lightIntensity, 600.0f, 1.0e-4f);
+    EXPECT_NEAR(out.objects[0].lightRange, 8.0f, 1.0e-4f);
+    EXPECT_TRUE(out.objects[0].hasLight);
+    EXPECT_EQ(out.objects[0].circuit, "gate");
+    EXPECT_TRUE(out.objects[1].hasCloud);
+    EXPECT_EQ(out.objects[1].cloudShape, 0);
+    EXPECT_NEAR(out.objects[1].cloudDensity, 2.0f, 1.0e-4f);
+    EXPECT_TRUE(out.objects[2].hasStream);
+    EXPECT_NEAR(out.objects[2].streamWidth, 4.0f, 1.0e-4f);
+    EXPECT_NEAR(out.objects[2].position.x, 1.0f, 1.0e-4f);
+    EXPECT_NEAR(out.objects[2].position.y, 8.0f, 1.0e-4f);
+    EXPECT_NEAR(out.objects[2].position.z, 2.0f, 1.0e-4f);
+    EXPECT_EQ(out.objects[3].spawner.unit, SpawnerUnit::Wolf);
+    EXPECT_EQ(out.objects[3].spawner.mode, SpawnerMode::Waves);
+    EXPECT_EQ(out.objects[3].spawner.count, 4);
+    EXPECT_EQ(out.objects[3].spawner.seed, 99u);
+    EXPECT_EQ(out.objects[4].modelPath, "models/wolf.gltf");
+    EXPECT_NEAR(out.objects[5].emissive, 1.0f, 1.0e-4f);
+    EXPECT_TRUE(out.objects[0].overridesJson.empty());
+
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+}
+
+TEST_F(SceneFile, OldPayloadKeysAreIgnored)
+{
+    const auto path = tempScenePath("darkengine6_scene_legacy_payload_ut.json");
+    {
+        std::ofstream out(path, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(static_cast<bool>(out));
+        out << R"({
+  "version": 2,
+  "name": "legacy_payload",
+  "objects": [
+    {"archetype": "core:point_light", "light": {"intensity": 4, "range": 3, "enabled": true}},
+    {"archetype": "core:model", "model": "models/wolf.gltf"},
+    {"archetype": "core:stream", "position": [9, 8, 7], "stream": {"width": 4, "flowSpeed": 2, "points": [[1, 2], [3, 4]]}},
+    {"archetype": "core:sphere", "emissive": 1.5},
+    {"type": "cube", "position": [1, 2, 3]}
+  ]
+})";
+    }
+
+    SceneFileData data{};
+    std::string err;
+    ASSERT_TRUE(loadSceneFromJson(path, data, &err)) << err;
+    ASSERT_EQ(data.objects.size(), 4u);
+    EXPECT_EQ(data.objects[0].archetype, "core:point_light");
+    EXPECT_TRUE(data.objects[0].hasLight);
+    EXPECT_NEAR(data.objects[0].lightIntensity, 1885.0f, 1.0e-4f);
+    EXPECT_NEAR(data.objects[0].lightRange, 8.0f, 1.0e-4f);
+    EXPECT_TRUE(data.objects[1].modelPath.empty());
+    EXPECT_EQ(data.objects[2].archetype, "core:sphere");
+    EXPECT_NEAR(data.objects[2].emissive, 0.0f, 1.0e-4f);
+    EXPECT_TRUE(data.objects[3].placeholder);
+    EXPECT_TRUE(data.objects[3].archetype.empty());
+    EXPECT_NEAR(data.objects[3].position.y, 2.0f, 1.0e-4f);
+
+    ASSERT_TRUE(saveSceneToJson(path, data, &err)) << err;
+    {
+        std::ifstream saved(path, std::ios::binary);
+        ASSERT_TRUE(static_cast<bool>(saved));
+        const std::string text((std::istreambuf_iterator<char>(saved)), std::istreambuf_iterator<char>());
+        EXPECT_EQ(text.find("\"light\":"), std::string::npos);
+        EXPECT_EQ(text.find("\"model\":"), std::string::npos);
+        EXPECT_EQ(text.find("\"stream\":"), std::string::npos);
+        EXPECT_EQ(text.find("\"emissive\":"), std::string::npos);
+        EXPECT_NE(text.find("\"LocalLight\""), std::string::npos);
+        EXPECT_EQ(text.find("\"Stream\""), std::string::npos);
+        EXPECT_EQ(text.find("\"Model\""), std::string::npos);
+        EXPECT_EQ(text.find("\"Mesh\""), std::string::npos);
+    }
+    SceneFileData again{};
+    ASSERT_TRUE(loadSceneFromJson(path, again, &err)) << err;
+    ASSERT_EQ(again.objects.size(), 4u);
+    EXPECT_NEAR(again.objects[0].lightIntensity, 1885.0f, 1.0e-4f);
+    EXPECT_NEAR(again.objects[0].lightRange, 8.0f, 1.0e-4f);
+    EXPECT_TRUE(again.objects[1].modelPath.empty());
+    EXPECT_NEAR(again.objects[2].emissive, 0.0f, 1.0e-4f);
+    EXPECT_TRUE(again.objects[3].placeholder);
+    EXPECT_EQ(again.version, 2);
+
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+}
+
+TEST_F(SceneFile, OldPayloadKeysDoNotWin)
+{
+    const auto path = tempScenePath("darkengine6_scene_override_wins_ut.json");
+    {
+        std::ofstream out(path, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(static_cast<bool>(out));
+        out << R"({
+  "version": 3,
+  "name": "override_wins",
+  "objects": [
+    {
+      "archetype": "core:point_light",
+      "light": {"intensity": 4, "range": 3, "enabled": true, "castShadow": true},
+      "overrides": {
+        "LocalLight": {"kind": "point", "intensity": 12, "range": 9, "enabled": false, "castShadow": false, "useObjectColor": true}
+      }
+    },
+    {
+      "archetype": "core:spawner",
+      "spawner": {"mode": "maintain", "unit": "hunter", "count": 3, "seed": 1},
+      "overrides": {"Spawner": {"mode": "waves", "unit": "wolf", "count": 6, "seed": 99}}
+    }
+  ]
+})";
+    }
+
+    SceneFileData data{};
+    std::string err;
+    ASSERT_TRUE(loadSceneFromJson(path, data, &err)) << err;
+    ASSERT_EQ(data.objects.size(), 2u);
+    EXPECT_NEAR(data.objects[0].lightIntensity, 12.0f, 1.0e-4f);
+    EXPECT_NEAR(data.objects[0].lightRange, 9.0f, 1.0e-4f);
+    EXPECT_FALSE(data.objects[0].lightEnabled);
+    EXPECT_FALSE(data.objects[0].lightCastShadow);
+    EXPECT_EQ(data.objects[1].spawner.mode, SpawnerMode::Waves);
+    EXPECT_EQ(data.objects[1].spawner.unit, SpawnerUnit::Wolf);
+    EXPECT_EQ(data.objects[1].spawner.count, 6);
+    EXPECT_EQ(data.objects[1].spawner.seed, 99u);
+    EXPECT_TRUE(data.objects[0].overridesJson.empty());
+
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+}
+
+TEST_F(SceneFile, CustomOverrideSurvivesRoundTrip)
+{
+    SceneFileData in{};
+    in.version = 3;
+    in.name    = "ut_custom_override";
+    in.mode    = SceneMode::Scene3D;
+
+    SceneObjectData cube{};
+    cube.archetype          = "core:cube";
+    cube.overridesJson = R"({"Health":{"max":40}})";
+    in.objects.push_back(cube);
+
+    SceneObjectData point{};
+    point.archetype           = "core:point_light";
+    point.lightKind = "point";
+    point.hasLight = true;
+    point.hasLight       = true;
+    point.lightIntensity = 10.0f;
+    point.lightRange     = 4.0f;
+    point.overridesJson  = R"({"LocalLight":{"kind":"point","intensity":99,"range":4,"enabled":true,"castShadow":false},"Tag":{"name":"lamp"}})";
+    in.objects.push_back(point);
+
+    const auto path = tempScenePath("darkengine6_scene_custom_override_ut.json");
+    std::string err;
+    ASSERT_TRUE(saveSceneToJson(path, in, &err)) << err;
+
+    SceneFileData out{};
+    ASSERT_TRUE(loadSceneFromJson(path, out, &err)) << err;
+    ASSERT_EQ(out.objects.size(), 2u);
+    EXPECT_NE(out.objects[0].overridesJson.find("\"Health\""), std::string::npos);
+    EXPECT_NE(out.objects[0].overridesJson.find("40"), std::string::npos);
+    EXPECT_EQ(out.objects[0].overridesJson.find("LocalLight"), std::string::npos);
+    EXPECT_NEAR(out.objects[1].lightIntensity, 99.0f, 1.0e-4f);
+    EXPECT_NEAR(out.objects[1].lightRange, 4.0f, 1.0e-4f);
+    EXPECT_NE(out.objects[1].overridesJson.find("\"Tag\""), std::string::npos);
+    EXPECT_EQ(out.objects[1].overridesJson.find("LocalLight"), std::string::npos);
+
+    ASSERT_TRUE(saveSceneToJson(path, out, &err)) << err;
+    SceneFileData again{};
+    ASSERT_TRUE(loadSceneFromJson(path, again, &err)) << err;
+    EXPECT_NE(again.objects[0].overridesJson.find("\"Health\""), std::string::npos);
+    EXPECT_NEAR(again.objects[1].lightIntensity, 99.0f, 1.0e-4f);
+    EXPECT_NE(again.objects[1].overridesJson.find("\"Tag\""), std::string::npos);
+
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
 }

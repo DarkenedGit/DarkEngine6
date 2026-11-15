@@ -11,6 +11,7 @@
 #include "Play/ContactGrind.h"
 #include "Gameplay/PowerComponents.h"
 #include "Media/MovieCue.h"
+#include "Content/SceneObjectSpawn.h"
 #include "Scene/SceneSpawn.h"
 #include "Scene/WalkObstacles.h"
 #include "Gameplay/PowerSystem.h"
@@ -175,12 +176,12 @@ Entity EditorApp::findPlayPlayer()
 {
     if (const EditorObjectComponent* so = m_selected.valid() ? world().get<EditorObjectComponent>(m_selected) : nullptr)
     {
-        if (so->type == SceneObjectType::Player)
+        if (sceneHasBehavior(so->source, "player.controller"))
             return m_selected;
     }
     Entity found{};
     world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
-        if (so.type == SceneObjectType::Player && !found.valid())
+        if (sceneHasBehavior(so.source, "player.controller") && !found.valid())
             found = e;
     });
     return found;
@@ -189,7 +190,7 @@ Entity EditorApp::findPlayPlayer()
 void EditorApp::resetPlayCombat()
 {
     world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
-        if (!isPawnType(so.type))
+        if (!editorPawn(so.source))
             return;
         if (HealthComponent* hp = world().get<HealthComponent>(e))
             hp->health.reset();
@@ -228,9 +229,9 @@ void EditorApp::resetPlayCombat()
             ai->lureDest    = {};
         }
         const char* profileId = "hunter";
-        if (so.type == SceneObjectType::Player)
+        if (sceneHasBehavior(so.source, "player.controller"))
             profileId = "player";
-        else if (so.type == SceneObjectType::Wolf)
+        else if (sceneHasBehavior(so.source, "ai.wolf"))
             profileId = "wolf";
         if (SkillComponent* sk = world().get<SkillComponent>(e))
         {
@@ -243,7 +244,7 @@ void EditorApp::resetPlayCombat()
 void EditorApp::captureAuthoredPoses()
 {
     world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
-        if (!isPawnType(so.type))
+        if (!editorPawn(so.source))
             return;
         TransformComponent* xf = world().get<TransformComponent>(e);
         if (!xf)
@@ -278,16 +279,19 @@ void EditorApp::bakePlayWalkability()
         const TransformComponent* xf = world().get<TransformComponent>(e);
         if (!xf)
             return;
-        AABox3f  box;
-        Sphere3f sphere;
-        if (!classifyWalkObstacle(so.type, xf->position, xf->scale, so.source.block, so.source.goal, so.source.conceal, !so.source.zone.empty(), !so.source.pickup.empty(), box, sphere))
+        AABox3f     box;
+        Sphere3f    sphere;
+        std::string primitive;
+        if (!sceneWalkObstacle(so.source, primitive))
             return;
-        if (so.type == SceneObjectType::Cube)
+        if (!classifyWalkObstacle(primitive, xf->position, xf->scale, so.source.block, so.source.goal, so.source.conceal, !so.source.zone.empty(), !so.source.pickup.empty(), box, sphere))
+            return;
+        if (primitive == "cube")
         {
             m_playCubes.push_back(box);
             m_playCubeEntities.push_back(e);
         }
-        else if (so.type == SceneObjectType::Sphere)
+        else if (primitive == "sphere")
         {
             m_playSpheres.push_back(sphere);
             m_playSphereEntities.push_back(e);
@@ -508,7 +512,6 @@ void EditorApp::setPlayMode(bool play)
         // Same actor load as the game. The pose was stored first, so Stop puts the file position back.
         world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
             SceneObjectData authored = so.source;
-            authored.type            = so.type;
             authored.dialogue        = so.dialogue;
             applySceneActor(world(), e, authored, &EditorApp::sceneGroundY, this);
         });
@@ -666,7 +669,7 @@ void EditorApp::equipPlayArmor()
     clearPlayArmor();
     std::vector<Entity> hunters;
     world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
-        if (so.type == SceneObjectType::Hunter)
+        if (sceneHasBehavior(so.source, "ai.hunter"))
             hunters.push_back(e);
     });
     for (Entity hunter : hunters)
@@ -1029,7 +1032,7 @@ void EditorApp::applyAuthoredStealth()
 void EditorApp::bindPlayDialogue()
 {
     world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
-        if (so.type != SceneObjectType::Hunter)
+        if (!sceneHasBehavior(so.source, "ai.hunter"))
             return;
         std::string path = so.dialogue;
         if (path.empty())
@@ -1138,13 +1141,13 @@ void EditorApp::drawPlayHud()
     world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
         const HealthComponent* h = world().get<HealthComponent>(e);
         const bool living = h && h->health.alive();
-        if (so.type == SceneObjectType::Hunter)
+        if (sceneHasBehavior(so.source, "ai.hunter"))
         {
             ++hunters;
             if (living)
                 ++huntersAlive;
         }
-        else if (so.type == SceneObjectType::Wolf)
+        else if (sceneHasBehavior(so.source, "ai.wolf"))
         {
             ++wolves;
             if (living)

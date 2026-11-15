@@ -1,8 +1,11 @@
 {
   "id": "core:cube",
   "version": 1,
-  "editor": { "label": "Cube", "category": "Props", "icon": "cube", "modes": ["3d"], "matchModel": "cube" },
-  "components": { "Physics": { "file": "entities/cube.physics.json" } },
+  "editor": { "label": "Cube", "category": "Props", "icon": "cube", "hotkey": "1", "modes": ["3d"], "matchModel": "cube" },
+  "components": {
+    "Mesh": { "primitive": "cube" },
+    "Physics": { "file": "entities/cube.physics.json" }
+  },
   "behaviors": [ { "name": "prop.solid" } ],
-  "net": { "replicate": true }
+  "net": { "replicate": true, "prefab": "cube" }
 }

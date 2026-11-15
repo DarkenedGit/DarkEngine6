@@ -120,14 +120,6 @@
         0.2199999988079071,
         1.0
       ],
-      "light": {
-        "enabled": true,
-        "inner": 12.0,
-        "intensity": 1.0,
-        "outer": 25.0,
-        "range": 8.0,
-        "sourceRadius": 0.05000000074505806
-      },
       "position": [
         -4.0,
         6.0,
@@ -144,7 +136,17 @@
         1.0,
         1.0
       ],
-      "type": "ambient_light"
+      "archetype": "core:ambient_light",
+      "overrides": {
+        "AmbientLight": {
+          "enabled": true,
+          "inner": 12.0,
+          "intensity": 1.0,
+          "outer": 25.0,
+          "range": 8.0,
+          "sourceRadius": 0.05000000074505806
+        }
+      }
     },
     {
       "color": [
@@ -153,14 +155,6 @@
         0.3437933623790741,
         1.0
       ],
-      "light": {
-        "enabled": true,
-        "inner": 12.0,
-        "intensity": 3.252000093460083,
-        "outer": 25.0,
-        "range": 8.0,
-        "sourceRadius": 0.05000000074505806
-      },
       "position": [
         4.0,
         8.0,
@@ -177,10 +171,20 @@
         1.0,
         1.0
       ],
-      "type": "directional_light"
+      "archetype": "core:directional_light",
+      "overrides": {
+        "DirectionalLight": {
+          "enabled": true,
+          "inner": 12.0,
+          "intensity": 3.252000093460083,
+          "outer": 25.0,
+          "range": 8.0,
+          "sourceRadius": 0.05000000074505806
+        }
+      }
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.14,
         0.16,
@@ -205,7 +209,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.58,
         0.62,
@@ -230,7 +234,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.58,
         0.62,
@@ -255,7 +259,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.58,
         0.62,
@@ -280,7 +284,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.58,
         0.62,
@@ -305,7 +309,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.2,
         0.38,
@@ -330,7 +334,7 @@
       ]
     },
     {
-      "type": "player",
+      "archetype": "core:player",
       "color": [
         0.35,
         0.85,
@@ -355,7 +359,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.34,
         0.36,
@@ -380,7 +384,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.34,
         0.36,
@@ -405,7 +409,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.16,
         0.29,
@@ -431,7 +435,7 @@
       "conceal": true
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.5855555555555556,
         0.62,
@@ -456,7 +460,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.38,
         0.28,
@@ -481,7 +485,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.62,
         0.558,
@@ -506,7 +510,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.16,
         0.29,
@@ -532,7 +536,7 @@
       "conceal": true
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.16,
         0.29,
@@ -558,7 +562,7 @@
       "conceal": true
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.38,
         0.28,
@@ -583,7 +587,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.16,
         0.29,
@@ -609,7 +613,7 @@
       "conceal": true
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.38,
         0.28,
@@ -634,7 +638,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.1,
         0.11,
@@ -659,7 +663,7 @@
       ]
     },
     {
-      "type": "point_light",
+      "archetype": "core:point_light",
       "color": [
         1,
         0.82,
@@ -682,18 +686,24 @@
         1,
         1
       ],
-      "light": {
-        "enabled": true,
-        "intensity": 1800.0,
-        "range": 11.0,
-        "inner": 12.0,
-        "outer": 25.0,
-        "sourceRadius": 0.1
-      },
-      "circuit": "A"
+      "circuit": "A",
+      "overrides": {
+        "LocalLight": {
+          "kind": "point",
+          "enabled": true,
+          "intensity": 1800.0,
+          "range": 11.0,
+          "inner": 12.0,
+          "outer": 25.0,
+          "sourceRadius": 0.1,
+          "castShadow": false,
+          "useObjectColor": true,
+          "circuit": "A"
+        }
+      }
     },
     {
-      "type": "hunter",
+      "archetype": "core:hunter",
       "color": [
         0.85,
         0.28,
@@ -729,7 +739,7 @@
       "squad": "yard_a"
     },
     {
-      "type": "hunter",
+      "archetype": "core:hunter",
       "color": [
         0.85,
         0.28,
@@ -773,7 +783,7 @@
       "squad": "yard_a"
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.5855555555555556,
         0.62,
@@ -798,7 +808,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.5855555555555556,
         0.62,
@@ -823,7 +833,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.5855555555555556,
         0.62,
@@ -848,7 +858,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.62,
         0.5491428571428572,
@@ -873,7 +883,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.62,
         0.6032432432432432,
@@ -898,7 +908,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.16,
         0.29,
@@ -924,7 +934,7 @@
       "conceal": true
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.16,
         0.29,
@@ -950,7 +960,7 @@
       "conceal": true
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.16,
         0.29,
@@ -976,7 +986,7 @@
       "conceal": true
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.38,
         0.28,
@@ -1001,7 +1011,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.38,
         0.28,
@@ -1026,7 +1036,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.38,
         0.28,
@@ -1051,7 +1061,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.16,
         0.29,
@@ -1077,7 +1087,7 @@
       "conceal": true
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.1,
         0.11,
@@ -1102,7 +1112,7 @@
       ]
     },
     {
-      "type": "point_light",
+      "archetype": "core:point_light",
       "color": [
         1,
         0.82,
@@ -1125,18 +1135,24 @@
         1,
         1
       ],
-      "light": {
-        "enabled": true,
-        "intensity": 1800.0,
-        "range": 11.0,
-        "inner": 12.0,
-        "outer": 25.0,
-        "sourceRadius": 0.1
-      },
-      "circuit": "A"
+      "circuit": "A",
+      "overrides": {
+        "LocalLight": {
+          "kind": "point",
+          "enabled": true,
+          "intensity": 1800.0,
+          "range": 11.0,
+          "inner": 12.0,
+          "outer": 25.0,
+          "sourceRadius": 0.1,
+          "castShadow": false,
+          "useObjectColor": true,
+          "circuit": "A"
+        }
+      }
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.1,
         0.11,
@@ -1161,7 +1177,7 @@
       ]
     },
     {
-      "type": "point_light",
+      "archetype": "core:point_light",
       "color": [
         1,
         0.82,
@@ -1184,18 +1200,24 @@
         1,
         1
       ],
-      "light": {
-        "enabled": true,
-        "intensity": 1800.0,
-        "range": 11.0,
-        "inner": 12.0,
-        "outer": 25.0,
-        "sourceRadius": 0.1
-      },
-      "circuit": "B"
+      "circuit": "B",
+      "overrides": {
+        "LocalLight": {
+          "kind": "point",
+          "enabled": true,
+          "intensity": 1800.0,
+          "range": 11.0,
+          "inner": 12.0,
+          "outer": 25.0,
+          "sourceRadius": 0.1,
+          "castShadow": false,
+          "useObjectColor": true,
+          "circuit": "B"
+        }
+      }
     },
     {
-      "type": "hunter",
+      "archetype": "core:hunter",
       "color": [
         0.85,
         0.28,
@@ -1231,7 +1253,7 @@
       "squad": "yard_b"
     },
     {
-      "type": "hunter",
+      "archetype": "core:hunter",
       "color": [
         0.85,
         0.28,
@@ -1275,7 +1297,7 @@
       "squad": "yard_b"
     },
     {
-      "type": "hunter",
+      "archetype": "core:hunter",
       "color": [
         0.85,
         0.28,
@@ -1311,7 +1333,7 @@
       "squad": "yard_b"
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.5855555555555556,
         0.62,
@@ -1336,7 +1358,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.5855555555555556,
         0.62,
@@ -1361,7 +1383,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.5855555555555556,
         0.62,
@@ -1386,7 +1408,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.5652941176470588,
         0.62,
@@ -1411,7 +1433,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.6012121212121212,
         0.62,
@@ -1436,7 +1458,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.16,
         0.29,
@@ -1462,7 +1484,7 @@
       "conceal": true
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.16,
         0.29,
@@ -1488,7 +1510,7 @@
       "conceal": true
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.38,
         0.28,
@@ -1513,7 +1535,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.5855555555555556,
         0.62,
@@ -1538,7 +1560,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.5855555555555556,
         0.62,
@@ -1563,7 +1585,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.5855555555555556,
         0.62,
@@ -1588,7 +1610,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.38,
         0.28,
@@ -1613,7 +1635,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.34,
         0.36,
@@ -1638,7 +1660,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.34,
         0.36,
@@ -1663,7 +1685,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.16,
         0.29,
@@ -1689,7 +1711,7 @@
       "conceal": true
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.16,
         0.29,
@@ -1715,7 +1737,7 @@
       "conceal": true
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.16,
         0.29,
@@ -1741,7 +1763,7 @@
       "conceal": true
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.16,
         0.29,
@@ -1767,7 +1789,7 @@
       "conceal": true
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.1,
         0.11,
@@ -1792,7 +1814,7 @@
       ]
     },
     {
-      "type": "point_light",
+      "archetype": "core:point_light",
       "color": [
         1,
         0.82,
@@ -1815,18 +1837,24 @@
         1,
         1
       ],
-      "light": {
-        "enabled": true,
-        "intensity": 1800.0,
-        "range": 11.0,
-        "inner": 12.0,
-        "outer": 25.0,
-        "sourceRadius": 0.1
-      },
-      "circuit": "B"
+      "circuit": "B",
+      "overrides": {
+        "LocalLight": {
+          "kind": "point",
+          "enabled": true,
+          "intensity": 1800.0,
+          "range": 11.0,
+          "inner": 12.0,
+          "outer": 25.0,
+          "sourceRadius": 0.1,
+          "castShadow": false,
+          "useObjectColor": true,
+          "circuit": "B"
+        }
+      }
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.1,
         0.11,
@@ -1851,7 +1879,7 @@
       ]
     },
     {
-      "type": "point_light",
+      "archetype": "core:point_light",
       "color": [
         1,
         0.82,
@@ -1874,18 +1902,24 @@
         1,
         1
       ],
-      "light": {
-        "enabled": true,
-        "intensity": 1800.0,
-        "range": 11.0,
-        "inner": 12.0,
-        "outer": 25.0,
-        "sourceRadius": 0.1
-      },
-      "circuit": "C"
+      "circuit": "C",
+      "overrides": {
+        "LocalLight": {
+          "kind": "point",
+          "enabled": true,
+          "intensity": 1800.0,
+          "range": 11.0,
+          "inner": 12.0,
+          "outer": 25.0,
+          "sourceRadius": 0.1,
+          "castShadow": false,
+          "useObjectColor": true,
+          "circuit": "C"
+        }
+      }
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.1,
         0.11,
@@ -1910,7 +1944,7 @@
       ]
     },
     {
-      "type": "point_light",
+      "archetype": "core:point_light",
       "color": [
         1,
         0.82,
@@ -1933,18 +1967,24 @@
         1,
         1
       ],
-      "light": {
-        "enabled": true,
-        "intensity": 1800.0,
-        "range": 11.0,
-        "inner": 12.0,
-        "outer": 25.0,
-        "sourceRadius": 0.1
-      },
-      "circuit": "C"
+      "circuit": "C",
+      "overrides": {
+        "LocalLight": {
+          "kind": "point",
+          "enabled": true,
+          "intensity": 1800.0,
+          "range": 11.0,
+          "inner": 12.0,
+          "outer": 25.0,
+          "sourceRadius": 0.1,
+          "castShadow": false,
+          "useObjectColor": true,
+          "circuit": "C"
+        }
+      }
     },
     {
-      "type": "hunter",
+      "archetype": "core:hunter",
       "color": [
         0.85,
         0.28,
@@ -1988,7 +2028,7 @@
       "squad": "yard_c"
     },
     {
-      "type": "hunter",
+      "archetype": "core:hunter",
       "color": [
         0.85,
         0.28,
@@ -2024,7 +2064,7 @@
       "squad": "yard_c"
     },
     {
-      "type": "hunter",
+      "archetype": "core:hunter",
       "color": [
         0.85,
         0.28,
@@ -2068,7 +2108,7 @@
       "squad": "yard_c"
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.5855555555555556,
         0.62,
@@ -2093,7 +2133,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.5855555555555556,
         0.62,
@@ -2118,7 +2158,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.5855555555555556,
         0.62,
@@ -2143,7 +2183,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.62,
         0.5697297297297298,
@@ -2168,7 +2208,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.5824242424242424,
         0.62,
@@ -2193,7 +2233,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.16,
         0.29,
@@ -2219,7 +2259,7 @@
       "conceal": true
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.16,
         0.29,
@@ -2245,7 +2285,7 @@
       "conceal": true
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.38,
         0.28,
@@ -2270,7 +2310,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.1,
         0.11,
@@ -2295,7 +2335,7 @@
       ]
     },
     {
-      "type": "point_light",
+      "archetype": "core:point_light",
       "color": [
         1,
         0.82,
@@ -2318,18 +2358,24 @@
         1,
         1
       ],
-      "light": {
-        "enabled": true,
-        "intensity": 1800.0,
-        "range": 11.0,
-        "inner": 12.0,
-        "outer": 25.0,
-        "sourceRadius": 0.1
-      },
-      "circuit": "D"
+      "circuit": "D",
+      "overrides": {
+        "LocalLight": {
+          "kind": "point",
+          "enabled": true,
+          "intensity": 1800.0,
+          "range": 11.0,
+          "inner": 12.0,
+          "outer": 25.0,
+          "sourceRadius": 0.1,
+          "castShadow": false,
+          "useObjectColor": true,
+          "circuit": "D"
+        }
+      }
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.1,
         0.11,
@@ -2354,7 +2400,7 @@
       ]
     },
     {
-      "type": "point_light",
+      "archetype": "core:point_light",
       "color": [
         1,
         0.82,
@@ -2377,18 +2423,24 @@
         1,
         1
       ],
-      "light": {
-        "enabled": true,
-        "intensity": 1800.0,
-        "range": 11.0,
-        "inner": 12.0,
-        "outer": 25.0,
-        "sourceRadius": 0.1
-      },
-      "circuit": "D"
+      "circuit": "D",
+      "overrides": {
+        "LocalLight": {
+          "kind": "point",
+          "enabled": true,
+          "intensity": 1800.0,
+          "range": 11.0,
+          "inner": 12.0,
+          "outer": 25.0,
+          "sourceRadius": 0.1,
+          "castShadow": false,
+          "useObjectColor": true,
+          "circuit": "D"
+        }
+      }
     },
     {
-      "type": "hunter",
+      "archetype": "core:hunter",
       "color": [
         0.85,
         0.28,
@@ -2424,7 +2476,7 @@
       "squad": "yard_d"
     },
     {
-      "type": "hunter",
+      "archetype": "core:hunter",
       "color": [
         0.85,
         0.28,
@@ -2460,7 +2512,7 @@
       "squad": "yard_d"
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.16,
         0.75,
@@ -2486,7 +2538,7 @@
       "goal": true
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.16,
         0.85,
@@ -2511,7 +2563,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.85,
         0.7,
@@ -2537,7 +2589,7 @@
       "circuit": "A"
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.85,
         0.7,
@@ -2563,7 +2615,7 @@
       "circuit": "B"
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.85,
         0.7,
@@ -2589,7 +2641,7 @@
       "circuit": "C"
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.85,
         0.7,
@@ -2615,7 +2667,7 @@
       "circuit": "D"
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         1,
         1,
@@ -2641,7 +2693,7 @@
       "zone": "facility_gate"
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         1,
         1,
@@ -2667,7 +2719,7 @@
       "zone": "extraction"
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.95,
         0.78,
@@ -2693,7 +2745,7 @@
       "pickup": "research_file"
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.95,
         0.78,
@@ -2719,7 +2771,7 @@
       "pickup": "research_file"
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.95,
         0.78,

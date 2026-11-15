@@ -30,22 +30,23 @@ using namespace Dark::EditorDetail;
 
 namespace
 {
-    bool skipStampType(SceneObjectType type)
+    bool skipStampArchetype(std::string_view archetypeId)
     {
-        return isLocalLightType(type) || isGlobalLightType(type) || type == SceneObjectType::CloudVolume;
+        SceneObjectData probe{};
+        probe.archetype = std::string(archetypeId);
+        return editorPointOrSpot(probe) || editorGlobalLight(probe) || sceneHasComponent(probe, "CloudVolume");
     }
 
     // Respawn omits EditorObjectComponent until the saved origin is known.
     void restoreAuthoredSceneObjects(World& world)
     {
         world.each<PersistentIdComponent>([&](Entity e, PersistentIdComponent& id) {
-            if (id.origin != PersistOrigin::Authored || world.has<EditorObjectComponent>(e))
+            if (id.origin != PersistOrigin::Authored || world.has<EditorObjectComponent>(e) || id.archetype.empty())
                 return;
-            SceneObjectType type{};
-            if (!legacySceneTypeForId(id.archetype, type))
+            if (!contentHasArchetype(id.archetype))
                 return;
             EditorObjectComponent so{};
-            so.type     = type;
+            so.source.archetype = id.archetype;
             so.color[0] = 0.8f;
             so.color[1] = 0.8f;
             so.color[2] = 0.8f;
@@ -162,24 +163,12 @@ Entity EditorApp::saveRespawn(void* user, World&, std::string_view archetype, co
     auto* app = static_cast<EditorApp*>(user);
     if (!app)
         return {};
-    SceneObjectType type{};
-    if (!legacySceneTypeForId(archetype, type))
+    if (!contentHasArchetype(archetype))
     {
-        if (contentHasArchetype(archetype))
-        {
-            SceneObjectData authored{};
-            authored.archetype   = std::string(archetype);
-            authored.dataDriven  = true;
-            authored.type        = SceneObjectType::Model;
-            authored.position    = pose.position;
-            authored.rotation    = pose.rotation;
-            authored.scale       = pose.scale;
-            return app->spawnAuthoredArchetype(authored, false);
-        }
         DE_LOG_WARN("Save: editor has no respawn for '{}'", archetype);
         return {};
     }
-    if (skipStampType(type))
+    if (skipStampArchetype(archetype))
     {
         DE_LOG_WARN("Save: editor has no respawn for '{}'", archetype);
         return {};
@@ -188,7 +177,7 @@ Entity EditorApp::saveRespawn(void* user, World&, std::string_view archetype, co
     const Entity previous = app->m_selected;
     const bool suspended = app->m_suspendLiveStamp;
     app->m_suspendLiveStamp = true;
-    const Entity e = app->spawnObject(type, pose.position, pose.scale, pose.rotation, col, nullptr, nullptr, false, false);
+    const Entity e = app->spawnObject(archetype, pose.position, pose.scale, pose.rotation, col, nullptr, nullptr, false, false);
     app->m_suspendLiveStamp = suspended;
     app->m_selected = previous;
     return e;

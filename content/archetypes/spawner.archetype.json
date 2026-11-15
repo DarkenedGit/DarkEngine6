@@ -2,6 +2,19 @@
   "id": "core:spawner",
   "version": 1,
   "editor": { "label": "Spawner", "category": "Gameplay", "icon": "forward", "modes": ["3d"] },
-  "components": { "Spawner": {} },
-  "behaviors": [ { "name": "spawner", "params": { "unit": "core:hunter" } } ]
+  "components": {
+    "Spawner": {
+      "mode": "maintain",
+      "unit": "hunter",
+      "gate": "cleared",
+      "count": 3,
+      "radius": 6.0,
+      "respawnDelay": 1.5,
+      "waveInterval": 8.0,
+      "maxWaves": 0,
+      "enabled": true,
+      "seed": 1
+    }
+  },
+  "behaviors": [ { "name": "spawner", "params": { "unit": "hunter" } } ]
 }

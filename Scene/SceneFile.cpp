@@ -1,5 +1,6 @@
 #include "Scene/SceneFile.h"
 #include "Content/ContentDb.h"
+#include "Content/SceneObjectSpawn.h"
 #include "Assets/AssetManager.h"
 #include "Core/ContentRoots.h"
 #include "Core/Json.h"
@@ -121,9 +122,9 @@ float clampShedScale(float shed)
     return shed;
 }
 
-void applyTypeLightDefaults(SceneObjectData& o)
+void applyTypeLightDefaults(SceneObjectData& o, std::string_view kind)
 {
-    if (o.type == SceneObjectType::SpotLight)
+    if (kind == "spot")
     {
         o.lightIntensity = 2513.0f; // 800*π; JSON 800 stays
         o.lightRange     = 16.0f;
@@ -137,6 +138,15 @@ void applyTypeLightDefaults(SceneObjectData& o)
     o.lightOuterDeg     = 25.0f;
     o.lightSourceRadius = 0.05f;
     o.lightEnabled      = true;
+}
+
+std::string lightKindOf(const SceneObjectData& object)
+{
+    if (!object.lightKind.empty())
+        return object.lightKind;
+    if (object.hasLight)
+        return "point";
+    return {};
 }
 
 bool jsonElemFloat(const json& value, float& out);
@@ -570,6 +580,67 @@ const json& jsonObjectField(const json& object, const char* key, const json& emp
     return empty;
 }
 
+const json* overrideComponent(const json& object, const char* name)
+{
+    if (!object.contains("overrides") || !object["overrides"].is_object())
+        return nullptr;
+    const json& over = object["overrides"];
+    if (!over.contains(name) || !over[name].is_object())
+        return nullptr;
+    return &over[name];
+}
+
+bool skipRawObjectKey(const std::string& key)
+{
+    // These moved under overrides. Copying them back out of rawJson would resurrect the old blocks.
+    return key == "overrides" || key == "type" || key == "light" || key == "particle" || key == "cloud" || key == "stream" || key == "spawner"
+        || key == "model" || key == "movie" || key == "movieRadius" || key == "movieLoop" || key == "emissive";
+}
+
+void stripPayloadOverrides(json& extra)
+{
+    static constexpr const char* kNames[] = {
+        "LocalLight", "AmbientLight", "DirectionalLight", "ParticleEmitter", "CloudVolume",
+        "Stream",      "Spawner",      "Movie",           "Model",           "Mesh",
+    };
+    for (const char* name : kNames)
+        extra.erase(std::string(name));
+}
+
+json globalLightJson(const SceneObjectData& object)
+{
+    json light;
+    light["intensity"]    = object.lightIntensity;
+    light["range"]        = object.lightRange;
+    light["inner"]        = object.lightInnerDeg;
+    light["outer"]        = object.lightOuterDeg;
+    light["sourceRadius"] = object.lightSourceRadius;
+    light["enabled"]      = object.lightEnabled;
+    return light;
+}
+
+json localLightJson(const SceneObjectData& object)
+{
+    json light;
+    light["kind"]           = (lightKindOf(object) == "spot") ? "spot" : "point";
+    light["intensity"]      = object.lightIntensity;
+    light["range"]          = object.lightRange;
+    light["inner"]          = object.lightInnerDeg;
+    light["outer"]          = object.lightOuterDeg;
+    light["sourceRadius"]   = object.lightSourceRadius;
+    light["enabled"]        = object.lightEnabled;
+    light["castShadow"]     = object.lightCastShadow;
+    light["useObjectColor"] = true;
+    if (lightKindOf(object) == "spot" && object.searchlight)
+    {
+        light["searchlight"] = true;
+        light["sweep"]       = object.sweepDeg;
+    }
+    if (!object.circuit.empty())
+        light["circuit"] = object.circuit;
+    return light;
+}
+
 void copyWindFieldToGrass(const Terrain::WindSettings& wind, GrassSceneDesc& grass)
 {
     grass.windBaseYaw      = wind.headingRad;
@@ -784,16 +855,20 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
             }
         }
         json jo;
-        jo["type"]      = toString(o.type);
-        jo["archetype"] = o.archetype.empty() ? (std::string("core:") + toString(o.type)) : o.archetype;
+        jo["archetype"] = o.archetype;
         jo["position"] = vec3ToJson(o.position);
         jo["rotation"] = quatToJson(o.rotation);
         jo["scale"]    = vec3ToJson(o.scale);
         jo["color"]    = colorToJson(o.color);
+        json overrides = json::object();
         if (!o.modelPath.empty())
-            jo["model"] = o.modelPath;
+        {
+            json model;
+            model["gltf"]    = o.modelPath;
+            overrides["Model"] = std::move(model);
+        }
 
-        if (o.hasParticle || o.type == SceneObjectType::ParticleEmitter)
+        if (o.hasParticle)
         {
             json p;
             p["name"]            = o.particleName;
@@ -836,29 +911,20 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
                 secondary["collision"]     = storedChildCollision(o.secondaryCollision);
                 p["secondary"]             = std::move(secondary);
             }
-            jo["particle"]       = std::move(p);
+            overrides["ParticleEmitter"] = std::move(p);
         }
 
-        if (o.hasLight || o.type == SceneObjectType::PointLight || o.type == SceneObjectType::SpotLight
-            || isGlobalLightType(o.type))
+        const std::string kind = lightKindOf(o);
+        if (o.hasLight || kind == "point" || kind == "spot" || kind == "ambient" || kind == "directional")
         {
-            json light;
-            light["intensity"]    = o.lightIntensity;
-            light["range"]        = o.lightRange;
-            light["inner"]        = o.lightInnerDeg;
-            light["outer"]        = o.lightOuterDeg;
-            light["sourceRadius"] = o.lightSourceRadius;
-            light["enabled"]      = o.lightEnabled;
-            if (!isGlobalLightType(o.type))
-                light["castShadow"] = o.lightCastShadow;
-            if (o.type == SceneObjectType::SpotLight && o.searchlight)
-            {
-                light["searchlight"] = true;
-                light["sweep"]       = o.sweepDeg;
-            }
-            jo["light"]           = std::move(light);
+            if (kind == "ambient")
+                overrides["AmbientLight"] = globalLightJson(o);
+            else if (kind == "directional")
+                overrides["DirectionalLight"] = globalLightJson(o);
+            else if (o.hasLight || kind == "point" || kind == "spot")
+                overrides["LocalLight"] = localLightJson(o);
         }
-        if (o.hasCloud || o.type == SceneObjectType::CloudVolume)
+        if (o.hasCloud)
         {
             json cloud;
             cloud["shape"]           = (o.cloudShape == 0) ? "box" : "ellipsoid";
@@ -877,9 +943,9 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
             cloud["albedo"]          = json::array({ o.cloudAlbedo[0], o.cloudAlbedo[1], o.cloudAlbedo[2] });
             cloud["windDir"]         = json::array({ o.cloudWindDir[0], o.cloudWindDir[1], o.cloudWindDir[2] });
             cloud["enabled"]         = o.cloudEnabled;
-            jo["cloud"]              = std::move(cloud);
+            overrides["CloudVolume"] = std::move(cloud);
         }
-        if (o.hasStream || o.type == SceneObjectType::Stream)
+        if (o.hasStream)
         {
             json stream;
             stream["width"]     = o.streamWidth;
@@ -888,9 +954,9 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
             for (const Math::Vector2f& p : o.streamPoints)
                 points.push_back(json::array({ p.x, p.y }));
             stream["points"] = std::move(points);
-            jo["stream"]     = std::move(stream);
+            overrides["Stream"] = std::move(stream);
         }
-        if (o.hasSpawner || o.type == SceneObjectType::Spawner)
+        if (o.hasSpawner)
         {
             json spawner;
             spawner["mode"]          = toString(o.spawner.mode);
@@ -915,8 +981,8 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
             spawner["waveInterval"]  = o.spawner.waveInterval;
             spawner["maxWaves"]      = o.spawner.maxWaves;
             spawner["enabled"]       = o.spawner.enabled;
-            spawner["seed"]          = o.spawner.seed;
-            jo["spawner"]            = std::move(spawner);
+            spawner["seed"]     = o.spawner.seed;
+            overrides["Spawner"] = std::move(spawner);
         }
 
         if (o.conceal)
@@ -935,12 +1001,14 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
         }
         if (!o.dialogue.empty())
             jo["dialogue"] = o.dialogue;
-        if (!o.movie.empty())
-            jo["movie"] = o.movie;
-        if (o.movieRadius != 2.0f)
-            jo["movieRadius"] = o.movieRadius;
-        if (o.movieLoop)
-            jo["movieLoop"] = true;
+        if (!o.movie.empty() || o.movieRadius != 2.0f || o.movieLoop)
+        {
+            json movie;
+            movie["path"]   = o.movie;
+            movie["radius"] = o.movieRadius;
+            movie["loop"]   = o.movieLoop;
+            overrides["Movie"] = std::move(movie);
+        }
         if (!o.squad.empty())
             jo["squad"] = o.squad;
         if (!o.block)
@@ -954,15 +1022,26 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
         }
 
         if (o.emissive != 0.0f)
-            jo["emissive"] = o.emissive;
+        {
+            json mesh;
+            mesh["emissive"] = o.emissive;
+            overrides["Mesh"] = std::move(mesh);
+        }
         if (o.emissiveMeshIndex >= 0)
             jo["emissiveMesh"] = o.emissiveMeshIndex;
         if (!o.overridesJson.empty())
         {
             const json overlay = json::parse(o.overridesJson, nullptr, false);
-            if (!overlay.is_discarded())
+            if (!overlay.is_discarded() && overlay.is_object())
+            {
+                for (auto it = overlay.begin(); it != overlay.end(); ++it)
+                    overrides[it.key()] = it.value();
+            }
+            else if (!overlay.is_discarded())
                 jo["overrides"] = overlay;
         }
+        if (!overrides.empty() && !jo.contains("overrides"))
+            jo["overrides"] = std::move(overrides);
         if (!o.rawJson.empty())
         {
             const json raw = json::parse(o.rawJson, nullptr, false);
@@ -970,7 +1049,7 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
             {
                 for (auto it = raw.begin(); it != raw.end(); ++it)
                 {
-                    if (!jo.contains(it.key()))
+                    if (!skipRawObjectKey(it.key()) && !jo.contains(it.key()))
                         jo[it.key()] = it.value();
                 }
             }
@@ -1479,39 +1558,40 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
             continue;
 
         SceneObjectData o{};
-        const std::string typeStr = jsonS(jo, "type", std::string());
-        const bool typeParsed = !typeStr.empty() && tryParseSceneObjectType(typeStr, o.type);
-        if (!typeParsed)
+        const std::string archRaw = jsonS(jo, "archetype", std::string());
+        if (archRaw.empty())
         {
-            std::string arch = jsonS(jo, "archetype", std::string());
-            if (arch.empty())
-                arch = typeStr.empty() ? std::string("cube") : typeStr;
-            o.archetype = canonicalContentId(arch);
-            SceneObjectType legacy{};
-            if (legacySceneTypeForId(o.archetype, legacy))
-                o.type = legacy;
-            else if (contentHasArchetype(o.archetype))
-            {
-                o.dataDriven = true;
-                o.type       = SceneObjectType::Model;
-            }
-            else
-            {
-                o.placeholder = true;
-                o.type        = SceneObjectType::Model;
-                o.rawJson     = jo.dump();
-                std::string ignored;
-                if (jo.contains("position") && jo["position"].is_array())
-                    readVec3(jo["position"], o.position, &ignored, "position");
-                if (jo.contains("rotation") && jo["rotation"].is_array())
-                    readQuat(jo["rotation"], o.rotation, &ignored, "rotation");
-                if (jo.contains("scale") && jo["scale"].is_array())
-                    readVec3(jo["scale"], o.scale, &ignored, "scale");
-                outScene.objects.push_back(std::move(o));
-                DE_LOG_WARN("SceneFile: unknown type '{}' kept as a placeholder", arch);
-                continue;
-            }
+            o.placeholder = true;
+            o.rawJson     = jo.dump();
+            std::string ignored;
+            if (jo.contains("position") && jo["position"].is_array())
+                readVec3(jo["position"], o.position, &ignored, "position");
+            if (jo.contains("rotation") && jo["rotation"].is_array())
+                readQuat(jo["rotation"], o.rotation, &ignored, "rotation");
+            if (jo.contains("scale") && jo["scale"].is_array())
+                readVec3(jo["scale"], o.scale, &ignored, "scale");
+            outScene.objects.push_back(std::move(o));
+            DE_LOG_WARN("SceneFile: object missing archetype");
+            continue;
         }
+        o.archetype = canonicalContentId(archRaw);
+        if (!contentHasArchetype(o.archetype))
+        {
+            o.placeholder = true;
+            o.dataDriven  = false;
+            o.rawJson     = jo.dump();
+            std::string ignored;
+            if (jo.contains("position") && jo["position"].is_array())
+                readVec3(jo["position"], o.position, &ignored, "position");
+            if (jo.contains("rotation") && jo["rotation"].is_array())
+                readQuat(jo["rotation"], o.rotation, &ignored, "rotation");
+            if (jo.contains("scale") && jo["scale"].is_array())
+                readVec3(jo["scale"], o.scale, &ignored, "scale");
+            outScene.objects.push_back(std::move(o));
+            DE_LOG_WARN("SceneFile: unknown archetype '{}' kept as a placeholder", o.archetype);
+            continue;
+        }
+        o.dataDriven = true;
 
         std::string err;
         if (jo.contains("position") && !readVec3(jo["position"], o.position, &err, "position"))
@@ -1539,9 +1619,10 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
             return false;
         }
 
-        if (jo.contains("particle") && jo["particle"].is_object())
+        const json* particleBlock = overrideComponent(jo, "ParticleEmitter");
+        if (particleBlock)
         {
-            const json& p = jo["particle"];
+            const json& p = *particleBlock;
             o.hasParticle     = true;
             o.particleName    = jsonS(p, "name", std::string("Emitter"));
             o.maxParticles    = jsonU(p, "maxParticles", 512u);
@@ -1616,15 +1697,33 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
             if (p.contains("shapeSize"))
                 readVec3(p["shapeSize"], o.shapeSize, nullptr, "shapeSize");
         }
-        else if (o.type == SceneObjectType::ParticleEmitter)
+        else if (sceneHasComponent(o, "ParticleEmitter"))
         {
             o.hasParticle = true;
         }
 
-        if (jo.contains("light") && jo["light"].is_object())
+        const json* lightBlock = nullptr;
+        bool lightFromGlobalOverride = false;
+        if (const json* local = overrideComponent(jo, "LocalLight"))
+            lightBlock = local;
+        else if (const json* ambient = overrideComponent(jo, "AmbientLight"))
         {
-            const json& light = jo["light"];
-            applyTypeLightDefaults(o);
+            lightBlock = ambient;
+            lightFromGlobalOverride = true;
+        }
+        else if (const json* sun = overrideComponent(jo, "DirectionalLight"))
+        {
+            lightBlock = sun;
+            lightFromGlobalOverride = true;
+        }
+        auto applyLightBlock = [&](const json& light, std::string kind, bool global) {
+            if (kind == "point" || kind == "spot")
+                applyTypeLightDefaults(o, kind);
+            else if (kind == "directional")
+                o.lightIntensity = Math::Pi;
+            else if (kind == "ambient")
+                o.lightIntensity = 1.0f;
+            o.lightKind         = std::move(kind);
             o.hasLight          = true;
             o.lightIntensity    = jsonF(light, "intensity", o.lightIntensity);
             o.lightRange        = jsonF(light, "range", o.lightRange);
@@ -1632,36 +1731,76 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
             o.lightOuterDeg     = jsonF(light, "outer", o.lightOuterDeg);
             o.lightSourceRadius = jsonF(light, "sourceRadius", o.lightSourceRadius);
             o.lightEnabled      = jsonB(light, "enabled", o.lightEnabled);
-            // A missing or mistyped key stays false. get<bool>() is not safe on the IO thread.
-            if (!isGlobalLightType(o.type) && light.contains("castShadow") && light["castShadow"].is_boolean())
+            // A missing or mistyped key stays false. Global lights never take castShadow from JSON.
+            if (!global && light.contains("castShadow") && light["castShadow"].is_boolean())
                 o.lightCastShadow = jsonAtBool(light["castShadow"]);
-            if (o.type == SceneObjectType::SpotLight && light.contains("searchlight") && light["searchlight"].is_boolean())
+            if (o.lightKind == "spot" && light.contains("searchlight") && light["searchlight"].is_boolean())
                 o.searchlight = jsonAtBool(light["searchlight"]);
             if (light.contains("sweep") && light["sweep"].is_number())
                 o.sweepDeg = std::clamp(jsonAt(light["sweep"]), 0.0f, 340.0f);
-        }
-        else if (o.type == SceneObjectType::PointLight || o.type == SceneObjectType::SpotLight)
+        };
+        if (lightBlock)
         {
-            o.hasLight = true;
-            applyTypeLightDefaults(o);
+            std::string kind = "point";
+            if (lightFromGlobalOverride && overrideComponent(jo, "AmbientLight"))
+                kind = "ambient";
+            else if (lightFromGlobalOverride)
+                kind = "directional";
+            else if (lightBlock->contains("kind") && (*lightBlock)["kind"].is_string() && jsonAtString((*lightBlock)["kind"]) == "spot")
+                kind = "spot";
+            applyLightBlock(*lightBlock, std::move(kind), lightFromGlobalOverride);
         }
-        else if (isGlobalLightType(o.type))
+        else if (const Archetype* archetype = findArchetype(o.archetype))
         {
-            o.hasLight       = true;
-            o.lightIntensity = (o.type == SceneObjectType::DirectionalLight) ? Math::Pi : 1.0f;
-            o.lightEnabled   = true;
+            for (const ArchetypeComponent& component : archetype->components)
+            {
+                std::string kind;
+                bool global = false;
+                if (component.name == "AmbientLight")
+                {
+                    kind = "ambient";
+                    global = true;
+                }
+                else if (component.name == "DirectionalLight")
+                {
+                    kind = "directional";
+                    global = true;
+                }
+                else if (component.name == "LocalLight")
+                    kind = "point";
+                else
+                    continue;
+                json authored = json::parse(component.paramsJson.empty() ? "{}" : component.paramsJson, nullptr, false);
+                if (authored.is_discarded() || !authored.is_object())
+                    authored = json::object();
+                if (!global && authored.contains("kind") && authored["kind"].is_string() && jsonAtString(authored["kind"]) == "spot")
+                    kind = "spot";
+                applyLightBlock(authored, std::move(kind), global);
+                break;
+            }
         }
 
-        if (jo.contains("emissive") && jo["emissive"].is_number())
-            o.emissive = jsonAt(jo["emissive"]);
+        if (const json* mesh = overrideComponent(jo, "Mesh"))
+        {
+            if (mesh->contains("emissive") && (*mesh)["emissive"].is_number())
+                o.emissive = jsonAt((*mesh)["emissive"]);
+            else
+                o.emissive = 0.0f;
+        }
         if (jo.contains("emissiveMesh") && jo["emissiveMesh"].is_number_integer())
             o.emissiveMeshIndex = jsonAtInt(jo["emissiveMesh"]);
-        if (jo.contains("model") && jo["model"].is_string())
-            o.modelPath = jsonAtString(jo["model"]);
-
-        if (jo.contains("cloud") && jo["cloud"].is_object())
+        if (const json* model = overrideComponent(jo, "Model"))
         {
-            const json& cloud = jo["cloud"];
+            if (model->contains("gltf") && (*model)["gltf"].is_string())
+                o.modelPath = jsonAtString((*model)["gltf"]);
+            else
+                o.modelPath.clear();
+        }
+
+        const json* cloudBlock = overrideComponent(jo, "CloudVolume");
+        if (cloudBlock)
+        {
+            const json& cloud = *cloudBlock;
             o.hasCloud = true;
             if (cloud.contains("shape"))
             {
@@ -1702,7 +1841,7 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
                 o.cloudWindDir[2] = jsonAt(cloud["windDir"][2]);
             }
         }
-        else if (o.type == SceneObjectType::CloudVolume)
+        else if (sceneHasComponent(o, "CloudVolume"))
         {
             o.hasCloud = true;
         }
@@ -1710,17 +1849,31 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
         jsonBoolOr(jo, "conceal", o.conceal, false, "SceneFile");
         jsonBoolOr(jo, "goal", o.goal, false, "SceneFile");
         jsonStringOr(jo, "circuit", o.circuit, std::string(), "SceneFile");
+        if (const json* local = overrideComponent(jo, "LocalLight"))
+        {
+            if (local->contains("circuit") && (*local)["circuit"].is_string())
+                o.circuit = jsonAtString((*local)["circuit"]);
+        }
         jsonStringOr(jo, "zone", o.zone, std::string(), "SceneFile");
         jsonStringOr(jo, "squad", o.squad, std::string(), "SceneFile");
         jsonBoolOr(jo, "block", o.block, true, "SceneFile");
         jsonStringOr(jo, "pickup", o.pickup, std::string(), "SceneFile");
         jsonIntOr(jo, "pickupCount", o.pickupCount, 1, "SceneFile");
         jsonStringOr(jo, "dialogue", o.dialogue, std::string(), "SceneFile");
-        jsonStringOr(jo, "movie", o.movie, std::string(), "SceneFile");
-        jsonFloatOr(jo, "movieRadius", o.movieRadius, 2.0f, "SceneFile");
-        if (!(o.movieRadius >= 0.0f))
-            o.movieRadius = 0.0f;
-        jsonBoolOr(jo, "movieLoop", o.movieLoop, false, "SceneFile");
+        if (const json* movie = overrideComponent(jo, "Movie"))
+        {
+            o.movie.clear();
+            o.movieRadius = 2.0f;
+            o.movieLoop   = false;
+            if (movie->contains("path") && (*movie)["path"].is_string())
+                o.movie = jsonAtString((*movie)["path"]);
+            if (movie->contains("radius") && (*movie)["radius"].is_number())
+                o.movieRadius = jsonAt((*movie)["radius"]);
+            if (!(o.movieRadius >= 0.0f))
+                o.movieRadius = 0.0f;
+            if (movie->contains("loop") && (*movie)["loop"].is_boolean())
+                o.movieLoop = jsonAtBool((*movie)["loop"]);
+        }
         if (jo.contains("patrol") && jo["patrol"].is_array())
         {
             for (const json& p : jo["patrol"])
@@ -1730,7 +1883,7 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
             }
         }
 
-        if (o.type == SceneObjectType::Stream)
+        if (sceneHasComponent(o, "Stream"))
         {
             if (streamCount >= 16)
             {
@@ -1741,12 +1894,13 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
                 }
                 continue;
             }
-            if (!jo.contains("stream") || !jo["stream"].is_object())
+            const json* streamBlock = overrideComponent(jo, "Stream");
+            if (!streamBlock)
             {
                 DE_LOG_ERROR(LogCategory::Render, "SceneFile: stream missing stream block — skipped");
                 continue;
             }
-            const json& stream = jo["stream"];
+            const json& stream = *streamBlock;
             if (!stream.contains("points") || !stream["points"].is_array())
             {
                 DE_LOG_ERROR(LogCategory::Render, "SceneFile: stream missing points — skipped");
@@ -1783,11 +1937,15 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
             ++streamCount;
         }
 
-        if (o.type == SceneObjectType::Spawner || (jo.contains("spawner") && jo["spawner"].is_object()))
+        const json* spawnerBlock = overrideComponent(jo, "Spawner");
+        if (sceneHasComponent(o, "Spawner") || spawnerBlock)
         {
             o.hasSpawner = true;
-            if (jo.contains("spawner") && jo["spawner"].is_object())
-                readSpawnerBlock(jo["spawner"], o.spawner);
+            if (spawnerBlock)
+            {
+                o.spawner = SpawnerDesc{};
+                readSpawnerBlock(*spawnerBlock, o.spawner);
+            }
             else
                 clampSpawnerDesc(o.spawner);
         }
@@ -1799,20 +1957,17 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
         if (o.scale.z == 0.0f)
             o.scale.z = 1.0f;
 
-        if (o.archetype.empty())
+        if (jo.contains("overrides") && jo["overrides"].is_object())
         {
-            const std::string authored = jsonS(jo, "archetype", std::string());
-            o.archetype = authored.empty() ? (std::string("core:") + toString(o.type)) : canonicalContentId(authored);
+            json extra = jo["overrides"];
+            stripPayloadOverrides(extra);
+            if (!extra.empty())
+                o.overridesJson = extra.dump();
         }
-        if (jo.contains("overrides"))
+        else if (jo.contains("overrides"))
             o.overridesJson = jo["overrides"].dump();
         if (!o.placeholder)
-        {
-            SceneObjectType legacy{};
-            if (!legacySceneTypeForId(o.archetype, legacy) && contentHasArchetype(o.archetype))
-                o.dataDriven = true;
             o.rawJson = jo.dump();
-        }
 
         outScene.objects.push_back(o);
     }

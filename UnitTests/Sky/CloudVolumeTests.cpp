@@ -5,6 +5,7 @@
 #include "Math/Vector3f.h"
 #include "Render/CloudVolumePipeline.h"
 #include "Render/ShaderCompile.h"
+#include "Content/ContentDb.h"
 #include "Scene/SceneFile.h"
 #include "Sky/CloudVolume.h"
 
@@ -159,7 +160,8 @@ TEST(CloudVolume, SceneFileJsonRoundTrip)
     in.name    = "ut_clouds";
     in.mode    = SceneMode::Scene3D;
     SceneObjectData o{};
-    o.type       = SceneObjectType::CloudVolume;
+    o.archetype       = "core:cloud_volume";
+    o.hasCloud = true;
     o.position   = Vector3f(3.0f, 12.0f, -4.0f);
     o.scale      = Vector3f(40.0f, 10.0f, 22.0f);
     o.hasCloud   = true;
@@ -174,10 +176,12 @@ TEST(CloudVolume, SceneFileJsonRoundTrip)
     const auto path = std::filesystem::temp_directory_path() / "darkengine6_cloud_ut.json";
     std::string err;
     ASSERT_TRUE(saveSceneToJson(path, in, &err)) << err;
+    if (!contentHasArchetype("core:cloud_volume"))
+        ASSERT_TRUE(loadContentDatabase(nullptr));
     SceneFileData out{};
     ASSERT_TRUE(loadSceneFromJson(path, out, &err)) << err;
     ASSERT_EQ(out.objects.size(), 1u);
-    EXPECT_EQ(out.objects[0].type, SceneObjectType::CloudVolume);
+    EXPECT_EQ(out.objects[0].archetype, "core:cloud_volume");
     EXPECT_TRUE(out.objects[0].hasCloud);
     EXPECT_EQ(out.objects[0].cloudShape, 0);
     EXPECT_NEAR(out.objects[0].cloudDensity, 2.0f, 1.0e-4f);

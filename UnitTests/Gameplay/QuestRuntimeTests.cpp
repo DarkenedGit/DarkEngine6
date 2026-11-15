@@ -288,6 +288,8 @@ TEST(QuestRuntime, ImportKeepsProgressWithoutNotes)
 TEST(SceneSpawn, BoxesBecomeZoneCircuitConcealAndObstacle)
 {
     std::vector<SceneObjectData> objects(4);
+    for (SceneObjectData& object : objects)
+        object.archetype = "core:cube";
     objects[0].zone     = "gate";
     objects[0].position = Vector3f{ 0.0f, 1.0f, 0.0f };
     objects[0].scale    = Vector3f{ 2.0f, 2.0f, 2.0f };

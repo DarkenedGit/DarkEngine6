@@ -69,9 +69,10 @@ void EditorApp::registerReplicatedProps()
 {
     uint32_t n = 0;
     world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
-        if (!isReplicatedProp(so.type))
+        const std::string prefabName = editorNetPrefabName(so.source);
+        if (!isNetPrefabName(prefabName))
             return;
-        if (network().registerEntity(world(), e, prefabFromType(so.type), ClientId::Host, packRgba8(so.color)))
+        if (network().registerEntity(world(), e, prefabFromName(prefabName), ClientId::Host, packRgba8(so.color)))
             ++n;
     });
     DE_LOG_INFO(LogCategory::Networking, "Editor: registered {}/{} props for host", n, kNetMaxReplicated);
@@ -150,7 +151,7 @@ void EditorApp::drawNetworkMenu()
     const uint32_t peerN    = network().peerCount();
     uint32_t       propN    = 0;
     world().each<EditorObjectComponent>([&](Entity, EditorObjectComponent& so) {
-        if (isReplicatedProp(so.type))
+        if (isNetPrefabName(editorNetPrefabName(so.source)))
             ++propN;
     });
 
@@ -257,8 +258,8 @@ bool EditorApp::onNetSpawn(World& world, Entity e, NetPrefab prefab, const Trans
         return false;
 
     // Same contract as Sandbox: inbound replicas are drawable from ECS.
-    const SceneObjectType type = typeFromPrefab(prefab);
-    if (!isLocalLightType(type) && !isGlobalLightType(type) && !world.has<MeshComponent>(e))
+    const std::string archetypeId = archetypeForPrefab(prefab);
+    if (!world.has<MeshComponent>(e))
     {
         MeshComponent mc{};
         mc.matAssetID  = self->m_propMaterial ? self->m_propMaterial->id : NULL_ASSET;
@@ -268,7 +269,7 @@ bool EditorApp::onNetSpawn(World& world, Entity e, NetPrefab prefab, const Trans
     if (!world.has<EditorObjectComponent>(e))
     {
         EditorObjectComponent so{};
-        so.type = type;
+        so.source.archetype = archetypeId;
         unpackRgba8(colorRgba8, so.color);
         world.emplace<EditorObjectComponent>(e, so);
     }

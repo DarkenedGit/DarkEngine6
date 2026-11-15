@@ -1,7 +1,9 @@
 #include "EditorApp.h"
 
+#include "Content/ArchetypeParams.h"
 #include "Content/ArchetypeSpawn.h"
 #include "Content/ContentDb.h"
+#include "Content/SceneObjectSpawn.h"
 #include "Scene/SceneSpawn.h"
 
 #include "Editor/EditorInternals.h"
@@ -50,6 +52,7 @@
 
 #include <imgui.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -71,19 +74,19 @@ Entity EditorApp::pickObject(const Ray3f& ray)
         if (!xf)
             return;
         Collision::RayHit3D hit{};
-        if (isLocalLightType(so.type) || isGlobalLightType(so.type))
+        if (editorPointOrSpot(so.source) || editorGlobalLight(so.source))
         {
             float range = 8.0f;
             if (const auto* light = world().get<LocalLightComponent>(e))
                 range = light->range;
-            const float r = isGlobalLightType(so.type) ? 0.45f : Max(0.35f, range * 0.05f);
+            const float r = editorGlobalLight(so.source) ? 0.45f : Max(0.35f, range * 0.05f);
             hit           = Collision::Intersect(ray, Sphere3f(xf->position, r));
         }
-        else if (so.type == SceneObjectType::ParticleEmitter)
+        else if (sceneHasComponent(so.source, "ParticleEmitter"))
         {
             hit = Collision::Intersect(ray, Sphere3f(xf->position, 0.22f));
         }
-        else if (so.type == SceneObjectType::CloudVolume)
+        else if (sceneHasComponent(so.source, "CloudVolume"))
         {
             CloudShape shape = CloudShape::Ellipsoid;
             if (const CloudVolumeComponent* cloud = world().get<CloudVolumeComponent>(e))
@@ -98,7 +101,7 @@ Entity EditorApp::pickObject(const Ray3f& ray)
                 hit.point = ray.PointAt(t0);
             }
         }
-        else if (usesModelBounds(so.type))
+        else if (sceneHasComponent(so.source, "Model"))
         {
             if (const ModelComponent* mc = world().get<ModelComponent>(e))
             {
@@ -222,7 +225,7 @@ void EditorApp::applyGizmoDrag(const Ray3f& ray)
 }
 
 Entity EditorApp::spawnObject(
-    SceneObjectType type,
+    std::string_view archetypeId,
     const Vector3f& pos,
     const Vector3f& scale,
     const Quaternion& rot,
@@ -235,208 +238,83 @@ Entity EditorApp::spawnObject(
     if (netClientLocked())
         return {};
 
-    Entity e = world().createEntity();
-    world().emplace<TagComponent>(e, toString(type));
+    SceneObjectData built{};
+    if (authored)
+        built = *authored;
+    if (built.archetype.empty())
+        built.archetype = std::string(archetypeId);
+    built.position = pos;
+    built.rotation = rot;
+    built.scale    = scale;
+    copyColor(built.color, color);
+    const bool lightType   = editorPointOrSpot(built);
+    const bool globalLight = editorGlobalLight(built);
+    const bool emitterType = sceneHasComponent(built, "ParticleEmitter");
+    const bool pawnType    = editorPawn(built);
+    const bool modelType   = sceneHasBehavior(built, "model");
+    const bool waterType   = sceneHasComponent(built, "Water");
+    const bool cloudType   = sceneHasComponent(built, "CloudVolume");
+    const bool streamType  = sceneHasComponent(built, "Stream");
+    const bool spawnerType = sceneHasComponent(built, "Spawner");
+    const bool movieType   = sceneHasComponent(built, "Movie");
+    if (m_sceneMode == SceneMode::Scene3D && editorShownInMode(built, "3d") && !emitterType && !lightType && !globalLight && !pawnType
+        && !modelType && !waterType && !cloudType && !streamType && !spawnerType && !movieType && built.position.y < 0.5f * scale.y)
+        built.position.y = 0.5f * scale.y;
+    if (particleDesc)
+        assignSceneParticle(built, *particleDesc);
 
-    TransformComponent xf{};
-    xf.position = pos;
-    xf.scale    = scale;
-    xf.rotation = rot;
-    const bool lightType   = isLocalLightType(type);
-    const bool globalLight = isGlobalLightType(type);
-    const bool emitterType = type == SceneObjectType::ParticleEmitter;
-    const bool pawnType    = isPawnType(type);
-    const bool modelType   = type == SceneObjectType::Model;
-    const bool waterType   = type == SceneObjectType::Water;
-    const bool cloudType   = type == SceneObjectType::CloudVolume;
-    const bool streamType  = type == SceneObjectType::Stream;
-    const bool spawnerType = type == SceneObjectType::Spawner;
-    const bool movieType   = type == SceneObjectType::Movie;
-    if (m_sceneMode == SceneMode::Scene3D && isScene3DType(type) && !emitterType && !lightType && !globalLight && !pawnType
-        && !modelType && !waterType && !cloudType && !streamType && !spawnerType && !movieType && xf.position.y < 0.5f * xf.scale.y)
-        xf.position.y = 0.5f * xf.scale.y;
-    world().emplace<TransformComponent>(e, xf);
-
-    if (lightType)
+    ContentError err;
+    const Entity e = instantiateSceneObject(archetypeHost(), built, &err);
+    if (!e.valid())
     {
-        LocalLightComponent light{};
-        fillDefaultLocalLight(light, type);
-        light.color = Vector3f(color[0], color[1], color[2]);
-        if (authored && authored->hasLight)
-        {
-            copyAuthoredLocalLight(light, *authored);
-            light.innerConeDeg = authored->lightInnerDeg;
-            light.outerConeDeg = authored->lightOuterDeg;
-        }
-        world().emplace<LocalLightComponent>(e, light);
+        DE_LOG_WARN("Editor: spawn {} failed ({})", built.archetype, err.message);
+        return {};
     }
-    else if (type == SceneObjectType::DirectionalLight)
-    {
-        DirectionalLightComponent dir{};
-        dir.color     = Vector3f(color[0], color[1], color[2]);
-        dir.intensity = (authored && authored->hasLight) ? authored->lightIntensity : Pi;
-        dir.enabled   = (authored && authored->hasLight) ? authored->lightEnabled : true;
-        world().emplace<DirectionalLightComponent>(e, dir);
-    }
-    else if (type == SceneObjectType::AmbientLight)
-    {
-        AmbientLightComponent amb{};
-        amb.color     = Vector3f(color[0], color[1], color[2]);
-        amb.intensity = (authored && authored->hasLight) ? authored->lightIntensity : 1.0f;
-        amb.enabled   = (authored && authored->hasLight) ? authored->lightEnabled : true;
-        world().emplace<AmbientLightComponent>(e, amb);
-    }
-    else if (!emitterType && !pawnType && !modelType && !waterType && !cloudType && !streamType)
-    {
-        MeshComponent mc{};
-        mc.matAssetID  = m_propMaterial ? m_propMaterial->id : NULL_ASSET;
-        mc.meshAssetID = NULL_ASSET;
-        if (authored)
-            mc.emissive = authored->emissive;
-        setMeshComponent(world(), pins(), assets(), e, mc);
-    }
+    const std::string label = editorArchetypeLabel(built.archetype);
+    if (TagComponent* tag = world().get<TagComponent>(e))
+        tag->name = label;
 
     EditorObjectComponent so{};
-    so.type = type;
     copyColor(so.color, color);
-    if (authored && !authored->pickup.empty())
+    if (!built.pickup.empty())
     {
-        so.pickup      = authored->pickup;
-        so.pickupCount = authored->pickupCount > 0 ? authored->pickupCount : 1;
+        so.pickup      = built.pickup;
+        so.pickupCount = built.pickupCount > 0 ? built.pickupCount : 1;
     }
-    if (authored && !authored->dialogue.empty())
-        so.dialogue = authored->dialogue;
-    if (authored)
-        so.source = *authored;
-    so.source.type = type;
-
-    if (type == SceneObjectType::ParticleEmitter)
-    {
-        ParticleEmitterComponent pe{};
-        pe.desc    = particleDesc ? *particleDesc : makeDefaultParticleDesc();
-        pe.playing = true;
-        const bool ribbon = pe.desc.renderMode == ParticleEmitterDesc::RenderMode::Ribbon;
-        if (AssetRef<Material> sprite = internParticleSpriteMaterial(assets(), ribbon))
-        {
-            renderer().gpuResources().ensureMaterial(sprite);
-            pe.matAssetID = sprite->id;
-        }
-        ensureParticleRuntime(pe);
-        pe.runtime->setTransform(xf.position, xf.rotation);
-
-        LocalLightComponent light{};
-        fillDefaultLocalLight(light, SceneObjectType::PointLight);
-        light.color = Vector3f(pe.desc.startColor[0], pe.desc.startColor[1], pe.desc.startColor[2]);
-        if (authored && authored->hasLight)
-        {
-            copyAuthoredLocalLight(light, *authored);
-            light.color = Vector3f(color[0], color[1], color[2]);
-        }
-
-        world().emplace<ParticleEmitterComponent>(e, std::move(pe));
-        if (const auto* spawned = world().get<ParticleEmitterComponent>(e))
-            pinParticleEmitter(pins(), assets(), *spawned);
-        world().emplace<LocalLightComponent>(e, light);
-    }
-
-    if (cloudType)
-    {
-        CloudVolumeComponent cloud{};
-        if (authored && authored->hasCloud)
-            cloudDescFromSceneData(*authored, cloud.desc);
-        world().emplace<CloudVolumeComponent>(e, cloud);
-    }
-
-    if (streamType)
-    {
-        StreamComponent stream;
-        if (authored && authored->hasStream && authored->streamPoints.size() >= 2)
-        {
-            stream.width     = authored->streamWidth;
-            stream.flowSpeed = authored->streamFlowSpeed;
-            stream.points    = authored->streamPoints;
-        }
-        else
-        {
-            stream.points.push_back(Vector2f(xf.position.x, xf.position.z));
-            stream.points.push_back(Vector2f(xf.position.x, xf.position.z - 2.0f));
-        }
-        stream.snapToPoints = true;
-        world().emplace<StreamComponent>(e, std::move(stream));
-    }
-
-    if (spawnerType)
-    {
-        SpawnerComponent spawner{};
-        if (authored && authored->hasSpawner)
-            spawner.desc = authored->spawner;
-        clampSpawnerDesc(spawner.desc);
-        world().emplace<SpawnerComponent>(e, spawner);
-    }
-
-    if (movieType)
-    {
-        SceneObjectData defaults{};
-        applyMovieCue(world(), e, authored ? *authored : defaults);
-    }
-
+    if (!built.dialogue.empty())
+        so.dialogue = built.dialogue;
+    so.source = built;
     if (editorObject)
         world().emplace<EditorObjectComponent>(e, so);
-    if (type == SceneObjectType::Player && !attachEditorPlayer(e))
-    {
-        onEntityRemoved(world(), e, &pins());
-        world().destroyEntity(e);
-        return {};
-    }
-    if (type == SceneObjectType::Hunter && !attachEditorHunter(e))
-    {
-        onEntityRemoved(world(), e, &pins());
-        world().destroyEntity(e);
-        return {};
-    }
-    if (type == SceneObjectType::Wolf && !attachEditorWolf(e))
-    {
-        onEntityRemoved(world(), e, &pins());
-        world().destroyEntity(e);
-        return {};
-    }
-    if (type == SceneObjectType::Model)
-    {
-        const char* modelPath = (authored && !authored->modelPath.empty()) ? authored->modelPath.c_str() : nullptr;
-        if (!modelPath || !attachEditorModel(e, modelPath))
-        {
-            MeshComponent mc{};
-            mc.matAssetID  = m_propMaterial ? m_propMaterial->id : NULL_ASSET;
-            mc.meshAssetID = NULL_ASSET;
-            setMeshComponent(world(), pins(), assets(), e, mc);
-            DE_LOG_WARN("Editor: model '{}' using cube proxy", modelPath ? modelPath : "(none)");
-        }
-    }
-    if (type == SceneObjectType::Cube || type == SceneObjectType::Sphere)
+
+    if (world().has<PhysicsComponent>(e))
+        rebuildPhysicsBody(e);
+    else if (modelType || pawnType)
         tryLoadModelPhysics(e);
-    // Edit mode keeps the file position. Play applies terrain height after the pose is stored.
     if (authored)
-        applySceneActor(world(), e, *authored, nullptr, nullptr);
+        applySceneActor(world(), e, built, nullptr, nullptr);
     m_selected = e;
-    if (registerNet && isReplicatedProp(type))
-        network().registerEntity(world(), e, prefabFromType(type), ClientId::Host, packRgba8(so.color));
-    if (!m_suspendLiveStamp && !isLocalLightType(type) && !isGlobalLightType(type) && type != SceneObjectType::CloudVolume)
+    const std::string prefabName = editorNetPrefabName(built);
+    if (registerNet && isNetPrefabName(prefabName))
+        network().registerEntity(world(), e, prefabFromName(prefabName), ClientId::Host, packRgba8(so.color));
+    if (!m_suspendLiveStamp && !lightType && !globalLight && !cloudType)
     {
         if (m_playMode)
-            stampSpawned(world(), e, toString(type));
+            stampSpawned(world(), e, built.archetype.c_str());
         else
-            stampProceduralId(world(), e, std::format("editor/live/{}", m_liveStamp++), toString(type));
+            stampProceduralId(world(), e, std::format("editor/live/{}", m_liveStamp++), built.archetype.c_str());
     }
-    DE_LOG_INFO("Editor: spawn {} #{}", toString(type), e.id());
+    DE_LOG_INFO("Editor: spawn {} #{}", built.archetype, e.id());
     return e;
 }
 
-Entity EditorApp::placeAtCursor(SceneObjectType type)
+Entity EditorApp::placeAtCursor()
 {
+    std::string id = m_placeArchetype.empty() ? std::string("core:cube") : m_placeArchetype;
     if (m_sceneMode == SceneMode::Scene2D)
     {
-        if (!isScene2DType(type))
-            type = SceneObjectType::Platform;
+        if (const Archetype* archetype = findArchetype(id); !archetype || !archetypeVisibleInMode(*archetype, "2d"))
+            id = "core:platform";
         Vector2f p{};
         worldFromMouse2D(p);
         if (m_gridSnap > 0.0f)
@@ -444,9 +322,11 @@ Entity EditorApp::placeAtCursor(SceneObjectType type)
             p.x = snap(p.x, m_gridSnap);
             p.y = snap(p.y, m_gridSnap);
         }
-        float col[4]{};
-        defaultColor2D(type, col);
-        const Entity e = spawnObject(type, Vector3f(p.x, p.y, 0.0f), defaultScale2D(type), Quaternion::IDENTITY, col, nullptr);
+        float col[4]{ 1.0f, 1.0f, 1.0f, 1.0f };
+        editorDefaultColor(id, col);
+        Vector3f scale{ 1.0f, 1.0f, 1.0f };
+        editorDefaultScale(id, scale);
+        const Entity e = spawnObject(id, Vector3f(p.x, p.y, 0.0f), scale, Quaternion::IDENTITY, col, nullptr);
         if (e.valid())
             audio().play3D(m_sfxPlace, Vector3f(p.x, p.y, 0.0f), 0.65f);
         return e;
@@ -467,77 +347,84 @@ Entity EditorApp::placeAtCursor(SceneObjectType type)
         DE_LOG_WARN("Editor: place failed (no ground hit)");
         return {};
     }
-    return placeAtWorld(type, hit, nullptr);
+    return placeAtWorld(id, hit, nullptr);
 }
 
-Entity EditorApp::placeAtWorld(SceneObjectType type, Vector3f hit, const SceneObjectData* authored)
+Entity EditorApp::placeAtWorld(std::string_view archetypeId, Vector3f hit, const SceneObjectData* authored)
 {
+    if (archetypeId.empty())
+        return {};
     if (m_gridSnap > 0.0f)
     {
         hit.x = snap(hit.x, m_gridSnap);
         hit.z = snap(hit.z, m_gridSnap);
     }
+    SceneObjectData probe{};
+    probe.archetype = std::string(archetypeId);
     const float groundY = hit.y;
     float lightCol[4]{};
     defaultLightColor(lightCol);
     float pawnCol[4]{ 0.35f, 0.85f, 0.72f, 1.0f };
     float spawnerCol[4]{ 1.0f, 0.62f, 0.15f, 1.0f };
     float movieCol[4]{ 0.25f, 0.45f, 0.95f, 1.0f };
-    if (type == SceneObjectType::Hunter)
+    if (sceneHasBehavior(probe, "ai.hunter"))
     {
         pawnCol[0] = 0.85f;
         pawnCol[1] = 0.28f;
         pawnCol[2] = 0.22f;
     }
-    else if (type == SceneObjectType::Wolf)
+    else if (sceneHasBehavior(probe, "ai.wolf"))
     {
         pawnCol[0] = 0.52f;
         pawnCol[1] = 0.46f;
         pawnCol[2] = 0.40f;
     }
-    const float* col = isLocalLightType(type) ? lightCol : (isPawnType(type) ? pawnCol : kPalette[m_colorIndex % kPaletteCount]);
-    if (type == SceneObjectType::Spawner)
-        col = spawnerCol;
-    else if (type == SceneObjectType::Movie)
-        col = movieCol;
+    float chosen[4];
+    const float* palette = kPalette[m_colorIndex % kPaletteCount];
+    copyColor(chosen, editorPointOrSpot(probe) ? lightCol : (editorPawn(probe) ? pawnCol : palette));
+    if (sceneHasComponent(probe, "Spawner"))
+        copyColor(chosen, spawnerCol);
+    else if (sceneHasComponent(probe, "Movie"))
+        copyColor(chosen, movieCol);
+    if (editorDefaultColor(archetypeId, chosen))
+    {
+    }
     Vector3f scale(1, 1, 1);
-    if (isLocalLightType(type))
+    const bool modelType = sceneHasBehavior(probe, "model");
+    if (editorPointOrSpot(probe))
         hit.y += 1.5f;
-    else if (type == SceneObjectType::ParticleEmitter)
+    else if (sceneHasComponent(probe, "ParticleEmitter"))
         hit.y = 0.5f;
-    else if (isPawnType(type))
+    else if (editorPawn(probe))
         hit.y += 0.5f;
-    else if (type == SceneObjectType::Model)
+    else if (modelType)
         hit.y = groundY;
-    else if (type == SceneObjectType::Water)
+    else if (sceneHasComponent(probe, "Water"))
     {
         scale = Vector3f(48.0f, 2.0f, 48.0f);
         hit.y = groundY;
     }
-    else if (type == SceneObjectType::Stream)
+    else if (sceneHasComponent(probe, "Stream"))
         hit.y = groundY;
-    else if (type == SceneObjectType::CloudVolume)
+    else if (sceneHasComponent(probe, "CloudVolume"))
     {
         scale = Vector3f(96.0f, 28.0f, 96.0f);
         hit.y = groundY + 32.0f;
     }
-    else if (type == SceneObjectType::Spawner)
+    else if (sceneHasComponent(probe, "Spawner") || sceneHasComponent(probe, "Movie"))
     {
         scale = Vector3f(0.8f, 0.8f, 0.8f);
         hit.y = groundY + 0.5f * scale.y;
     }
-    else if (type == SceneObjectType::Movie)
-    {
-        scale = Vector3f(0.8f, 0.8f, 0.8f);
-        hit.y = groundY + 0.5f * scale.y;
-    }
+    else if (!editorDefaultScale(archetypeId, scale))
+        hit.y = 0.5f * scale.y;
     else
         hit.y = 0.5f * scale.y;
-    const Quaternion rot = (type == SceneObjectType::SpotLight) ? defaultSpotRotation() : Quaternion::IDENTITY;
-    const Entity e = spawnObject(type, hit, scale, rot, col, nullptr, authored);
+    const Quaternion rot = (sceneLightKind(probe) == "spot") ? defaultSpotRotation() : Quaternion::IDENTITY;
+    const Entity e = spawnObject(archetypeId, hit, scale, rot, chosen, nullptr, authored);
     if (!e.valid())
         return {};
-    if (type == SceneObjectType::Model)
+    if (modelType)
     {
         if (TransformComponent* xf = world().get<TransformComponent>(e))
         {
@@ -558,7 +445,31 @@ Entity EditorApp::placeAtWorld(SceneObjectType type, Vector3f hit, const SceneOb
     return e;
 }
 
+ArchetypeSpawnHost EditorApp::archetypeHost()
+{
+    ArchetypeSpawnHost host{};
+    host.world               = &world();
+    host.assets              = &assets();
+    host.pins                = &pins();
+    host.renderer            = &renderer();
+    host.audio               = &audio();
+    host.ground              = &m_ground;
+    host.ai                  = &m_ai;
+    host.ensureMesh          = &EditorApp::ensureArchetypeMesh;
+    host.ensurePrimitive     = &EditorApp::ensureArchetypePrimitive;
+    host.bindParticleMaterial = &EditorApp::bindArchetypeParticles;
+    host.onWeaponHit         = &EditorApp::onPlayWeaponHitThunk;
+    host.weaponHitUser       = this;
+    host.user                = this;
+    return host;
+}
+
 bool EditorApp::ensureArchetypeMesh(void* user, Entity entity)
+{
+    return ensureArchetypePrimitive(user, entity, "none");
+}
+
+bool EditorApp::ensureArchetypePrimitive(void* user, Entity entity, const char* primitive)
 {
     auto* app = static_cast<EditorApp*>(user);
     if (!app || !entity.valid() || !app->world().alive(entity))
@@ -566,7 +477,34 @@ bool EditorApp::ensureArchetypeMesh(void* user, Entity entity)
     MeshComponent mc{};
     mc.matAssetID  = app->m_propMaterial ? app->m_propMaterial->id : NULL_ASSET;
     mc.meshAssetID = NULL_ASSET;
+    if (primitive && std::strcmp(primitive, "sphere") == 0)
+        mc.primitive = PrimitiveMesh::Sphere;
+    else if (primitive && std::strcmp(primitive, "cross") == 0)
+        mc.primitive = PrimitiveMesh::Cross;
+    else if (primitive && std::strcmp(primitive, "none") == 0)
+        mc.primitive = PrimitiveMesh::None;
+    else
+        mc.primitive = PrimitiveMesh::Cube;
+    if (const ArchetypeParamsComponent* params = app->world().get<ArchetypeParamsComponent>(entity))
+        mc.emissive = params->emissive;
     setMeshComponent(app->world(), app->pins(), app->assets(), entity, mc);
+    return true;
+}
+
+bool EditorApp::bindArchetypeParticles(void* user, Entity entity, bool ribbon)
+{
+    auto* app = static_cast<EditorApp*>(user);
+    if (!app || !entity.valid() || !app->world().alive(entity))
+        return false;
+    ParticleEmitterComponent* emitter = app->world().get<ParticleEmitterComponent>(entity);
+    if (!emitter)
+        return false;
+    if (AssetRef<Material> sprite = internParticleSpriteMaterial(app->assets(), ribbon))
+    {
+        app->renderer().gpuResources().ensureMaterial(sprite);
+        emitter->matAssetID = sprite->id;
+    }
+    pinParticleEmitter(app->pins(), app->assets(), *emitter);
     return true;
 }
 
@@ -574,16 +512,7 @@ Entity EditorApp::spawnAuthoredArchetype(const SceneObjectData& authored, bool s
 {
     if (netClientLocked() || authored.archetype.empty())
         return {};
-    ArchetypeSpawnHost host{};
-    host.world      = &world();
-    host.assets     = &assets();
-    host.pins       = &pins();
-    host.renderer   = &renderer();
-    host.audio      = &audio();
-    host.ground     = &m_ground;
-    host.ai         = &m_ai;
-    host.ensureMesh = &EditorApp::ensureArchetypeMesh;
-    host.user       = this;
+    const ArchetypeSpawnHost host = archetypeHost();
     ArchetypeSpawnPose pose{};
     pose.position = authored.position;
     pose.rotation = authored.rotation;
@@ -601,13 +530,11 @@ Entity EditorApp::spawnAuthoredArchetype(const SceneObjectData& authored, bool s
         return {};
     }
     EditorObjectComponent so{};
-    so.type     = SceneObjectType::Model;
     so.color[0] = pose.color[0];
     so.color[1] = pose.color[1];
     so.color[2] = pose.color[2];
     so.color[3] = pose.color[3];
     so.source            = authored;
-    so.source.type       = SceneObjectType::Model;
     so.source.dataDriven = true;
     so.source.archetype  = authored.archetype;
     world().emplace<EditorObjectComponent>(e, so);
@@ -632,7 +559,11 @@ Entity EditorApp::spawnPlaceholder(const SceneObjectData& authored)
     Vector3f scale = authored.scale;
     if (scale.x == 0.0f && scale.y == 0.0f && scale.z == 0.0f)
         scale = Vector3f{ 1.0f, 1.0f, 1.0f };
-    const Entity e = spawnObject(SceneObjectType::Cube, authored.position, scale, authored.rotation, col, nullptr, &authored, false, true);
+    SceneObjectData marker = authored;
+    marker.archetype   = "core:cube";
+    marker.placeholder = false;
+    marker.dataDriven  = false;
+    const Entity e = spawnObject("core:cube", authored.position, scale, authored.rotation, col, nullptr, &marker, false, true);
     if (!e.valid())
         return {};
     if (EditorObjectComponent* so = world().get<EditorObjectComponent>(e))
@@ -651,40 +582,7 @@ Entity EditorApp::spawnPlaceholder(const SceneObjectData& authored)
 
 Entity EditorApp::placeArchetypeAtWorld(const std::string& archetypeId, Vector3f hit, const SceneObjectData* authored)
 {
-    if (archetypeId.empty())
-        return {};
-    if (m_gridSnap > 0.0f)
-    {
-        hit.x = snap(hit.x, m_gridSnap);
-        hit.z = snap(hit.z, m_gridSnap);
-    }
-    bool lift = false;
-    if (const Archetype* arch = findArchetype(archetypeId))
-    {
-        for (const ArchetypeBehavior& behavior : arch->behaviors)
-        {
-            if (behavior.name.rfind("ai.", 0) == 0 || behavior.name.rfind("player.", 0) == 0)
-                lift = true;
-        }
-    }
-    if (lift)
-        hit.y += 0.5f;
-    SceneObjectData local{};
-    if (authored)
-        local = *authored;
-    local.archetype   = archetypeId;
-    local.dataDriven  = true;
-    local.type        = SceneObjectType::Model;
-    local.position    = hit;
-    local.rotation    = Quaternion::IDENTITY;
-    if (local.scale.x == 0.0f && local.scale.y == 0.0f && local.scale.z == 0.0f)
-        local.scale = Vector3f{ 1.0f, 1.0f, 1.0f };
-    const Entity e = spawnAuthoredArchetype(local, true);
-    if (!e.valid())
-        return {};
-    if (const TransformComponent* xf = world().get<TransformComponent>(e))
-        audio().play3D(m_sfxPlace, xf->position, 0.65f);
-    return e;
+    return placeAtWorld(archetypeId, hit, authored);
 }
 
 Entity EditorApp::placeArchetypeAtCursor()
@@ -732,8 +630,8 @@ Entity EditorApp::placeGlowProp()
     defaultLightColor(col);
     SceneObjectData meshAuthored{};
     meshAuthored.emissive = 1.0f;
-    const Entity meshE    = spawnObject(SceneObjectType::Sphere, hit, Vector3f(1, 1, 1), Quaternion::IDENTITY, col, nullptr, &meshAuthored, false);
-    const Entity lightE   = spawnObject(SceneObjectType::PointLight, hit, Vector3f(1, 1, 1), Quaternion::IDENTITY, col, nullptr);
+    const Entity meshE    = spawnObject("core:sphere", hit, Vector3f(1, 1, 1), Quaternion::IDENTITY, col, nullptr, &meshAuthored, false);
+    const Entity lightE   = spawnObject("core:point_light", hit, Vector3f(1, 1, 1), Quaternion::IDENTITY, col, nullptr);
     if (lightE.valid())
     {
         if (auto* light = world().get<LocalLightComponent>(lightE))
@@ -751,9 +649,9 @@ void EditorApp::ensureGlobalLights()
     bool haveAmbient     = false;
     bool haveDirectional = false;
     world().each<EditorObjectComponent>([&](Entity, EditorObjectComponent& so) {
-        if (so.type == SceneObjectType::AmbientLight)
+        if (sceneLightKind(so.source) == "ambient")
             haveAmbient = true;
-        if (so.type == SceneObjectType::DirectionalLight)
+        if (sceneLightKind(so.source) == "directional")
             haveDirectional = true;
     });
 
@@ -761,12 +659,12 @@ void EditorApp::ensureGlobalLights()
     if (!haveAmbient)
     {
         float col[4] = { 0.22f, 0.22f, 0.22f, 1.0f };
-        spawnObject(SceneObjectType::AmbientLight, Vector3f(-4.0f, 6.0f, 4.0f), Vector3f(1, 1, 1), Quaternion::IDENTITY, col, nullptr);
+        spawnObject("core:ambient_light", Vector3f(-4.0f, 6.0f, 4.0f), Vector3f(1, 1, 1), Quaternion::IDENTITY, col, nullptr);
     }
     if (!haveDirectional)
     {
         float col[4] = { 1.0f, 0.96f, 0.88f, 1.0f };
-        spawnObject(SceneObjectType::DirectionalLight, Vector3f(4.0f, 8.0f, -4.0f), Vector3f(1, 1, 1), defaultDirectionalRotation(), col, nullptr);
+        spawnObject("core:directional_light", Vector3f(4.0f, 8.0f, -4.0f), Vector3f(1, 1, 1), defaultDirectionalRotation(), col, nullptr);
     }
     m_selected = prev;
 }
@@ -832,7 +730,7 @@ void EditorApp::deleteSelected()
 {
     if (netClientLocked() || !m_selected.valid())
         return;
-    if (const EditorObjectComponent* so = findObject(m_selected); so && isGlobalLightType(so->type))
+    if (const EditorObjectComponent* so = findObject(m_selected); so && editorGlobalLight(so->source))
     {
         DE_LOG_WARN("Editor: ambient / directional lights cannot be deleted");
         return;
@@ -899,27 +797,36 @@ void EditorApp::selectNext(int delta)
 
 void EditorApp::cyclePlaceType(int delta)
 {
-    const SceneObjectType types3D[] = {
-        SceneObjectType::Cube, SceneObjectType::Sphere, SceneObjectType::ParticleEmitter,
-        SceneObjectType::PointLight, SceneObjectType::SpotLight,
-        SceneObjectType::Player, SceneObjectType::Hunter, SceneObjectType::Wolf, SceneObjectType::Spawner, SceneObjectType::Movie, SceneObjectType::Water,
-        SceneObjectType::Stream, SceneObjectType::CloudVolume
-    };
-    const SceneObjectType types2D[] = {
-        SceneObjectType::Platform, SceneObjectType::Coin, SceneObjectType::Spawn
-    };
-    const SceneObjectType* types = (m_sceneMode == SceneMode::Scene2D) ? types2D : types3D;
-    const int n = (m_sceneMode == SceneMode::Scene2D)
-        ? static_cast<int>(_countof(types2D))
-        : static_cast<int>(_countof(types3D));
+    const char* modeName = (m_sceneMode == SceneMode::Scene2D) ? "2d" : "3d";
+    std::vector<std::string> ids;
+    for (const Archetype& archetype : archetypes())
+    {
+        if (archetypeVisibleInMode(archetype, modeName))
+            ids.push_back(archetype.name);
+    }
+    std::sort(ids.begin(), ids.end(), [](const std::string& a, const std::string& b) {
+        const Archetype* aa = findArchetype(a);
+        const Archetype* bb = findArchetype(b);
+        const std::string ah = aa ? aa->editor.hotkey : std::string{};
+        const std::string bh = bb ? bb->editor.hotkey : std::string{};
+        if (ah.empty() != bh.empty())
+            return !ah.empty();
+        if (ah != bh)
+            return ah < bh;
+        return a < b;
+    });
+    if (ids.empty())
+        return;
     int idx = 0;
-    for (int i = 0; i < n; ++i)
-        if (types[i] == m_placeType)
+    for (int i = 0; i < static_cast<int>(ids.size()); ++i)
+    {
+        if (ids[static_cast<size_t>(i)] == m_placeArchetype)
             idx = i;
+    }
+    const int n = static_cast<int>(ids.size());
     idx = ((idx + delta) % n + n) % n;
-    m_placeType = types[idx];
-    m_placeArchetype.clear();
-    DE_LOG_INFO("Editor: place type = {}", toString(m_placeType));
+    m_placeArchetype = ids[static_cast<size_t>(idx)];
+    DE_LOG_INFO("Editor: place type = {}", m_placeArchetype);
 }
 
 void EditorApp::cycleSelectedColor()

@@ -2,6 +2,6 @@
   "id": "core:water",
   "version": 1,
   "editor": { "label": "Water", "category": "Environment", "icon": "water", "modes": ["3d"] },
-  "components": {},
-  "behaviors": []
+  "components": { "Water": {} },
+  "behaviors": [ { "name": "water.volume" } ]
 }

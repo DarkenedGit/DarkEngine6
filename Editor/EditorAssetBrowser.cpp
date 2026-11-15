@@ -32,8 +32,8 @@ constexpr const char* kAssetDragType = "DE_ASSET";
 
 struct AssetDragPayload
 {
-    SceneObjectType type = SceneObjectType::Cube;
-    char            path[192]{};
+    char archetype[96]{};
+    char path[192]{};
 };
 
 bool containsInsensitive(std::string_view hay, std::string_view needle)
@@ -60,12 +60,17 @@ bool containsInsensitive(std::string_view hay, std::string_view needle)
     return false;
 }
 
-void beginAssetDrag(SceneObjectType type, const char* path, const char* preview, uint64_t iconId)
+void beginAssetDrag(std::string_view archetypeId, const char* path, const char* preview, uint64_t iconId)
 {
     if (!ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID))
         return;
     AssetDragPayload payload{};
-    payload.type = type;
+    if (!archetypeId.empty())
+    {
+        const size_t n = archetypeId.size() < sizeof(payload.archetype) - 1 ? archetypeId.size() : sizeof(payload.archetype) - 1;
+        std::memcpy(payload.archetype, archetypeId.data(), n);
+        payload.archetype[n] = '\0';
+    }
     if (path && path[0])
         strncpy_s(payload.path, path, _TRUNCATE);
     ImGui::SetDragDropPayload(kAssetDragType, &payload, sizeof(payload));
@@ -76,39 +81,38 @@ void beginAssetDrag(SceneObjectType type, const char* path, const char* preview,
         ImGui::SameLine();
     }
 
-    ImGui::TextUnformatted(preview ? preview : toString(type));
+    ImGui::TextUnformatted(preview && preview[0] ? preview : payload.archetype);
     ImGui::EndDragDropSource();
 }
 } // namespace
 
-bool EditorApp::tryPawnTypeForModelPath(std::string_view virt, SceneObjectType& out)
+std::string EditorApp::archetypeForModelPath(std::string_view virt)
 {
     const size_t slash = virt.find_last_of("/\\");
     const std::string_view file = (slash == std::string_view::npos) ? virt : virt.substr(slash + 1);
     const size_t dot = file.find_last_of('.');
     const std::string_view stem = (dot == std::string_view::npos) ? file : file.substr(0, dot);
-    if (stem == "wolf")
+    const Archetype* match = archetypeMatchingModelStem(stem);
+    if (!match || match->name.empty())
+        return "core:model";
+    bool character = false;
+    bool solid = false;
+    for (const ArchetypeBehavior& behavior : match->behaviors)
     {
-        out = SceneObjectType::Wolf;
-        return true;
+        if (behavior.name == "player.controller" || behavior.name.starts_with("ai."))
+            character = true;
+        if (behavior.name == "prop.solid")
+            solid = true;
     }
-    if (stem == "human")
-    {
-        out = SceneObjectType::Player;
-        return true;
-    }
-    if (stem == "skeleton")
-    {
-        out = SceneObjectType::Hunter;
-        return true;
-    }
-    return false;
+    if (character || !solid)
+        return match->name;
+    return "core:model";
 }
 
-void EditorApp::queueAssetPlace(SceneObjectType type, const char* modelPath, bool useMouse)
+void EditorApp::queueAssetPlace(std::string_view archetypeId, const char* modelPath, bool useMouse)
 {
     m_queueAssetPlace = true;
-    m_queueAssetType  = type;
+    m_queueAssetArchetype = archetypeId.empty() ? std::string("core:cube") : std::string(archetypeId);
     m_queueAssetModel[0] = 0;
     if (modelPath && modelPath[0])
         strncpy_s(m_queueAssetModel, modelPath, _TRUNCATE);
@@ -123,35 +127,20 @@ void EditorApp::queueAssetPlace(SceneObjectType type, const char* modelPath, boo
 void EditorApp::flushQueuedAssetPlace()
 {
     SceneObjectData authored{};
-    SceneObjectType type = m_queueAssetType;
-    std::string matchedArchetype;
+    std::string id = m_queueAssetArchetype.empty() ? std::string("core:cube") : m_queueAssetArchetype;
     if (m_queueAssetModel[0])
     {
         authored.modelPath = m_queueAssetModel;
-        SceneObjectType pawn{};
-        if (tryPawnTypeForModelPath(m_queueAssetModel, pawn))
-            type = pawn;
-        else
-        {
-            const size_t slash = std::string_view(m_queueAssetModel).find_last_of("/\\");
-            const std::string_view file = slash == std::string_view::npos ? std::string_view(m_queueAssetModel) : std::string_view(m_queueAssetModel).substr(slash + 1);
-            const size_t dot = file.find_last_of('.');
-            const std::string_view stem = dot == std::string_view::npos ? file : file.substr(0, dot);
-            if (const Archetype* match = archetypeMatchingModelStem(stem))
-            {
-                SceneObjectType legacy{};
-                if (!legacySceneTypeForId(match->name, legacy))
-                    matchedArchetype = match->name;
-            }
-            type = SceneObjectType::Model;
-        }
+        id = archetypeForModelPath(m_queueAssetModel);
     }
 
     if (m_sceneMode == SceneMode::Scene2D)
     {
-        if (!isScene2DType(type))
+        SceneObjectData probe{};
+        probe.archetype = id;
+        if (!editorShownInMode(probe, "2d"))
         {
-            DE_LOG_WARN("Editor: cannot place '{}' in a 2D scene", toString(type));
+            DE_LOG_WARN("Editor: cannot place '{}' in a 2D scene", id);
             return;
         }
         Vector2f p{};
@@ -169,9 +158,11 @@ void EditorApp::flushQueuedAssetPlace()
             p.x = snap(p.x, m_gridSnap);
             p.y = snap(p.y, m_gridSnap);
         }
-        float col[4]{};
-        defaultColor2D(type, col);
-        const Entity e = spawnObject(type, Vector3f(p.x, p.y, 0.0f), defaultScale2D(type), Quaternion::IDENTITY, col, nullptr);
+        float col[4]{ 1.0f, 1.0f, 1.0f, 1.0f };
+        editorDefaultColor(id, col);
+        Vector3f scale{ 1.0f, 1.0f, 1.0f };
+        editorDefaultScale(id, scale);
+        const Entity e = spawnObject(id, Vector3f(p.x, p.y, 0.0f), scale, Quaternion::IDENTITY, col, nullptr);
         if (e.valid())
             audio().play3D(m_sfxPlace, Vector3f(p.x, p.y, 0.0f), 0.65f);
         return;
@@ -198,14 +189,8 @@ void EditorApp::flushQueuedAssetPlace()
         DE_LOG_WARN("Editor: asset place failed (no ground hit)");
         return;
     }
-    if (!matchedArchetype.empty())
-    {
-        authored.modelPath = m_queueAssetModel;
-        placeArchetypeAtWorld(matchedArchetype, hit, &authored);
-        return;
-    }
     const SceneObjectData* authoredPtr = authored.modelPath.empty() ? nullptr : &authored;
-    placeAtWorld(type, hit, authoredPtr);
+    placeAtWorld(id, hit, authoredPtr);
 }
 
 void EditorApp::refreshAssetListing()
@@ -295,7 +280,7 @@ void EditorApp::drawAssetDropTarget()
     }
 
     const auto* drag = static_cast<const AssetDragPayload*>(payload->Data);
-    queueAssetPlace(drag->type, drag->path[0] ? drag->path : nullptr, true);
+    queueAssetPlace(drag->archetype, drag->path[0] ? drag->path : nullptr, true);
 }
 
 void EditorApp::drawAssetBrowser()
@@ -334,70 +319,36 @@ void EditorApp::drawAssetBrowser()
 
     const std::string_view filter = m_assetFilter;
 
-    auto drawPrimitive = [&](SceneObjectType type, const char* label) {
-        char row[96];
-        ImGui::BeginDisabled(!createOk);
-        if (drawTypeIconImage(typeIconId(type)))
-            std::snprintf(row, sizeof(row), "%s", label);
-        else
-            std::snprintf(row, sizeof(row), "%s  %s", iconForType(type), label);
-        ImGui::Selectable(row);
-        if (createOk)
-            beginAssetDrag(type, nullptr, label, typeIconId(type));
-        if (createOk && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-            queueAssetPlace(type, nullptr, false);
-        ImGui::EndDisabled();
-    };
-
     if (ImGui::CollapsingHeader("Place", ImGuiTreeNodeFlags_DefaultOpen))
     {
-        if (m_sceneMode == SceneMode::Scene2D)
-        {
-            drawPrimitive(SceneObjectType::Platform, "Platform");
-            drawPrimitive(SceneObjectType::Coin, "Coin");
-            drawPrimitive(SceneObjectType::Spawn, "Player Spawn");
-        }
-        else
-        {
-            drawPrimitive(SceneObjectType::Cube, "Cube");
-            drawPrimitive(SceneObjectType::Sphere, "Sphere");
-            drawPrimitive(SceneObjectType::ParticleEmitter, "Particle Emitter");
-            drawPrimitive(SceneObjectType::PointLight, "Point Light");
-            drawPrimitive(SceneObjectType::SpotLight, "Spot Light");
-            drawPrimitive(SceneObjectType::Player, "Player");
-            drawPrimitive(SceneObjectType::Hunter, "Hunter");
-            drawPrimitive(SceneObjectType::Wolf, "Wolf");
-            drawPrimitive(SceneObjectType::Spawner, "Spawner");
-            drawPrimitive(SceneObjectType::Movie, "Movie");
-            drawPrimitive(SceneObjectType::Water, "Water");
-            drawPrimitive(SceneObjectType::Stream, "Stream");
-            drawPrimitive(SceneObjectType::CloudVolume, "Cloud Volume");
-        }
-    }
-
-    if (ImGui::CollapsingHeader("Archetypes"))
-    {
         const char* modeName = (m_sceneMode == SceneMode::Scene2D) ? "2d" : "3d";
+        std::vector<const Archetype*> placeable;
         for (const Archetype& archetype : archetypes())
         {
-            SceneObjectType legacy{};
-            if (legacySceneTypeForId(archetype.name, legacy) || archetype.name == "core:crow")
-                continue;
-            if (!archetypeVisibleInMode(archetype, modeName))
-                continue;
-            const std::string label = archetype.editor.label.empty() ? archetype.name : archetype.editor.label;
+            if (archetypeVisibleInMode(archetype, modeName))
+                placeable.push_back(&archetype);
+        }
+        std::sort(placeable.begin(), placeable.end(), [](const Archetype* a, const Archetype* b) {
+            if (a->editor.hotkey != b->editor.hotkey)
+                return a->editor.hotkey < b->editor.hotkey;
+            return a->name < b->name;
+        });
+        for (const Archetype* archetype : placeable)
+        {
+            const std::string label = archetype->editor.label.empty() ? archetype->name : archetype->editor.label;
+            const uint64_t icon = archetypeIconId(archetype->name);
             char row[192];
-            std::snprintf(row, sizeof(row), "%s  %s", iconForContentName(archetype.editor.icon), label.c_str());
             ImGui::BeginDisabled(!createOk);
-            ImGui::PushID(archetype.name.c_str());
-            if (ImGui::Selectable(row))
-            {
-            }
+            ImGui::PushID(archetype->name.c_str());
+            if (drawTypeIconImage(icon))
+                std::snprintf(row, sizeof(row), "%s", label.c_str());
+            else
+                std::snprintf(row, sizeof(row), "%s  %s", iconForContentName(archetype->editor.icon), label.c_str());
+            ImGui::Selectable(row);
+            if (createOk)
+                beginAssetDrag(archetype->name, nullptr, label.c_str(), icon);
             if (createOk && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-            {
-                m_placeArchetype = archetype.name;
-                m_queuePlaceAtCursor = true;
-            }
+                queueAssetPlace(archetype->name, nullptr, false);
             ImGui::PopID();
             ImGui::EndDisabled();
         }
@@ -434,17 +385,18 @@ void EditorApp::drawAssetBrowser()
             else
             {
                 char row[160];
-                const uint64_t modelIcon = typeIconId(SceneObjectType::Model) != 0 ? typeIconId(SceneObjectType::Model) : m_fileIconId;
-                if (drawTypeIconImage(modelIcon))
+                const uint64_t modelIcon = archetypeIconId("core:model");
+                const uint64_t shown = modelIcon != 0 ? modelIcon : m_fileIconId;
+                if (drawTypeIconImage(shown))
                     std::snprintf(row, sizeof(row), "%s", entry.name.c_str());
                 else
                     std::snprintf(row, sizeof(row), "%s  %s", ICON_FA_CUBE, entry.name.c_str());
                 ImGui::BeginDisabled(!createOk);
                 ImGui::Selectable(row);
                 if (createOk)
-                    beginAssetDrag(SceneObjectType::Model, entry.virt.c_str(), entry.name.c_str(), typeIconId(SceneObjectType::Model));
+                    beginAssetDrag("core:model", entry.virt.c_str(), entry.name.c_str(), modelIcon);
                 if (createOk && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-                    queueAssetPlace(SceneObjectType::Model, entry.virt.c_str(), false);
+                    queueAssetPlace("core:model", entry.virt.c_str(), false);
                 ImGui::EndDisabled();
             }
             ImGui::PopID();

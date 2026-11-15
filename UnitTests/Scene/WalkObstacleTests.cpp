@@ -43,15 +43,15 @@ TEST(WalkObstacles, ClassifySkipsVolumesAndKeepsNegativeScale)
     Math::Sphere3f sphere;
     const Math::Vector3f at{ 2.0f, 1.0f, -3.0f };
     const Math::Vector3f scale{ -2.0f, 1.0f, 4.0f };
-    EXPECT_FALSE(classifyWalkObstacle(SceneObjectType::Cube, at, scale, false, false, false, false, false, box, sphere));
-    EXPECT_FALSE(classifyWalkObstacle(SceneObjectType::Cube, at, scale, true, true, false, false, false, box, sphere));
-    EXPECT_FALSE(classifyWalkObstacle(SceneObjectType::Cube, at, scale, true, false, true, false, false, box, sphere));
-    EXPECT_FALSE(classifyWalkObstacle(SceneObjectType::Cube, at, scale, true, false, false, true, false, box, sphere));
-    EXPECT_FALSE(classifyWalkObstacle(SceneObjectType::Cube, at, Math::Vector3f{ 1.0f, 0.2f, 1.0f }, true, false, false, false, false, box, sphere));
-    EXPECT_TRUE(classifyWalkObstacle(SceneObjectType::Cube, at, scale, true, false, false, false, false, box, sphere));
+    EXPECT_FALSE(classifyWalkObstacle("cube", at, scale, false, false, false, false, false, box, sphere));
+    EXPECT_FALSE(classifyWalkObstacle("cube", at, scale, true, true, false, false, false, box, sphere));
+    EXPECT_FALSE(classifyWalkObstacle("cube", at, scale, true, false, true, false, false, box, sphere));
+    EXPECT_FALSE(classifyWalkObstacle("cube", at, scale, true, false, false, true, false, box, sphere));
+    EXPECT_FALSE(classifyWalkObstacle("cube", at, Math::Vector3f{ 1.0f, 0.2f, 1.0f }, true, false, false, false, false, box, sphere));
+    EXPECT_TRUE(classifyWalkObstacle("cube", at, scale, true, false, false, false, false, box, sphere));
     EXPECT_NEAR(box.Extents().x, 1.0f, 1.0e-4f);
     EXPECT_NEAR(box.Extents().z, 2.0f, 1.0e-4f);
-    EXPECT_TRUE(classifyWalkObstacle(SceneObjectType::Sphere, at, scale, true, false, false, false, false, box, sphere));
+    EXPECT_TRUE(classifyWalkObstacle("sphere", at, scale, true, false, false, false, false, box, sphere));
     EXPECT_NEAR(sphere.Radius, 2.0f, 1.0e-4f);
-    EXPECT_FALSE(classifyWalkObstacle(SceneObjectType::Model, at, scale, true, false, false, false, false, box, sphere));
+    EXPECT_FALSE(classifyWalkObstacle("model", at, scale, true, false, false, false, false, box, sphere));
 }

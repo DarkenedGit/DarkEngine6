@@ -35,14 +35,6 @@
         0.15829578042030334,
         1.0
       ],
-      "light": {
-        "enabled": true,
-        "inner": 12.0,
-        "intensity": 1.0,
-        "outer": 25.0,
-        "range": 8.0,
-        "sourceRadius": 0.05000000074505806
-      },
       "position": [
         -4.0,
         6.0,
@@ -59,7 +51,17 @@
         1.0,
         1.0
       ],
-      "type": "ambient_light"
+      "archetype": "core:ambient_light",
+      "overrides": {
+        "AmbientLight": {
+          "enabled": true,
+          "inner": 12.0,
+          "intensity": 1.0,
+          "outer": 25.0,
+          "range": 8.0,
+          "sourceRadius": 0.05000000074505806
+        }
+      }
     },
     {
       "color": [
@@ -68,14 +70,6 @@
         0.6430220603942871,
         1.0
       ],
-      "light": {
-        "enabled": true,
-        "inner": 12.0,
-        "intensity": 3.252000093460083,
-        "outer": 25.0,
-        "range": 8.0,
-        "sourceRadius": 0.05000000074505806
-      },
       "position": [
         4.0,
         8.0,
@@ -92,7 +86,17 @@
         1.0,
         1.0
       ],
-      "type": "directional_light"
+      "archetype": "core:directional_light",
+      "overrides": {
+        "DirectionalLight": {
+          "enabled": true,
+          "inner": 12.0,
+          "intensity": 3.252000093460083,
+          "outer": 25.0,
+          "range": 8.0,
+          "sourceRadius": 0.05000000074505806
+        }
+      }
     },
     {
       "color": [
@@ -117,7 +121,7 @@
         1.0,
         1.0
       ],
-      "type": "cube"
+      "archetype": "core:cube"
     },
     {
       "color": [
@@ -142,7 +146,7 @@
         1.0,
         1.0
       ],
-      "type": "sphere"
+      "archetype": "core:sphere"
     },
     {
       "color": [
@@ -167,7 +171,7 @@
         1.0,
         1.0
       ],
-      "type": "player"
+      "archetype": "core:player"
     },
     {
       "color": [
@@ -192,19 +196,21 @@
         0.8,
         0.8
       ],
-      "spawner": {
-        "count": 6,
-        "enabled": true,
-        "gate": "cleared",
-        "maxWaves": 0,
-        "mode": "maintain",
-        "radius": 18.0,
-        "respawnDelay": 2.0,
-        "seed": 3,
-        "unit": "crow",
-        "waveInterval": 8.0
-      },
-      "type": "spawner"
+      "archetype": "core:spawner",
+      "overrides": {
+        "Spawner": {
+          "count": 6,
+          "enabled": true,
+          "gate": "cleared",
+          "maxWaves": 0,
+          "mode": "maintain",
+          "radius": 18.0,
+          "respawnDelay": 2.0,
+          "seed": 3,
+          "unit": "crow",
+          "waveInterval": 8.0
+        }
+      }
     },
     {
       "color": [
@@ -230,7 +236,7 @@
         1.0
       ],
       "dialogue": "dialogue/hunter_gate.dlg.json",
-      "type": "hunter"
+      "archetype": "core:hunter"
     },
     {
       "color": [
@@ -255,7 +261,7 @@
         1.0,
         1.0
       ],
-      "type": "wolf"
+      "archetype": "core:wolf"
     },
     {
       "color": [
@@ -280,7 +286,7 @@
         1.0,
         1.0
       ],
-      "type": "wolf"
+      "archetype": "core:wolf"
     },
     {
       "color": [
@@ -305,7 +311,7 @@
         1.0,
         1.0
       ],
-      "type": "sphere"
+      "archetype": "core:sphere"
     },
     {
       "color": [
@@ -330,35 +336,9 @@
         1.0,
         1.0
       ],
-      "type": "cube"
+      "archetype": "core:cube"
     },
     {
-      "cloud": {
-        "absorption": 1.149999976158142,
-        "albedo": [
-          0.8999999761581421,
-          0.9300000071525574,
-          1.0
-        ],
-        "anisotropy": 0.44999998807907104,
-        "coverage": 0.5799999833106995,
-        "density": 0.8999999761581421,
-        "detailScale": 3.4000000953674316,
-        "detailStrength": 0.3799999952316284,
-        "enabled": false,
-        "heightFalloff": 0.550000011920929,
-        "noiseScale": 0.054999999701976776,
-        "scattering": 1.0,
-        "shape": "ellipsoid",
-        "silverLining": 0.75,
-        "softness": 0.41999998688697815,
-        "windDir": [
-          1.0,
-          0.019999999552965164,
-          0.25
-        ],
-        "windSpeed": 1.2000000476837158
-      },
       "color": [
         0.8999999761581421,
         0.9300000071525574,
@@ -381,7 +361,35 @@
         32.0,
         140.0
       ],
-      "type": "cloud_volume"
+      "archetype": "core:cloud_volume",
+      "overrides": {
+        "CloudVolume": {
+          "absorption": 1.149999976158142,
+          "albedo": [
+            0.8999999761581421,
+            0.9300000071525574,
+            1.0
+          ],
+          "anisotropy": 0.44999998807907104,
+          "coverage": 0.5799999833106995,
+          "density": 0.8999999761581421,
+          "detailScale": 3.4000000953674316,
+          "detailStrength": 0.3799999952316284,
+          "enabled": false,
+          "heightFalloff": 0.550000011920929,
+          "noiseScale": 0.054999999701976776,
+          "scattering": 1.0,
+          "shape": "ellipsoid",
+          "silverLining": 0.75,
+          "softness": 0.41999998688697815,
+          "windDir": [
+            1.0,
+            0.019999999552965164,
+            0.25
+          ],
+          "windSpeed": 1.2000000476837158
+        }
+      }
     },
     {
       "color": [
@@ -390,72 +398,6 @@
         0.25,
         1.0
       ],
-      "light": {
-        "castShadow": false,
-        "enabled": true,
-        "inner": 12.0,
-        "intensity": 1885.0,
-        "outer": 25.0,
-        "range": 8.0,
-        "sourceRadius": 0.05000000074505806
-      },
-      "particle": {
-        "additiveBlend": true,
-        "direction": [
-          0.0,
-          1.0,
-          0.0
-        ],
-        "duration": 0.0,
-        "emissionRate": 40.0,
-        "endColor": [
-          1.0,
-          0.15000000596046448,
-          0.05000000074505806,
-          0.0
-        ],
-        "endSize": [
-          0.019999999552965164,
-          0.10000000149011612
-        ],
-        "gravity": [
-          0.0,
-          -2.0,
-          0.0
-        ],
-        "lifetime": [
-          0.800000011920929,
-          1.600000023841858
-        ],
-        "looping": true,
-        "maxParticles": 512,
-        "name": "Emitter",
-        "renderMode": 0,
-        "ribbonCount": 1,
-        "ribbonUvScale": 1.0,
-        "shape": 0,
-        "shapeSize": [
-          0.25,
-          0.0,
-          0.25
-        ],
-        "simulationSpeed": 1.0,
-        "spreadDegrees": 25.0,
-        "startColor": [
-          1.0,
-          0.699999988079071,
-          0.25,
-          1.0
-        ],
-        "startSize": [
-          0.15000000596046448,
-          0.3499999940395355
-        ],
-        "startSpeed": [
-          1.0,
-          3.0
-        ]
-      },
       "position": [
         36.0,
         178.0,
@@ -472,7 +414,77 @@
         1.0,
         1.0
       ],
-      "type": "particle_emitter"
+      "archetype": "core:particle_emitter",
+      "overrides": {
+        "LocalLight": {
+          "kind": "point",
+          "castShadow": false,
+          "enabled": true,
+          "inner": 12.0,
+          "intensity": 1885.0,
+          "outer": 25.0,
+          "range": 8.0,
+          "sourceRadius": 0.05000000074505806,
+          "useObjectColor": true
+        },
+        "ParticleEmitter": {
+          "additiveBlend": true,
+          "direction": [
+            0.0,
+            1.0,
+            0.0
+          ],
+          "duration": 0.0,
+          "emissionRate": 40.0,
+          "endColor": [
+            1.0,
+            0.15000000596046448,
+            0.05000000074505806,
+            0.0
+          ],
+          "endSize": [
+            0.019999999552965164,
+            0.10000000149011612
+          ],
+          "gravity": [
+            0.0,
+            -2.0,
+            0.0
+          ],
+          "lifetime": [
+            0.800000011920929,
+            1.600000023841858
+          ],
+          "looping": true,
+          "maxParticles": 512,
+          "name": "Emitter",
+          "renderMode": 0,
+          "ribbonCount": 1,
+          "ribbonUvScale": 1.0,
+          "shape": 0,
+          "shapeSize": [
+            0.25,
+            0.0,
+            0.25
+          ],
+          "simulationSpeed": 1.0,
+          "spreadDegrees": 25.0,
+          "startColor": [
+            1.0,
+            0.699999988079071,
+            0.25,
+            1.0
+          ],
+          "startSize": [
+            0.15000000596046448,
+            0.3499999940395355
+          ],
+          "startSpeed": [
+            1.0,
+            3.0
+          ]
+        }
+      }
     },
     {
       "color": [
@@ -497,7 +509,7 @@
         2.0,
         48.0
       ],
-      "type": "water"
+      "archetype": "core:water"
     }
   ],
   "sky": {

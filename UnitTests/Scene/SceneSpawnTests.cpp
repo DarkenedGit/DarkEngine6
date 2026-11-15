@@ -6,6 +6,7 @@
 #include "Gameplay/PowerComponents.h"
 #include "Play/DialogueBinding.h"
 #include "Play/DialogueMemory.h"
+#include "Content/ContentDb.h"
 #include "Scene/SceneSpawn.h"
 #include "Scene/SceneTypes.h"
 
@@ -31,10 +32,13 @@ namespace
 
 TEST(SceneSpawn, ApplyActorSharesCircuitDialoguePatrolAndSquad)
 {
+    ASSERT_TRUE(loadContentDatabase(nullptr));
     World world;
     const Entity light = world.createEntity();
     SceneObjectData lamp{};
-    lamp.type    = SceneObjectType::PointLight;
+    lamp.archetype    = "core:point_light";
+    lamp.lightKind = "point";
+    lamp.hasLight = true;
     lamp.circuit = "yard";
     applySceneActor(world, light, lamp, nullptr, nullptr);
     const CircuitMemberComponent* member = world.get<CircuitMemberComponent>(light);
@@ -43,7 +47,7 @@ TEST(SceneSpawn, ApplyActorSharesCircuitDialoguePatrolAndSquad)
 
     const Entity cube = makeActor(world, Math::Vector3f{ 0.0f, 9.0f, 0.0f });
     SceneObjectData box{};
-    box.type    = SceneObjectType::Cube;
+    box.archetype    = "core:cube";
     box.circuit = "yard";
     applySceneActor(world, cube, box, &height3, nullptr);
     EXPECT_EQ(world.get<CircuitMemberComponent>(cube), nullptr);
@@ -53,7 +57,7 @@ TEST(SceneSpawn, ApplyActorSharesCircuitDialoguePatrolAndSquad)
 
     const Entity hunter = makeActor(world, Math::Vector3f{ 4.0f, 0.0f, 6.0f });
     SceneObjectData npc{};
-    npc.type     = SceneObjectType::Hunter;
+    npc.archetype     = "core:hunter";
     npc.dialogue = "dialogue/hunter_gate.dlg.json";
     npc.squad    = "gate";
     npc.patrol.push_back(Math::Vector2f{ 1.0f, 2.0f });
@@ -100,7 +104,7 @@ TEST(SceneSpawn, ApplyActorSharesCircuitDialoguePatrolAndSquad)
 
     const Entity wolf = makeActor(world, Math::Vector3f{ 2.0f, 8.0f, 3.0f });
     SceneObjectData beast{};
-    beast.type     = SceneObjectType::Wolf;
+    beast.archetype     = "core:wolf";
     beast.dialogue = "dialogue/hunter_gate.dlg.json";
     beast.squad    = "gate";
     beast.patrol.push_back(Math::Vector2f{ 1.0f, 1.0f });

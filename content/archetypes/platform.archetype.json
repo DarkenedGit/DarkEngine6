@@ -1,8 +1,8 @@
 {
   "id": "core:platform",
   "version": 1,
-  "editor": { "label": "Platform", "category": "2D", "icon": "layer-group", "modes": ["2d"] },
-  "components": { "Mesh": {} },
-  "behaviors": [ { "name": "prop.solid" } ],
-  "net": { "replicate": true }
+  "editor": { "label": "Platform", "category": "2D", "icon": "layer-group", "hotkey": "1", "modes": ["2d"], "defaultScale": [4, 0.6, 1], "defaultColor": [0.72, 0.52, 0.32, 1] },
+  "components": { "Mesh": { "primitive": "cube" }, "Platform": {} },
+  "behaviors": [ { "name": "prop.solid" }, { "name": "platform.marker" } ],
+  "net": { "replicate": true, "prefab": "platform" }
 }

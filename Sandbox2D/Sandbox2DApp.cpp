@@ -1,6 +1,8 @@
 #include "Sandbox2DApp.h"
 
 #include "Collision/Collision.h"
+#include "Content/ContentDb.h"
+#include "Content/SceneObjectSpawn.h"
 #include "Core/EntityPins.h"
 #include "Core/Log.h"
 #include "ECS/Components.h"
@@ -193,21 +195,54 @@ bool Sandbox2DApp::applyLevelData(const SceneFileData& data)
     bool haveSpawn = false;
     for (const SceneObjectData& o : data.objects)
     {
-        if (o.type == SceneObjectType::Platform)
+        bool spawned = false;
+        if (!o.placeholder && contentHasArchetype(sceneArchetypeId(o)))
         {
-            Platform p;
-            p.box = AABox2f::FromCenterExtents(
-                Vector2f(o.position.x, o.position.y),
-                Vector2f(0.5f * std::fabs(o.scale.x), 0.5f * std::fabs(o.scale.y)));
-            m_platforms.push_back(p);
+            ArchetypeSpawnHost host{};
+            host.world = &world();
+            ContentError err;
+            const Entity e = instantiateSceneObject(host, o, &err);
+            if (!e.valid())
+            {
+                DE_LOG_WARN("Sandbox2D: instantiate failed for '{}'", sceneArchetypeId(o));
+                continue;
+            }
+            spawned = true;
+            if (world().has<PlatformMarkerComponent>(e))
+                {
+                    const TransformComponent* xf = world().get<TransformComponent>(e);
+                    const Vector3f pos   = xf ? xf->position : o.position;
+                    const Vector3f scale = xf ? xf->scale : o.scale;
+                    Platform p;
+                    p.box = AABox2f::FromCenterExtents(
+                        Vector2f(pos.x, pos.y),
+                        Vector2f(0.5f * std::fabs(scale.x), 0.5f * std::fabs(scale.y)));
+                    m_platforms.push_back(p);
+                    onEntityRemoved(world(), e, &pins());
+                    world().destroyEntity(e);
+                }
+                else if (world().has<CoinComponent>(e))
+                {
+                    if (TransformComponent* xf = world().get<TransformComponent>(e))
+                        xf->scale = Vector3f(0.45f, 0.45f, 1.0f);
+                    if (CoinComponent* coin = world().get<CoinComponent>(e))
+                        coin->pos = Vector2f(o.position.x, o.position.y);
+                }
+                else if (world().has<SpawnPointComponent>(e))
+                {
+                    if (!haveSpawn)
+                    {
+                        m_spawn   = Vector2f(o.position.x, o.position.y);
+                        haveSpawn = true;
+                    }
+                    onEntityRemoved(world(), e, &pins());
+                    world().destroyEntity(e);
+                }
         }
-        else if (o.type == SceneObjectType::Coin)
-            spawnCoin(Vector2f(o.position.x, o.position.y));
-        else if (o.type == SceneObjectType::Spawn && !haveSpawn)
-        {
-            m_spawn    = Vector2f(o.position.x, o.position.y);
-            haveSpawn  = true;
-        }
+        if (spawned)
+            continue;
+        if (!o.placeholder)
+            DE_LOG_WARN("Sandbox2D: skipped '{}'", o.archetype);
     }
 
     if (m_platforms.empty())

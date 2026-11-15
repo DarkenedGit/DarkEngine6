@@ -22,6 +22,7 @@
 #include "Render/MeshConstants.h"
 #include "Render/SpritePipeline.h"
 #include "Render/Texture2D.h"
+#include "Content/ContentDb.h"
 #include "Scene/SceneTypes.h"
 #include "Play/Crow.h"
 #include "Media/MoviePlayer.h"
@@ -37,6 +38,9 @@
 #include "Editor/HsmEditorPanel.h"
 #include "Editor/DialogueEditorPanel.h"
 #include "Editor/AudioPreviewPanel.h"
+
+#include <string>
+#include <vector>
 #include "Animation/AnimGraphComponent.h"
 #include "Particles/BloodSplatPool.h"
 #include "Particles/ParticleComponents.h"
@@ -131,7 +135,7 @@ private:
     void rebuildGrid2D();
     void clampCamera2D();
     bool worldFromMouse2D(Math::Vector2f& out);
-    Math::AABox2f objectBounds2D(SceneObjectType type, const Math::Vector3f& pos, const Math::Vector3f& scale) const;
+    Math::AABox2f objectBounds2D(const SceneObjectData& object, const Math::Vector3f& pos, const Math::Vector3f& scale) const;
     Entity pickObject2D(const Math::Vector2f& world);
     void drawSprite2D(
         ID3D12GraphicsCommandList* cmd,
@@ -154,7 +158,7 @@ private:
     void   drawTranslateGizmos();
     void   applyGizmoDrag(const Math::Ray3f& ray);
 
-    Entity spawnObject(SceneObjectType type,
+    Entity spawnObject(std::string_view archetypeId,
                              const Math::Vector3f& pos,
                              const Math::Vector3f& scale,
                              const Math::Quaternion& rot,
@@ -164,23 +168,26 @@ private:
                              bool registerNet = true,
                              bool editorObject = true);
 
-    Entity placeAtCursor(SceneObjectType type);
-    Entity placeAtWorld(SceneObjectType type, Math::Vector3f hit, const SceneObjectData* authored = nullptr);
+    Entity placeAtCursor();
+    Entity placeAtWorld(std::string_view archetypeId, Math::Vector3f hit, const SceneObjectData* authored = nullptr);
     Entity placeArchetypeAtCursor();
     Entity placeArchetypeAtWorld(const std::string& archetypeId, Math::Vector3f hit, const SceneObjectData* authored = nullptr);
     Entity spawnAuthoredArchetype(const SceneObjectData& authored, bool select);
     Entity spawnPlaceholder(const SceneObjectData& authored);
+    ArchetypeSpawnHost archetypeHost();
     static bool ensureArchetypeMesh(void* user, Dark::Entity entity);
+    static bool ensureArchetypePrimitive(void* user, Dark::Entity entity, const char* primitive);
+    static bool bindArchetypeParticles(void* user, Dark::Entity entity, bool ribbon);
     void   drawContentReport();
     Entity placeGlowProp();
     void   loadTypeIcons();
-    uint64_t typeIconId(SceneObjectType type) const;
+    uint64_t archetypeIconId(std::string_view archetypeId) const;
     void   drawAssetBrowser();
     void   drawAssetDropTarget();
     void   refreshAssetListing();
-    void   queueAssetPlace(SceneObjectType type, const char* modelPath, bool useMouse);
+    void   queueAssetPlace(std::string_view archetypeId, const char* modelPath, bool useMouse);
     void   flushQueuedAssetPlace();
-    static bool tryPawnTypeForModelPath(std::string_view virt, SceneObjectType& out);
+    static std::string archetypeForModelPath(std::string_view virt);
     bool   attachEditorModel(Dark::Entity e, const char* gltfPath);
     bool   attachEditorPlayer(Dark::Entity e);
     bool   attachEditorHunter(Dark::Entity e);
@@ -372,7 +379,7 @@ private:
 
     ParticleEmitterDesc makeDefaultParticleDesc() const;
 
-    const Mesh* meshForType(SceneObjectType type) const;
+    const Mesh* meshForObject(const SceneObjectData& object) const;
     static void drawPrimitiveShadowCasters(void* user, ID3D12GraphicsCommandList* cmd, const Math::Matrix4f& lightViewProj, const Frustum3f& frustum, bool recordThisView);
     EditorObjectComponent* findObject(Entity e);
     uint32_t editorObjectCount();
@@ -457,15 +464,14 @@ private:
     bool                 m_showAudioPanel    = false;
     bool                 m_showAssetBrowser  = true;
 
-    SceneObjectType m_placeType  = SceneObjectType::Cube;
-    std::string     m_placeArchetype;
+    std::string     m_placeArchetype = "core:cube";
     bool            m_showContentReport = false;
     float           m_contentPoll       = 0.0f;
     float           m_cloudTime  = 0.0f;
     bool                  m_queuePlaceAtCursor = false;
     bool                  m_queueGlowProp      = false;
     bool                  m_queueAssetPlace    = false;
-    SceneObjectType       m_queueAssetType     = SceneObjectType::Cube;
+    std::string           m_queueAssetArchetype = "core:cube";
     char                  m_queueAssetModel[192]{};
     bool                  m_queueAssetUseMouse = false;
     int                   m_queueAssetMouseX   = 0;
@@ -506,10 +512,14 @@ private:
     bool  m_showWaterTools     = false;
     bool  m_showWindPanel      = false;
 
-    // Editor UI icons, one per SceneObjectType (content/ui/icons/<toString(type)>.png).
-    // ImTextureID 0 = not loaded; callers fall back to text.
-    Dark::Texture2D m_typeIcons[static_cast<size_t>(SceneObjectType::Count)];
-    uint64_t        m_typeIconIds[static_cast<size_t>(SceneObjectType::Count)] = {};
+    // Editor UI icons, one per archetype id (content/ui/icons/<bare id>.png).
+    struct ArchetypeIcon
+    {
+        std::string     key;
+        Dark::Texture2D texture;
+        uint64_t        id = 0;
+    };
+    std::vector<ArchetypeIcon> m_archetypeIcons;
     Dark::Texture2D m_fileIcon;
     Dark::Texture2D m_folderIcon;
     uint64_t        m_fileIconId   = 0;

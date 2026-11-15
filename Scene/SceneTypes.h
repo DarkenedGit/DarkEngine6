@@ -43,202 +43,19 @@ namespace Dark
         return false;
     }
 
-    // Serializable prop kind used by the level editor.
-    enum class SceneObjectType : uint8_t
-    {
-        Cube = 0,
-        Sphere,
-        ParticleEmitter,
-        Platform,
-        Coin,
-        Spawn,
-        PointLight,
-        SpotLight,
-        AmbientLight,
-        DirectionalLight,
-        Player,
-        Hunter,
-        Wolf,
-        Model,
-        Water,
-        CloudVolume,
-        Stream,
-        Spawner,
-        Movie,
-        Count
-    };
-
-    inline bool isScene3DType(SceneObjectType t)
-    {
-        return t == SceneObjectType::Cube || t == SceneObjectType::Sphere || t == SceneObjectType::ParticleEmitter
-            || t == SceneObjectType::PointLight || t == SceneObjectType::SpotLight
-            || t == SceneObjectType::AmbientLight || t == SceneObjectType::DirectionalLight
-            || t == SceneObjectType::Player || t == SceneObjectType::Hunter || t == SceneObjectType::Wolf
-            || t == SceneObjectType::Model || t == SceneObjectType::Water || t == SceneObjectType::CloudVolume
-            || t == SceneObjectType::Stream || t == SceneObjectType::Spawner || t == SceneObjectType::Movie;
-    }
-
-    inline bool isPawnType(SceneObjectType t)
-    {
-        return t == SceneObjectType::Player || t == SceneObjectType::Hunter || t == SceneObjectType::Wolf;
-    }
-
-    inline bool usesModelBounds(SceneObjectType t)
-    {
-        return isPawnType(t) || t == SceneObjectType::Model;
-    }
-
-    inline bool isGlobalLightType(SceneObjectType t)
-    {
-        return t == SceneObjectType::AmbientLight || t == SceneObjectType::DirectionalLight;
-    }
-
-    inline bool isScene2DType(SceneObjectType t)
-    {
-        return t == SceneObjectType::Platform || t == SceneObjectType::Coin || t == SceneObjectType::Spawn;
-    }
-
-    inline const char* toString(SceneObjectType t)
-    {
-        switch (t)
-        {
-        case SceneObjectType::Cube:            return "cube";
-        case SceneObjectType::Sphere:          return "sphere";
-        case SceneObjectType::ParticleEmitter: return "particle_emitter";
-        case SceneObjectType::Platform:        return "platform";
-        case SceneObjectType::Coin:            return "coin";
-        case SceneObjectType::Spawn:           return "spawn";
-        case SceneObjectType::PointLight:      return "point_light";
-        case SceneObjectType::SpotLight:       return "spot_light";
-        case SceneObjectType::AmbientLight:    return "ambient_light";
-        case SceneObjectType::DirectionalLight: return "directional_light";
-        case SceneObjectType::Player:          return "player";
-        case SceneObjectType::Hunter:          return "hunter";
-        case SceneObjectType::Wolf:            return "wolf";
-        case SceneObjectType::Model:           return "model";
-        case SceneObjectType::Water:           return "water";
-        case SceneObjectType::CloudVolume:     return "cloud_volume";
-        case SceneObjectType::Stream:          return "stream";
-        case SceneObjectType::Spawner:         return "spawner";
-        case SceneObjectType::Movie:           return "movie";
-        default:                               return "unknown";
-        }
-    }
-
-    inline bool tryParseSceneObjectType(std::string_view s, SceneObjectType& out)
-    {
-        if (s == "cube")
-        {
-            out = SceneObjectType::Cube;
-            return true;
-        }
-        if (s == "sphere")
-        {
-            out = SceneObjectType::Sphere;
-            return true;
-        }
-        if (s == "particle_emitter" || s == "emitter" || s == "particle")
-        {
-            out = SceneObjectType::ParticleEmitter;
-            return true;
-        }
-        if (s == "platform")
-        {
-            out = SceneObjectType::Platform;
-            return true;
-        }
-        if (s == "coin")
-        {
-            out = SceneObjectType::Coin;
-            return true;
-        }
-        if (s == "spawn" || s == "player_spawn")
-        {
-            out = SceneObjectType::Spawn;
-            return true;
-        }
-        if (s == "point_light")
-        {
-            out = SceneObjectType::PointLight;
-            return true;
-        }
-        if (s == "spot_light")
-        {
-            out = SceneObjectType::SpotLight;
-            return true;
-        }
-        if (s == "ambient_light" || s == "ambient")
-        {
-            out = SceneObjectType::AmbientLight;
-            return true;
-        }
-        if (s == "directional_light" || s == "directional" || s == "sun")
-        {
-            out = SceneObjectType::DirectionalLight;
-            return true;
-        }
-        if (s == "player")
-        {
-            out = SceneObjectType::Player;
-            return true;
-        }
-        if (s == "hunter" || s == "enemy")
-        {
-            out = SceneObjectType::Hunter;
-            return true;
-        }
-        if (s == "wolf")
-        {
-            out = SceneObjectType::Wolf;
-            return true;
-        }
-        if (s == "model" || s == "gltf")
-        {
-            out = SceneObjectType::Model;
-            return true;
-        }
-        if (s == "water")
-        {
-            out = SceneObjectType::Water;
-            return true;
-        }
-        if (s == "cloud_volume" || s == "cloud" || s == "clouds")
-        {
-            out = SceneObjectType::CloudVolume;
-            return true;
-        }
-        if (s == "stream")
-        {
-            out = SceneObjectType::Stream;
-            return true;
-        }
-        if (s == "spawner")
-        {
-            out = SceneObjectType::Spawner;
-            return true;
-        }
-        if (s == "movie")
-        {
-            out = SceneObjectType::Movie;
-            return true;
-        }
-        return false;
-    }
-
     // Live editor objects are ECS entities with EditorObjectComponent (Editor/EditorObject.h).
     // SceneObjectData is the JSON DTO only — not a parallel runtime world.
 
     // Plain data blob used for serialization (no live Entity).
     struct SceneObjectData
     {
-        SceneObjectType  type = SceneObjectType::Cube;
         Math::Vector3f   position{ 0, 0, 0 };
         Math::Quaternion rotation{ 1, 0, 0, 0 };
         Math::Vector3f   scale{ 1, 1, 1 };
         float            color[4]{ 1.0f, 1.0f, 1.0f, 1.0f };
         std::string      modelPath;
 
-        // Optional particle payload (only when type == ParticleEmitter).
+        // Optional particle payload. Written when hasParticle is set.
         bool        hasParticle = false;
         std::string particleName = "Emitter";
         uint32_t    maxParticles = 512;
@@ -283,8 +100,9 @@ namespace Dark
         bool        secondaryAdditiveBlend = false;
         int         secondaryCollision     = 2; // Stop. SpawnSecondary is stored as Stop.
 
-        // Optional local-light payload (PointLight / SpotLight).
+        // Optional light payload. lightKind is "", "point", "spot", "ambient", or "directional".
         bool  hasLight           = false;
+        std::string lightKind;
         float lightIntensity     = 1885.0f; // point default candela (600*π); spot overwritten by applyTypeLightDefaults
         float lightRange         = 8.0f;
         float lightInnerDeg      = 12.0f;
@@ -351,7 +169,7 @@ namespace Dark
         std::string overridesJson;
     };
 
-    // World-level terrain JSON DTO. Not a SceneObjectType. Paths are virtual or sidecar filenames.
+    // World-level terrain JSON DTO. Paths are virtual or sidecar filenames.
     struct TerrainLayerSceneDesc
     {
         std::string albedo;

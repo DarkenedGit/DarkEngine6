@@ -2,7 +2,7 @@
 
 #include "Content/ContentId.h"
 #include "ECS/Entity.h"
-#include "Scene/SceneTypes.h"
+#include "Weapons/Weapon.h"
 
 #include <cstdint>
 #include <filesystem>
@@ -39,6 +39,14 @@ namespace Dark
         const Terrain::TerrainGround* ground   = nullptr;
         AiSystem*                     ai       = nullptr;
         bool (*ensureMesh)(void* user, Entity entity) = nullptr;
+        // primitive is "cube", "sphere", "cross", or "none".
+        bool (*ensurePrimitive)(void* user, Entity entity, const char* primitive) = nullptr;
+        bool (*ensureMarker)(void* user, Entity entity) = nullptr;
+        bool (*bindParticleMaterial)(void* user, Entity entity, bool ribbon) = nullptr;
+        WeaponHitFn onWeaponHit = nullptr;
+        void*        weaponHitUser = nullptr;
+        // Scene models in Sandbox refuse a glTF that has no skeleton.
+        bool modelAnimatedOnly = false;
         void* user = nullptr;
     };
 
@@ -50,6 +58,10 @@ namespace Dark
         std::string              hotkey;
         std::vector<std::string> modes;
         std::string              matchModel;
+        bool                     hasDefaultScale = false;
+        float                    defaultScale[3]{ 1.0f, 1.0f, 1.0f };
+        bool                     hasDefaultColor = false;
+        float                    defaultColor[4]{ 1.0f, 1.0f, 1.0f, 1.0f };
     };
 
     struct ArchetypeComponent
@@ -74,6 +86,8 @@ namespace Dark
         std::vector<ArchetypeBehavior>    behaviors;
         EditorMeta                        editor;
         bool                              replicate = false;
+        // cube, sphere, platform, or coin. Empty means this archetype is not a NetPrefab prop.
+        std::string                       netPrefab;
         bool                              enabled   = true;
         std::string                       packageId;
     };
@@ -148,10 +162,6 @@ namespace Dark
 
     bool        contentHasArchetype(std::string_view idOrShort);
     const Archetype* archetypeMatchingModelStem(std::string_view stem);
-
-    // "wolf", "enemy", and "core:wolf" map onto the legacy scene enum. A foreign package id does not.
-    bool legacySceneTypeForId(std::string_view idOrShort, SceneObjectType& out);
-    std::string legacyArchetypeName(SceneObjectType type);
 
     uint64_t           contentSetHash();
     uint16_t           replicationIndex(std::string_view archetypeName);

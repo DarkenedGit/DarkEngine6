@@ -110,7 +110,8 @@ void EditorApp::ensurePlayPhysicsVolumes()
 
     world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
         const bool player = e.id() == m_playPlayer.id();
-        const bool solid  = so.type == SceneObjectType::Cube || so.type == SceneObjectType::Sphere;
+        const std::string solidPrimitive = sceneMeshPrimitive(so.source);
+        const bool solid  = sceneHasBehavior(so.source, "prop.solid") && (solidPrimitive == "cube" || solidPrimitive == "sphere");
         if (!player && !solid)
             return;
         if (const PhysicsComponent* existing = world().get<PhysicsComponent>(e))
@@ -131,7 +132,7 @@ void EditorApp::ensurePlayPhysicsVolumes()
             phys.shape         = PhysicsShapeKind::Capsule;
             phys.fixedRotation = true;
         }
-        else if (so.type == SceneObjectType::Sphere)
+        else if (solidPrimitive == "sphere")
         {
             phys.mode  = PhysicsBodyMode::Static;
             phys.shape = PhysicsShapeKind::Sphere;
@@ -179,17 +180,11 @@ namespace
     {
         if (so)
         {
-            switch (so->type)
-            {
-            case SceneObjectType::Cube:   return "cube";
-            case SceneObjectType::Sphere: return "sphere";
-            case SceneObjectType::Player: return "player";
-            case SceneObjectType::Hunter: return "hunter";
-            case SceneObjectType::Wolf:   return "wolf";
-            case SceneObjectType::Stream:
-            case SceneObjectType::Spawner: break;
-            default: break;
-            }
+            const std::string id = sceneArchetypeId(so->source);
+            const auto colon = id.rfind(':');
+            const std::string bare = (colon == std::string::npos) ? id : id.substr(colon + 1);
+            if (bare == "cube" || bare == "sphere" || bare == "player" || bare == "hunter" || bare == "wolf")
+                return bare;
         }
         if (model && !model->sourcePath().empty())
             return model->sourcePath().stem().string();
@@ -293,12 +288,12 @@ PhysicsComponent EditorApp::defaultPhysicsFor(Entity e)
     phys.angularDamping = 0.05f;
     phys.gravityScale   = 1.0f;
     const EditorObjectComponent* so = findObject(e);
-    if (so && so->type == SceneObjectType::Sphere)
+    if (so && sceneMeshPrimitive(so->source) == "sphere")
     {
         phys.shape = PhysicsShapeKind::Sphere;
         phys.mode  = PhysicsBodyMode::Dynamic;
     }
-    else if (so && isPawnType(so->type))
+    else if (so && editorPawn(so->source))
     {
         phys.shape         = PhysicsShapeKind::Capsule;
         phys.mode          = PhysicsBodyMode::Kinematic;
@@ -361,8 +356,7 @@ void EditorApp::drawPhysicsInspector(Entity e)
         return;
     const EditorObjectComponent* so       = findObject(e);
     const bool                   hasModel = world().has<ModelComponent>(e);
-    const bool solid = so && (so->type == SceneObjectType::Cube || so->type == SceneObjectType::Sphere || so->type == SceneObjectType::Model
-                               || isPawnType(so->type));
+    const bool solid = so && (sceneHasBehavior(so->source, "prop.solid") || sceneHasComponent(so->source, "Model") || editorPawn(so->source));
     if (!hasModel && !solid)
         return;
 
@@ -474,7 +468,7 @@ void EditorApp::drawPhysicsInspector(Entity e)
         ImGui::TextDisabled("Picking a surface copies its density, friction, and restitution.");
     }
 
-    if (phys->mode == PhysicsBodyMode::Dynamic && (world().has<PlayerMotorComponent>(e) || (so && isPawnType(so->type))))
+    if (phys->mode == PhysicsBodyMode::Dynamic && (world().has<PlayerMotorComponent>(e) || (so && editorPawn(so->source))))
         ImGui::TextDisabled("This character is driven by its motor. Kinematic keeps that pose.");
     if (phys->sensor)
         ImGui::TextDisabled("Sensors overlap without blocking or falling.");

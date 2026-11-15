@@ -67,20 +67,24 @@ void EditorApp::loadTypeIcons()
         return;
 
     int loaded = 0;
-    for (size_t i = 0; i < static_cast<size_t>(SceneObjectType::Count); ++i)
+    m_archetypeIcons.clear();
+    for (const Archetype& archetype : archetypes())
     {
-        const SceneObjectType       type = static_cast<SceneObjectType>(i);
-        const std::string           virt = std::string("ui/icons/") + toString(type) + ".png"; // e.g. "ui/icons/cube.png"
-        const std::filesystem::path path = assets().resolve(virt);                             // real path on disk
-
-        if (path.empty() || !m_typeIcons[i].createFromFile(renderer(), path, Dark::Color::TextureUsage::Hud))
+        const auto colon = archetype.name.rfind(':');
+        const std::string bare = (colon == std::string::npos) ? archetype.name : archetype.name.substr(colon + 1);
+        const std::string virt = "ui/icons/" + bare + ".png";
+        const std::filesystem::path path = assets().resolve(virt);
+        ArchetypeIcon slot;
+        slot.key = archetype.name;
+        if (path.empty() || !slot.texture.createFromFile(renderer(), path, Dark::Color::TextureUsage::Hud))
         {
             DE_LOG_WARN("EditorApp: missing UI icon '{}'", virt);
-            continue; // no icon for this type; the drag preview falls back to text
+            continue;
         }
-        m_typeIconIds[i] = m_imgui.addTexture(renderer(), m_typeIcons[i]);
-        if (m_typeIconIds[i] != 0)
+        slot.id = m_imgui.addTexture(renderer(), slot.texture);
+        if (slot.id != 0)
             ++loaded;
+        m_archetypeIcons.push_back(std::move(slot));
     }
 
     auto loadNamed = [&](const char* virt, Dark::Texture2D& tex, uint64_t& id) {
@@ -99,10 +103,14 @@ void EditorApp::loadTypeIcons()
     DE_LOG_INFO("EditorApp: {} UI icons loaded", loaded);
 }
 
-uint64_t EditorApp::typeIconId(SceneObjectType type) const
+uint64_t EditorApp::archetypeIconId(std::string_view archetypeId) const
 {
-    const size_t i = static_cast<size_t>(type);
-    return i < static_cast<size_t>(SceneObjectType::Count) ? m_typeIconIds[i] : 0;
+    for (const ArchetypeIcon& slot : m_archetypeIcons)
+    {
+        if (slot.key == archetypeId)
+            return slot.id;
+    }
+    return 0;
 }
 
 bool EditorApp::ensure2DResources()
@@ -184,7 +192,7 @@ void EditorApp::applySceneMode(SceneMode mode)
     {
         ensure2DResources();
         renderer().setClearColor(0.38f, 0.62f, 0.86f, 1.0f);
-        m_placeType = SceneObjectType::Platform;
+        m_placeArchetype = "core:platform";
         m_camera2D.SetViewportSize(static_cast<float>(renderer().width()), static_cast<float>(renderer().height()));
         m_camera2D.SetOrthoHeight(16.0f);
         m_camera2D.SetClipPlanes(0.0f, 80.0f);
@@ -195,7 +203,7 @@ void EditorApp::applySceneMode(SceneMode mode)
     else
     {
         renderer().setClearColor(UiPalette::kVoid.r, UiPalette::kVoid.g, UiPalette::kVoid.b, 1.0f);
-        m_placeType = SceneObjectType::Cube;
+        m_placeArchetype = "core:cube";
         applyIbl();
     }
 }
@@ -248,12 +256,14 @@ void EditorApp::newScene2D()
     m_worldMin = Vector2f(0.0f, 0.0f);
     m_worldMax = Vector2f(96.0f, 22.0f);
     rebuildGrid2D();
-    float platCol[4]{};
-    float spawnCol[4]{};
-    defaultColor2D(SceneObjectType::Platform, platCol);
-    defaultColor2D(SceneObjectType::Spawn, spawnCol);
-    spawnObject(SceneObjectType::Platform, Vector3f(14.0f, 0.7f, 0.0f), Vector3f(28.0f, 1.4f, 1.0f), Quaternion::IDENTITY, platCol);
-    spawnObject(SceneObjectType::Spawn, Vector3f(3.0f, 3.5f, 0.0f), defaultScale2D(SceneObjectType::Spawn), Quaternion::IDENTITY, spawnCol);
+    float platCol[4]{ 0.72f, 0.52f, 0.32f, 1.0f };
+    float spawnCol[4]{ 0.20f, 0.80f, 0.70f, 1.0f };
+    editorDefaultColor("core:platform", platCol);
+    editorDefaultColor("core:spawn", spawnCol);
+    Vector3f spawnScale{ 0.8f, 1.4f, 1.0f };
+    editorDefaultScale("core:spawn", spawnScale);
+    spawnObject("core:platform", Vector3f(14.0f, 0.7f, 0.0f), Vector3f(28.0f, 1.4f, 1.0f), Quaternion::IDENTITY, platCol);
+    spawnObject("core:spawn", Vector3f(3.0f, 3.5f, 0.0f), spawnScale, Quaternion::IDENTITY, spawnCol);
     m_camera2D.SetPosition(14.0f, 6.0f);
     clampCamera2D();
     DE_LOG_INFO("Editor: new 2D scene");
@@ -269,10 +279,10 @@ bool EditorApp::worldFromMouse2D(Vector2f& out)
     return true;
 }
 
-AABox2f EditorApp::objectBounds2D(SceneObjectType type, const Vector3f& pos, const Vector3f& scale) const
+AABox2f EditorApp::objectBounds2D(const SceneObjectData& object, const Vector3f& pos, const Vector3f& scale) const
 {
     Vector2f half(0.5f * std::fabs(scale.x), 0.5f * std::fabs(scale.y));
-    if (type == SceneObjectType::Coin)
+    if (sceneHasComponent(object, "Pickup"))
         half = Vector2f(0.28f, 0.28f);
     return AABox2f::FromCenterExtents(Vector2f(pos.x, pos.y), half);
 }
@@ -361,34 +371,19 @@ void EditorApp::drawSprite2D(
     m_quadMesh.draw(cmd);
 }
 
-const Mesh* EditorApp::meshForType(SceneObjectType type) const
+const Mesh* EditorApp::meshForObject(const SceneObjectData& object) const
 {
-    switch (type)
-    {
-    case SceneObjectType::Sphere:
+    if (sceneHasComponent(object, "ParticleEmitter") || sceneHasComponent(object, "Model") || sceneHasComponent(object, "Water")
+        || sceneHasComponent(object, "CloudVolume") || sceneHasComponent(object, "Stream"))
+        return nullptr;
+    const std::string kind = sceneLightKind(object);
+    if (kind == "point" || kind == "spot" || kind == "ambient" || kind == "directional")
+        return nullptr;
+    const std::string primitive = sceneMeshPrimitive(object);
+    if (primitive == "sphere")
         return m_sphereMesh.valid() ? &m_sphereMesh : &m_cubeMesh;
-    case SceneObjectType::ParticleEmitter:
-        return nullptr;
-    case SceneObjectType::PointLight:
-    case SceneObjectType::SpotLight:
-    case SceneObjectType::AmbientLight:
-    case SceneObjectType::DirectionalLight:
-    case SceneObjectType::Player:
-    case SceneObjectType::Hunter:
-    case SceneObjectType::Wolf:
-    case SceneObjectType::Model:
-    case SceneObjectType::Water:
-    case SceneObjectType::CloudVolume:
-    case SceneObjectType::Stream:
-        return nullptr;
-    case SceneObjectType::Platform:
-    case SceneObjectType::Coin:
-    case SceneObjectType::Spawn:
-    case SceneObjectType::Cube:
-    case SceneObjectType::Spawner:
-    case SceneObjectType::Movie:
+    if (primitive == "cube" || sceneHasComponent(object, "Spawn") || sceneHasComponent(object, "Pickup")
+        || sceneHasComponent(object, "Spawner") || sceneHasComponent(object, "Movie"))
         return &m_cubeMesh;
-    default:
-        return &m_cubeMesh;
-    }
+    return nullptr;
 }

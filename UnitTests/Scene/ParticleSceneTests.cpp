@@ -6,6 +6,7 @@
 #include "ECS/World.h"
 #include "Particles/ParticleComponents.h"
 #include "Particles/ParticleScene.h"
+#include "Content/ContentDb.h"
 #include "Scene/SceneFile.h"
 
 #include <filesystem>
@@ -40,14 +41,16 @@ TEST(ParticleScene, MissingSimModeStaysCpu)
         "version": 2,
         "name": "old",
         "objects": [{
-            "type": "particle_emitter",
+            "archetype": "core:particle_emitter",
             "position": [1, 2, 3],
-            "particle": { "name": "old" }
+            "overrides": { "ParticleEmitter": { "name": "old" } }
         }]
     })"));
 
     SceneFileData data{};
     std::string err;
+    if (!contentHasArchetype("core:cube"))
+        ASSERT_TRUE(loadContentDatabase(nullptr));
     ASSERT_TRUE(loadSceneFromJson(path, data, &err)) << err;
     ASSERT_EQ(data.objects.size(), 1u);
     EXPECT_TRUE(data.objects[0].hasParticle);
@@ -75,22 +78,24 @@ TEST(ParticleScene, StringSimModeDoesNotFailTheLoad)
         "name": "bad",
         "objects": [
             {
-                "type": "particle_emitter",
-                "particle": { "simMode": "gpu", "collision": "bounce", "secondary": "nope" }
+                "archetype": "core:particle_emitter",
+                "overrides": { "ParticleEmitter": { "simMode": "gpu", "collision": "bounce", "secondary": "nope" } }
             },
-            { "type": "cube", "position": [4, 5, 6] }
+            { "archetype": "core:cube", "position": [4, 5, 6] }
         ]
     })"));
 
     SceneFileData data{};
     std::string err;
+    if (!contentHasArchetype("core:cube"))
+        ASSERT_TRUE(loadContentDatabase(nullptr));
     ASSERT_TRUE(loadSceneFromJson(path, data, &err)) << err;
     ASSERT_EQ(data.objects.size(), 2u);
-    EXPECT_EQ(data.objects[0].type, SceneObjectType::ParticleEmitter);
+    EXPECT_EQ(data.objects[0].archetype, "core:particle_emitter");
     EXPECT_EQ(data.objects[0].simMode, 0);
     EXPECT_EQ(data.objects[0].collision, 0);
     EXPECT_FALSE(data.objects[0].hasSecondary);
-    EXPECT_EQ(data.objects[1].type, SceneObjectType::Cube);
+    EXPECT_EQ(data.objects[1].archetype, "core:cube");
     EXPECT_NEAR(data.objects[1].position.x, 4.0f, 1.0e-4f);
 
     ParticleEmitterDesc desc{};
@@ -110,7 +115,8 @@ TEST(ParticleScene, SimModeRoundTripAndDescMatch)
     in.mode    = SceneMode::Scene3D;
 
     SceneObjectData object{};
-    object.type           = SceneObjectType::ParticleEmitter;
+    object.archetype           = "core:particle_emitter";
+    object.hasParticle = true;
     object.position       = Vector3f(8.0f, 1.5f, -2.0f);
     object.hasParticle    = true;
     object.particleName   = "rain";
@@ -132,6 +138,8 @@ TEST(ParticleScene, SimModeRoundTripAndDescMatch)
     ASSERT_TRUE(saveSceneToJson(path, in, &err)) << err;
 
     SceneFileData loaded{};
+    if (!contentHasArchetype("core:cube"))
+        ASSERT_TRUE(loadContentDatabase(nullptr));
     ASSERT_TRUE(loadSceneFromJson(path, loaded, &err)) << err;
     ASSERT_EQ(loaded.objects.size(), 1u);
     EXPECT_EQ(loaded.objects[0].simMode, 1);
@@ -143,6 +151,8 @@ TEST(ParticleScene, SimModeRoundTripAndDescMatch)
 
     ASSERT_TRUE(saveSceneToJson(path, loaded, &err)) << err;
     SceneFileData again{};
+    if (!contentHasArchetype("core:cube"))
+        ASSERT_TRUE(loadContentDatabase(nullptr));
     ASSERT_TRUE(loadSceneFromJson(path, again, &err)) << err;
     ASSERT_EQ(again.objects.size(), 1u);
     EXPECT_EQ(again.objects[0].simMode, 1);
@@ -175,7 +185,8 @@ TEST(ParticleScene, SimModeRoundTripAndDescMatch)
 TEST(ParticleScene, SpawnCreatesEmitterWithoutLocalLight)
 {
     SceneObjectData data{};
-    data.type         = SceneObjectType::ParticleEmitter;
+    data.archetype         = "core:particle_emitter";
+    data.hasParticle = true;
     data.position     = Vector3f(1.0f, 2.0f, 3.0f);
     data.scale        = Vector3f(2.0f, 2.0f, 2.0f);
     data.hasParticle  = true;
@@ -215,7 +226,8 @@ TEST(ParticleScene, SpawnCreatesEmitterWithoutLocalLight)
     EXPECT_FALSE(world.has<LocalLightComponent>(e));
 
     SceneObjectData plain{};
-    plain.type = SceneObjectType::ParticleEmitter;
+    plain.archetype = "core:particle_emitter";
+    plain.hasParticle = true;
     plain.position = Vector3f(0.0f, 1.0f, 0.0f);
     const Entity bare = spawnSceneParticleEmitter(world, assets, nullptr, plain);
     ASSERT_TRUE(bare.valid());

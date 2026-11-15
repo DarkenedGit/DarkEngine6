@@ -54,13 +54,10 @@ namespace Dark::EditorDetail
     bool createChecker(Renderer& renderer, Texture2D& out,
         uint8_t r0, uint8_t g0, uint8_t b0, uint8_t r1, uint8_t g1, uint8_t b1,
         uint32_t size = 32, uint32_t cell = 8);
-    Math::Vector3f defaultScale2D(SceneObjectType type);
     uint32_t packRgba8(const float c[4]);
     void unpackRgba8(uint32_t rgba, float out[4]);
-    bool isReplicatedProp(SceneObjectType type);
-    bool isLocalLightType(SceneObjectType type);
     void defaultLightColor(float out[4]);
-    void fillDefaultLocalLight(LocalLightComponent& light, SceneObjectType type);
+    void fillDefaultLocalLight(LocalLightComponent& light, std::string_view kind);
     Math::Quaternion defaultDirectionalRotation();
     Math::Vector3f directionalLightDir(const TransformComponent& xf);
     Entity glowMeshOf(World& world, Entity e);
@@ -72,10 +69,7 @@ namespace Dark::EditorDetail
     Math::Matrix4f makeSpotLightGizmoWorld(const TransformComponent& xf, float range, float outerConeDeg);
     // Local +Z is the cone axis. Identity aims +Z (horizon); placed spots should light the floor.
     Math::Quaternion defaultSpotRotation();
-    NetPrefab prefabFromType(SceneObjectType type);
-    SceneObjectType typeFromPrefab(NetPrefab prefab);
     const char* netRoleLabel(NetRole role);
-    void defaultColor2D(SceneObjectType type, float out[4]);
     void descFromSceneData(const SceneObjectData& d, ParticleEmitterDesc& out);
     void sceneDataFromDesc(const ParticleEmitterDesc& src, SceneObjectData& d);
 

@@ -2,6 +2,6 @@
   "id": "core:movie",
   "version": 1,
   "editor": { "label": "Movie", "category": "Gameplay", "icon": "film", "modes": ["3d"] },
-  "components": { "Movie": {} },
-  "behaviors": []
+  "components": { "Movie": { "path": "", "radius": 2.0, "loop": false } },
+  "behaviors": [ { "name": "movie.cue" } ]
 }

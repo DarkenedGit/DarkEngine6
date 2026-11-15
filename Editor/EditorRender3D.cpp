@@ -76,10 +76,10 @@ void EditorApp::drawPrimitiveShadowCasters(void* user, ID3D12GraphicsCommandList
         return;
     EditorApp& app = *ctx->app;
     app.world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
-        if (!isScene3DType(so.type))
+        if (!editorShownInMode(so.source, "3d"))
             return;
         const auto* xf = app.world().get<TransformComponent>(e);
-        const Mesh* mesh = app.meshForType(so.type);
+        const Mesh* mesh = app.meshForObject(so.source);
         if (!xf || !mesh || !mesh->valid() || app.world().get<LocalLightComponent>(e))
             return;
         const Matrix4f worldMat = makeWorldMatrix(*xf);
@@ -286,10 +286,10 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         m_drawList.setIndirect(renderer().debugState().instancedIndirect);
         const AABox3f propLocal(Vector3f(-0.5f, -0.5f, -0.5f), Vector3f(0.5f, 0.5f, 0.5f));
         world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
-            if (!isScene3DType(so.type))
+            if (!editorShownInMode(so.source, "3d"))
                 return;
             const auto* xf = world().get<TransformComponent>(e);
-            const Mesh* mesh = meshForType(so.type);
+            const Mesh* mesh = meshForObject(so.source);
             if (!xf || !mesh || !mesh->valid() || world().get<LocalLightComponent>(e))
                 return;
             RenderItem item;
@@ -605,7 +605,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
             const LineMesh* gizmo = nullptr;
             Matrix4f        worldMat{};
             float           cr = so.color[0], cg = so.color[1], cb = so.color[2];
-            if (isLocalLightType(so.type) || (so.type == SceneObjectType::ParticleEmitter && world().get<LocalLightComponent>(e)))
+            if (editorPointOrSpot(so.source) || (sceneHasComponent(so.source, "ParticleEmitter") && world().get<LocalLightComponent>(e)))
             {
                 const auto* light = world().get<LocalLightComponent>(e);
                 if (!light)
@@ -624,7 +624,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
                     cb *= 0.35f;
                 }
             }
-            else if (so.type == SceneObjectType::DirectionalLight)
+            else if (sceneLightKind(so.source) == "directional")
             {
                 if (!m_dirLightGizmo.valid())
                     return;
@@ -644,7 +644,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
                     }
                 }
             }
-            else if (so.type == SceneObjectType::CloudVolume)
+            else if (sceneHasComponent(so.source, "CloudVolume"))
             {
                 CloudShape shape = CloudShape::Ellipsoid;
                 if (const CloudVolumeComponent* cloud = world().get<CloudVolumeComponent>(e))
@@ -730,12 +730,12 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         if (instanceForward)
             m_drawList.recordForward(cmd, gpu, ViewId{ 0 }, StaticPopulation::OpaqueMeshes, forwardLighting, forwardShadow);
         world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
-        if (!isScene3DType(so.type))
+        if (!editorShownInMode(so.source, "3d"))
             return;
         const auto* xf = world().get<TransformComponent>(e);
         if (!xf)
             return;
-        const Mesh* mesh = meshForType(so.type);
+        const Mesh* mesh = meshForObject(so.source);
         if (!mesh || !mesh->valid() || world().get<LocalLightComponent>(e))
             return;
         const bool selected = m_selected.valid() && m_selected.id() == e.id();

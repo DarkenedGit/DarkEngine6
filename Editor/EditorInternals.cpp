@@ -57,18 +57,6 @@ namespace Dark::EditorDetail
         return out.createFromRGBA(renderer, px.data(), size, size, size * 4u, Dark::Color::TextureUsage::Hud);
     }
 
-    Vector3f defaultScale2D(SceneObjectType type)
-    {
-        switch (type)
-        {
-        case SceneObjectType::Platform: return Vector3f(4.0f, 0.6f, 1.0f);
-        case SceneObjectType::Coin:     return Vector3f(0.5f, 0.5f, 1.0f);
-        case SceneObjectType::Spawn:    return Vector3f(0.8f, 1.4f, 1.0f);
-        case SceneObjectType::Stream:
-        default:                        return Vector3f(1.0f, 1.0f, 1.0f);
-        }
-    }
-
     uint32_t packRgba8(const float c[4])
     {
         auto u8 = [](float v) -> uint32_t {
@@ -89,17 +77,6 @@ namespace Dark::EditorDetail
         out[3] = static_cast<float>(rgba & 0xFFu) / 255.0f;
     }
 
-    bool isReplicatedProp(SceneObjectType type)
-    {
-        return type == SceneObjectType::Cube || type == SceneObjectType::Sphere
-            || type == SceneObjectType::Platform || type == SceneObjectType::Coin;
-    }
-
-    bool isLocalLightType(SceneObjectType type)
-    {
-        return type == SceneObjectType::PointLight || type == SceneObjectType::SpotLight;
-    }
-
     void defaultLightColor(float out[4])
     {
         out[0] = 1.00f;
@@ -108,10 +85,10 @@ namespace Dark::EditorDetail
         out[3] = 1.00f;
     }
 
-    void fillDefaultLocalLight(LocalLightComponent& light, SceneObjectType type)
+    void fillDefaultLocalLight(LocalLightComponent& light, std::string_view kind)
     {
         light              = LocalLightComponent{};
-        light.type         = (type == SceneObjectType::SpotLight) ? LocalLightType::Spot : LocalLightType::Point;
+        light.type         = (kind == "spot") ? LocalLightType::Spot : LocalLightType::Point;
         light.color        = Vector3f(1.0f, 0.92f, 0.75f);
         light.innerConeDeg = 12.0f;
         light.outerConeDeg = 25.0f;
@@ -150,7 +127,7 @@ namespace Dark::EditorDetail
 
     bool keepsPlacedHeight(World& world, const EditorObjectComponent* so, Entity e)
     {
-        if (so && (isLocalLightType(so->type) || isGlobalLightType(so->type) || so->type == SceneObjectType::CloudVolume))
+        if (so && (editorPointOrSpot(so->source) || editorGlobalLight(so->source) || sceneHasComponent(so->source, "CloudVolume")))
             return true;
         return lightOwningGlowMesh(world, e).valid();
     }
@@ -215,41 +192,6 @@ namespace Dark::EditorDetail
         return dir;
     }
 
-    NetPrefab prefabFromType(SceneObjectType type)
-    {
-        switch (type)
-        {
-        case SceneObjectType::Sphere:
-            return NetPrefab::Sphere;
-        case SceneObjectType::Platform:
-            return NetPrefab::Platform;
-        case SceneObjectType::Coin:
-            return NetPrefab::Coin;
-        case SceneObjectType::Stream:
-        default:
-            return NetPrefab::Cube;
-        }
-    }
-
-    SceneObjectType typeFromPrefab(NetPrefab prefab)
-    {
-        switch (prefab)
-        {
-        case NetPrefab::Sphere:
-            return SceneObjectType::Sphere;
-        case NetPrefab::Platform:
-            return SceneObjectType::Platform;
-        case NetPrefab::Coin:
-            return SceneObjectType::Coin;
-        case NetPrefab::Player2D:
-            return SceneObjectType::Spawn;
-        case NetPrefab::Cube:
-        case NetPrefab::PlayerPawn:
-        default:
-            return SceneObjectType::Cube;
-        }
-    }
-
     const char* netRoleLabel(NetRole role)
     {
         switch (role)
@@ -263,26 +205,6 @@ namespace Dark::EditorDetail
         case NetRole::Idle:
         default:
             return "Idle";
-        }
-    }
-
-    void defaultColor2D(SceneObjectType type, float out[4])
-    {
-        switch (type)
-        {
-        case SceneObjectType::Platform:
-            out[0] = 0.72f; out[1] = 0.52f; out[2] = 0.32f; out[3] = 1.0f;
-            break;
-        case SceneObjectType::Coin:
-            out[0] = 0.95f; out[1] = 0.80f; out[2] = 0.25f; out[3] = 1.0f;
-            break;
-        case SceneObjectType::Spawn:
-            out[0] = 0.20f; out[1] = 0.80f; out[2] = 0.70f; out[3] = 1.0f;
-            break;
-        case SceneObjectType::Stream:
-        default:
-            out[0] = 1.0f; out[1] = 1.0f; out[2] = 1.0f; out[3] = 1.0f;
-            break;
         }
     }
 

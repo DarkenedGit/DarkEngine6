@@ -4,9 +4,9 @@
 #include "Math/MathHelper.h"
 #include "Math/Sphere3f.h"
 #include "Math/Vector3f.h"
-#include "Scene/SceneTypes.h"
 
 #include <cmath>
+#include <string_view>
 #include <vector>
 
 namespace Dark
@@ -20,14 +20,14 @@ namespace Dark
         return !block || goal || conceal || zone || pickup;
     }
 
-    // Scene cubes and spheres only. Volume markers and flat cubes are not obstacles.
+    // primitive is "cube" or "sphere". Volume markers and flat cubes are not obstacles.
     // A negative scale still blocks. Sphere radius is half the longest axis of a unit sphere (radius 0.5).
-    inline bool classifyWalkObstacle(SceneObjectType type, const Math::Vector3f& position, const Math::Vector3f& scale, bool block, bool goal, bool conceal, bool zone, bool pickup,
+    inline bool classifyWalkObstacle(std::string_view primitive, const Math::Vector3f& position, const Math::Vector3f& scale, bool block, bool goal, bool conceal, bool zone, bool pickup,
                                      Math::AABox3f& box, Math::Sphere3f& sphere)
     {
         if (walkObstacleSkipped(block, goal, conceal, zone, pickup))
             return false;
-        if (type == SceneObjectType::Cube)
+        if (primitive == "cube")
         {
             if (std::fabs(scale.y) < 0.3f)
                 return false;
@@ -35,7 +35,7 @@ namespace Dark
             box = Math::AABox3f::FromCenterExtents(position, half);
             return true;
         }
-        if (type == SceneObjectType::Sphere)
+        if (primitive == "sphere")
         {
             const float radius = 0.5f * Math::Max(std::fabs(scale.x), Math::Max(std::fabs(scale.y), std::fabs(scale.z)));
             if (radius <= 1.0e-4f)

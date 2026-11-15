@@ -1,7 +1,7 @@
 {
   "id": "core:hunter",
   "version": 1,
-  "editor": { "label": "Hunter", "category": "Creatures", "icon": "bug", "modes": ["3d"], "matchModel": "skeleton" },
+  "editor": { "label": "Hunter", "category": "Creatures", "icon": "bug", "hotkey": "7", "modes": ["3d"], "matchModel": "skeleton" },
   "components": {
     "Model": { "gltf": "models/skeleton.gltf", "anim": "models/skeleton.anim.json" },
     "Physics": { "file": "models/human.physics.json" },

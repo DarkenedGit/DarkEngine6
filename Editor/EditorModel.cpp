@@ -321,7 +321,7 @@ bool EditorApp::spawnLoadedModel(const AssetRef<Model>& model)
     attachAnimGraph(e, model);
 
     EditorObjectComponent so{};
-    so.type = SceneObjectType::Model;
+    so.source.archetype = "core:model";
     world().emplace<EditorObjectComponent>(e, so);
 
     tryLoadModelPhysics(e);
@@ -504,7 +504,7 @@ void EditorApp::drawMaterialPanel()
         mat          = currentMat.get();
         meshInstance = true;
         if (const EditorObjectComponent* so = findObject(m_selected))
-            ImGui::Text("Selected: %s", toString(so->type));
+            ImGui::Text("Selected: %s", editorArchetypeLabel(so->source.archetype).c_str());
         else
             ImGui::TextUnformatted("Selected: Mesh");
         if (meshMaterialShared(meshMat->id))

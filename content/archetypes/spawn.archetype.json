@@ -1,7 +1,7 @@
 {
   "id": "core:spawn",
   "version": 1,
-  "editor": { "label": "Player Spawn", "category": "2D", "icon": "circle-plus", "modes": ["2d"] },
-  "components": {},
-  "behaviors": []
+  "editor": { "label": "Player Spawn", "category": "2D", "icon": "circle-plus", "hotkey": "3", "modes": ["2d"], "defaultScale": [0.8, 1.4, 1], "defaultColor": [0.2, 0.8, 0.7, 1] },
+  "components": { "Spawn": {} },
+  "behaviors": [ { "name": "spawn.point" } ]
 }

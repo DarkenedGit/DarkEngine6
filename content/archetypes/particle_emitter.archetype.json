@@ -1,7 +1,18 @@
 {
   "id": "core:particle_emitter",
   "version": 1,
-  "editor": { "label": "Particle Emitter", "category": "Effects", "icon": "bolt", "modes": ["3d"] },
-  "components": { "ParticleEmitter": {} },
-  "behaviors": []
+  "editor": { "label": "Particle Emitter", "category": "Effects", "icon": "bolt", "hotkey": "3", "modes": ["3d"] },
+  "components": {
+    "ParticleEmitter": {},
+    "LocalLight": {
+      "kind": "point",
+      "intensity": 1885.0,
+      "range": 8.0,
+      "inner": 12.0,
+      "outer": 25.0,
+      "sourceRadius": 0.05,
+      "enabled": true
+    }
+  },
+  "behaviors": [ { "name": "light.searchlight" }, { "name": "particle.emit" } ]
 }

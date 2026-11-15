@@ -361,7 +361,7 @@ void EditorApp::syncPlacedWater(bool terrainChanged)
 
     std::vector<EntityID> live;
     world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
-        if (so.type != SceneObjectType::Water)
+        if (!sceneHasComponent(so.source, "Water"))
             return;
         const TransformComponent* xf = world().get<TransformComponent>(e);
         if (!xf)
@@ -445,7 +445,7 @@ void EditorApp::syncPlacedWater(bool terrainChanged)
     const float lakeLevel = m_water.chunksX() > 0 ? m_water.params().waterLevel : m_terrainSeaLevel;
     std::vector<EntityID> liveStreams;
     world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
-        if (so.type != SceneObjectType::Stream)
+        if (!sceneHasComponent(so.source, "Stream"))
             return;
         StreamComponent* stream = world().get<StreamComponent>(e);
         TransformComponent* xf = world().get<TransformComponent>(e);
@@ -1527,7 +1527,7 @@ bool EditorApp::fillFoliageSpawnIn(FoliageSpawnIn& in)
         in.water.push_back(sheet);
     }
     world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
-        if (so.type != SceneObjectType::Water)
+        if (!sceneHasComponent(so.source, "Water"))
             return;
         const TransformComponent* xf = world().get<TransformComponent>(e);
         if (!xf)

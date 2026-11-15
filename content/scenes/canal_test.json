@@ -83,7 +83,7 @@
   },
   "objects": [
     {
-      "type": "ambient_light",
+      "archetype": "core:ambient_light",
       "color": [
         0.22,
         0.22,
@@ -106,17 +106,19 @@
         1.0,
         1.0
       ],
-      "light": {
-        "enabled": true,
-        "inner": 12.0,
-        "intensity": 1.0,
-        "outer": 25.0,
-        "range": 8.0,
-        "sourceRadius": 0.05
+      "overrides": {
+        "AmbientLight": {
+          "enabled": true,
+          "inner": 12.0,
+          "intensity": 1.0,
+          "outer": 25.0,
+          "range": 8.0,
+          "sourceRadius": 0.05
+        }
       }
     },
     {
-      "type": "directional_light",
+      "archetype": "core:directional_light",
       "color": [
         0.89,
         0.71,
@@ -139,17 +141,19 @@
         1.0,
         1.0
       ],
-      "light": {
-        "enabled": true,
-        "inner": 12.0,
-        "intensity": 3.25,
-        "outer": 25.0,
-        "range": 8.0,
-        "sourceRadius": 0.05
+      "overrides": {
+        "DirectionalLight": {
+          "enabled": true,
+          "inner": 12.0,
+          "intensity": 3.25,
+          "outer": 25.0,
+          "range": 8.0,
+          "sourceRadius": 0.05
+        }
       }
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.55,
         0.52,
@@ -174,7 +178,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.55,
         0.52,
@@ -199,7 +203,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.55,
         0.52,
@@ -224,7 +228,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.55,
         0.52,
@@ -249,7 +253,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.62,
         0.66,
@@ -274,7 +278,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.62,
         0.66,
@@ -299,7 +303,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.62,
         0.66,
@@ -324,7 +328,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.62,
         0.66,
@@ -349,7 +353,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.7,
         0.73,
@@ -374,7 +378,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.66,
         0.7,
@@ -399,7 +403,7 @@
       ]
     },
     {
-      "type": "cube",
+      "archetype": "core:cube",
       "color": [
         0.62,
         0.67,
@@ -424,7 +428,7 @@
       ]
     },
     {
-      "type": "player",
+      "archetype": "core:player",
       "color": [
         0.35,
         0.85,
@@ -449,7 +453,7 @@
       ]
     },
     {
-      "type": "spot_light",
+      "archetype": "core:spot_light",
       "color": [
         1.0,
         0.97,
@@ -472,20 +476,24 @@
         1.0,
         1.0
       ],
-      "light": {
-        "enabled": true,
-        "intensity": 9000.0,
-        "range": 26.0,
-        "inner": 10.0,
-        "outer": 16.0,
-        "sourceRadius": 0.1,
-        "castShadow": true,
-        "searchlight": true,
-        "sweep": 70.0
+      "overrides": {
+        "LocalLight": {
+          "kind": "spot",
+          "enabled": true,
+          "intensity": 9000.0,
+          "range": 26.0,
+          "inner": 10.0,
+          "outer": 16.0,
+          "sourceRadius": 0.1,
+          "castShadow": true,
+          "searchlight": true,
+          "sweep": 70.0,
+          "useObjectColor": true
+        }
       }
     },
     {
-      "type": "spot_light",
+      "archetype": "core:spot_light",
       "color": [
         1.0,
         0.97,
@@ -508,20 +516,24 @@
         1.0,
         1.0
       ],
-      "light": {
-        "enabled": true,
-        "intensity": 9000.0,
-        "range": 26.0,
-        "inner": 10.0,
-        "outer": 16.0,
-        "sourceRadius": 0.1,
-        "castShadow": true,
-        "searchlight": true,
-        "sweep": 50.0
+      "overrides": {
+        "LocalLight": {
+          "kind": "spot",
+          "enabled": true,
+          "intensity": 9000.0,
+          "range": 26.0,
+          "inner": 10.0,
+          "outer": 16.0,
+          "sourceRadius": 0.1,
+          "castShadow": true,
+          "searchlight": true,
+          "sweep": 50.0,
+          "useObjectColor": true
+        }
       }
     },
     {
-      "type": "hunter",
+      "archetype": "core:hunter",
       "color": [
         0.85,
         0.28,
@@ -561,7 +573,7 @@
       "squad": "pool"
     },
     {
-      "type": "hunter",
+      "archetype": "core:hunter",
       "color": [
         0.85,
         0.28,

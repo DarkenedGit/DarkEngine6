@@ -48,12 +48,12 @@ Entity EditorApp::pickObject2D(const Vector2f& worldPos)
     Entity best{};
     float  bestArea = 1.0e30f;
     world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
-        if (!isScene2DType(so.type))
+        if (!editorShownInMode(so.source, "2d"))
             return;
         const auto* xf = world().get<TransformComponent>(e);
         if (!xf)
             return;
-        const AABox2f box = objectBounds2D(so.type, xf->position, xf->scale);
+        const AABox2f box = objectBounds2D(so.source, xf->position, xf->scale);
         if (!box.Contains(worldPos))
             return;
         const float area = box.Area();

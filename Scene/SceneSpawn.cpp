@@ -19,6 +19,7 @@
 #include "Save/PersistentId.h"
 #include "Scene/Building.h"
 #include "Scene/EntityMaster.h"
+#include "Content/SceneObjectSpawn.h"
 #include "Scene/SceneTypes.h"
 #include "Scene/WalkObstacles.h"
 
@@ -35,9 +36,12 @@ namespace Dark
     {
         using namespace Math;
 
-        bool localLight(SceneObjectType type)
+        bool circuitLight(const SceneObjectData& object)
         {
-            return type == SceneObjectType::PointLight || type == SceneObjectType::SpotLight;
+            if (sceneHasComponent(object, "ParticleEmitter"))
+                return false;
+            const std::string kind = sceneLightKind(object);
+            return kind == "point" || kind == "spot";
         }
 
         void spawnOne(World& world, const SceneObjectData& o, const SceneSpawnHost& host, int& powerStamp, int& pickupStamp)
@@ -78,7 +82,7 @@ namespace Dark
                 goal.box = bounds;
                 world.emplace<GoalVolumeComponent>(e, goal);
             }
-            if (!o.circuit.empty() && !localLight(o.type))
+            if (!o.circuit.empty() && !circuitLight(o))
             {
                 const Entity e = world.createEntity();
                 world.emplace<TransformComponent>(e, o.position, Quaternion::IDENTITY, Vector3f{ 1.0f, 1.0f, 1.0f });
@@ -102,11 +106,13 @@ namespace Dark
             }
             Math::AABox3f  walkBox;
             Math::Sphere3f walkSphere;
-            if (classifyWalkObstacle(o.type, o.position, o.scale, o.block, o.goal, o.conceal, !o.zone.empty(), !o.pickup.empty(), walkBox, walkSphere))
+            std::string    walkPrimitive;
+            if (sceneWalkObstacle(o, walkPrimitive)
+                && classifyWalkObstacle(walkPrimitive, o.position, o.scale, o.block, o.goal, o.conceal, !o.zone.empty(), !o.pickup.empty(), walkBox, walkSphere))
             {
                 const Entity e = world.createEntity();
                 world.emplace<TransformComponent>(e, o.position, Quaternion::IDENTITY, Vector3f{ 1.0f, 1.0f, 1.0f });
-                if (o.type == SceneObjectType::Sphere)
+                if (walkPrimitive == "sphere")
                 {
                     ObstacleSphereComponent block{};
                     block.sphere = walkSphere;
@@ -138,7 +144,7 @@ namespace Dark
 
     void applySearchlight(World& world, Entity light, const SceneObjectData& object)
     {
-        const bool wanted = object.type == SceneObjectType::SpotLight && object.searchlight;
+        const bool wanted = object.searchlight && sceneLightKind(object) == "spot";
         if (!wanted)
         {
             if (world.get<SecurityCameraComponent>(light))
@@ -176,10 +182,11 @@ namespace Dark
     {
         if (!actor.valid() || !world.alive(actor))
             return;
-        if (object.type == SceneObjectType::SpotLight)
+        if (sceneLightKind(object) == "spot")
             applySearchlight(world, actor, object);
 
-        const bool light = object.type == SceneObjectType::PointLight || object.type == SceneObjectType::SpotLight;
+        const std::string kind = sceneLightKind(object);
+        const bool light = (kind == "point" || kind == "spot") && !sceneHasComponent(object, "ParticleEmitter");
         if (light && !object.circuit.empty())
         {
             CircuitMemberComponent* member = world.get<CircuitMemberComponent>(actor);
@@ -188,13 +195,13 @@ namespace Dark
             member->circuit = object.circuit;
         }
 
-        const bool pawn = object.type == SceneObjectType::Hunter || object.type == SceneObjectType::Wolf;
+        const bool pawn = sceneHasBehavior(object, "ai.hunter") || sceneHasBehavior(object, "ai.wolf");
         if (pawn && heightAt)
         {
             if (TransformComponent* xf = world.get<TransformComponent>(actor))
                 xf->position.y = heightAt(heightUser, xf->position.x, xf->position.z) + 0.5f;
         }
-        if (object.type != SceneObjectType::Hunter)
+        if (!sceneHasBehavior(object, "ai.hunter"))
             return;
 
         std::string path = object.dialogue;

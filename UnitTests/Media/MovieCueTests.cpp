@@ -94,7 +94,7 @@ namespace
         xf.position = pos;
         world.emplace<TransformComponent>(e, xf);
         SceneObjectData data;
-        data.type        = SceneObjectType::Movie;
+        data.archetype        = "core:movie";
         data.movie       = path ? path : "";
         data.movieRadius = radius;
         data.movieLoop   = loop;

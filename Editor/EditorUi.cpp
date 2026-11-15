@@ -55,6 +55,7 @@
 
 #include <imgui.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -205,135 +206,45 @@ void EditorApp::drawEditorUi()
         if (ImGui::BeginMenu("Create"))
         {
             const bool createOk = !netClientLocked();
-            if (m_sceneMode == SceneMode::Scene2D)
-            {
-                if (ImGui::MenuItem(ICON_FA_LAYER_GROUP "  Platform", "1+P", false, createOk))
-                {
-                    m_placeType          = SceneObjectType::Platform;
-                    m_placeArchetype.clear();
-                    m_queuePlaceAtCursor = true;
-                }
-                if (ImGui::MenuItem(ICON_FA_CIRCLE "  Coin", "2+P", false, createOk))
-                {
-                    m_placeType          = SceneObjectType::Coin;
-                    m_placeArchetype.clear();
-                    m_queuePlaceAtCursor = true;
-                }
-                if (ImGui::MenuItem(ICON_FA_CIRCLE_PLUS "  Player Spawn", "3+P", false, createOk))
-                {
-                    m_placeType          = SceneObjectType::Spawn;
-                    m_placeArchetype.clear();
-                    m_queuePlaceAtCursor = true;
-                }
-            }
-            else
-            {
-                if (ImGui::MenuItem(ICON_FA_CUBE "  Cube", "1+P", false, createOk))
-                {
-                    m_placeType            = SceneObjectType::Cube;
-                    m_placeArchetype.clear();
-                    m_queuePlaceAtCursor = true;
-                }
-                if (ImGui::MenuItem(ICON_FA_CIRCLE "  Sphere", "2+P", false, createOk))
-                {
-                    m_placeType            = SceneObjectType::Sphere;
-                    m_placeArchetype.clear();
-                    m_queuePlaceAtCursor = true;
-                }
-                if (ImGui::MenuItem(ICON_FA_BOLT "  Particle Emitter", "3+P", false, createOk))
-                {
-                    m_placeType            = SceneObjectType::ParticleEmitter;
-                    m_placeArchetype.clear();
-                    m_queuePlaceAtCursor = true;
-                }
-                if (ImGui::MenuItem(ICON_FA_LIGHTBULB "  Point Light", "4+P", false, createOk))
-                {
-                    m_placeType            = SceneObjectType::PointLight;
-                    m_placeArchetype.clear();
-                    m_queuePlaceAtCursor = true;
-                }
-                if (ImGui::MenuItem(ICON_FA_LIGHTBULB "  Spot Light", "5+P", false, createOk))
-                {
-                    m_placeType            = SceneObjectType::SpotLight;
-                    m_placeArchetype.clear();
-                    m_queuePlaceAtCursor = true;
-                }
-                if (ImGui::MenuItem(ICON_FA_CIRCLE_PLUS "  Player", "6+P", false, createOk))
-                {
-                    m_placeType            = SceneObjectType::Player;
-                    m_placeArchetype.clear();
-                    m_queuePlaceAtCursor = true;
-                }
-                if (ImGui::MenuItem(ICON_FA_BUG "  Hunter", "7+P", false, createOk))
-                {
-                    m_placeType            = SceneObjectType::Hunter;
-                    m_placeArchetype.clear();
-                    m_queuePlaceAtCursor = true;
-                }
-                if (ImGui::MenuItem(ICON_FA_BUG "  Wolf", "8+P", false, createOk))
-                {
-                    m_placeType            = SceneObjectType::Wolf;
-                    m_placeArchetype.clear();
-                    m_queuePlaceAtCursor = true;
-                }
-                if (ImGui::MenuItem(ICON_FA_FORWARD_STEP "  Spawner", nullptr, false, createOk))
-                {
-                    m_placeType          = SceneObjectType::Spawner;
-                    m_placeArchetype.clear();
-                    m_queuePlaceAtCursor = true;
-                }
-                ImGui::SetItemTooltip("Places a spawner. Maintain replaces dead units. Waves wait for a timer or until the wave is dead.");
-                if (ImGui::MenuItem(ICON_FA_CUBE "  Movie", nullptr, false, createOk))
-                {
-                    m_placeType          = SceneObjectType::Movie;
-                    m_placeArchetype.clear();
-                    m_queuePlaceAtCursor = true;
-                }
-                ImGui::SetItemTooltip("Places a movie cue. The cube is a marker, not the screen.");
-                if (ImGui::MenuItem(ICON_FA_BOLT "  Glow Prop", nullptr, false, createOk))
-                    m_queueGlowProp = true;
-                if (ImGui::MenuItem(ICON_FA_LAYER_GROUP "  Water", nullptr, false, createOk))
-                {
-                    m_placeType          = SceneObjectType::Water;
-                    m_placeArchetype.clear();
-                    m_queuePlaceAtCursor = true;
-                }
-                ImGui::SetItemTooltip("Places a lake. Position Y is the surface. Width and depth are the footprint. Add several at different heights.");
-                if (ImGui::MenuItem(ICON_FA_LAYER_GROUP "  Stream", nullptr, false, createOk))
-                {
-                    m_placeType          = SceneObjectType::Stream;
-                    m_placeArchetype.clear();
-                    m_queuePlaceAtCursor = true;
-                }
-                ImGui::SetItemTooltip("Places a stream ribbon. Follow downhill in the inspector to run it to the lake.");
-                if (ImGui::MenuItem(ICON_FA_CLOUD "  Cloud Volume", nullptr, false, createOk))
-                {
-                    m_placeType          = SceneObjectType::CloudVolume;
-                    m_placeArchetype.clear();
-                    m_queuePlaceAtCursor = true;
-                }
-                ImGui::SetItemTooltip("Places a volumetric cloud. Scale is the volume size. Looks correct from inside the volume.");
-            }
-            ImGui::Separator();
             const char* modeName = (m_sceneMode == SceneMode::Scene2D) ? "2d" : "3d";
+            std::vector<const Archetype*> placeable;
             for (const Archetype& archetype : archetypes())
             {
-                SceneObjectType legacy{};
-                if (legacySceneTypeForId(archetype.name, legacy) || archetype.name == "core:crow")
-                    continue;
-                if (!archetypeVisibleInMode(archetype, modeName))
-                    continue;
-                const std::string shown = archetype.editor.category.empty()
-                    ? archetype.editor.label
-                    : archetype.editor.category + " / " + archetype.editor.label;
-                const std::string label = std::string(iconForContentName(archetype.editor.icon)) + "  " + shown;
-                const char* shortcut = archetype.editor.hotkey.empty() ? nullptr : archetype.editor.hotkey.c_str();
-                if (ImGui::MenuItem(label.c_str(), shortcut, false, createOk))
+                if (archetypeVisibleInMode(archetype, modeName))
+                    placeable.push_back(&archetype);
+            }
+            std::sort(placeable.begin(), placeable.end(), [](const Archetype* a, const Archetype* b) {
+                if (a->editor.hotkey.empty() != b->editor.hotkey.empty())
+                    return !a->editor.hotkey.empty();
+                if (a->editor.hotkey != b->editor.hotkey)
+                    return a->editor.hotkey < b->editor.hotkey;
+                return a->name < b->name;
+            });
+            for (const Archetype* archetype : placeable)
+            {
+                const std::string shown = archetype->editor.label.empty() ? archetype->name : archetype->editor.label;
+                std::string shortcut = archetype->editor.hotkey;
+                if (!shortcut.empty())
+                    shortcut += "+P";
+                const std::string label = std::string(iconForContentName(archetype->editor.icon)) + "  " + shown;
+                if (ImGui::MenuItem(label.c_str(), shortcut.empty() ? nullptr : shortcut.c_str(), false, createOk))
                 {
-                    m_placeArchetype     = archetype.name;
+                    m_placeArchetype     = archetype->name;
                     m_queuePlaceAtCursor = true;
                 }
+                if (archetype->name == "core:spawner")
+                    ImGui::SetItemTooltip("Places a spawner. Maintain replaces dead units. Waves wait for a timer or until the wave is dead.");
+                else if (archetype->name == "core:movie")
+                    ImGui::SetItemTooltip("Places a movie cue. The cube is a marker, not the screen.");
+                else if (archetype->name == "core:water")
+                    ImGui::SetItemTooltip("Places a lake. Position Y is the surface. Width and depth are the footprint. Add several at different heights.");
+                else if (archetype->name == "core:stream")
+                    ImGui::SetItemTooltip("Places a stream ribbon. Follow downhill in the inspector to run it to the lake.");
+                else if (archetype->name == "core:cloud_volume")
+                    ImGui::SetItemTooltip("Places a volumetric cloud. Scale is the volume size. Looks correct from inside the volume.");
             }
+            if (m_sceneMode != SceneMode::Scene2D && ImGui::MenuItem(ICON_FA_BOLT "  Glow Prop", nullptr, false, createOk))
+                m_queueGlowProp = true;
             if (!createOk && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_DelayShort))
                 ImGui::SetTooltip("Spectators cannot place or delete objects");
             ImGui::EndMenu();
@@ -522,12 +433,11 @@ void EditorApp::drawEditorUi()
                     "drag the RGB arrows to move it, or create one below.");
                 if (ImGui::Button(ICON_FA_BOLT "  Create Emitter at Cursor") && !netClientLocked())
                 {
-                    m_placeType          = SceneObjectType::ParticleEmitter;
-                    m_placeArchetype.clear();
+                    m_placeArchetype     = "core:particle_emitter";
                     m_queuePlaceAtCursor = true;
                 }
                 ImGui::Separator();
-                ImGui::Text("Place type: %s", toString(m_placeType));
+                ImGui::Text("Place type: %s", m_placeArchetype.c_str());
             }
             ImGui::End();
         }
@@ -574,50 +484,23 @@ void EditorApp::drawEditorUi()
             const bool selected = m_selected.valid() && m_selected.id() == e.id();
             ImGui::PushID(static_cast<int>(e.id()));
             char label[160];
-            if (so.source.placeholder || so.source.dataDriven)
+            const Archetype* arch = so.source.archetype.empty() ? nullptr : findArchetype(so.source.archetype);
+            const char* icon = so.source.placeholder
+                ? ICON_FA_XMARK
+                : iconForContentName(arch ? std::string_view(arch->editor.icon) : std::string_view{});
+            std::string shown = so.source.placeholder ? std::string("Missing") : editorArchetypeLabel(so.source.archetype);
+            if (sceneHasBehavior(so.source, "model"))
             {
-                const Archetype* arch = so.source.archetype.empty() ? nullptr : findArchetype(so.source.archetype);
-                const char* icon = so.source.placeholder
-                    ? ICON_FA_XMARK
-                    : iconForContentName(arch ? std::string_view(arch->editor.icon) : std::string_view{});
-                const std::string shown = so.source.placeholder
-                    ? std::string("Missing")
-                    : (arch && !arch->editor.label.empty() ? arch->editor.label : so.source.archetype);
-                std::snprintf(label, sizeof(label), "%s  %s##%u", icon, shown.c_str(), e.id());
-            }
-            else if (so.type == SceneObjectType::Model)
-            {
-                const char* modelName = "model";
-                std::string  fileName;
                 if (const ModelComponent* mc = world().get<ModelComponent>(e))
                 {
                     if (const auto model = assets().getAs<Model>(mc->modelAssetID); model && !model->sourcePath().empty())
-                    {
-                        fileName  = model->sourcePath().filename().string();
-                        modelName = fileName.c_str();
-                    }
+                        shown = model->sourcePath().filename().string();
                 }
-                if (drawTypeIconImage(typeIconId(SceneObjectType::Model)))
-                    std::snprintf(label, sizeof(label), "%s##%u", modelName, e.id());
-                else
-                    std::snprintf(label, sizeof(label), "%s  %s##%u", iconForType(SceneObjectType::Model), modelName, e.id());
             }
+            if (drawTypeIconImage(archetypeIconId(so.source.archetype)))
+                std::snprintf(label, sizeof(label), "%s##%u", shown.c_str(), e.id());
             else
-            {
-                const char* name = toString(so.type);
-                if (so.type == SceneObjectType::AmbientLight)
-                    name = "Ambient Light";
-                else if (so.type == SceneObjectType::DirectionalLight)
-                    name = "Directional Light";
-                else if (so.type == SceneObjectType::PointLight)
-                    name = "Point Light";
-                else if (so.type == SceneObjectType::SpotLight)
-                    name = "Spot Light";
-                if (drawTypeIconImage(typeIconId(so.type)))
-                    std::snprintf(label, sizeof(label), "%s##%u", name, e.id());
-                else
-                    std::snprintf(label, sizeof(label), "%s  %s##%u", iconForType(so.type), name, e.id());
-            }
+                std::snprintf(label, sizeof(label), "%s  %s##%u", icon, shown.c_str(), e.id());
             if (ImGui::Selectable(label, selected))
                 m_selected = e;
             ImGui::PopID();
@@ -637,10 +520,10 @@ void EditorApp::drawEditorUi()
                 ? model->sourcePath().filename().string()
                 : std::string("glTF");
             char label[160];
-            if (drawTypeIconImage(typeIconId(SceneObjectType::Model)))
+            if (drawTypeIconImage(archetypeIconId("core:model")))
                 std::snprintf(label, sizeof(label), "%s##%u", name.c_str(), e.id());
             else
-                std::snprintf(label, sizeof(label), "%s  %s##%u", iconForType(SceneObjectType::Model), name.c_str(), e.id());
+                std::snprintf(label, sizeof(label), "%s  %s##%u", iconForContentName("cube"), name.c_str(), e.id());
             if (ImGui::Selectable(label, selected))
             {
                 m_selected           = e;
@@ -682,7 +565,7 @@ void EditorApp::drawEditorUi()
         {
             if (auto* xf = world().get<TransformComponent>(m_selected))
             {
-                ImGui::Text("Selected: %s", toString(so->type));
+                ImGui::Text("Selected: %s", editorArchetypeLabel(so->source.archetype).c_str());
                 float pos[2] = { xf->position.x, xf->position.y };
                 float size[2] = { xf->scale.x, xf->scale.y };
                 if (Dark::PropFloat2("Position", pos, 0.05f) && !netClientLocked())
@@ -876,8 +759,8 @@ void EditorApp::drawInspector3D()
     }
 
     const bool locked   = netClientLocked();
-    const bool envLight = isGlobalLightType(so->type);
-    ImGui::Text("Selected: %s", toString(so->type));
+    const bool envLight = editorGlobalLight(so->source);
+    ImGui::Text("Selected: %s", editorArchetypeLabel(so->source.archetype).c_str());
     if (so->source.placeholder)
         ImGui::TextWrapped("This object is kept and written back unchanged.");
     else if (so->source.dataDriven)
@@ -891,15 +774,15 @@ void EditorApp::drawInspector3D()
         if (HealthComponent* hp = world().get<HealthComponent>(m_selected))
             ImGui::Text("HP  %.0f / %.0f", static_cast<double>(hp->health.hp()), static_cast<double>(hp->health.maxHp()));
     }
-    if (so->type == SceneObjectType::Player || so->type == SceneObjectType::Hunter || so->type == SceneObjectType::Wolf)
+    if (editorPawn(so->source))
     {
         if (HealthComponent* hp = world().get<HealthComponent>(m_selected))
             ImGui::Text("HP  %.0f / %.0f", static_cast<double>(hp->health.hp()), static_cast<double>(hp->health.maxHp()));
         if (JumpAttackComponent* jac = world().get<JumpAttackComponent>(m_selected))
             ImGui::Text("Jump cooldown  %.2fs", static_cast<double>(jac->jump.cooldownLeft()));
-        if (so->type == SceneObjectType::Player && ImGui::Button(ICON_FA_PLAY "  Play from here") && !m_playMode)
+        if (sceneHasBehavior(so->source, "player.controller") && ImGui::Button(ICON_FA_PLAY "  Play from here") && !m_playMode)
             togglePlayMode();
-        if (so->type == SceneObjectType::Hunter)
+        if (sceneHasBehavior(so->source, "ai.hunter"))
         {
             char dialoguePath[192];
             std::snprintf(dialoguePath, sizeof(dialoguePath), "%s", so->dialogue.c_str());
@@ -911,7 +794,7 @@ void EditorApp::drawInspector3D()
         }
         ImGui::TextDisabled("F12 plays the scene. Place hunters or wolves, then Play to fight.");
     }
-    else if (so->type == SceneObjectType::Model)
+    else if (sceneHasBehavior(so->source, "model"))
     {
         if (const ModelComponent* mc = world().get<ModelComponent>(m_selected))
         {
@@ -1046,7 +929,7 @@ void EditorApp::drawInspector3D()
         }
         Dark::PropFloat("Source radius", &light->sourceRadius, 0.005f, 0.0f, 2.0f);
     }
-    else if (so->type == SceneObjectType::Spawner)
+    else if (sceneHasComponent(so->source, "Spawner"))
     {
         ImGui::Separator();
         ImGui::TextUnformatted("Spawner");
@@ -1116,7 +999,7 @@ void EditorApp::drawInspector3D()
         }
         ImGui::TextDisabled("The cube is a marker. Radius is the spawn area, not the cube size.");
     }
-    else if (so->type == SceneObjectType::Movie)
+    else if (sceneHasComponent(so->source, "Movie"))
     {
         ImGui::Separator();
         ImGui::TextUnformatted("Movie");
@@ -1138,7 +1021,7 @@ void EditorApp::drawInspector3D()
             ImGui::TextDisabled("Fires once when the possessed pawn's XZ enters the radius during play. Fullscreen cutscene. The marker is not the screen.");
         }
     }
-    else if (so->type == SceneObjectType::Water)
+    else if (sceneHasComponent(so->source, "Water"))
     {
         ImGui::Separator();
         ImGui::TextUnformatted("Water body");
@@ -1150,7 +1033,7 @@ void EditorApp::drawInspector3D()
             xf->scale.z = Max(4.0f, depth);
         ImGui::TextDisabled("Y is this lake's surface. Each water object is its own body.");
     }
-    else if (so->type == SceneObjectType::Stream)
+    else if (sceneHasComponent(so->source, "Stream"))
     {
         ImGui::Separator();
         ImGui::TextUnformatted("Stream");
@@ -1177,7 +1060,7 @@ void EditorApp::drawInspector3D()
             ImGui::TextDisabled("%d points", static_cast<int>(stream->points.size()));
         }
     }
-    else if (so->type == SceneObjectType::CloudVolume)
+    else if (sceneHasComponent(so->source, "CloudVolume"))
     {
         ImGui::Separator();
         ImGui::TextUnformatted("Cloud volume");
@@ -1213,7 +1096,7 @@ void EditorApp::drawInspector3D()
             Dark::PropFloat3("Wind dir", &d.windDir.x, 0.01f);
         }
     }
-    else if (!isPawnType(so->type) && so->type != SceneObjectType::Model)
+    else if (!editorPawn(so->source) && !sceneHasBehavior(so->source, "model"))
     {
         if (Dark::PropColor3("Tint", so->color))
         {
@@ -1325,7 +1208,7 @@ void EditorApp::onUpdate(float dt)
         const Entity selected = m_selected;
         world().each<AnimGraphComponent>([&](Entity e, AnimGraphComponent& ag) {
             const EditorObjectComponent* so = world().get<EditorObjectComponent>(e);
-            const bool pawn = so && isPawnType(so->type);
+            const bool pawn = so && editorPawn(so->source);
             if (pawn && !m_playMode)
             {
                 ag.graph.setPreviewPaused(true);

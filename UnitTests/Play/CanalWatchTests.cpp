@@ -12,6 +12,7 @@
 #include "Math/Vector3f.h"
 #include "Play/Facility.h"
 #include "Scene/Building.h"
+#include "Content/ContentDb.h"
 #include "Scene/SceneFile.h"
 #include "Scene/SceneSpawn.h"
 #include "Terrain/HeightMap.h"
@@ -63,7 +64,9 @@ namespace
         light.outerConeDeg = 22.0f;
         light.intensity    = 3000.0f;
         SceneObjectData o{};
-        o.type        = SceneObjectType::SpotLight;
+        o.archetype        = "core:spot_light";
+        o.lightKind = "spot";
+        o.hasLight = true;
         o.searchlight = true;
         o.sweepDeg    = sweep;
         applySceneActor(world, e, o, nullptr, nullptr);
@@ -201,7 +204,9 @@ TEST(CanalWatch, SearchlightTakesItsAimFromTheSpot)
     EXPECT_FLOAT_EQ(cam->def.intensity, 3000.0f);
 
     SceneObjectData off{};
-    off.type = SceneObjectType::SpotLight;
+    off.archetype = "core:spot_light";
+    off.lightKind = "spot";
+    off.hasLight = true;
     applySceneActor(world, e, off, nullptr, nullptr);
     EXPECT_EQ(world.get<SecurityCameraComponent>(e), nullptr);
 }
@@ -250,7 +255,9 @@ TEST(CanalWatch, SearchlightStaysOnItsMountAndResetsItsAim)
     EXPECT_FLOAT_EQ(restored->rotation.z, aim.z);
 
     SceneObjectData again{};
-    again.type        = SceneObjectType::SpotLight;
+    again.archetype        = "core:spot_light";
+    again.lightKind = "spot";
+    again.hasLight = true;
     again.searchlight = true;
     again.sweepDeg    = 120.0f;
     applySceneActor(world, e, again, nullptr, nullptr);
@@ -320,7 +327,9 @@ TEST(CanalWatch, SearchlightSurvivesTheSceneFile)
     in.name    = "ut_searchlight";
     in.mode    = SceneMode::Scene3D;
     SceneObjectData spot{};
-    spot.type        = SceneObjectType::SpotLight;
+    spot.archetype        = "core:spot_light";
+    spot.lightKind = "spot";
+    spot.hasLight = true;
     spot.hasLight    = true;
     spot.searchlight = true;
     spot.sweepDeg    = 75.0f;
@@ -333,6 +342,8 @@ TEST(CanalWatch, SearchlightSurvivesTheSceneFile)
     std::string                 err;
     ASSERT_TRUE(saveSceneToJson(path, in, &err)) << err;
     SceneFileData out{};
+    if (!contentHasArchetype("core:cube"))
+        ASSERT_TRUE(loadContentDatabase(nullptr));
     ASSERT_TRUE(loadSceneFromJson(path, out, &err)) << err;
     ASSERT_EQ(out.objects.size(), 2u);
     EXPECT_TRUE(out.objects[0].searchlight);
@@ -420,6 +431,8 @@ TEST(CanalWatch, CanalTestSceneAimsIntoThePoolAndEveryStopSeesWater)
     const std::filesystem::path path = defaultScenePath("canal_test.json");
     SceneFileData               scene{};
     std::string                 err;
+    if (!contentHasArchetype("core:cube"))
+        ASSERT_TRUE(loadContentDatabase(nullptr));
     ASSERT_TRUE(loadSceneFromJson(path, scene, &err)) << err;
     Terrain::HeightMap ground;
     ASSERT_TRUE(ground.loadBinary(path.parent_path() / scene.terrain.heightFile));
@@ -430,7 +443,7 @@ TEST(CanalWatch, CanalTestSceneAimsIntoThePoolAndEveryStopSeesWater)
     int   stops        = 0;
     for (const SceneObjectData& o : scene.objects)
     {
-        if (o.type == SceneObjectType::SpotLight && o.searchlight)
+        if (o.archetype == "core:spot_light" && o.searchlight)
         {
             const Entity e = world.createEntity();
             world.emplace<TransformComponent>(e, o.position, o.rotation, Vector3f{ 1.0f, 1.0f, 1.0f });
@@ -448,7 +461,7 @@ TEST(CanalWatch, CanalTestSceneAimsIntoThePoolAndEveryStopSeesWater)
             EXPECT_LT(std::fabs(pool.z), 11.0f);
             ++searchlights;
         }
-        if (o.type == SceneObjectType::Hunter)
+        if (o.archetype == "core:hunter")
         {
             for (const Vector2f& stop : o.patrol)
             {

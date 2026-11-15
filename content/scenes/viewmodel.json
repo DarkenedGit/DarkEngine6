@@ -11,7 +11,10 @@
     "cloudCoverage": 0.15,
     "turbidity": 2.2,
     "windSpeed": 0.02,
-    "windDir": [1.0, 0.2],
+    "windDir": [
+      1.0,
+      0.2
+    ],
     "rain": 0.0
   },
   "fog": {
@@ -24,7 +27,11 @@
     "valleyDensity": 0.004,
     "heightFalloff": 0.06,
     "valleyHeight": 8.0,
-    "color": [0.55, 0.62, 0.72]
+    "color": [
+      0.55,
+      0.62,
+      0.72
+    ]
   },
   "exposure": {
     "auto": false,
@@ -38,130 +45,484 @@
   "name": "viewmodel",
   "objects": [
     {
-      "type": "ambient_light",
-      "color": [0.22, 0.22, 0.22, 1.0],
-      "position": [-4.0, 6.0, 4.0],
-      "rotation": [1.0, 0.0, 0.0, 0.0],
-      "scale": [1.0, 1.0, 1.0],
-      "light": { "enabled": true, "inner": 12.0, "intensity": 1.0, "outer": 25.0, "range": 8.0, "sourceRadius": 0.05 }
+      "archetype": "core:ambient_light",
+      "color": [
+        0.22,
+        0.22,
+        0.22,
+        1.0
+      ],
+      "position": [
+        -4.0,
+        6.0,
+        4.0
+      ],
+      "rotation": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "overrides": {
+        "AmbientLight": {
+          "enabled": true,
+          "inner": 12.0,
+          "intensity": 1.0,
+          "outer": 25.0,
+          "range": 8.0,
+          "sourceRadius": 0.05
+        }
+      }
     },
     {
-      "type": "directional_light",
-      "color": [0.89, 0.71, 0.34, 1.0],
-      "position": [4.0, 8.0, -4.0],
-      "rotation": [0.33176908, -0.1907247, 0.80096149, 0.46045014],
-      "scale": [1.0, 1.0, 1.0],
-      "light": { "enabled": true, "inner": 12.0, "intensity": 3.25, "outer": 25.0, "range": 8.0, "sourceRadius": 0.05 }
+      "archetype": "core:directional_light",
+      "color": [
+        0.89,
+        0.71,
+        0.34,
+        1.0
+      ],
+      "position": [
+        4.0,
+        8.0,
+        -4.0
+      ],
+      "rotation": [
+        0.33176908,
+        -0.1907247,
+        0.80096149,
+        0.46045014
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "overrides": {
+        "DirectionalLight": {
+          "enabled": true,
+          "inner": 12.0,
+          "intensity": 3.25,
+          "outer": 25.0,
+          "range": 8.0,
+          "sourceRadius": 0.05
+        }
+      }
     },
     {
-      "type": "cube",
-      "color": [0.42, 0.40, 0.36, 1.0],
-      "position": [0.0, 0.0, 0.0],
-      "rotation": [1.0, 0.0, 0.0, 0.0],
-      "scale": [100.0, 0.1, 48.0]
+      "archetype": "core:cube",
+      "color": [
+        0.42,
+        0.4,
+        0.36,
+        1.0
+      ],
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "rotation": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        100.0,
+        0.1,
+        48.0
+      ]
     },
     {
-      "type": "player",
-      "color": [0.35, 0.85, 0.72, 1.0],
-      "position": [0.0, 0.5, -16.0],
-      "rotation": [1.0, 0.0, 0.0, 0.0],
-      "scale": [1.0, 1.0, 1.0]
+      "archetype": "core:player",
+      "color": [
+        0.35,
+        0.85,
+        0.72,
+        1.0
+      ],
+      "position": [
+        0.0,
+        0.5,
+        -16.0
+      ],
+      "rotation": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
     },
     {
-      "type": "model",
-      "color": [1.0, 1.0, 1.0, 1.0],
-      "position": [-33.0, 0.05, 0.0],
-      "rotation": [0.0, 0.0, 1.0, 0.0],
-      "scale": [1.0, 1.0, 1.0],
-      "model": "models/AnimatedAnimals/Alpaca.gltf"
+      "archetype": "core:model",
+      "color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "position": [
+        -33.0,
+        0.05,
+        0.0
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        1.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "overrides": {
+        "Model": {
+          "gltf": "models/AnimatedAnimals/Alpaca.gltf"
+        }
+      }
     },
     {
-      "type": "model",
-      "color": [1.0, 1.0, 1.0, 1.0],
-      "position": [-27.0, 0.05, 0.0],
-      "rotation": [0.0, 0.0, 1.0, 0.0],
-      "scale": [1.0, 1.0, 1.0],
-      "model": "models/AnimatedAnimals/Bull.gltf"
+      "archetype": "core:model",
+      "color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "position": [
+        -27.0,
+        0.05,
+        0.0
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        1.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "overrides": {
+        "Model": {
+          "gltf": "models/AnimatedAnimals/Bull.gltf"
+        }
+      }
     },
     {
-      "type": "model",
-      "color": [1.0, 1.0, 1.0, 1.0],
-      "position": [-21.0, 0.05, 0.0],
-      "rotation": [0.0, 0.0, 1.0, 0.0],
-      "scale": [1.0, 1.0, 1.0],
-      "model": "models/AnimatedAnimals/Cow.gltf"
+      "archetype": "core:model",
+      "color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "position": [
+        -21.0,
+        0.05,
+        0.0
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        1.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "overrides": {
+        "Model": {
+          "gltf": "models/AnimatedAnimals/Cow.gltf"
+        }
+      }
     },
     {
-      "type": "model",
-      "color": [1.0, 1.0, 1.0, 1.0],
-      "position": [-15.0, 0.05, 0.0],
-      "rotation": [0.0, 0.0, 1.0, 0.0],
-      "scale": [1.0, 1.0, 1.0],
-      "model": "models/AnimatedAnimals/Deer.gltf"
+      "archetype": "core:model",
+      "color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "position": [
+        -15.0,
+        0.05,
+        0.0
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        1.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "overrides": {
+        "Model": {
+          "gltf": "models/AnimatedAnimals/Deer.gltf"
+        }
+      }
     },
     {
-      "type": "model",
-      "color": [1.0, 1.0, 1.0, 1.0],
-      "position": [-9.0, 0.05, 0.0],
-      "rotation": [0.0, 0.0, 1.0, 0.0],
-      "scale": [1.0, 1.0, 1.0],
-      "model": "models/AnimatedAnimals/Donkey.gltf"
+      "archetype": "core:model",
+      "color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "position": [
+        -9.0,
+        0.05,
+        0.0
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        1.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "overrides": {
+        "Model": {
+          "gltf": "models/AnimatedAnimals/Donkey.gltf"
+        }
+      }
     },
     {
-      "type": "model",
-      "color": [1.0, 1.0, 1.0, 1.0],
-      "position": [-3.0, 0.05, 0.0],
-      "rotation": [0.0, 0.0, 1.0, 0.0],
-      "scale": [1.0, 1.0, 1.0],
-      "model": "models/AnimatedAnimals/Fox.gltf"
+      "archetype": "core:model",
+      "color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "position": [
+        -3.0,
+        0.05,
+        0.0
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        1.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "overrides": {
+        "Model": {
+          "gltf": "models/AnimatedAnimals/Fox.gltf"
+        }
+      }
     },
     {
-      "type": "model",
-      "color": [1.0, 1.0, 1.0, 1.0],
-      "position": [3.0, 0.05, 0.0],
-      "rotation": [0.0, 0.0, 1.0, 0.0],
-      "scale": [1.0, 1.0, 1.0],
-      "model": "models/AnimatedAnimals/Horse.gltf"
+      "archetype": "core:model",
+      "color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "position": [
+        3.0,
+        0.05,
+        0.0
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        1.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "overrides": {
+        "Model": {
+          "gltf": "models/AnimatedAnimals/Horse.gltf"
+        }
+      }
     },
     {
-      "type": "model",
-      "color": [1.0, 1.0, 1.0, 1.0],
-      "position": [9.0, 0.05, 0.0],
-      "rotation": [0.0, 0.0, 1.0, 0.0],
-      "scale": [1.0, 1.0, 1.0],
-      "model": "models/AnimatedAnimals/Horse_White.gltf"
+      "archetype": "core:model",
+      "color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "position": [
+        9.0,
+        0.05,
+        0.0
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        1.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "overrides": {
+        "Model": {
+          "gltf": "models/AnimatedAnimals/Horse_White.gltf"
+        }
+      }
     },
     {
-      "type": "model",
-      "color": [1.0, 1.0, 1.0, 1.0],
-      "position": [15.0, 0.05, 0.0],
-      "rotation": [0.0, 0.0, 1.0, 0.0],
-      "scale": [1.0, 1.0, 1.0],
-      "model": "models/AnimatedAnimals/Husky.gltf"
+      "archetype": "core:model",
+      "color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "position": [
+        15.0,
+        0.05,
+        0.0
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        1.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "overrides": {
+        "Model": {
+          "gltf": "models/AnimatedAnimals/Husky.gltf"
+        }
+      }
     },
     {
-      "type": "model",
-      "color": [1.0, 1.0, 1.0, 1.0],
-      "position": [21.0, 0.05, 0.0],
-      "rotation": [0.0, 0.0, 1.0, 0.0],
-      "scale": [1.0, 1.0, 1.0],
-      "model": "models/AnimatedAnimals/ShibaInu.gltf"
+      "archetype": "core:model",
+      "color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "position": [
+        21.0,
+        0.05,
+        0.0
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        1.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "overrides": {
+        "Model": {
+          "gltf": "models/AnimatedAnimals/ShibaInu.gltf"
+        }
+      }
     },
     {
-      "type": "model",
-      "color": [1.0, 1.0, 1.0, 1.0],
-      "position": [27.0, 0.05, 0.0],
-      "rotation": [0.0, 0.0, 1.0, 0.0],
-      "scale": [1.0, 1.0, 1.0],
-      "model": "models/AnimatedAnimals/Stag.gltf"
+      "archetype": "core:model",
+      "color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "position": [
+        27.0,
+        0.05,
+        0.0
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        1.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "overrides": {
+        "Model": {
+          "gltf": "models/AnimatedAnimals/Stag.gltf"
+        }
+      }
     },
     {
-      "type": "model",
-      "color": [1.0, 1.0, 1.0, 1.0],
-      "position": [33.0, 0.05, 0.0],
-      "rotation": [0.0, 0.0, 1.0, 0.0],
-      "scale": [1.0, 1.0, 1.0],
-      "model": "models/AnimatedAnimals/Wolf.gltf"
+      "archetype": "core:model",
+      "color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "position": [
+        33.0,
+        0.05,
+        0.0
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        1.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "overrides": {
+        "Model": {
+          "gltf": "models/AnimatedAnimals/Wolf.gltf"
+        }
+      }
     }
   ]
 }

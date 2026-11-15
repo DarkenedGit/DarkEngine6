@@ -1,7 +1,7 @@
 {
   "id": "core:player",
   "version": 1,
-  "editor": { "label": "Player", "category": "Creatures", "icon": "user", "modes": ["3d"], "matchModel": "human" },
+  "editor": { "label": "Player", "category": "Creatures", "icon": "user", "hotkey": "6", "modes": ["3d"], "matchModel": "human" },
   "components": {
     "Model": { "gltf": "models/human.gltf", "anim": "models/human.anim.json" },
     "Physics": { "file": "models/human.physics.json" },
