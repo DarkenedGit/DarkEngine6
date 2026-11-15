@@ -11,13 +11,16 @@ TEST(LocalLightAuthoring, CopiesShadowFlagAndLeavesCones)
     light.outerConeDeg = 25.0f;
 
     SceneObjectData authored{};
-    authored.lightCastShadow   = true;
-    authored.lightIntensity    = 10.0f;
-    authored.lightRange        = 4.0f;
-    authored.lightSourceRadius = 0.2f;
-    authored.lightEnabled      = false;
-    authored.lightInnerDeg     = 40.0f;
-    authored.lightOuterDeg     = 70.0f;
+    SceneLightFields fields;
+    fields.kind         = "point";
+    fields.castShadow   = true;
+    fields.intensity    = 10.0f;
+    fields.range        = 4.0f;
+    fields.sourceRadius = 0.2f;
+    fields.enabled      = false;
+    fields.innerDeg     = 40.0f;
+    fields.outerDeg     = 70.0f;
+    sceneWriteLight(authored, fields);
 
     copyAuthoredLocalLight(light, authored);
 

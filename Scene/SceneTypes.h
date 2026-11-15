@@ -4,7 +4,6 @@
 #include "Math/Quaternion.h"
 #include "Math/Vector2f.h"
 #include "Math/Vector3f.h"
-#include "Play/Spawner.h"
 #include "Terrain/FoliageFile.h"
 #include "Terrain/TrailPath.h"
 #include "Terrain/WindTypes.h"
@@ -46,127 +45,17 @@ namespace Dark
     // Live editor objects are ECS entities with EditorObjectComponent (Editor/EditorObject.h).
     // SceneObjectData is the JSON DTO only — not a parallel runtime world.
 
-    // Plain data blob used for serialization (no live Entity).
+    // One placed object. Pose and color are columns. Component payloads and placement markers
+    // (conceal, zone, patrol, and the rest) live in overridesJson. An unknown archetype stores
+    // the original object JSON there and is written back unchanged. Read through SceneObjectSpawn.
     struct SceneObjectData
     {
         Math::Vector3f   position{ 0, 0, 0 };
         Math::Quaternion rotation{ 1, 0, 0, 0 };
         Math::Vector3f   scale{ 1, 1, 1 };
         float            color[4]{ 1.0f, 1.0f, 1.0f, 1.0f };
-        std::string      modelPath;
-
-        // Optional particle payload. Written when hasParticle is set.
-        bool        hasParticle = false;
-        std::string particleName = "Emitter";
-        uint32_t    maxParticles = 512;
-        float       emissionRate = 40.0f;
-        float       duration     = 0.0f;
-        bool        looping      = true;
-        float       lifetimeMin  = 0.8f;
-        float       lifetimeMax  = 1.6f;
-        float       startSpeedMin = 1.0f;
-        float       startSpeedMax = 3.0f;
-        float       startSizeMin  = 0.15f;
-        float       startSizeMax  = 0.35f;
-        float       endSizeMin    = 0.02f;
-        float       endSizeMax    = 0.10f;
-        float       startColor[4]{ 1.0f, 0.7f, 0.25f, 1.0f };
-        float       endColor[4]{ 1.0f, 0.15f, 0.05f, 0.0f };
-        Math::Vector3f gravity{ 0.0f, -2.0f, 0.0f };
-        Math::Vector3f direction{ 0.0f, 1.0f, 0.0f };
-        float       spreadDegrees = 25.0f;
-        int         shape         = 0; // ParticleEmitterDesc::Shape
-        Math::Vector3f shapeSize{ 0.25f, 0.0f, 0.25f };
-        bool        additiveBlend = true;
-        float       simulationSpeed = 1.0f;
-        int         renderMode    = 0; // ParticleEmitterDesc::RenderMode
-        uint32_t    ribbonCount   = 1;
-        float       ribbonUvScale = 1.0f;
-        int         simMode              = 0; // ParticleSimMode. Missing JSON is CPU.
-        int         collision            = 0; // ParticleCollisionReaction. Missing JSON is None.
-        float       restitution          = 0.45f;
-        float       friction             = 0.20f;
-        float       collisionThickness   = 0.35f;
-        float       collisionBias        = 0.04f;
-        float       restLifetime         = 0.20f;
-        uint32_t    maxSecondaryPerFrame = 512;
-        bool        hasSecondary         = false;
-        uint32_t    secondaryMaxParticles  = 4096;
-        float       secondaryLifetimeMin   = 0.1f;
-        float       secondaryLifetimeMax   = 0.25f;
-        float       secondaryStartSizeMin  = 0.02f;
-        float       secondaryStartSizeMax  = 0.06f;
-        float       secondaryRestLifetime  = 0.20f;
-        bool        secondaryAdditiveBlend = false;
-        int         secondaryCollision     = 2; // Stop. SpawnSecondary is stored as Stop.
-
-        // Optional light payload. lightKind is "", "point", "spot", "ambient", or "directional".
-        bool  hasLight           = false;
-        std::string lightKind;
-        float lightIntensity     = 1885.0f; // point default candela (600*π); spot overwritten by applyTypeLightDefaults
-        float lightRange         = 8.0f;
-        float lightInnerDeg      = 12.0f;
-        float lightOuterDeg      = 25.0f;
-        float lightSourceRadius  = 0.05f;
-        bool  lightEnabled       = true;
-        bool  lightCastShadow    = false;
-        float emissive           = 0.0f;
-        int   emissiveMeshIndex  = -1; // objects[] index of glow-prop mesh; -1 = none
-        // Spot light only. A searchlight swings sweepDeg around its aim and raises the alarm on a player it lights.
-        bool  searchlight        = false;
-        float sweepDeg           = 60.0f;
-
-        // Optional cloud volume payload (type == CloudVolume).
-        bool  hasCloud              = false;
-        int   cloudShape            = 1; // CloudShape::Ellipsoid
-        float cloudDensity          = 0.90f;
-        float cloudCoverage         = 0.58f;
-        float cloudSoftness         = 0.42f;
-        float cloudAbsorption       = 1.15f;
-        float cloudScattering       = 1.00f;
-        float cloudAnisotropy       = 0.45f;
-        float cloudNoiseScale       = 0.055f;
-        float cloudDetailScale      = 3.40f;
-        float cloudDetailStrength   = 0.38f;
-        float cloudHeightFalloff    = 0.55f;
-        float cloudSilverLining     = 0.75f;
-        float cloudWindSpeed        = 1.20f;
-        float cloudAlbedo[3]{ 0.90f, 0.93f, 1.00f };
-        float cloudWindDir[3]{ 1.00f, 0.02f, 0.25f };
-        bool  cloudEnabled          = true;
-
-        // Mountain stream ribbon. Points are absolute world XZ. position.xz tracks points[0].
-        bool                        hasStream       = false;
-        float                       streamWidth     = 3.5f;
-        float                       streamFlowSpeed = 1.6f;
-        std::vector<Math::Vector2f> streamPoints;
-
-        std::vector<Math::Vector2f> patrol;
-        std::string                 squad;
-        bool                        block = true; // false keeps a solid-looking cube out of pathfinding and physics
-
-        bool conceal = false;
-        bool goal    = false;
-        std::string circuit;
-        std::string zone;
-        std::string pickup;
-        int         pickupCount = 1;
-        std::string dialogue;
-
-        std::string movie;               // virtual path, same role as dialogue
-        float       movieRadius = 2.0f;  // metres, XZ disc, not the marker scale
-        bool        movieLoop   = false;
-
-        // Unit spawner. Radius is metres on the ground, not the marker scale.
-        bool        hasSpawner = false;
-        SpawnerDesc spawner{};
-
-        // Archetype id ("core:wolf"). placeholder objects keep rawJson and are written back unchanged.
-        bool        placeholder = false;
-        bool        dataDriven  = false;
-        std::string archetype;
-        std::string rawJson;
-        std::string overridesJson;
+        std::string      archetype;
+        std::string      overridesJson;
     };
 
     // World-level terrain JSON DTO. Paths are virtual or sidecar filenames.

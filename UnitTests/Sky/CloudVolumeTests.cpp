@@ -6,6 +6,7 @@
 #include "Render/CloudVolumePipeline.h"
 #include "Render/ShaderCompile.h"
 #include "Content/ContentDb.h"
+#include "Content/SceneObjectSpawn.h"
 #include "Scene/SceneFile.h"
 #include "Sky/CloudVolume.h"
 
@@ -143,8 +144,7 @@ TEST(CloudVolume, SceneDataRoundTrip)
     src.enabled    = true;
     SceneObjectData d{};
     sceneDataFromCloudDesc(src, d);
-    EXPECT_TRUE(d.hasCloud);
-    EXPECT_EQ(d.cloudShape, 0);
+    EXPECT_TRUE(sceneCarriesComponent(d, "CloudVolume"));
     CloudVolumeDesc dst{};
     cloudDescFromSceneData(d, dst);
     EXPECT_EQ(dst.shape, CloudShape::Box);
@@ -160,17 +160,15 @@ TEST(CloudVolume, SceneFileJsonRoundTrip)
     in.name    = "ut_clouds";
     in.mode    = SceneMode::Scene3D;
     SceneObjectData o{};
-    o.archetype       = "core:cloud_volume";
-    o.hasCloud = true;
-    o.position   = Vector3f(3.0f, 12.0f, -4.0f);
-    o.scale      = Vector3f(40.0f, 10.0f, 22.0f);
-    o.hasCloud   = true;
-    o.cloudShape = 0;
-    o.cloudDensity = 2.0f;
-    o.cloudCoverage = 0.41f;
-    o.cloudAlbedo[0] = 0.8f;
-    o.cloudAlbedo[1] = 0.85f;
-    o.cloudAlbedo[2] = 0.9f;
+    o.archetype = "core:cloud_volume";
+    o.position  = Vector3f(3.0f, 12.0f, -4.0f);
+    o.scale     = Vector3f(40.0f, 10.0f, 22.0f);
+    CloudVolumeDesc authored{};
+    authored.shape    = CloudShape::Box;
+    authored.density  = 2.0f;
+    authored.coverage = 0.41f;
+    authored.albedo   = Vector3f(0.8f, 0.85f, 0.9f);
+    sceneDataFromCloudDesc(authored, o);
     in.objects.push_back(o);
 
     const auto path = std::filesystem::temp_directory_path() / "darkengine6_cloud_ut.json";
@@ -182,10 +180,12 @@ TEST(CloudVolume, SceneFileJsonRoundTrip)
     ASSERT_TRUE(loadSceneFromJson(path, out, &err)) << err;
     ASSERT_EQ(out.objects.size(), 1u);
     EXPECT_EQ(out.objects[0].archetype, "core:cloud_volume");
-    EXPECT_TRUE(out.objects[0].hasCloud);
-    EXPECT_EQ(out.objects[0].cloudShape, 0);
-    EXPECT_NEAR(out.objects[0].cloudDensity, 2.0f, 1.0e-4f);
-    EXPECT_NEAR(out.objects[0].cloudCoverage, 0.41f, 1.0e-4f);
+    EXPECT_TRUE(sceneCarriesComponent(out.objects[0], "CloudVolume"));
+    CloudVolumeDesc loaded{};
+    cloudDescFromSceneData(out.objects[0], loaded);
+    EXPECT_EQ(loaded.shape, CloudShape::Box);
+    EXPECT_NEAR(loaded.density, 2.0f, 1.0e-4f);
+    EXPECT_NEAR(loaded.coverage, 0.41f, 1.0e-4f);
     EXPECT_NEAR(out.objects[0].position.y, 12.0f, 1.0e-4f);
     std::error_code ec;
     std::filesystem::remove(path, ec);

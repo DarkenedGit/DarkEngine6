@@ -276,13 +276,15 @@ Entity EditorApp::spawnObject(
 
     EditorObjectComponent so{};
     copyColor(so.color, color);
-    if (!built.pickup.empty())
+    const std::string pickup = scenePickup(built);
+    if (!pickup.empty())
     {
-        so.pickup      = built.pickup;
-        so.pickupCount = built.pickupCount > 0 ? built.pickupCount : 1;
+        so.pickup      = pickup;
+        so.pickupCount = scenePickupCount(built);
     }
-    if (!built.dialogue.empty())
-        so.dialogue = built.dialogue;
+    const std::string dialogue = sceneDialogue(built);
+    if (!dialogue.empty())
+        so.dialogue = dialogue;
     so.source = built;
     if (editorObject)
         world().emplace<EditorObjectComponent>(e, so);
@@ -534,9 +536,8 @@ Entity EditorApp::spawnAuthoredArchetype(const SceneObjectData& authored, bool s
     so.color[1] = pose.color[1];
     so.color[2] = pose.color[2];
     so.color[3] = pose.color[3];
-    so.source            = authored;
-    so.source.dataDriven = true;
-    so.source.archetype  = authored.archetype;
+    so.source           = authored;
+    so.source.archetype = authored.archetype;
     world().emplace<EditorObjectComponent>(e, so);
     if (select)
         m_selected = e;
@@ -560,18 +561,13 @@ Entity EditorApp::spawnPlaceholder(const SceneObjectData& authored)
     if (scale.x == 0.0f && scale.y == 0.0f && scale.z == 0.0f)
         scale = Vector3f{ 1.0f, 1.0f, 1.0f };
     SceneObjectData marker = authored;
-    marker.archetype   = "core:cube";
-    marker.placeholder = false;
-    marker.dataDriven  = false;
+    marker.archetype = "core:cube";
     const Entity e = spawnObject("core:cube", authored.position, scale, authored.rotation, col, nullptr, &marker, false, true);
     if (!e.valid())
         return {};
     if (EditorObjectComponent* so = world().get<EditorObjectComponent>(e))
     {
-        so->source             = authored;
-        so->source.placeholder = true;
-        if (!authored.rawJson.empty())
-            so->source.rawJson = authored.rawJson;
+        so->source = authored;
         if (!authored.archetype.empty())
             so->source.archetype = authored.archetype;
     }
@@ -629,7 +625,7 @@ Entity EditorApp::placeGlowProp()
     float col[4]{};
     defaultLightColor(col);
     SceneObjectData meshAuthored{};
-    meshAuthored.emissive = 1.0f;
+    sceneWriteEmissive(meshAuthored, 1.0f);
     const Entity meshE    = spawnObject("core:sphere", hit, Vector3f(1, 1, 1), Quaternion::IDENTITY, col, nullptr, &meshAuthored, false);
     const Entity lightE   = spawnObject("core:point_light", hit, Vector3f(1, 1, 1), Quaternion::IDENTITY, col, nullptr);
     if (lightE.valid())

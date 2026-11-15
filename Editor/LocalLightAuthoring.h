@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Content/SceneObjectSpawn.h"
 #include "ECS/Components.h"
 #include "Scene/SceneTypes.h"
 
@@ -10,11 +11,11 @@ namespace Dark
 // The emitter site overwrites color after this call. fillDefaultLocalLight does not call it.
 inline void copyAuthoredLocalLight(LocalLightComponent& light, const SceneObjectData& authored)
 {
-    light.intensity    = authored.lightIntensity;
-    light.range        = authored.lightRange;
-    light.sourceRadius = authored.lightSourceRadius;
-    light.enabled      = authored.lightEnabled;
-    light.castShadow   = authored.lightCastShadow;
+    light.intensity    = sceneLightFloat(authored, "intensity", light.intensity);
+    light.range        = sceneLightFloat(authored, "range", light.range);
+    light.sourceRadius = sceneLightFloat(authored, "sourceRadius", light.sourceRadius);
+    light.enabled      = sceneLightBool(authored, "enabled", light.enabled);
+    light.castShadow   = sceneLightBool(authored, "castShadow", light.castShadow);
 }
 
 } // namespace Dark

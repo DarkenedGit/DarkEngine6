@@ -90,26 +90,26 @@ namespace
         for (const SceneObjectData& o : objects)
         {
             const bool cube = o.archetype == "core:cube";
-            if (!o.zone.empty())
+            if (!sceneZone(o).empty())
             {
                 ++e.zones;
                 continue;
             }
-            if (!o.pickup.empty())
+            if (!scenePickup(o).empty())
             {
                 ++e.pickups;
                 continue;
             }
-            if (o.goal)
+            if (sceneGoal(o))
                 ++e.goals;
-            if (!o.circuit.empty() && !localLight(o))
+            if (!sceneCircuit(o).empty() && !localLight(o))
                 ++e.powers;
-            if (o.conceal)
+            if (sceneConceal(o))
             {
                 ++e.conceals;
                 continue;
             }
-            if (cube && o.scale.y >= 0.3f && !o.goal && o.block)
+            if (cube && o.scale.y >= 0.3f && !sceneGoal(o) && sceneBlock(o))
                 ++e.obstacles;
         }
         return e;
@@ -289,7 +289,7 @@ TEST(ScenePlay, StealthLabExpansionAddsOneBioSample)
     ASSERT_TRUE(loadScene("stealth_test.json", scene));
     int authored = 0;
     for (const SceneObjectData& object : scene.objects)
-        authored += object.pickup == "bio_sample" ? 1 : 0;
+        authored += scenePickup(object) == "bio_sample" ? 1 : 0;
     EXPECT_EQ(authored, 0);
     EXPECT_EQ(expectOf(scene.objects).pickups, 3);
 
@@ -298,7 +298,7 @@ TEST(ScenePlay, StealthLabExpansionAddsOneBioSample)
     EXPECT_GE(expandSceneBuildings(scene, containers, hides), 1);
     int samples = 0;
     for (const SceneObjectData& object : scene.objects)
-        samples += object.pickup == "bio_sample" ? 1 : 0;
+        samples += scenePickup(object) == "bio_sample" ? 1 : 0;
     EXPECT_EQ(samples, 1);
 }
 

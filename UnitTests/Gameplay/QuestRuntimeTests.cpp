@@ -8,6 +8,7 @@
 #include "Play/Carry.h"
 #include "Math/Quaternion.h"
 #include "Math/Vector3f.h"
+#include "Content/SceneObjectSpawn.h"
 #include "Scene/SceneSpawn.h"
 #include "Scene/SceneTypes.h"
 
@@ -290,13 +291,13 @@ TEST(SceneSpawn, BoxesBecomeZoneCircuitConcealAndObstacle)
     std::vector<SceneObjectData> objects(4);
     for (SceneObjectData& object : objects)
         object.archetype = "core:cube";
-    objects[0].zone     = "gate";
+    sceneSetString(objects[0], "zone", "gate");
     objects[0].position = Vector3f{ 0.0f, 1.0f, 0.0f };
     objects[0].scale    = Vector3f{ 2.0f, 2.0f, 2.0f };
-    objects[1].circuit  = "lab";
+    sceneSetString(objects[1], "circuit", "lab");
     objects[1].position = Vector3f{ 4.0f, 0.0f, 0.0f };
     objects[1].scale    = Vector3f{ 1.0f, 0.2f, 1.0f };
-    objects[2].conceal  = true;
+    sceneSetBool(objects[2], "conceal", true);
     objects[2].position = Vector3f{ 0.0f, 0.0f, 2.0f };
     objects[2].scale    = Vector3f{ 4.0f, 1.0f, 4.0f };
     objects[3].position = Vector3f{ 8.0f, 0.0f, 0.0f };

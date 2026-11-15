@@ -1,5 +1,6 @@
 #include "AI/Walkability.h"
 #include "Core/ContentRoots.h"
+#include "Content/SceneObjectSpawn.h"
 #include "Scene/Building.h"
 #include "Scene/SceneFile.h"
 #include "Terrain/HeightMap.h"
@@ -35,7 +36,7 @@ namespace
     {
         int n = 0;
         for (const SceneObjectData& o : out.objects)
-            n += (o.archetype == "core:cube" && o.block && o.pickup.empty() && o.scale.y >= 0.3f) ? 1 : 0;
+            n += (o.archetype == "core:cube" && sceneBlock(o) && scenePickup(o).empty() && o.scale.y >= 0.3f) ? 1 : 0;
         return n;
     }
 } // namespace
@@ -57,12 +58,13 @@ TEST(Building, ExpandsLayoutPropsPickupsAndGuards)
         if (o.archetype == "core:hunter")
         {
             ++guards;
-            EXPECT_EQ(o.squad, "building:hut");
+            EXPECT_EQ(sceneSquad(o), "building:hut");
             EXPECT_NEAR(o.position.x, 12.0f, 1.0e-4f);
-            ASSERT_EQ(o.patrol.size(), 2u);
-            EXPECT_NEAR(o.patrol[1].y, 23.0f, 1.0e-4f);
+            const std::vector<Math::Vector2f> patrol = scenePatrol(o);
+            ASSERT_EQ(patrol.size(), 2u);
+            EXPECT_NEAR(patrol[1].y, 23.0f, 1.0e-4f);
         }
-        pickups += o.pickup == "bio_sample" ? 1 : 0;
+        pickups += scenePickup(o) == "bio_sample" ? 1 : 0;
     }
     EXPECT_EQ(guards, 1);
     EXPECT_EQ(pickups, 1);
@@ -79,7 +81,7 @@ TEST(Building, DoorLeavesAGapAndLintelDoesNotBlock)
     for (const SceneObjectData& o : out.objects)
     {
         const bool atDoor = std::fabs(o.position.x) < 0.2f && std::fabs(o.position.z - 2.0f) < 0.5f;
-        if (atDoor && o.block)
+        if (atDoor && sceneBlock(o))
             ADD_FAILURE() << "a blocking box sits in the doorway";
     }
 }
@@ -136,13 +138,13 @@ TEST(Building, ShippedLabGuardsCanWalkIntoEveryRoom)
     EXPECT_NEAR(out.cameras[0].yaw, -90.0f, 0.5f);
     int powerBoxes = 0;
     for (const SceneObjectData& o : out.objects)
-        powerBoxes += o.circuit == "lab_cams" ? 1 : 0;
+        powerBoxes += sceneCircuit(o) == "lab_cams" ? 1 : 0;
     EXPECT_EQ(powerBoxes, 1);
 
     std::vector<Math::AABox3f> cubes;
     for (const SceneObjectData& o : out.objects)
     {
-        if (o.archetype == "core:cube" && o.block && o.pickup.empty() && o.scale.y >= 0.3f)
+        if (o.archetype == "core:cube" && sceneBlock(o) && scenePickup(o).empty() && o.scale.y >= 0.3f)
             cubes.push_back(Math::AABox3f::FromCenterExtents(o.position, o.scale * 0.5f));
     }
     Terrain::HeightMap hm;
@@ -185,7 +187,7 @@ TEST(Building, ShippedWarehouseGuardsReachEveryArea)
     std::vector<Math::AABox3f> cubes;
     for (const SceneObjectData& o : out.objects)
     {
-        if (o.archetype == "core:cube" && o.block && o.pickup.empty() && o.scale.y >= 0.3f)
+        if (o.archetype == "core:cube" && sceneBlock(o) && scenePickup(o).empty() && o.scale.y >= 0.3f)
             cubes.push_back(Math::AABox3f::FromCenterExtents(o.position, o.scale * 0.5f));
     }
     Terrain::HeightMap hm;

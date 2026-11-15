@@ -130,7 +130,7 @@ void EditorApp::flushQueuedAssetPlace()
     std::string id = m_queueAssetArchetype.empty() ? std::string("core:cube") : m_queueAssetArchetype;
     if (m_queueAssetModel[0])
     {
-        authored.modelPath = m_queueAssetModel;
+        sceneWriteModelPath(authored, m_queueAssetModel);
         id = archetypeForModelPath(m_queueAssetModel);
     }
 
@@ -189,7 +189,7 @@ void EditorApp::flushQueuedAssetPlace()
         DE_LOG_WARN("Editor: asset place failed (no ground hit)");
         return;
     }
-    const SceneObjectData* authoredPtr = authored.modelPath.empty() ? nullptr : &authored;
+    const SceneObjectData* authoredPtr = sceneModelPath(authored).empty() ? nullptr : &authored;
     placeAtWorld(id, hit, authoredPtr);
 }
 

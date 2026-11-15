@@ -5,8 +5,9 @@
 #include "ECS/Components.h"
 #include "ECS/World.h"
 #include "Particles/ParticleComponents.h"
-#include "Particles/ParticleScene.h"
 #include "Content/ContentDb.h"
+#include "Content/SceneObjectSpawn.h"
+#include "Particles/ParticleScene.h"
 #include "Scene/SceneFile.h"
 
 #include <filesystem>
@@ -53,10 +54,7 @@ TEST(ParticleScene, MissingSimModeStaysCpu)
         ASSERT_TRUE(loadContentDatabase(nullptr));
     ASSERT_TRUE(loadSceneFromJson(path, data, &err)) << err;
     ASSERT_EQ(data.objects.size(), 1u);
-    EXPECT_TRUE(data.objects[0].hasParticle);
-    EXPECT_EQ(data.objects[0].simMode, 0);
-    EXPECT_EQ(data.objects[0].collision, 0);
-    EXPECT_FALSE(data.objects[0].hasSecondary);
+    EXPECT_TRUE(sceneCarriesComponent(data.objects[0], "ParticleEmitter"));
 
     ParticleEmitterDesc desc{};
     particleDescFromSceneData(data.objects[0], desc);
@@ -92,9 +90,7 @@ TEST(ParticleScene, StringSimModeDoesNotFailTheLoad)
     ASSERT_TRUE(loadSceneFromJson(path, data, &err)) << err;
     ASSERT_EQ(data.objects.size(), 2u);
     EXPECT_EQ(data.objects[0].archetype, "core:particle_emitter");
-    EXPECT_EQ(data.objects[0].simMode, 0);
-    EXPECT_EQ(data.objects[0].collision, 0);
-    EXPECT_FALSE(data.objects[0].hasSecondary);
+    EXPECT_TRUE(sceneCarriesComponent(data.objects[0], "ParticleEmitter"));
     EXPECT_EQ(data.objects[1].archetype, "core:cube");
     EXPECT_NEAR(data.objects[1].position.x, 4.0f, 1.0e-4f);
 
@@ -115,22 +111,21 @@ TEST(ParticleScene, SimModeRoundTripAndDescMatch)
     in.mode    = SceneMode::Scene3D;
 
     SceneObjectData object{};
-    object.archetype           = "core:particle_emitter";
-    object.hasParticle = true;
-    object.position       = Vector3f(8.0f, 1.5f, -2.0f);
-    object.hasParticle    = true;
-    object.particleName   = "rain";
-    object.maxParticles   = 128;
-    object.simMode        = 1;
-    object.collision      = 1;
-    object.restitution    = 0.45f;
-    object.collisionThickness = 0.35f;
-    object.collisionBias  = 0.04f;
-    object.hasSecondary   = true;
-    object.secondaryMaxParticles = 64;
-    object.secondaryCollision = static_cast<int>(ParticleCollisionReaction::SpawnSecondary);
-    object.secondaryLifetimeMin = 0.1f;
-    object.secondaryLifetimeMax = 0.25f;
+    object.archetype = "core:particle_emitter";
+    object.position  = Vector3f(8.0f, 1.5f, -2.0f);
+    ParticleEmitterDesc authored{};
+    authored.name                = "rain";
+    authored.maxParticles        = 128;
+    authored.simMode             = ParticleSimMode::Gpu;
+    authored.collision           = ParticleCollisionReaction::Bounce;
+    authored.restitution         = 0.45f;
+    authored.collisionThickness  = 0.35f;
+    authored.collisionBias       = 0.04f;
+    authored.hasSecondary        = true;
+    authored.secondary.maxParticles = 64;
+    authored.secondary.collision = ParticleCollisionReaction::SpawnSecondary;
+    authored.secondary.lifetime  = { 0.1f, 0.25f };
+    sceneDataFromParticleDesc(authored, object);
     in.objects.push_back(object);
 
     const auto path = tempScenePath("darkengine6_particle_roundtrip.json");
@@ -142,12 +137,14 @@ TEST(ParticleScene, SimModeRoundTripAndDescMatch)
         ASSERT_TRUE(loadContentDatabase(nullptr));
     ASSERT_TRUE(loadSceneFromJson(path, loaded, &err)) << err;
     ASSERT_EQ(loaded.objects.size(), 1u);
-    EXPECT_EQ(loaded.objects[0].simMode, 1);
-    EXPECT_EQ(loaded.objects[0].collision, 1);
-    EXPECT_TRUE(loaded.objects[0].hasSecondary);
-    EXPECT_EQ(loaded.objects[0].secondaryCollision, static_cast<int>(ParticleCollisionReaction::Stop));
-    EXPECT_EQ(loaded.objects[0].secondaryMaxParticles, 64u);
-    EXPECT_NEAR(loaded.objects[0].restitution, 0.45f, 1.0e-5f);
+    ParticleEmitterDesc loadedDesc{};
+    particleDescFromSceneData(loaded.objects[0], loadedDesc);
+    EXPECT_EQ(loadedDesc.simMode, ParticleSimMode::Gpu);
+    EXPECT_EQ(loadedDesc.collision, ParticleCollisionReaction::Bounce);
+    EXPECT_TRUE(loadedDesc.hasSecondary);
+    EXPECT_EQ(loadedDesc.secondary.collision, ParticleCollisionReaction::Stop);
+    EXPECT_EQ(loadedDesc.secondary.maxParticles, 64u);
+    EXPECT_NEAR(loadedDesc.restitution, 0.45f, 1.0e-5f);
 
     ASSERT_TRUE(saveSceneToJson(path, loaded, &err)) << err;
     SceneFileData again{};
@@ -155,9 +152,11 @@ TEST(ParticleScene, SimModeRoundTripAndDescMatch)
         ASSERT_TRUE(loadContentDatabase(nullptr));
     ASSERT_TRUE(loadSceneFromJson(path, again, &err)) << err;
     ASSERT_EQ(again.objects.size(), 1u);
-    EXPECT_EQ(again.objects[0].simMode, 1);
-    EXPECT_EQ(again.objects[0].collision, 1);
-    EXPECT_EQ(again.objects[0].secondaryCollision, static_cast<int>(ParticleCollisionReaction::Stop));
+    ParticleEmitterDesc againDesc{};
+    particleDescFromSceneData(again.objects[0], againDesc);
+    EXPECT_EQ(againDesc.simMode, ParticleSimMode::Gpu);
+    EXPECT_EQ(againDesc.collision, ParticleCollisionReaction::Bounce);
+    EXPECT_EQ(againDesc.secondary.collision, ParticleCollisionReaction::Stop);
 
     ParticleEmitterDesc desc{};
     particleDescFromSceneData(again.objects[0], desc);
@@ -173,10 +172,12 @@ TEST(ParticleScene, SimModeRoundTripAndDescMatch)
 
     SceneObjectData stored{};
     sceneDataFromParticleDesc(desc, stored);
-    EXPECT_TRUE(stored.hasParticle);
-    EXPECT_EQ(stored.simMode, 1);
-    EXPECT_EQ(stored.collision, 1);
-    EXPECT_EQ(stored.secondaryCollision, static_cast<int>(ParticleCollisionReaction::Stop));
+    EXPECT_TRUE(sceneCarriesComponent(stored, "ParticleEmitter"));
+    ParticleEmitterDesc storedDesc{};
+    particleDescFromSceneData(stored, storedDesc);
+    EXPECT_EQ(storedDesc.simMode, ParticleSimMode::Gpu);
+    EXPECT_EQ(storedDesc.collision, ParticleCollisionReaction::Bounce);
+    EXPECT_EQ(storedDesc.secondary.collision, ParticleCollisionReaction::Stop);
 
     std::error_code ec;
     std::filesystem::remove(path, ec);
@@ -185,17 +186,17 @@ TEST(ParticleScene, SimModeRoundTripAndDescMatch)
 TEST(ParticleScene, SpawnCreatesEmitterWithoutLocalLight)
 {
     SceneObjectData data{};
-    data.archetype         = "core:particle_emitter";
-    data.hasParticle = true;
-    data.position     = Vector3f(1.0f, 2.0f, 3.0f);
-    data.scale        = Vector3f(2.0f, 2.0f, 2.0f);
-    data.hasParticle  = true;
-    data.particleName = "sparks";
-    data.maxParticles = 100;
-    data.simMode      = 1;
-    data.collision    = 1;
-    data.collisionThickness = 0.35f;
-    data.collisionBias = 0.04f;
+    data.archetype = "core:particle_emitter";
+    data.position  = Vector3f(1.0f, 2.0f, 3.0f);
+    data.scale     = Vector3f(2.0f, 2.0f, 2.0f);
+    ParticleEmitterDesc sparks{};
+    sparks.name               = "sparks";
+    sparks.maxParticles       = 100;
+    sparks.simMode            = ParticleSimMode::Gpu;
+    sparks.collision          = ParticleCollisionReaction::Bounce;
+    sparks.collisionThickness = 0.35f;
+    sparks.collisionBias      = 0.04f;
+    sceneDataFromParticleDesc(sparks, data);
 
     World world;
     AssetManager assets;
@@ -227,8 +228,7 @@ TEST(ParticleScene, SpawnCreatesEmitterWithoutLocalLight)
 
     SceneObjectData plain{};
     plain.archetype = "core:particle_emitter";
-    plain.hasParticle = true;
-    plain.position = Vector3f(0.0f, 1.0f, 0.0f);
+    plain.position  = Vector3f(0.0f, 1.0f, 0.0f);
     const Entity bare = spawnSceneParticleEmitter(world, assets, nullptr, plain);
     ASSERT_TRUE(bare.valid());
     const ParticleEmitterComponent* cpu = world.get<ParticleEmitterComponent>(bare);

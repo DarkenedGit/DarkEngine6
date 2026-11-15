@@ -14,6 +14,7 @@
 #include "Physics/PhysicsFile.h"
 #include "Play/CharacterAttach.h"
 #include "Play/Spawner.h"
+#include "Content/SceneObjectSpawn.h"
 #include "Scene/EntityMaster.h"
 #include "Scene/SceneSpawn.h"
 #include "Scene/SceneTypes.h"
@@ -526,14 +527,21 @@ namespace Dark
             if (searchlight || !circuit.empty())
             {
                 SceneObjectData probe;
-                probe.lightKind      = light.type == LocalLightType::Spot ? "spot" : "point";
-                probe.hasLight       = true;
-                probe.searchlight    = searchlight && light.type == LocalLightType::Spot;
-                probe.sweepDeg       = sweep;
-                probe.circuit        = circuit;
-                probe.lightRange     = light.range;
-                probe.lightOuterDeg  = light.outerConeDeg;
-                probe.lightIntensity = light.intensity;
+                SceneLightFields fields;
+                fields.kind         = light.type == LocalLightType::Spot ? "spot" : "point";
+                fields.intensity    = light.intensity;
+                fields.range        = light.range;
+                fields.innerDeg     = light.innerConeDeg;
+                fields.outerDeg     = light.outerConeDeg;
+                fields.sourceRadius = light.sourceRadius;
+                fields.enabled      = light.enabled;
+                fields.castShadow   = light.castShadow;
+                fields.searchlight  = searchlight && light.type == LocalLightType::Spot;
+                fields.sweepDeg     = sweep;
+                fields.circuit      = circuit;
+                sceneWriteLight(probe, fields);
+                if (!circuit.empty())
+                    sceneSetString(probe, "circuit", circuit);
                 if (const TransformComponent* xf = host.world->get<TransformComponent>(entity))
                 {
                     probe.position = xf->position;
@@ -761,10 +769,10 @@ namespace Dark
             if (!readObject(params ? std::string_view(params->movieJson) : std::string_view{}, object, err, "Movie"))
                 return false;
             SceneObjectData cue;
-            if (object.contains("path") && object["path"].is_string())
-                cue.movie = object["path"].get<std::string>();
-            cue.movieRadius = jsonFloat(object, "radius", 2.0f);
-            cue.movieLoop   = jsonBool(object, "loop", false);
+            std::string path;
+            if (const auto* text = object.contains("path") ? object["path"].get_ptr<const json::string_t*>() : nullptr)
+                path = *text;
+            sceneWriteMovie(cue, std::move(path), jsonFloat(object, "radius", 2.0f), jsonBool(object, "loop", false));
             applyMovieCue(*host.world, entity, cue);
             if (host.ensureMesh)
                 host.ensureMesh(host.user, entity);

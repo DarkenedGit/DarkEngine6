@@ -7,7 +7,6 @@
 #include "Core/Log.h"
 #include "Math/MathDefines.h"
 #include "Math/MathHelper.h"
-#include "Particles/ParticleTypes.h"
 #include "Terrain/GrassTypes.h"
 #include "Terrain/TerrainTileFile.h"
 #include "Terrain/TrailPath.h"
@@ -32,65 +31,6 @@ namespace
 {
 
 using json = nlohmann::json;
-
-bool readJsonInt(const json& object, const char* key, int& out)
-{
-    if (!object.contains(key))
-        return false;
-    const json& value = object[key];
-    if (!value.is_number_integer())
-        return false;
-    if (value.is_number_unsigned())
-    {
-        const uint64_t n = value.get<uint64_t>();
-        if (n > static_cast<uint64_t>(INT32_MAX))
-            return false;
-        out = static_cast<int>(n);
-        return true;
-    }
-    const int64_t n = value.get<int64_t>();
-    if (n < static_cast<int64_t>(INT32_MIN) || n > static_cast<int64_t>(INT32_MAX))
-        return false;
-    out = static_cast<int>(n);
-    return true;
-}
-
-bool readJsonU32(const json& object, const char* key, uint32_t& out)
-{
-    if (!object.contains(key))
-        return false;
-    const json& value = object[key];
-    if (!value.is_number_integer() || !value.is_number_unsigned())
-        return false;
-    const uint64_t n = value.get<uint64_t>();
-    if (n > static_cast<uint64_t>(UINT32_MAX))
-        return false;
-    out = static_cast<uint32_t>(n);
-    return true;
-}
-
-bool readJsonFloat(const json& object, const char* key, float& out)
-{
-    if (!object.contains(key) || !object[key].is_number())
-        return false;
-    out = object[key].get<float>();
-    return true;
-}
-
-bool readJsonBool(const json& object, const char* key, bool& out)
-{
-    if (!object.contains(key) || !object[key].is_boolean())
-        return false;
-    out = object[key].get<bool>();
-    return true;
-}
-
-int storedChildCollision(int collision)
-{
-    if (collision == static_cast<int>(ParticleCollisionReaction::SpawnSecondary))
-        return static_cast<int>(ParticleCollisionReaction::Stop);
-    return collision;
-}
 
 json vec2ToJson(const Math::Vector2f& v)
 {
@@ -120,33 +60,6 @@ float clampShedScale(float shed)
     if (shed > 1.0f)
         return 1.0f;
     return shed;
-}
-
-void applyTypeLightDefaults(SceneObjectData& o, std::string_view kind)
-{
-    if (kind == "spot")
-    {
-        o.lightIntensity = 2513.0f; // 800*π; JSON 800 stays
-        o.lightRange     = 16.0f;
-    }
-    else
-    {
-        o.lightIntensity = 1885.0f; // 600*π; JSON 600 stays
-        o.lightRange     = 8.0f;
-    }
-    o.lightInnerDeg     = 12.0f;
-    o.lightOuterDeg     = 25.0f;
-    o.lightSourceRadius = 0.05f;
-    o.lightEnabled      = true;
-}
-
-std::string lightKindOf(const SceneObjectData& object)
-{
-    if (!object.lightKind.empty())
-        return object.lightKind;
-    if (object.hasLight)
-        return "point";
-    return {};
 }
 
 bool jsonElemFloat(const json& value, float& out);
@@ -185,38 +98,6 @@ bool readVec3(const json& j, Math::Vector3f& out, std::string* err, const char* 
     }
     out.z = (j.size() >= 3) ? z : 0.0f;
     return true;
-}
-
-void readSpawnerBlock(const json& j, SpawnerDesc& desc)
-{
-    std::string text;
-    SpawnerMode mode{};
-    if (jsonStringOr(j, "mode", text, std::string(), "SceneFile") && tryParseSpawnerMode(text, mode))
-        desc.mode = mode;
-    if (jsonStringOr(j, "unit", text, std::string(), "SceneFile") && !text.empty())
-    {
-        desc.unitArchetype = text;
-        std::string_view bare = text;
-        const auto colon = text.rfind(':');
-        if (colon != std::string::npos)
-            bare = std::string_view(text).substr(colon + 1);
-        SpawnerUnit unit{};
-        if (tryParseSpawnerUnit(bare, unit))
-            desc.unit = unit;
-    }
-    SpawnerWaveGate gate{};
-    if (jsonStringOr(j, "gate", text, std::string(), "SceneFile") && tryParseSpawnerWaveGate(text, gate))
-        desc.gate = gate;
-    jsonIntOr(j, "count", desc.count, desc.count, "SceneFile");
-    jsonFloatOr(j, "radius", desc.radius, desc.radius, "SceneFile");
-    jsonFloatOr(j, "respawnDelay", desc.respawnDelay, desc.respawnDelay, "SceneFile");
-    jsonFloatOr(j, "waveInterval", desc.waveInterval, desc.waveInterval, "SceneFile");
-    jsonIntOr(j, "maxWaves", desc.maxWaves, desc.maxWaves, "SceneFile");
-    double seed = static_cast<double>(desc.seed);
-    if (jsonDoubleOr(j, "seed", seed, seed, "SceneFile") && seed >= 1.0 && seed <= 4294967295.0)
-        desc.seed = static_cast<uint32_t>(seed);
-    jsonBoolOr(j, "enabled", desc.enabled, desc.enabled, "SceneFile");
-    clampSpawnerDesc(desc);
 }
 
 bool readQuat(const json& j, Math::Quaternion& out, std::string* err, const char* field)
@@ -580,67 +461,6 @@ const json& jsonObjectField(const json& object, const char* key, const json& emp
     return empty;
 }
 
-const json* overrideComponent(const json& object, const char* name)
-{
-    if (!object.contains("overrides") || !object["overrides"].is_object())
-        return nullptr;
-    const json& over = object["overrides"];
-    if (!over.contains(name) || !over[name].is_object())
-        return nullptr;
-    return &over[name];
-}
-
-bool skipRawObjectKey(const std::string& key)
-{
-    // These moved under overrides. Copying them back out of rawJson would resurrect the old blocks.
-    return key == "overrides" || key == "type" || key == "light" || key == "particle" || key == "cloud" || key == "stream" || key == "spawner"
-        || key == "model" || key == "movie" || key == "movieRadius" || key == "movieLoop" || key == "emissive";
-}
-
-void stripPayloadOverrides(json& extra)
-{
-    static constexpr const char* kNames[] = {
-        "LocalLight", "AmbientLight", "DirectionalLight", "ParticleEmitter", "CloudVolume",
-        "Stream",      "Spawner",      "Movie",           "Model",           "Mesh",
-    };
-    for (const char* name : kNames)
-        extra.erase(std::string(name));
-}
-
-json globalLightJson(const SceneObjectData& object)
-{
-    json light;
-    light["intensity"]    = object.lightIntensity;
-    light["range"]        = object.lightRange;
-    light["inner"]        = object.lightInnerDeg;
-    light["outer"]        = object.lightOuterDeg;
-    light["sourceRadius"] = object.lightSourceRadius;
-    light["enabled"]      = object.lightEnabled;
-    return light;
-}
-
-json localLightJson(const SceneObjectData& object)
-{
-    json light;
-    light["kind"]           = (lightKindOf(object) == "spot") ? "spot" : "point";
-    light["intensity"]      = object.lightIntensity;
-    light["range"]          = object.lightRange;
-    light["inner"]          = object.lightInnerDeg;
-    light["outer"]          = object.lightOuterDeg;
-    light["sourceRadius"]   = object.lightSourceRadius;
-    light["enabled"]        = object.lightEnabled;
-    light["castShadow"]     = object.lightCastShadow;
-    light["useObjectColor"] = true;
-    if (lightKindOf(object) == "spot" && object.searchlight)
-    {
-        light["searchlight"] = true;
-        light["sweep"]       = object.sweepDeg;
-    }
-    if (!object.circuit.empty())
-        light["circuit"] = object.circuit;
-    return light;
-}
-
 void copyWindFieldToGrass(const Terrain::WindSettings& wind, GrassSceneDesc& grass)
 {
     grass.windBaseYaw      = wind.headingRad;
@@ -845,216 +665,35 @@ bool saveSceneToJson(const std::filesystem::path& path, const SceneFileData& sce
     json arr = json::array();
     for (const SceneObjectData& o : scene.objects)
     {
-        if (o.placeholder && !o.rawJson.empty())
+        bool raw = false;
+        std::string rawText;
+        std::string placementText;
+        std::string componentText;
+        sceneSaveParts(o, raw, rawText, placementText, componentText);
+        if (raw)
         {
-            const json raw = json::parse(o.rawJson, nullptr, false);
-            if (!raw.is_discarded() && raw.is_object())
+            const json parsed = json::parse(rawText, nullptr, false);
+            if (!parsed.is_discarded() && parsed.is_object())
             {
-                arr.push_back(raw);
+                arr.push_back(parsed);
                 continue;
             }
         }
         json jo;
         jo["archetype"] = o.archetype;
-        jo["position"] = vec3ToJson(o.position);
-        jo["rotation"] = quatToJson(o.rotation);
-        jo["scale"]    = vec3ToJson(o.scale);
-        jo["color"]    = colorToJson(o.color);
-        json overrides = json::object();
-        if (!o.modelPath.empty())
+        jo["position"]  = vec3ToJson(o.position);
+        jo["rotation"]  = quatToJson(o.rotation);
+        jo["scale"]     = vec3ToJson(o.scale);
+        jo["color"]     = colorToJson(o.color);
+        const json placement = json::parse(placementText.empty() ? "{}" : placementText, nullptr, false);
+        if (!placement.is_discarded() && placement.is_object())
         {
-            json model;
-            model["gltf"]    = o.modelPath;
-            overrides["Model"] = std::move(model);
+            for (auto it = placement.begin(); it != placement.end(); ++it)
+                jo[it.key()] = it.value();
         }
-
-        if (o.hasParticle)
-        {
-            json p;
-            p["name"]            = o.particleName;
-            p["maxParticles"]    = o.maxParticles;
-            p["emissionRate"]    = o.emissionRate;
-            p["duration"]        = o.duration;
-            p["looping"]         = o.looping;
-            p["lifetime"]        = json::array({ o.lifetimeMin, o.lifetimeMax });
-            p["startSpeed"]      = json::array({ o.startSpeedMin, o.startSpeedMax });
-            p["startSize"]       = json::array({ o.startSizeMin, o.startSizeMax });
-            p["endSize"]         = json::array({ o.endSizeMin, o.endSizeMax });
-            p["startColor"]      = colorToJson(o.startColor);
-            p["endColor"]        = colorToJson(o.endColor);
-            p["gravity"]         = vec3ToJson(o.gravity);
-            p["direction"]       = vec3ToJson(o.direction);
-            p["spreadDegrees"]   = o.spreadDegrees;
-            p["shape"]           = o.shape;
-            p["shapeSize"]       = vec3ToJson(o.shapeSize);
-            p["additiveBlend"]   = o.additiveBlend;
-            p["simulationSpeed"] = o.simulationSpeed;
-            p["renderMode"]      = o.renderMode;
-            p["ribbonCount"]     = o.ribbonCount;
-            p["ribbonUvScale"]   = o.ribbonUvScale;
-            p["simMode"]         = o.simMode;
-            p["collision"]       = o.collision;
-            p["restitution"]     = o.restitution;
-            p["friction"]        = o.friction;
-            p["collisionThickness"] = o.collisionThickness;
-            p["collisionBias"]   = o.collisionBias;
-            p["restLifetime"]    = o.restLifetime;
-            p["maxSecondaryPerFrame"] = o.maxSecondaryPerFrame;
-            if (o.hasSecondary)
-            {
-                json secondary;
-                secondary["maxParticles"]  = o.secondaryMaxParticles;
-                secondary["lifetime"]      = json::array({ o.secondaryLifetimeMin, o.secondaryLifetimeMax });
-                secondary["startSize"]     = json::array({ o.secondaryStartSizeMin, o.secondaryStartSizeMax });
-                secondary["restLifetime"]  = o.secondaryRestLifetime;
-                secondary["additiveBlend"] = o.secondaryAdditiveBlend;
-                secondary["collision"]     = storedChildCollision(o.secondaryCollision);
-                p["secondary"]             = std::move(secondary);
-            }
-            overrides["ParticleEmitter"] = std::move(p);
-        }
-
-        const std::string kind = lightKindOf(o);
-        if (o.hasLight || kind == "point" || kind == "spot" || kind == "ambient" || kind == "directional")
-        {
-            if (kind == "ambient")
-                overrides["AmbientLight"] = globalLightJson(o);
-            else if (kind == "directional")
-                overrides["DirectionalLight"] = globalLightJson(o);
-            else if (o.hasLight || kind == "point" || kind == "spot")
-                overrides["LocalLight"] = localLightJson(o);
-        }
-        if (o.hasCloud)
-        {
-            json cloud;
-            cloud["shape"]           = (o.cloudShape == 0) ? "box" : "ellipsoid";
-            cloud["density"]         = o.cloudDensity;
-            cloud["coverage"]        = o.cloudCoverage;
-            cloud["softness"]        = o.cloudSoftness;
-            cloud["absorption"]      = o.cloudAbsorption;
-            cloud["scattering"]      = o.cloudScattering;
-            cloud["anisotropy"]      = o.cloudAnisotropy;
-            cloud["noiseScale"]      = o.cloudNoiseScale;
-            cloud["detailScale"]     = o.cloudDetailScale;
-            cloud["detailStrength"]  = o.cloudDetailStrength;
-            cloud["heightFalloff"]   = o.cloudHeightFalloff;
-            cloud["silverLining"]    = o.cloudSilverLining;
-            cloud["windSpeed"]       = o.cloudWindSpeed;
-            cloud["albedo"]          = json::array({ o.cloudAlbedo[0], o.cloudAlbedo[1], o.cloudAlbedo[2] });
-            cloud["windDir"]         = json::array({ o.cloudWindDir[0], o.cloudWindDir[1], o.cloudWindDir[2] });
-            cloud["enabled"]         = o.cloudEnabled;
-            overrides["CloudVolume"] = std::move(cloud);
-        }
-        if (o.hasStream)
-        {
-            json stream;
-            stream["width"]     = o.streamWidth;
-            stream["flowSpeed"] = o.streamFlowSpeed;
-            json points = json::array();
-            for (const Math::Vector2f& p : o.streamPoints)
-                points.push_back(json::array({ p.x, p.y }));
-            stream["points"] = std::move(points);
-            overrides["Stream"] = std::move(stream);
-        }
-        if (o.hasSpawner)
-        {
-            json spawner;
-            spawner["mode"]          = toString(o.spawner.mode);
-            {
-                std::string unitName = toString(o.spawner.unit);
-                if (!o.spawner.unitArchetype.empty())
-                {
-                    std::string_view bare = o.spawner.unitArchetype;
-                    const auto colon = o.spawner.unitArchetype.rfind(':');
-                    if (colon != std::string::npos)
-                        bare = std::string_view(o.spawner.unitArchetype).substr(colon + 1);
-                    SpawnerUnit parsed{};
-                    if (!tryParseSpawnerUnit(bare, parsed))
-                        unitName = o.spawner.unitArchetype;
-                }
-                spawner["unit"] = std::move(unitName);
-            }
-            spawner["gate"]          = toString(o.spawner.gate);
-            spawner["count"]         = o.spawner.count;
-            spawner["radius"]        = o.spawner.radius;
-            spawner["respawnDelay"]  = o.spawner.respawnDelay;
-            spawner["waveInterval"]  = o.spawner.waveInterval;
-            spawner["maxWaves"]      = o.spawner.maxWaves;
-            spawner["enabled"]       = o.spawner.enabled;
-            spawner["seed"]     = o.spawner.seed;
-            overrides["Spawner"] = std::move(spawner);
-        }
-
-        if (o.conceal)
-            jo["conceal"] = true;
-        if (o.goal)
-            jo["goal"] = true;
-        if (!o.circuit.empty())
-            jo["circuit"] = o.circuit;
-        if (!o.zone.empty())
-            jo["zone"] = o.zone;
-        if (!o.pickup.empty())
-        {
-            jo["pickup"] = o.pickup;
-            if (o.pickupCount != 1)
-                jo["pickupCount"] = o.pickupCount;
-        }
-        if (!o.dialogue.empty())
-            jo["dialogue"] = o.dialogue;
-        if (!o.movie.empty() || o.movieRadius != 2.0f || o.movieLoop)
-        {
-            json movie;
-            movie["path"]   = o.movie;
-            movie["radius"] = o.movieRadius;
-            movie["loop"]   = o.movieLoop;
-            overrides["Movie"] = std::move(movie);
-        }
-        if (!o.squad.empty())
-            jo["squad"] = o.squad;
-        if (!o.block)
-            jo["block"] = false;
-        if (!o.patrol.empty())
-        {
-            json points = json::array();
-            for (const Math::Vector2f& p : o.patrol)
-                points.push_back(json::array({ p.x, p.y }));
-            jo["patrol"] = std::move(points);
-        }
-
-        if (o.emissive != 0.0f)
-        {
-            json mesh;
-            mesh["emissive"] = o.emissive;
-            overrides["Mesh"] = std::move(mesh);
-        }
-        if (o.emissiveMeshIndex >= 0)
-            jo["emissiveMesh"] = o.emissiveMeshIndex;
-        if (!o.overridesJson.empty())
-        {
-            const json overlay = json::parse(o.overridesJson, nullptr, false);
-            if (!overlay.is_discarded() && overlay.is_object())
-            {
-                for (auto it = overlay.begin(); it != overlay.end(); ++it)
-                    overrides[it.key()] = it.value();
-            }
-            else if (!overlay.is_discarded())
-                jo["overrides"] = overlay;
-        }
-        if (!overrides.empty() && !jo.contains("overrides"))
-            jo["overrides"] = std::move(overrides);
-        if (!o.rawJson.empty())
-        {
-            const json raw = json::parse(o.rawJson, nullptr, false);
-            if (!raw.is_discarded() && raw.is_object())
-            {
-                for (auto it = raw.begin(); it != raw.end(); ++it)
-                {
-                    if (!skipRawObjectKey(it.key()) && !jo.contains(it.key()))
-                        jo[it.key()] = it.value();
-                }
-            }
-        }
-
+        const json components = json::parse(componentText.empty() ? "{}" : componentText, nullptr, false);
+        if (!components.is_discarded() && components.is_object() && !components.empty())
+            jo["overrides"] = components;
         arr.push_back(std::move(jo));
     }
     root["objects"] = std::move(arr);
@@ -1561,8 +1200,7 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
         const std::string archRaw = jsonS(jo, "archetype", std::string());
         if (archRaw.empty())
         {
-            o.placeholder = true;
-            o.rawJson     = jo.dump();
+            o.overridesJson = jo.dump();
             std::string ignored;
             if (jo.contains("position") && jo["position"].is_array())
                 readVec3(jo["position"], o.position, &ignored, "position");
@@ -1577,9 +1215,7 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
         o.archetype = canonicalContentId(archRaw);
         if (!contentHasArchetype(o.archetype))
         {
-            o.placeholder = true;
-            o.dataDriven  = false;
-            o.rawJson     = jo.dump();
+            o.overridesJson = jo.dump();
             std::string ignored;
             if (jo.contains("position") && jo["position"].is_array())
                 readVec3(jo["position"], o.position, &ignored, "position");
@@ -1591,7 +1227,6 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
             DE_LOG_WARN("SceneFile: unknown archetype '{}' kept as a placeholder", o.archetype);
             continue;
         }
-        o.dataDriven = true;
 
         std::string err;
         if (jo.contains("position") && !readVec3(jo["position"], o.position, &err, "position"))
@@ -1619,335 +1254,88 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
             return false;
         }
 
-        const json* particleBlock = overrideComponent(jo, "ParticleEmitter");
-        if (particleBlock)
-        {
-            const json& p = *particleBlock;
-            o.hasParticle     = true;
-            o.particleName    = jsonS(p, "name", std::string("Emitter"));
-            o.maxParticles    = jsonU(p, "maxParticles", 512u);
-            o.emissionRate    = jsonF(p, "emissionRate", 40.0f);
-            o.duration        = jsonF(p, "duration", 0.0f);
-            o.looping         = jsonB(p, "looping", true);
-            o.spreadDegrees   = jsonF(p, "spreadDegrees", 25.0f);
-            o.shape           = jsonI(p, "shape", 0);
-            o.additiveBlend   = jsonB(p, "additiveBlend", true);
-            o.simulationSpeed = jsonF(p, "simulationSpeed", 1.0f);
-            o.renderMode      = jsonI(p, "renderMode", 0);
-            o.ribbonCount     = jsonU(p, "ribbonCount", 1u);
-            o.ribbonUvScale   = jsonF(p, "ribbonUvScale", 1.0f);
-            readJsonInt(p, "simMode", o.simMode);
-            readJsonInt(p, "collision", o.collision);
-            readJsonFloat(p, "restitution", o.restitution);
-            readJsonFloat(p, "friction", o.friction);
-            readJsonFloat(p, "collisionThickness", o.collisionThickness);
-            readJsonFloat(p, "collisionBias", o.collisionBias);
-            readJsonFloat(p, "restLifetime", o.restLifetime);
-            readJsonU32(p, "maxSecondaryPerFrame", o.maxSecondaryPerFrame);
-            if (p.contains("secondary") && p["secondary"].is_object())
-            {
-                const json& secondary = p["secondary"];
-                o.hasSecondary = true;
-                readJsonU32(secondary, "maxParticles", o.secondaryMaxParticles);
-                readJsonFloat(secondary, "restLifetime", o.secondaryRestLifetime);
-                readJsonBool(secondary, "additiveBlend", o.secondaryAdditiveBlend);
-                if (readJsonInt(secondary, "collision", o.secondaryCollision))
-                    o.secondaryCollision = storedChildCollision(o.secondaryCollision);
-                if (secondary.contains("lifetime") && secondary["lifetime"].is_array() && secondary["lifetime"].size() >= 2
-                    && secondary["lifetime"][0].is_number() && secondary["lifetime"][1].is_number())
-                {
-                    o.secondaryLifetimeMin = secondary["lifetime"][0].get<float>();
-                    o.secondaryLifetimeMax = secondary["lifetime"][1].get<float>();
-                }
-                if (secondary.contains("startSize") && secondary["startSize"].is_array() && secondary["startSize"].size() >= 2
-                    && secondary["startSize"][0].is_number() && secondary["startSize"][1].is_number())
-                {
-                    o.secondaryStartSizeMin = secondary["startSize"][0].get<float>();
-                    o.secondaryStartSizeMax = secondary["startSize"][1].get<float>();
-                }
-            }
-            if (p.contains("lifetime") && p["lifetime"].is_array() && p["lifetime"].size() >= 2)
-            {
-                o.lifetimeMin = jsonAt(p["lifetime"][0]);
-                o.lifetimeMax = jsonAt(p["lifetime"][1]);
-            }
-            if (p.contains("startSpeed") && p["startSpeed"].is_array() && p["startSpeed"].size() >= 2)
-            {
-                o.startSpeedMin = jsonAt(p["startSpeed"][0]);
-                o.startSpeedMax = jsonAt(p["startSpeed"][1]);
-            }
-            if (p.contains("startSize") && p["startSize"].is_array() && p["startSize"].size() >= 2)
-            {
-                o.startSizeMin = jsonAt(p["startSize"][0]);
-                o.startSizeMax = jsonAt(p["startSize"][1]);
-            }
-            if (p.contains("endSize") && p["endSize"].is_array() && p["endSize"].size() >= 2)
-            {
-                o.endSizeMin = jsonAt(p["endSize"][0]);
-                o.endSizeMax = jsonAt(p["endSize"][1]);
-            }
-            if (p.contains("startColor"))
-                readColor(p["startColor"], o.startColor, nullptr, "startColor");
-            if (p.contains("endColor"))
-                readColor(p["endColor"], o.endColor, nullptr, "endColor");
-            if (p.contains("gravity"))
-                readVec3(p["gravity"], o.gravity, nullptr, "gravity");
-            if (p.contains("direction"))
-                readVec3(p["direction"], o.direction, nullptr, "direction");
-            if (p.contains("shapeSize"))
-                readVec3(p["shapeSize"], o.shapeSize, nullptr, "shapeSize");
-        }
-        else if (sceneHasComponent(o, "ParticleEmitter"))
-        {
-            o.hasParticle = true;
-        }
+        json bag = json::object();
+        const bool overridesObject = !jo.contains("overrides") || jo["overrides"].is_object();
+        if (jo.contains("overrides") && jo["overrides"].is_object())
+            bag = jo["overrides"];
+        else if (jo.contains("overrides"))
+            o.overridesJson = jo["overrides"].dump();
 
-        const json* lightBlock = nullptr;
-        bool lightFromGlobalOverride = false;
-        if (const json* local = overrideComponent(jo, "LocalLight"))
-            lightBlock = local;
-        else if (const json* ambient = overrideComponent(jo, "AmbientLight"))
+        if (overridesObject)
         {
-            lightBlock = ambient;
-            lightFromGlobalOverride = true;
-        }
-        else if (const json* sun = overrideComponent(jo, "DirectionalLight"))
-        {
-            lightBlock = sun;
-            lightFromGlobalOverride = true;
-        }
-        auto applyLightBlock = [&](const json& light, std::string kind, bool global) {
-            if (kind == "point" || kind == "spot")
-                applyTypeLightDefaults(o, kind);
-            else if (kind == "directional")
-                o.lightIntensity = Math::Pi;
-            else if (kind == "ambient")
-                o.lightIntensity = 1.0f;
-            o.lightKind         = std::move(kind);
-            o.hasLight          = true;
-            o.lightIntensity    = jsonF(light, "intensity", o.lightIntensity);
-            o.lightRange        = jsonF(light, "range", o.lightRange);
-            o.lightInnerDeg     = jsonF(light, "inner", o.lightInnerDeg);
-            o.lightOuterDeg     = jsonF(light, "outer", o.lightOuterDeg);
-            o.lightSourceRadius = jsonF(light, "sourceRadius", o.lightSourceRadius);
-            o.lightEnabled      = jsonB(light, "enabled", o.lightEnabled);
-            // A missing or mistyped key stays false. Global lights never take castShadow from JSON.
-            if (!global && light.contains("castShadow") && light["castShadow"].is_boolean())
-                o.lightCastShadow = jsonAtBool(light["castShadow"]);
-            if (o.lightKind == "spot" && light.contains("searchlight") && light["searchlight"].is_boolean())
-                o.searchlight = jsonAtBool(light["searchlight"]);
-            if (light.contains("sweep") && light["sweep"].is_number())
-                o.sweepDeg = std::clamp(jsonAt(light["sweep"]), 0.0f, 340.0f);
-        };
-        if (lightBlock)
-        {
-            std::string kind = "point";
-            if (lightFromGlobalOverride && overrideComponent(jo, "AmbientLight"))
-                kind = "ambient";
-            else if (lightFromGlobalOverride)
-                kind = "directional";
-            else if (lightBlock->contains("kind") && (*lightBlock)["kind"].is_string() && jsonAtString((*lightBlock)["kind"]) == "spot")
-                kind = "spot";
-            applyLightBlock(*lightBlock, std::move(kind), lightFromGlobalOverride);
-        }
-        else if (const Archetype* archetype = findArchetype(o.archetype))
-        {
-            for (const ArchetypeComponent& component : archetype->components)
+            static constexpr const char* kPlacement[] = {
+                "conceal", "goal", "circuit", "zone", "pickup", "pickupCount", "dialogue", "squad", "block", "patrol", "emissiveMesh",
+            };
+            for (const char* key : kPlacement)
             {
-                std::string kind;
-                bool global = false;
-                if (component.name == "AmbientLight")
+                if (jo.contains(key))
+                    bag[key] = jo[key];
+            }
+            if (bag.contains("Movie") && bag["Movie"].is_object())
+            {
+                json& movie = bag["Movie"];
+                if (movie.contains("radius") && movie["radius"].is_number() && !(jsonAt(movie["radius"]) >= 0.0f))
+                    movie["radius"] = 0.0f;
+            }
+            if (sceneHasComponent(o, "Stream"))
+            {
+                if (streamCount >= 16)
                 {
-                    kind = "ambient";
-                    global = true;
-                }
-                else if (component.name == "DirectionalLight")
-                {
-                    kind = "directional";
-                    global = true;
-                }
-                else if (component.name == "LocalLight")
-                    kind = "point";
-                else
+                    if (!streamCapWarned)
+                    {
+                        DE_LOG_WARN(LogCategory::Render, "SceneFile: more than 16 streams; extra streams skipped");
+                        streamCapWarned = true;
+                    }
                     continue;
-                json authored = json::parse(component.paramsJson.empty() ? "{}" : component.paramsJson, nullptr, false);
-                if (authored.is_discarded() || !authored.is_object())
-                    authored = json::object();
-                if (!global && authored.contains("kind") && authored["kind"].is_string() && jsonAtString(authored["kind"]) == "spot")
-                    kind = "spot";
-                applyLightBlock(authored, std::move(kind), global);
-                break;
-            }
-        }
-
-        if (const json* mesh = overrideComponent(jo, "Mesh"))
-        {
-            if (mesh->contains("emissive") && (*mesh)["emissive"].is_number())
-                o.emissive = jsonAt((*mesh)["emissive"]);
-            else
-                o.emissive = 0.0f;
-        }
-        if (jo.contains("emissiveMesh") && jo["emissiveMesh"].is_number_integer())
-            o.emissiveMeshIndex = jsonAtInt(jo["emissiveMesh"]);
-        if (const json* model = overrideComponent(jo, "Model"))
-        {
-            if (model->contains("gltf") && (*model)["gltf"].is_string())
-                o.modelPath = jsonAtString((*model)["gltf"]);
-            else
-                o.modelPath.clear();
-        }
-
-        const json* cloudBlock = overrideComponent(jo, "CloudVolume");
-        if (cloudBlock)
-        {
-            const json& cloud = *cloudBlock;
-            o.hasCloud = true;
-            if (cloud.contains("shape"))
-            {
-                if (cloud["shape"].is_string())
-                {
-                    const std::string s = jsonAtString(cloud["shape"]);
-                    if (s == "box" || s == "aabb")
-                        o.cloudShape = 0;
-                    else
-                        o.cloudShape = 1;
                 }
-                else if (cloud["shape"].is_number_integer())
-                    o.cloudShape = jsonAtInt(cloud["shape"]) == 0 ? 0 : 1;
-            }
-            o.cloudDensity         = jsonF(cloud, "density", o.cloudDensity);
-            o.cloudCoverage        = jsonF(cloud, "coverage", o.cloudCoverage);
-            o.cloudSoftness        = jsonF(cloud, "softness", o.cloudSoftness);
-            o.cloudAbsorption      = jsonF(cloud, "absorption", o.cloudAbsorption);
-            o.cloudScattering      = jsonF(cloud, "scattering", o.cloudScattering);
-            o.cloudAnisotropy      = jsonF(cloud, "anisotropy", o.cloudAnisotropy);
-            o.cloudNoiseScale      = jsonF(cloud, "noiseScale", o.cloudNoiseScale);
-            o.cloudDetailScale     = jsonF(cloud, "detailScale", o.cloudDetailScale);
-            o.cloudDetailStrength  = jsonF(cloud, "detailStrength", o.cloudDetailStrength);
-            o.cloudHeightFalloff   = jsonF(cloud, "heightFalloff", o.cloudHeightFalloff);
-            o.cloudSilverLining    = jsonF(cloud, "silverLining", o.cloudSilverLining);
-            o.cloudWindSpeed       = jsonF(cloud, "windSpeed", o.cloudWindSpeed);
-            o.cloudEnabled         = jsonB(cloud, "enabled", o.cloudEnabled);
-            if (cloud.contains("albedo") && cloud["albedo"].is_array() && cloud["albedo"].size() >= 3)
-            {
-                o.cloudAlbedo[0] = jsonAt(cloud["albedo"][0]);
-                o.cloudAlbedo[1] = jsonAt(cloud["albedo"][1]);
-                o.cloudAlbedo[2] = jsonAt(cloud["albedo"][2]);
-            }
-            if (cloud.contains("windDir") && cloud["windDir"].is_array() && cloud["windDir"].size() >= 3)
-            {
-                o.cloudWindDir[0] = jsonAt(cloud["windDir"][0]);
-                o.cloudWindDir[1] = jsonAt(cloud["windDir"][1]);
-                o.cloudWindDir[2] = jsonAt(cloud["windDir"][2]);
-            }
-        }
-        else if (sceneHasComponent(o, "CloudVolume"))
-        {
-            o.hasCloud = true;
-        }
-
-        jsonBoolOr(jo, "conceal", o.conceal, false, "SceneFile");
-        jsonBoolOr(jo, "goal", o.goal, false, "SceneFile");
-        jsonStringOr(jo, "circuit", o.circuit, std::string(), "SceneFile");
-        if (const json* local = overrideComponent(jo, "LocalLight"))
-        {
-            if (local->contains("circuit") && (*local)["circuit"].is_string())
-                o.circuit = jsonAtString((*local)["circuit"]);
-        }
-        jsonStringOr(jo, "zone", o.zone, std::string(), "SceneFile");
-        jsonStringOr(jo, "squad", o.squad, std::string(), "SceneFile");
-        jsonBoolOr(jo, "block", o.block, true, "SceneFile");
-        jsonStringOr(jo, "pickup", o.pickup, std::string(), "SceneFile");
-        jsonIntOr(jo, "pickupCount", o.pickupCount, 1, "SceneFile");
-        jsonStringOr(jo, "dialogue", o.dialogue, std::string(), "SceneFile");
-        if (const json* movie = overrideComponent(jo, "Movie"))
-        {
-            o.movie.clear();
-            o.movieRadius = 2.0f;
-            o.movieLoop   = false;
-            if (movie->contains("path") && (*movie)["path"].is_string())
-                o.movie = jsonAtString((*movie)["path"]);
-            if (movie->contains("radius") && (*movie)["radius"].is_number())
-                o.movieRadius = jsonAt((*movie)["radius"]);
-            if (!(o.movieRadius >= 0.0f))
-                o.movieRadius = 0.0f;
-            if (movie->contains("loop") && (*movie)["loop"].is_boolean())
-                o.movieLoop = jsonAtBool((*movie)["loop"]);
-        }
-        if (jo.contains("patrol") && jo["patrol"].is_array())
-        {
-            for (const json& p : jo["patrol"])
-            {
-                if (p.is_array() && p.size() >= 2 && p[0].is_number() && p[1].is_number())
-                    o.patrol.emplace_back(jsonAt(p[0]), jsonAt(p[1]));
-            }
-        }
-
-        if (sceneHasComponent(o, "Stream"))
-        {
-            if (streamCount >= 16)
-            {
-                if (!streamCapWarned)
+                if (!bag.contains("Stream") || !bag["Stream"].is_object())
                 {
-                    DE_LOG_WARN(LogCategory::Render, "SceneFile: more than 16 streams; extra streams skipped");
-                    streamCapWarned = true;
+                    DE_LOG_ERROR(LogCategory::Render, "SceneFile: stream missing stream block — skipped");
+                    continue;
                 }
-                continue;
-            }
-            const json* streamBlock = overrideComponent(jo, "Stream");
-            if (!streamBlock)
-            {
-                DE_LOG_ERROR(LogCategory::Render, "SceneFile: stream missing stream block — skipped");
-                continue;
-            }
-            const json& stream = *streamBlock;
-            if (!stream.contains("points") || !stream["points"].is_array())
-            {
-                DE_LOG_ERROR(LogCategory::Render, "SceneFile: stream missing points — skipped");
-                continue;
-            }
-            const json& pts = stream["points"];
-            if (pts.size() < 2 || pts.size() > 256)
-            {
-                DE_LOG_ERROR(LogCategory::Render, "SceneFile: stream point count {} is out of range — skipped", pts.size());
-                continue;
-            }
-            bool pointsOk = true;
-            o.streamPoints.clear();
-            o.streamPoints.reserve(pts.size());
-            for (const json& p : pts)
-            {
-                if (!p.is_array() || p.size() < 2 || !p[0].is_number() || !p[1].is_number())
+                json& stream = bag["Stream"];
+                if (!stream.contains("points") || !stream["points"].is_array())
                 {
-                    pointsOk = false;
-                    break;
+                    DE_LOG_ERROR(LogCategory::Render, "SceneFile: stream missing points — skipped");
+                    continue;
                 }
-                o.streamPoints.emplace_back(jsonAt(p[0]), jsonAt(p[1]));
+                const json& pts = stream["points"];
+                if (pts.size() < 2 || pts.size() > 256)
+                {
+                    DE_LOG_ERROR(LogCategory::Render, "SceneFile: stream point count {} is out of range — skipped", pts.size());
+                    continue;
+                }
+                bool pointsOk = true;
+                float firstX = 0.0f;
+                float firstZ = 0.0f;
+                bool haveFirst = false;
+                for (const json& p : pts)
+                {
+                    if (!p.is_array() || p.size() < 2 || !p[0].is_number() || !p[1].is_number())
+                    {
+                        pointsOk = false;
+                        break;
+                    }
+                    if (!haveFirst)
+                    {
+                        firstX    = jsonAt(p[0]);
+                        firstZ    = jsonAt(p[1]);
+                        haveFirst = true;
+                    }
+                }
+                if (!pointsOk || !haveFirst)
+                {
+                    DE_LOG_ERROR(LogCategory::Render, "SceneFile: stream points are not [x,z] pairs — skipped");
+                    continue;
+                }
+                if (stream.contains("width") && stream["width"].is_number())
+                    stream["width"] = Math::Clamp(jsonAt(stream["width"]), 1.5f, 12.0f);
+                o.position.x = firstX;
+                o.position.z = firstZ;
+                ++streamCount;
             }
-            if (!pointsOk || o.streamPoints.size() < 2)
-            {
-                DE_LOG_ERROR(LogCategory::Render, "SceneFile: stream points are not [x,z] pairs — skipped");
-                continue;
-            }
-            o.hasStream        = true;
-            o.streamWidth      = Math::Clamp(jsonF(stream, "width", 3.5f), 1.5f, 12.0f);
-            o.streamFlowSpeed  = jsonF(stream, "flowSpeed", 1.6f);
-            o.position.x       = o.streamPoints.front().x;
-            o.position.z       = o.streamPoints.front().y;
-            ++streamCount;
-        }
-
-        const json* spawnerBlock = overrideComponent(jo, "Spawner");
-        if (sceneHasComponent(o, "Spawner") || spawnerBlock)
-        {
-            o.hasSpawner = true;
-            if (spawnerBlock)
-            {
-                o.spawner = SpawnerDesc{};
-                readSpawnerBlock(*spawnerBlock, o.spawner);
-            }
-            else
-                clampSpawnerDesc(o.spawner);
+            if (!bag.empty())
+                o.overridesJson = bag.dump();
         }
 
         if (o.scale.x == 0.0f)
@@ -1956,19 +1344,6 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
             o.scale.y = 1.0f;
         if (o.scale.z == 0.0f)
             o.scale.z = 1.0f;
-
-        if (jo.contains("overrides") && jo["overrides"].is_object())
-        {
-            json extra = jo["overrides"];
-            stripPayloadOverrides(extra);
-            if (!extra.empty())
-                o.overridesJson = extra.dump();
-        }
-        else if (jo.contains("overrides"))
-            o.overridesJson = jo["overrides"].dump();
-        if (!o.placeholder)
-            o.rawJson = jo.dump();
-
         outScene.objects.push_back(o);
     }
 

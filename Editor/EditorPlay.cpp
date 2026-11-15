@@ -285,7 +285,7 @@ void EditorApp::bakePlayWalkability()
         std::string primitive;
         if (!sceneWalkObstacle(so.source, primitive))
             return;
-        if (!classifyWalkObstacle(primitive, xf->position, xf->scale, so.source.block, so.source.goal, so.source.conceal, !so.source.zone.empty(), !so.source.pickup.empty(), box, sphere))
+        if (!classifyWalkObstacle(primitive, xf->position, xf->scale, sceneBlock(so.source), sceneGoal(so.source), sceneConceal(so.source), !sceneZone(so.source).empty(), !scenePickup(so.source).empty(), box, sphere))
             return;
         if (primitive == "cube")
         {
@@ -513,7 +513,7 @@ void EditorApp::setPlayMode(bool play)
         // Same actor load as the game. The pose was stored first, so Stop puts the file position back.
         world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
             SceneObjectData authored = so.source;
-            authored.dialogue        = so.dialogue;
+            sceneSetString(authored, "dialogue", so.dialogue);
             applySceneActor(world(), e, authored, &EditorApp::sceneGroundY, this);
         });
         bakePlayWalkability();

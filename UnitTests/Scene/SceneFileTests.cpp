@@ -1,7 +1,9 @@
 #include <gtest/gtest.h>
 
 #include "Content/ContentDb.h"
+#include "Content/SceneObjectSpawn.h"
 #include "Core/ContentRoots.h"
+#include "Sky/CloudVolume.h"
 #include "Core/Log.h"
 #include "Core/Paths.h"
 #include "Math/MathDefines.h"
@@ -263,8 +265,8 @@ TEST_F(SceneFile, V1RoundTripStillLoads)
     EXPECT_EQ(out.version, 1);
     ASSERT_EQ(out.objects.size(), 1u);
     EXPECT_EQ(out.objects[0].archetype, "core:cube");
-    EXPECT_FALSE(out.objects[0].hasLight);
-    EXPECT_NEAR(out.objects[0].emissive, 0.0f, 1.0e-5f);
+    EXPECT_FALSE(sceneHasLight(out.objects[0]));
+    EXPECT_NEAR(sceneEmissive(out.objects[0]), 0.0f, 1.0e-5f);
     EXPECT_NEAR(out.objects[0].position.z, 3.0f, 1.0e-4f);
 
     std::error_code ec;
@@ -279,48 +281,48 @@ TEST_F(SceneFile, V2LocalLightRoundTrip)
     in.mode    = SceneMode::Scene3D;
 
     SceneObjectData point{};
-    point.archetype              = "core:point_light";
-    point.lightKind = "point";
-    point.hasLight = true;
-    point.position          = Vector3f(4.0f, 1.5f, -2.0f);
-    point.color[0]          = 1.0f;
-    point.color[1]          = 0.92f;
-    point.color[2]          = 0.75f;
-    point.color[3]          = 1.0f;
-    point.hasLight          = true;
-    point.lightIntensity    = 600.0f;
-    point.lightRange        = 8.0f;
-    point.lightInnerDeg     = 12.0f;
-    point.lightOuterDeg     = 25.0f;
-    point.lightSourceRadius = 0.05f;
-    point.lightEnabled      = true;
+    point.archetype = "core:point_light";
+    point.position  = Vector3f(4.0f, 1.5f, -2.0f);
+    point.color[0]  = 1.0f;
+    point.color[1]  = 0.92f;
+    point.color[2]  = 0.75f;
+    point.color[3]  = 1.0f;
+    SceneLightFields pointLight;
+    pointLight.kind         = "point";
+    pointLight.intensity    = 600.0f;
+    pointLight.range        = 8.0f;
+    pointLight.innerDeg     = 12.0f;
+    pointLight.outerDeg     = 25.0f;
+    pointLight.sourceRadius = 0.05f;
+    pointLight.enabled      = true;
+    sceneWriteLight(point, pointLight);
     in.objects.push_back(point);
 
     SceneObjectData spot{};
-    spot.archetype              = "core:spot_light";
-    spot.lightKind = "spot";
-    spot.hasLight = true;
-    spot.position          = Vector3f(0.0f, 2.0f, 1.0f);
-    spot.rotation          = Quaternion(0.70710678f, 0.0f, 0.70710678f, 0.0f);
-    spot.color[0]          = 0.8f;
-    spot.color[1]          = 0.9f;
-    spot.color[2]          = 1.0f;
-    spot.color[3]          = 1.0f;
-    spot.hasLight          = true;
-    spot.lightIntensity    = 800.0f;
-    spot.lightRange        = 16.0f;
-    spot.lightInnerDeg     = 10.0f;
-    spot.lightOuterDeg     = 22.0f;
-    spot.lightSourceRadius = 0.08f;
-    spot.lightEnabled      = false;
+    spot.archetype = "core:spot_light";
+    spot.position  = Vector3f(0.0f, 2.0f, 1.0f);
+    spot.rotation  = Quaternion(0.70710678f, 0.0f, 0.70710678f, 0.0f);
+    spot.color[0]  = 0.8f;
+    spot.color[1]  = 0.9f;
+    spot.color[2]  = 1.0f;
+    spot.color[3]  = 1.0f;
+    SceneLightFields spotLight;
+    spotLight.kind         = "spot";
+    spotLight.intensity    = 800.0f;
+    spotLight.range        = 16.0f;
+    spotLight.innerDeg     = 10.0f;
+    spotLight.outerDeg     = 22.0f;
+    spotLight.sourceRadius = 0.08f;
+    spotLight.enabled      = false;
+    sceneWriteLight(spot, spotLight);
     in.objects.push_back(spot);
 
     SceneObjectData glow{};
-    glow.archetype     = "core:sphere";
-    glow.position = Vector3f(1.0f, 0.5f, 0.0f);
-    glow.emissive = 1.0f;
+    glow.archetype = "core:sphere";
+    glow.position  = Vector3f(1.0f, 0.5f, 0.0f);
+    sceneWriteEmissive(glow, 1.0f);
     in.objects.push_back(glow);
-    in.objects[0].emissiveMeshIndex = 2;
+    sceneSetInt(in.objects[0], "emissiveMesh", 2);
 
     const auto path = tempScenePath("darkengine6_scene_v2_lights_ut.json");
     std::string err;
@@ -332,31 +334,31 @@ TEST_F(SceneFile, V2LocalLightRoundTrip)
     ASSERT_EQ(out.objects.size(), 3u);
 
     EXPECT_EQ(out.objects[0].archetype, "core:point_light");
-    EXPECT_TRUE(out.objects[0].hasLight);
+    EXPECT_TRUE(sceneHasLight(out.objects[0]));
     EXPECT_NEAR(out.objects[0].position.y, 1.5f, 1.0e-4f);
-    EXPECT_NEAR(out.objects[0].lightIntensity, 600.0f, 1.0e-4f);
-    EXPECT_NEAR(out.objects[0].lightRange, 8.0f, 1.0e-4f);
-    EXPECT_NEAR(out.objects[0].lightInnerDeg, 12.0f, 1.0e-4f);
-    EXPECT_NEAR(out.objects[0].lightOuterDeg, 25.0f, 1.0e-4f);
-    EXPECT_NEAR(out.objects[0].lightSourceRadius, 0.05f, 1.0e-4f);
-    EXPECT_TRUE(out.objects[0].lightEnabled);
+    EXPECT_NEAR(sceneLightFloat(out.objects[0], "intensity", 0.0f), 600.0f, 1.0e-4f);
+    EXPECT_NEAR(sceneLightFloat(out.objects[0], "range", 0.0f), 8.0f, 1.0e-4f);
+    EXPECT_NEAR(sceneLightFloat(out.objects[0], "inner", 0.0f), 12.0f, 1.0e-4f);
+    EXPECT_NEAR(sceneLightFloat(out.objects[0], "outer", 0.0f), 25.0f, 1.0e-4f);
+    EXPECT_NEAR(sceneLightFloat(out.objects[0], "sourceRadius", 0.0f), 0.05f, 1.0e-4f);
+    EXPECT_TRUE(sceneLightBool(out.objects[0], "enabled", false));
     EXPECT_NEAR(out.objects[0].color[1], 0.92f, 1.0e-4f);
-    EXPECT_EQ(out.objects[0].emissiveMeshIndex, 2);
+    EXPECT_EQ(sceneEmissiveMeshIndex(out.objects[0]), 2);
 
     EXPECT_EQ(out.objects[1].archetype, "core:spot_light");
-    EXPECT_TRUE(out.objects[1].hasLight);
-    EXPECT_NEAR(out.objects[1].lightIntensity, 800.0f, 1.0e-4f);
-    EXPECT_NEAR(out.objects[1].lightRange, 16.0f, 1.0e-4f);
-    EXPECT_NEAR(out.objects[1].lightInnerDeg, 10.0f, 1.0e-4f);
-    EXPECT_NEAR(out.objects[1].lightOuterDeg, 22.0f, 1.0e-4f);
-    EXPECT_NEAR(out.objects[1].lightSourceRadius, 0.08f, 1.0e-4f);
-    EXPECT_FALSE(out.objects[1].lightEnabled);
+    EXPECT_TRUE(sceneHasLight(out.objects[1]));
+    EXPECT_NEAR(sceneLightFloat(out.objects[1], "intensity", 0.0f), 800.0f, 1.0e-4f);
+    EXPECT_NEAR(sceneLightFloat(out.objects[1], "range", 0.0f), 16.0f, 1.0e-4f);
+    EXPECT_NEAR(sceneLightFloat(out.objects[1], "inner", 0.0f), 10.0f, 1.0e-4f);
+    EXPECT_NEAR(sceneLightFloat(out.objects[1], "outer", 0.0f), 22.0f, 1.0e-4f);
+    EXPECT_NEAR(sceneLightFloat(out.objects[1], "sourceRadius", 0.0f), 0.08f, 1.0e-4f);
+    EXPECT_FALSE(sceneLightBool(out.objects[1], "enabled", true));
     EXPECT_NEAR(out.objects[1].rotation.y, 0.70710678f, 1.0e-4f);
 
     EXPECT_EQ(out.objects[2].archetype, "core:sphere");
-    EXPECT_NEAR(out.objects[2].emissive, 1.0f, 1.0e-4f);
-    EXPECT_FALSE(out.objects[2].hasLight);
-    EXPECT_EQ(out.objects[2].emissiveMeshIndex, -1);
+    EXPECT_NEAR(sceneEmissive(out.objects[2]), 1.0f, 1.0e-4f);
+    EXPECT_FALSE(sceneHasLight(out.objects[2]));
+    EXPECT_EQ(sceneEmissiveMeshIndex(out.objects[2]), -1);
 
     std::error_code ec;
     std::filesystem::remove(path, ec);
@@ -385,20 +387,20 @@ TEST_F(SceneFile, V1FileStillLoadsAndSkipsUnknownKeepsKnownLights)
     EXPECT_EQ(data.version, 1);
     ASSERT_EQ(data.objects.size(), 3u);
     EXPECT_EQ(data.objects[0].archetype, "core:cube");
-    EXPECT_TRUE(data.objects[1].placeholder);
+    EXPECT_TRUE(sceneIsPlaceholder(data.objects[1]));
     EXPECT_EQ(data.objects[1].archetype, "core:not_a_real_type");
-    EXPECT_NE(data.objects[1].rawJson.find("not_a_real_type"), std::string::npos);
+    EXPECT_NE(data.objects[1].overridesJson.find("not_a_real_type"), std::string::npos);
     EXPECT_EQ(data.objects[2].archetype, "core:point_light");
-    EXPECT_TRUE(data.objects[2].hasLight);
-    EXPECT_NEAR(data.objects[2].lightIntensity, 1885.0f, 1.0e-4f);
+    EXPECT_TRUE(sceneHasLight(data.objects[2]));
+    EXPECT_NEAR(sceneLightFloat(data.objects[2], "intensity", 0.0f), 1885.0f, 1.0e-4f);
     EXPECT_NEAR(data.objects[2].position.x, 4.0f, 1.0e-4f);
 
     ASSERT_TRUE(saveSceneToJson(path, data, &err)) << err;
     SceneFileData again{};
     ASSERT_TRUE(loadSceneFromJson(path, again, &err)) << err;
     ASSERT_EQ(again.objects.size(), 3u);
-    EXPECT_TRUE(again.objects[1].placeholder);
-    EXPECT_NE(again.objects[1].rawJson.find("not_a_real_type"), std::string::npos);
+    EXPECT_TRUE(sceneIsPlaceholder(again.objects[1]));
+    EXPECT_NE(again.objects[1].overridesJson.find("not_a_real_type"), std::string::npos);
     EXPECT_EQ(again.objects[2].archetype, "core:point_light");
 
     std::error_code ec;
@@ -425,11 +427,11 @@ TEST_F(SceneFile, MinimalSpotLightGetsSpotDefaults)
     ASSERT_TRUE(loadSceneFromJson(path, data, &err)) << err;
     ASSERT_EQ(data.objects.size(), 1u);
     EXPECT_EQ(data.objects[0].archetype, "core:spot_light");
-    EXPECT_TRUE(data.objects[0].hasLight);
-    EXPECT_NEAR(data.objects[0].lightIntensity, 2513.0f, 1.0e-4f);
-    EXPECT_NEAR(data.objects[0].lightRange, 16.0f, 1.0e-4f);
-    EXPECT_NEAR(data.objects[0].lightInnerDeg, 12.0f, 1.0e-4f);
-    EXPECT_NEAR(data.objects[0].lightOuterDeg, 25.0f, 1.0e-4f);
+    EXPECT_TRUE(sceneHasLight(data.objects[0]));
+    EXPECT_NEAR(sceneLightFloat(data.objects[0], "intensity", 0.0f), 2513.0f, 1.0e-4f);
+    EXPECT_NEAR(sceneLightFloat(data.objects[0], "range", 0.0f), 16.0f, 1.0e-4f);
+    EXPECT_NEAR(sceneLightFloat(data.objects[0], "inner", 0.0f), 12.0f, 1.0e-4f);
+    EXPECT_NEAR(sceneLightFloat(data.objects[0], "outer", 0.0f), 25.0f, 1.0e-4f);
 
     std::error_code ec;
     std::filesystem::remove(path, ec);
@@ -456,11 +458,11 @@ TEST_F(SceneFile, UnauthoredGlobalLightsSplitIntensity)
     ASSERT_TRUE(loadSceneFromJson(path, data, &err)) << err;
     ASSERT_EQ(data.objects.size(), 2u);
     EXPECT_EQ(data.objects[0].archetype, "core:directional_light");
-    EXPECT_TRUE(data.objects[0].hasLight);
-    EXPECT_NEAR(data.objects[0].lightIntensity, Pi, 1.0e-5f);
+    EXPECT_TRUE(sceneHasLight(data.objects[0]));
+    EXPECT_NEAR(sceneLightFloat(data.objects[0], "intensity", 0.0f), Pi, 1.0e-5f);
     EXPECT_EQ(data.objects[1].archetype, "core:ambient_light");
-    EXPECT_TRUE(data.objects[1].hasLight);
-    EXPECT_NEAR(data.objects[1].lightIntensity, 1.0f, 1.0e-5f);
+    EXPECT_TRUE(sceneHasLight(data.objects[1]));
+    EXPECT_NEAR(sceneLightFloat(data.objects[1], "intensity", 0.0f), 1.0f, 1.0e-5f);
 
     std::error_code ec;
     std::filesystem::remove(path, ec);
@@ -781,9 +783,9 @@ TEST_F(SceneFile, ModelPathRoundTrip)
     in.mode    = SceneMode::Scene3D;
 
     SceneObjectData model{};
-    model.archetype      = "core:model";
+    model.archetype = "core:model";
     model.position  = Vector3f(4.0f, 0.5f, -2.0f);
-    model.modelPath = "models/wolf.gltf";
+    sceneWriteModelPath(model, "models/wolf.gltf");
     in.objects.push_back(model);
 
     const auto path = tempScenePath("darkengine6_scene_model_ut.json");
@@ -794,7 +796,7 @@ TEST_F(SceneFile, ModelPathRoundTrip)
     ASSERT_TRUE(loadSceneFromJson(path, out, &err)) << err;
     ASSERT_EQ(out.objects.size(), 1u);
     EXPECT_EQ(out.objects[0].archetype, "core:model");
-    EXPECT_EQ(out.objects[0].modelPath, "models/wolf.gltf");
+    EXPECT_EQ(sceneModelPath(out.objects[0]), "models/wolf.gltf");
     EXPECT_NEAR(out.objects[0].position.x, 4.0f, 1.0e-4f);
 
     std::error_code ec;
@@ -2312,8 +2314,8 @@ TEST_F(SceneFile, CastShadowMissingKeyStaysFalse)
     std::string err;
     ASSERT_TRUE(loadSceneFromJson(path, data, &err)) << err;
     ASSERT_EQ(data.objects.size(), 1u);
-    EXPECT_TRUE(data.objects[0].hasLight);
-    EXPECT_FALSE(data.objects[0].lightCastShadow);
+    EXPECT_TRUE(sceneHasLight(data.objects[0]));
+    EXPECT_FALSE(sceneLightBool(data.objects[0], "castShadow", false));
 
     std::error_code ec;
     std::filesystem::remove(path, ec);
@@ -2327,14 +2329,8 @@ TEST_F(SceneFile, StreamRoundTrip)
     in.name = "streams";
     SceneObjectData stream;
     stream.archetype = "core:stream";
-    stream.hasStream = true;
-    stream.hasStream = true;
-    stream.position = Vector3f(9.0f, 8.0f, 7.0f);
-    stream.streamWidth = 4.0f;
-    stream.streamFlowSpeed = 2.0f;
-    stream.streamPoints.push_back(Vector2f(1.0f, 2.0f));
-    stream.streamPoints.push_back(Vector2f(3.0f, 4.0f));
-    stream.streamPoints.push_back(Vector2f(5.0f, 6.0f));
+    stream.position  = Vector3f(9.0f, 8.0f, 7.0f);
+    sceneWriteStream(stream, 4.0f, 2.0f, { Vector2f(1.0f, 2.0f), Vector2f(3.0f, 4.0f), Vector2f(5.0f, 6.0f) });
     in.objects.push_back(stream);
 
     const auto path = tempScenePath("darkengine6_scene_stream_ut.json");
@@ -2345,11 +2341,14 @@ TEST_F(SceneFile, StreamRoundTrip)
     ASSERT_TRUE(loadSceneFromJson(path, out, &err)) << err;
     ASSERT_EQ(out.objects.size(), 1u);
     EXPECT_EQ(out.objects[0].archetype, "core:stream");
-    EXPECT_TRUE(out.objects[0].hasStream);
-    EXPECT_NEAR(out.objects[0].streamWidth, 4.0f, 1.0e-4f);
-    EXPECT_NEAR(out.objects[0].streamFlowSpeed, 2.0f, 1.0e-4f);
-    ASSERT_EQ(out.objects[0].streamPoints.size(), 3u);
-    EXPECT_NEAR(out.objects[0].streamPoints[2].x, 5.0f, 1.0e-4f);
+    float width = 0.0f;
+    float flow  = 0.0f;
+    std::vector<Vector2f> points;
+    ASSERT_TRUE(sceneReadStream(out.objects[0], width, flow, points));
+    EXPECT_NEAR(width, 4.0f, 1.0e-4f);
+    EXPECT_NEAR(flow, 2.0f, 1.0e-4f);
+    ASSERT_EQ(points.size(), 3u);
+    EXPECT_NEAR(points[2].x, 5.0f, 1.0e-4f);
     EXPECT_NEAR(out.objects[0].position.x, 1.0f, 1.0e-4f);
     EXPECT_NEAR(out.objects[0].position.y, 8.0f, 1.0e-4f);
     EXPECT_NEAR(out.objects[0].position.z, 2.0f, 1.0e-4f);
@@ -2379,14 +2378,14 @@ TEST_F(SceneFile, CastShadowTrueRoundTrip)
     in.mode    = SceneMode::Scene3D;
 
     SceneObjectData point{};
-    point.archetype           = "core:point_light";
-    point.lightKind = "point";
-    point.hasLight = true;
-    point.hasLight       = true;
-    point.lightIntensity = 10.0f;
-    point.lightRange     = 4.0f;
-    point.lightEnabled   = true;
-    point.lightCastShadow = true;
+    point.archetype = "core:point_light";
+    SceneLightFields pointLight;
+    pointLight.kind       = "point";
+    pointLight.intensity  = 10.0f;
+    pointLight.range      = 4.0f;
+    pointLight.enabled    = true;
+    pointLight.castShadow = true;
+    sceneWriteLight(point, pointLight);
     in.objects.push_back(point);
 
     const auto path = tempScenePath("darkengine6_scene_cast_true_ut.json");
@@ -2397,8 +2396,8 @@ TEST_F(SceneFile, CastShadowTrueRoundTrip)
     ASSERT_TRUE(loadSceneFromJson(path, out, &err)) << err;
     ASSERT_EQ(out.objects.size(), 1u);
     EXPECT_EQ(out.version, 2);
-    EXPECT_TRUE(out.objects[0].lightCastShadow);
-    EXPECT_NEAR(out.objects[0].lightIntensity, 10.0f, 1.0e-4f);
+    EXPECT_TRUE(sceneLightBool(out.objects[0], "castShadow", false));
+    EXPECT_NEAR(sceneLightFloat(out.objects[0], "intensity", 0.0f), 10.0f, 1.0e-4f);
 
     std::error_code ec;
     std::filesystem::remove(path, ec);
@@ -2412,12 +2411,12 @@ TEST_F(SceneFile, DirectionalLightDoesNotGainCastShadow)
     in.mode    = SceneMode::Scene3D;
 
     SceneObjectData sun{};
-    sun.archetype            = "core:directional_light";
-    sun.lightKind = "directional";
-    sun.hasLight = true;
-    sun.hasLight        = true;
-    sun.lightIntensity  = 3.0f;
-    sun.lightCastShadow = true;
+    sun.archetype = "core:directional_light";
+    SceneLightFields sunLight;
+    sunLight.kind       = "directional";
+    sunLight.intensity  = 3.0f;
+    sunLight.castShadow = true;
+    sceneWriteLight(sun, sunLight);
     in.objects.push_back(sun);
 
     const auto path = tempScenePath("darkengine6_scene_cast_sun_ut.json");
@@ -2433,7 +2432,7 @@ TEST_F(SceneFile, DirectionalLightDoesNotGainCastShadow)
     ASSERT_TRUE(loadSceneFromJson(path, out, &err)) << err;
     ASSERT_EQ(out.objects.size(), 1u);
     EXPECT_EQ(out.objects[0].archetype, "core:directional_light");
-    EXPECT_FALSE(out.objects[0].lightCastShadow);
+    EXPECT_FALSE(sceneLightBool(out.objects[0], "castShadow", true));
 
     std::error_code ec;
     std::filesystem::remove(path, ec);
@@ -2459,8 +2458,8 @@ TEST_F(SceneFile, CastShadowNonBoolStaysFalse)
     std::string err;
     ASSERT_TRUE(loadSceneFromJson(path, data, &err)) << err;
     ASSERT_EQ(data.objects.size(), 2u);
-    EXPECT_FALSE(data.objects[0].lightCastShadow);
-    EXPECT_FALSE(data.objects[1].lightCastShadow);
+    EXPECT_FALSE(sceneLightBool(data.objects[0], "castShadow", false));
+    EXPECT_FALSE(sceneLightBool(data.objects[1], "castShadow", false));
 
     std::error_code ec;
     std::filesystem::remove(path, ec);
@@ -2552,20 +2551,20 @@ TEST_F(SceneFile, SpawnerRoundTrip)
     in.mode    = SceneMode::Scene3D;
 
     SceneObjectData spawner{};
-    spawner.archetype                 = "core:spawner";
-    spawner.hasSpawner = true;
-    spawner.hasSpawner           = true;
-    spawner.position             = Vector3f(12.0f, 0.5f, -6.0f);
-    spawner.spawner.mode         = SpawnerMode::Waves;
-    spawner.spawner.unit         = SpawnerUnit::Wolf;
-    spawner.spawner.gate         = SpawnerWaveGate::Time;
-    spawner.spawner.count        = 4;
-    spawner.spawner.radius       = 9.5f;
-    spawner.spawner.respawnDelay = 2.25f;
-    spawner.spawner.waveInterval = 12.0f;
-    spawner.spawner.maxWaves     = 3;
-    spawner.spawner.enabled      = false;
-    spawner.spawner.seed         = 99;
+    spawner.archetype = "core:spawner";
+    spawner.position  = Vector3f(12.0f, 0.5f, -6.0f);
+    SpawnerDesc authored;
+    authored.mode         = SpawnerMode::Waves;
+    authored.unit         = SpawnerUnit::Wolf;
+    authored.gate         = SpawnerWaveGate::Time;
+    authored.count        = 4;
+    authored.radius       = 9.5f;
+    authored.respawnDelay = 2.25f;
+    authored.waveInterval = 12.0f;
+    authored.maxWaves     = 3;
+    authored.enabled      = false;
+    authored.seed         = 99;
+    sceneWriteSpawner(spawner, authored);
     in.objects.push_back(spawner);
 
     const auto path = tempScenePath("darkengine6_scene_spawner_ut.json");
@@ -2576,17 +2575,18 @@ TEST_F(SceneFile, SpawnerRoundTrip)
     ASSERT_TRUE(loadSceneFromJson(path, out, &err)) << err;
     ASSERT_EQ(out.objects.size(), 1u);
     EXPECT_EQ(out.objects[0].archetype, "core:spawner");
-    EXPECT_TRUE(out.objects[0].hasSpawner);
-    EXPECT_EQ(out.objects[0].spawner.mode, SpawnerMode::Waves);
-    EXPECT_EQ(out.objects[0].spawner.unit, SpawnerUnit::Wolf);
-    EXPECT_EQ(out.objects[0].spawner.gate, SpawnerWaveGate::Time);
-    EXPECT_EQ(out.objects[0].spawner.count, 4);
-    EXPECT_NEAR(out.objects[0].spawner.radius, 9.5f, 1.0e-4f);
-    EXPECT_NEAR(out.objects[0].spawner.respawnDelay, 2.25f, 1.0e-4f);
-    EXPECT_NEAR(out.objects[0].spawner.waveInterval, 12.0f, 1.0e-4f);
-    EXPECT_EQ(out.objects[0].spawner.maxWaves, 3);
-    EXPECT_FALSE(out.objects[0].spawner.enabled);
-    EXPECT_EQ(out.objects[0].spawner.seed, 99u);
+    SpawnerDesc loaded;
+    ASSERT_TRUE(sceneReadSpawner(out.objects[0], loaded));
+    EXPECT_EQ(loaded.mode, SpawnerMode::Waves);
+    EXPECT_EQ(loaded.unit, SpawnerUnit::Wolf);
+    EXPECT_EQ(loaded.gate, SpawnerWaveGate::Time);
+    EXPECT_EQ(loaded.count, 4);
+    EXPECT_NEAR(loaded.radius, 9.5f, 1.0e-4f);
+    EXPECT_NEAR(loaded.respawnDelay, 2.25f, 1.0e-4f);
+    EXPECT_NEAR(loaded.waveInterval, 12.0f, 1.0e-4f);
+    EXPECT_EQ(loaded.maxWaves, 3);
+    EXPECT_FALSE(loaded.enabled);
+    EXPECT_EQ(loaded.seed, 99u);
     EXPECT_NEAR(out.objects[0].position.x, 12.0f, 1.0e-4f);
     EXPECT_NEAR(out.objects[0].position.z, -6.0f, 1.0e-4f);
 
@@ -2625,15 +2625,16 @@ TEST_F(SceneFile, SpawnerMistypedFieldsKeepDefaults)
     std::string err;
     ASSERT_TRUE(loadSceneFromJson(path, data, &err)) << err;
     ASSERT_EQ(data.objects.size(), 1u);
-    EXPECT_TRUE(data.objects[0].hasSpawner);
-    EXPECT_EQ(data.objects[0].spawner.mode, SpawnerMode::Maintain);
-    EXPECT_EQ(data.objects[0].spawner.unit, SpawnerUnit::Hunter);
-    EXPECT_EQ(data.objects[0].spawner.gate, SpawnerWaveGate::Cleared);
-    EXPECT_EQ(data.objects[0].spawner.count, 3);
-    EXPECT_NEAR(data.objects[0].spawner.radius, 6.0f, 1.0e-4f);
-    EXPECT_TRUE(data.objects[0].spawner.enabled);
-    EXPECT_EQ(data.objects[0].spawner.seed, 1u);
-    EXPECT_EQ(data.objects[0].spawner.maxWaves, 0);
+    SpawnerDesc loaded;
+    ASSERT_TRUE(sceneReadSpawner(data.objects[0], loaded));
+    EXPECT_EQ(loaded.mode, SpawnerMode::Maintain);
+    EXPECT_EQ(loaded.unit, SpawnerUnit::Hunter);
+    EXPECT_EQ(loaded.gate, SpawnerWaveGate::Cleared);
+    EXPECT_EQ(loaded.count, 3);
+    EXPECT_NEAR(loaded.radius, 6.0f, 1.0e-4f);
+    EXPECT_TRUE(loaded.enabled);
+    EXPECT_EQ(loaded.seed, 1u);
+    EXPECT_EQ(loaded.maxWaves, 0);
 
     auto logged = [&logs](const char* key) {
         for (const std::string& line : logs)
@@ -2880,40 +2881,42 @@ TEST_F(SceneFile, QuestTagsWrongTypeLogsAndKeepsDefaults)
     ASSERT_TRUE(loadSceneFromJson(goodPath, good, &err)) << err;
     EXPECT_EQ(good.quest, "north_lab");
     ASSERT_EQ(good.objects.size(), 1u);
-    EXPECT_TRUE(good.objects[0].conceal);
-    EXPECT_TRUE(good.objects[0].goal);
-    EXPECT_EQ(good.objects[0].circuit, "power");
-    EXPECT_EQ(good.objects[0].zone, "gate");
-    EXPECT_EQ(good.objects[0].pickup, "rock");
-    EXPECT_EQ(good.objects[0].pickupCount, 3);
-    EXPECT_EQ(good.objects[0].dialogue, "dialogue/hunter_gate.dlg.json");
-    EXPECT_EQ(good.objects[0].squad, "gate");
-    EXPECT_FALSE(good.objects[0].block);
-    ASSERT_EQ(good.objects[0].patrol.size(), 2u);
-    EXPECT_FLOAT_EQ(good.objects[0].patrol[0].x, 1.0f);
-    EXPECT_FLOAT_EQ(good.objects[0].patrol[0].y, 2.0f);
-    EXPECT_FLOAT_EQ(good.objects[0].patrol[1].x, 3.0f);
-    EXPECT_FLOAT_EQ(good.objects[0].patrol[1].y, 4.0f);
+    EXPECT_TRUE(sceneConceal(good.objects[0]));
+    EXPECT_TRUE(sceneGoal(good.objects[0]));
+    EXPECT_EQ(sceneCircuit(good.objects[0]), "power");
+    EXPECT_EQ(sceneZone(good.objects[0]), "gate");
+    EXPECT_EQ(scenePickup(good.objects[0]), "rock");
+    EXPECT_EQ(scenePickupCount(good.objects[0]), 3);
+    EXPECT_EQ(sceneDialogue(good.objects[0]), "dialogue/hunter_gate.dlg.json");
+    EXPECT_EQ(sceneSquad(good.objects[0]), "gate");
+    EXPECT_FALSE(sceneBlock(good.objects[0]));
+    const std::vector<Vector2f> goodPatrol = scenePatrol(good.objects[0]);
+    ASSERT_EQ(goodPatrol.size(), 2u);
+    EXPECT_FLOAT_EQ(goodPatrol[0].x, 1.0f);
+    EXPECT_FLOAT_EQ(goodPatrol[0].y, 2.0f);
+    EXPECT_FLOAT_EQ(goodPatrol[1].x, 3.0f);
+    EXPECT_FLOAT_EQ(goodPatrol[1].y, 4.0f);
 
     const auto roundPath = tempScenePath("darkengine6_scene_quest_tags_round_ut.json");
     ASSERT_TRUE(saveSceneToJson(roundPath, good, &err)) << err;
     SceneFileData round{};
     ASSERT_TRUE(loadSceneFromJson(roundPath, round, &err)) << err;
     ASSERT_EQ(round.objects.size(), 1u);
-    EXPECT_TRUE(round.objects[0].conceal);
-    EXPECT_TRUE(round.objects[0].goal);
-    EXPECT_EQ(round.objects[0].circuit, "power");
-    EXPECT_EQ(round.objects[0].zone, "gate");
-    EXPECT_EQ(round.objects[0].pickup, "rock");
-    EXPECT_EQ(round.objects[0].pickupCount, 3);
-    EXPECT_EQ(round.objects[0].dialogue, "dialogue/hunter_gate.dlg.json");
-    EXPECT_EQ(round.objects[0].squad, "gate");
-    EXPECT_FALSE(round.objects[0].block);
-    ASSERT_EQ(round.objects[0].patrol.size(), 2u);
-    EXPECT_FLOAT_EQ(round.objects[0].patrol[0].x, 1.0f);
-    EXPECT_FLOAT_EQ(round.objects[0].patrol[0].y, 2.0f);
-    EXPECT_FLOAT_EQ(round.objects[0].patrol[1].x, 3.0f);
-    EXPECT_FLOAT_EQ(round.objects[0].patrol[1].y, 4.0f);
+    EXPECT_TRUE(sceneConceal(round.objects[0]));
+    EXPECT_TRUE(sceneGoal(round.objects[0]));
+    EXPECT_EQ(sceneCircuit(round.objects[0]), "power");
+    EXPECT_EQ(sceneZone(round.objects[0]), "gate");
+    EXPECT_EQ(scenePickup(round.objects[0]), "rock");
+    EXPECT_EQ(scenePickupCount(round.objects[0]), 3);
+    EXPECT_EQ(sceneDialogue(round.objects[0]), "dialogue/hunter_gate.dlg.json");
+    EXPECT_EQ(sceneSquad(round.objects[0]), "gate");
+    EXPECT_FALSE(sceneBlock(round.objects[0]));
+    const std::vector<Vector2f> roundPatrol = scenePatrol(round.objects[0]);
+    ASSERT_EQ(roundPatrol.size(), 2u);
+    EXPECT_FLOAT_EQ(roundPatrol[0].x, 1.0f);
+    EXPECT_FLOAT_EQ(roundPatrol[0].y, 2.0f);
+    EXPECT_FLOAT_EQ(roundPatrol[1].x, 3.0f);
+    EXPECT_FLOAT_EQ(roundPatrol[1].y, 4.0f);
 
     const auto badPath = tempScenePath("darkengine6_scene_quest_tags_bad_ut.json");
     {
@@ -2945,13 +2948,13 @@ TEST_F(SceneFile, QuestTagsWrongTypeLogsAndKeepsDefaults)
     ASSERT_TRUE(loadSceneFromJson(badPath, bad, &err)) << err;
     EXPECT_TRUE(bad.quest.empty());
     ASSERT_EQ(bad.objects.size(), 1u);
-    EXPECT_FALSE(bad.objects[0].conceal);
-    EXPECT_FALSE(bad.objects[0].goal);
-    EXPECT_TRUE(bad.objects[0].circuit.empty());
-    EXPECT_TRUE(bad.objects[0].zone.empty());
-    EXPECT_TRUE(bad.objects[0].pickup.empty());
-    EXPECT_EQ(bad.objects[0].pickupCount, 1);
-    EXPECT_TRUE(bad.objects[0].dialogue.empty());
+    EXPECT_FALSE(sceneConceal(bad.objects[0]));
+    EXPECT_FALSE(sceneGoal(bad.objects[0]));
+    EXPECT_TRUE(sceneCircuit(bad.objects[0]).empty());
+    EXPECT_TRUE(sceneZone(bad.objects[0]).empty());
+    EXPECT_TRUE(scenePickup(bad.objects[0]).empty());
+    EXPECT_EQ(scenePickupCount(bad.objects[0]), 1);
+    EXPECT_TRUE(sceneDialogue(bad.objects[0]).empty());
 
     auto logged = [&logs](const char* key) {
         for (const std::string& line : logs)
@@ -2983,11 +2986,9 @@ TEST_F(SceneFile, MovieRoundTrip)
     in.name    = "movie_cue";
     in.mode    = SceneMode::Scene3D;
     SceneObjectData movie{};
-    movie.archetype        = "core:movie";
-    movie.movie       = "movies/intro.mp4";
-    movie.movieRadius = 4.5f;
-    movie.movieLoop   = true;
-    movie.position    = Vector3f{ 1.0f, 2.0f, 3.0f };
+    movie.archetype = "core:movie";
+    movie.position  = Vector3f{ 1.0f, 2.0f, 3.0f };
+    sceneWriteMovie(movie, "movies/intro.mp4", 4.5f, true);
     in.objects.push_back(movie);
     SceneObjectData plain{};
     plain.archetype = "core:cube";
@@ -3017,13 +3018,13 @@ TEST_F(SceneFile, MovieRoundTrip)
     ASSERT_TRUE(loadSceneFromJson(path, out, &err)) << err;
     ASSERT_EQ(out.objects.size(), 2u);
     EXPECT_EQ(out.objects[0].archetype, "core:movie");
-    EXPECT_EQ(out.objects[0].movie, "movies/intro.mp4");
-    EXPECT_NEAR(out.objects[0].movieRadius, 4.5f, 1.0e-4f);
-    EXPECT_TRUE(out.objects[0].movieLoop);
+    EXPECT_EQ(sceneMoviePath(out.objects[0]), "movies/intro.mp4");
+    EXPECT_NEAR(sceneMovieRadius(out.objects[0]), 4.5f, 1.0e-4f);
+    EXPECT_TRUE(sceneMovieLoop(out.objects[0]));
     EXPECT_EQ(out.objects[1].archetype, "core:cube");
-    EXPECT_TRUE(out.objects[1].movie.empty());
-    EXPECT_NEAR(out.objects[1].movieRadius, 2.0f, 1.0e-5f);
-    EXPECT_FALSE(out.objects[1].movieLoop);
+    EXPECT_TRUE(sceneMoviePath(out.objects[1]).empty());
+    EXPECT_NEAR(sceneMovieRadius(out.objects[1]), 2.0f, 1.0e-5f);
+    EXPECT_FALSE(sceneMovieLoop(out.objects[1]));
 
     SceneFileData defaults{};
     defaults.version = 3;
@@ -3047,9 +3048,9 @@ TEST_F(SceneFile, MovieRoundTrip)
     ASSERT_TRUE(loadSceneFromJson(defaultPath, loadedDefaults, &err)) << err;
     ASSERT_EQ(loadedDefaults.objects.size(), 1u);
     EXPECT_EQ(loadedDefaults.objects[0].archetype, "core:movie");
-    EXPECT_TRUE(loadedDefaults.objects[0].movie.empty());
-    EXPECT_NEAR(loadedDefaults.objects[0].movieRadius, 2.0f, 1.0e-5f);
-    EXPECT_FALSE(loadedDefaults.objects[0].movieLoop);
+    EXPECT_TRUE(sceneMoviePath(loadedDefaults.objects[0]).empty());
+    EXPECT_NEAR(sceneMovieRadius(loadedDefaults.objects[0]), 2.0f, 1.0e-5f);
+    EXPECT_FALSE(sceneMovieLoop(loadedDefaults.objects[0]));
 
     const auto rawPath = tempScenePath("darkengine6_scene_movie_raw_ut.json");
     {
@@ -3067,12 +3068,12 @@ TEST_F(SceneFile, MovieRoundTrip)
     SceneFileData rawOut{};
     ASSERT_TRUE(loadSceneFromJson(rawPath, rawOut, &err)) << err;
     ASSERT_EQ(rawOut.objects.size(), 2u);
-    EXPECT_TRUE(rawOut.objects[0].movie.empty());
-    EXPECT_NEAR(rawOut.objects[0].movieRadius, 2.0f, 1.0e-5f);
-    EXPECT_FALSE(rawOut.objects[0].movieLoop);
-    EXPECT_EQ(rawOut.objects[1].movie, "movies/a.mp4");
-    EXPECT_FLOAT_EQ(rawOut.objects[1].movieRadius, 0.0f);
-    EXPECT_TRUE(rawOut.objects[1].movieLoop);
+    EXPECT_TRUE(sceneMoviePath(rawOut.objects[0]).empty());
+    EXPECT_NEAR(sceneMovieRadius(rawOut.objects[0]), 2.0f, 1.0e-5f);
+    EXPECT_FALSE(sceneMovieLoop(rawOut.objects[0]));
+    EXPECT_EQ(sceneMoviePath(rawOut.objects[1]), "movies/a.mp4");
+    EXPECT_FLOAT_EQ(sceneMovieRadius(rawOut.objects[1]), 0.0f);
+    EXPECT_TRUE(sceneMovieLoop(rawOut.objects[1]));
 
     std::error_code ecRemove;
     std::filesystem::remove(path, ecRemove);
@@ -3088,53 +3089,48 @@ TEST_F(SceneFile, ComponentOverridesRoundTrip)
     in.mode    = SceneMode::Scene3D;
 
     SceneObjectData point{};
-    point.archetype           = "core:point_light";
-    point.lightKind = "point";
-    point.hasLight = true;
-    point.hasLight       = true;
-    point.lightIntensity = 600.0f;
-    point.lightRange     = 8.0f;
-    point.lightEnabled   = true;
-    point.circuit        = "gate";
+    point.archetype = "core:point_light";
+    SceneLightFields pointLight;
+    pointLight.kind      = "point";
+    pointLight.intensity = 600.0f;
+    pointLight.range     = 8.0f;
+    pointLight.enabled   = true;
+    pointLight.circuit   = "gate";
+    sceneWriteLight(point, pointLight);
     in.objects.push_back(point);
 
     SceneObjectData cloud{};
-    cloud.archetype         = "core:cloud_volume";
-    cloud.hasCloud = true;
-    cloud.hasCloud     = true;
-    cloud.cloudShape   = 0;
-    cloud.cloudDensity = 2.0f;
+    cloud.archetype = "core:cloud_volume";
+    CloudVolumeDesc cloudDesc;
+    cloudDesc.shape   = CloudShape::Box;
+    cloudDesc.density = 2.0f;
+    sceneDataFromCloudDesc(cloudDesc, cloud);
     in.objects.push_back(cloud);
 
     SceneObjectData stream{};
-    stream.archetype            = "core:stream";
-    stream.hasStream = true;
-    stream.hasStream       = true;
-    stream.position        = Vector3f(9.0f, 8.0f, 7.0f);
-    stream.streamWidth     = 4.0f;
-    stream.streamFlowSpeed = 2.0f;
-    stream.streamPoints.push_back(Vector2f(1.0f, 2.0f));
-    stream.streamPoints.push_back(Vector2f(3.0f, 4.0f));
+    stream.archetype = "core:stream";
+    stream.position  = Vector3f(9.0f, 8.0f, 7.0f);
+    sceneWriteStream(stream, 4.0f, 2.0f, { Vector2f(1.0f, 2.0f), Vector2f(3.0f, 4.0f) });
     in.objects.push_back(stream);
 
     SceneObjectData spawner{};
-    spawner.archetype          = "core:spawner";
-    spawner.hasSpawner = true;
-    spawner.hasSpawner    = true;
-    spawner.spawner.mode  = SpawnerMode::Waves;
-    spawner.spawner.unit  = SpawnerUnit::Wolf;
-    spawner.spawner.count = 4;
-    spawner.spawner.seed  = 99;
+    spawner.archetype = "core:spawner";
+    SpawnerDesc spawnerDesc;
+    spawnerDesc.mode  = SpawnerMode::Waves;
+    spawnerDesc.unit  = SpawnerUnit::Wolf;
+    spawnerDesc.count = 4;
+    spawnerDesc.seed  = 99;
+    sceneWriteSpawner(spawner, spawnerDesc);
     in.objects.push_back(spawner);
 
     SceneObjectData model{};
-    model.archetype      = "core:model";
-    model.modelPath = "models/wolf.gltf";
+    model.archetype = "core:model";
+    sceneWriteModelPath(model, "models/wolf.gltf");
     in.objects.push_back(model);
 
     SceneObjectData glow{};
-    glow.archetype     = "core:sphere";
-    glow.emissive = 1.0f;
+    glow.archetype = "core:sphere";
+    sceneWriteEmissive(glow, 1.0f);
     in.objects.push_back(glow);
 
     const auto path = tempScenePath("darkengine6_scene_overrides_ut.json");
@@ -3167,25 +3163,32 @@ TEST_F(SceneFile, ComponentOverridesRoundTrip)
     ASSERT_TRUE(loadSceneFromJson(path, out, &err)) << err;
     ASSERT_EQ(out.objects.size(), 6u);
     EXPECT_EQ(out.version, 3);
-    EXPECT_NEAR(out.objects[0].lightIntensity, 600.0f, 1.0e-4f);
-    EXPECT_NEAR(out.objects[0].lightRange, 8.0f, 1.0e-4f);
-    EXPECT_TRUE(out.objects[0].hasLight);
-    EXPECT_EQ(out.objects[0].circuit, "gate");
-    EXPECT_TRUE(out.objects[1].hasCloud);
-    EXPECT_EQ(out.objects[1].cloudShape, 0);
-    EXPECT_NEAR(out.objects[1].cloudDensity, 2.0f, 1.0e-4f);
-    EXPECT_TRUE(out.objects[2].hasStream);
-    EXPECT_NEAR(out.objects[2].streamWidth, 4.0f, 1.0e-4f);
+    EXPECT_NEAR(sceneLightFloat(out.objects[0], "intensity", 0.0f), 600.0f, 1.0e-4f);
+    EXPECT_NEAR(sceneLightFloat(out.objects[0], "range", 0.0f), 8.0f, 1.0e-4f);
+    EXPECT_TRUE(sceneHasLight(out.objects[0]));
+    EXPECT_EQ(sceneCircuit(out.objects[0]), "gate");
+    CloudVolumeDesc loadedCloud;
+    cloudDescFromSceneData(out.objects[1], loadedCloud);
+    EXPECT_TRUE(sceneCarriesComponent(out.objects[1], "CloudVolume"));
+    EXPECT_EQ(loadedCloud.shape, CloudShape::Box);
+    EXPECT_NEAR(loadedCloud.density, 2.0f, 1.0e-4f);
+    float width = 0.0f;
+    float flow  = 0.0f;
+    std::vector<Vector2f> points;
+    ASSERT_TRUE(sceneReadStream(out.objects[2], width, flow, points));
+    EXPECT_NEAR(width, 4.0f, 1.0e-4f);
     EXPECT_NEAR(out.objects[2].position.x, 1.0f, 1.0e-4f);
     EXPECT_NEAR(out.objects[2].position.y, 8.0f, 1.0e-4f);
     EXPECT_NEAR(out.objects[2].position.z, 2.0f, 1.0e-4f);
-    EXPECT_EQ(out.objects[3].spawner.unit, SpawnerUnit::Wolf);
-    EXPECT_EQ(out.objects[3].spawner.mode, SpawnerMode::Waves);
-    EXPECT_EQ(out.objects[3].spawner.count, 4);
-    EXPECT_EQ(out.objects[3].spawner.seed, 99u);
-    EXPECT_EQ(out.objects[4].modelPath, "models/wolf.gltf");
-    EXPECT_NEAR(out.objects[5].emissive, 1.0f, 1.0e-4f);
-    EXPECT_TRUE(out.objects[0].overridesJson.empty());
+    SpawnerDesc loadedSpawner;
+    ASSERT_TRUE(sceneReadSpawner(out.objects[3], loadedSpawner));
+    EXPECT_EQ(loadedSpawner.unit, SpawnerUnit::Wolf);
+    EXPECT_EQ(loadedSpawner.mode, SpawnerMode::Waves);
+    EXPECT_EQ(loadedSpawner.count, 4);
+    EXPECT_EQ(loadedSpawner.seed, 99u);
+    EXPECT_EQ(sceneModelPath(out.objects[4]), "models/wolf.gltf");
+    EXPECT_NEAR(sceneEmissive(out.objects[5]), 1.0f, 1.0e-4f);
+    EXPECT_NE(out.objects[0].overridesJson.find("LocalLight"), std::string::npos);
 
     std::error_code ec;
     std::filesystem::remove(path, ec);
@@ -3215,13 +3218,13 @@ TEST_F(SceneFile, OldPayloadKeysAreIgnored)
     ASSERT_TRUE(loadSceneFromJson(path, data, &err)) << err;
     ASSERT_EQ(data.objects.size(), 4u);
     EXPECT_EQ(data.objects[0].archetype, "core:point_light");
-    EXPECT_TRUE(data.objects[0].hasLight);
-    EXPECT_NEAR(data.objects[0].lightIntensity, 1885.0f, 1.0e-4f);
-    EXPECT_NEAR(data.objects[0].lightRange, 8.0f, 1.0e-4f);
-    EXPECT_TRUE(data.objects[1].modelPath.empty());
+    EXPECT_TRUE(sceneHasLight(data.objects[0]));
+    EXPECT_NEAR(sceneLightFloat(data.objects[0], "intensity", 0.0f), 1885.0f, 1.0e-4f);
+    EXPECT_NEAR(sceneLightFloat(data.objects[0], "range", 0.0f), 8.0f, 1.0e-4f);
+    EXPECT_TRUE(sceneModelPath(data.objects[1]).empty());
     EXPECT_EQ(data.objects[2].archetype, "core:sphere");
-    EXPECT_NEAR(data.objects[2].emissive, 0.0f, 1.0e-4f);
-    EXPECT_TRUE(data.objects[3].placeholder);
+    EXPECT_NEAR(sceneEmissive(data.objects[2]), 0.0f, 1.0e-4f);
+    EXPECT_TRUE(sceneIsPlaceholder(data.objects[3]));
     EXPECT_TRUE(data.objects[3].archetype.empty());
     EXPECT_NEAR(data.objects[3].position.y, 2.0f, 1.0e-4f);
 
@@ -3234,7 +3237,7 @@ TEST_F(SceneFile, OldPayloadKeysAreIgnored)
         EXPECT_EQ(text.find("\"model\":"), std::string::npos);
         EXPECT_EQ(text.find("\"stream\":"), std::string::npos);
         EXPECT_EQ(text.find("\"emissive\":"), std::string::npos);
-        EXPECT_NE(text.find("\"LocalLight\""), std::string::npos);
+        EXPECT_EQ(text.find("\"LocalLight\""), std::string::npos);
         EXPECT_EQ(text.find("\"Stream\""), std::string::npos);
         EXPECT_EQ(text.find("\"Model\""), std::string::npos);
         EXPECT_EQ(text.find("\"Mesh\""), std::string::npos);
@@ -3242,11 +3245,11 @@ TEST_F(SceneFile, OldPayloadKeysAreIgnored)
     SceneFileData again{};
     ASSERT_TRUE(loadSceneFromJson(path, again, &err)) << err;
     ASSERT_EQ(again.objects.size(), 4u);
-    EXPECT_NEAR(again.objects[0].lightIntensity, 1885.0f, 1.0e-4f);
-    EXPECT_NEAR(again.objects[0].lightRange, 8.0f, 1.0e-4f);
-    EXPECT_TRUE(again.objects[1].modelPath.empty());
-    EXPECT_NEAR(again.objects[2].emissive, 0.0f, 1.0e-4f);
-    EXPECT_TRUE(again.objects[3].placeholder);
+    EXPECT_NEAR(sceneLightFloat(again.objects[0], "intensity", 0.0f), 1885.0f, 1.0e-4f);
+    EXPECT_NEAR(sceneLightFloat(again.objects[0], "range", 0.0f), 8.0f, 1.0e-4f);
+    EXPECT_TRUE(sceneModelPath(again.objects[1]).empty());
+    EXPECT_NEAR(sceneEmissive(again.objects[2]), 0.0f, 1.0e-4f);
+    EXPECT_TRUE(sceneIsPlaceholder(again.objects[3]));
     EXPECT_EQ(again.version, 2);
 
     std::error_code ec;
@@ -3283,15 +3286,17 @@ TEST_F(SceneFile, OldPayloadKeysDoNotWin)
     std::string err;
     ASSERT_TRUE(loadSceneFromJson(path, data, &err)) << err;
     ASSERT_EQ(data.objects.size(), 2u);
-    EXPECT_NEAR(data.objects[0].lightIntensity, 12.0f, 1.0e-4f);
-    EXPECT_NEAR(data.objects[0].lightRange, 9.0f, 1.0e-4f);
-    EXPECT_FALSE(data.objects[0].lightEnabled);
-    EXPECT_FALSE(data.objects[0].lightCastShadow);
-    EXPECT_EQ(data.objects[1].spawner.mode, SpawnerMode::Waves);
-    EXPECT_EQ(data.objects[1].spawner.unit, SpawnerUnit::Wolf);
-    EXPECT_EQ(data.objects[1].spawner.count, 6);
-    EXPECT_EQ(data.objects[1].spawner.seed, 99u);
-    EXPECT_TRUE(data.objects[0].overridesJson.empty());
+    EXPECT_NEAR(sceneLightFloat(data.objects[0], "intensity", 0.0f), 12.0f, 1.0e-4f);
+    EXPECT_NEAR(sceneLightFloat(data.objects[0], "range", 0.0f), 9.0f, 1.0e-4f);
+    EXPECT_FALSE(sceneLightBool(data.objects[0], "enabled", true));
+    EXPECT_FALSE(sceneLightBool(data.objects[0], "castShadow", true));
+    SpawnerDesc loaded;
+    ASSERT_TRUE(sceneReadSpawner(data.objects[1], loaded));
+    EXPECT_EQ(loaded.mode, SpawnerMode::Waves);
+    EXPECT_EQ(loaded.unit, SpawnerUnit::Wolf);
+    EXPECT_EQ(loaded.count, 6);
+    EXPECT_EQ(loaded.seed, 99u);
+    EXPECT_NE(data.objects[0].overridesJson.find("LocalLight"), std::string::npos);
 
     std::error_code ec;
     std::filesystem::remove(path, ec);
@@ -3310,13 +3315,8 @@ TEST_F(SceneFile, CustomOverrideSurvivesRoundTrip)
     in.objects.push_back(cube);
 
     SceneObjectData point{};
-    point.archetype           = "core:point_light";
-    point.lightKind = "point";
-    point.hasLight = true;
-    point.hasLight       = true;
-    point.lightIntensity = 10.0f;
-    point.lightRange     = 4.0f;
-    point.overridesJson  = R"({"LocalLight":{"kind":"point","intensity":99,"range":4,"enabled":true,"castShadow":false},"Tag":{"name":"lamp"}})";
+    point.archetype     = "core:point_light";
+    point.overridesJson = R"({"LocalLight":{"kind":"point","intensity":99,"range":4,"enabled":true,"castShadow":false},"Tag":{"name":"lamp"}})";
     in.objects.push_back(point);
 
     const auto path = tempScenePath("darkengine6_scene_custom_override_ut.json");
@@ -3329,16 +3329,16 @@ TEST_F(SceneFile, CustomOverrideSurvivesRoundTrip)
     EXPECT_NE(out.objects[0].overridesJson.find("\"Health\""), std::string::npos);
     EXPECT_NE(out.objects[0].overridesJson.find("40"), std::string::npos);
     EXPECT_EQ(out.objects[0].overridesJson.find("LocalLight"), std::string::npos);
-    EXPECT_NEAR(out.objects[1].lightIntensity, 99.0f, 1.0e-4f);
-    EXPECT_NEAR(out.objects[1].lightRange, 4.0f, 1.0e-4f);
+    EXPECT_NEAR(sceneLightFloat(out.objects[1], "intensity", 0.0f), 99.0f, 1.0e-4f);
+    EXPECT_NEAR(sceneLightFloat(out.objects[1], "range", 0.0f), 4.0f, 1.0e-4f);
     EXPECT_NE(out.objects[1].overridesJson.find("\"Tag\""), std::string::npos);
-    EXPECT_EQ(out.objects[1].overridesJson.find("LocalLight"), std::string::npos);
+    EXPECT_NE(out.objects[1].overridesJson.find("LocalLight"), std::string::npos);
 
     ASSERT_TRUE(saveSceneToJson(path, out, &err)) << err;
     SceneFileData again{};
     ASSERT_TRUE(loadSceneFromJson(path, again, &err)) << err;
     EXPECT_NE(again.objects[0].overridesJson.find("\"Health\""), std::string::npos);
-    EXPECT_NEAR(again.objects[1].lightIntensity, 99.0f, 1.0e-4f);
+    EXPECT_NEAR(sceneLightFloat(again.objects[1], "intensity", 0.0f), 99.0f, 1.0e-4f);
     EXPECT_NE(again.objects[1].overridesJson.find("\"Tag\""), std::string::npos);
 
     std::error_code ec;

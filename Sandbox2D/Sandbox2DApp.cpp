@@ -196,7 +196,7 @@ bool Sandbox2DApp::applyLevelData(const SceneFileData& data)
     for (const SceneObjectData& o : data.objects)
     {
         bool spawned = false;
-        if (!o.placeholder && contentHasArchetype(sceneArchetypeId(o)))
+        if (sceneIsDataDriven(o))
         {
             ArchetypeSpawnHost host{};
             host.world = &world();
@@ -241,7 +241,7 @@ bool Sandbox2DApp::applyLevelData(const SceneFileData& data)
         }
         if (spawned)
             continue;
-        if (!o.placeholder)
+        if (!sceneIsPlaceholder(o))
             DE_LOG_WARN("Sandbox2D: skipped '{}'", o.archetype);
     }
 

@@ -3,6 +3,7 @@
 #include "Core/Log.h"
 #include "ECS/Components.h"
 #include "ECS/World.h"
+#include "Content/SceneObjectSpawn.h"
 #include "Media/MoviePlayer.h"
 #include "Scene/SceneTypes.h"
 
@@ -56,14 +57,14 @@ namespace Dark
     void applyMovieCue(World& world, Entity e, const SceneObjectData& data)
     {
         MovieCueComponent cue;
-        cue.path = data.movie;
-        cue.radius = data.movieRadius;
+        cue.path = sceneMoviePath(data);
+        cue.radius = sceneMovieRadius(data);
         if (!(cue.radius >= 0.0f))
             cue.radius = 0.0f;
-        cue.loop  = data.movieLoop;
+        cue.loop  = sceneMovieLoop(data);
         cue.fired = false;
         world.emplace<MovieCueComponent>(e, std::move(cue));
-        if (data.movie.empty())
+        if (cue.path.empty())
             DE_LOG_WARN(LogCategory::Media, "Movie cue: empty path");
     }
 

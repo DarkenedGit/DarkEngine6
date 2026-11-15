@@ -47,47 +47,52 @@ namespace Dark
         void spawnOne(World& world, const SceneObjectData& o, const SceneSpawnHost& host, int& powerStamp, int& pickupStamp)
         {
             const AABox3f bounds = AABox3f::FromCenterExtents(o.position, o.scale * 0.5f);
-            if (!o.zone.empty())
+            const std::string zoneId = sceneZone(o);
+            const std::string pickupId = scenePickup(o);
+            const std::string circuitId = sceneCircuit(o);
+            const bool goal = sceneGoal(o);
+            const bool conceal = sceneConceal(o);
+            if (!zoneId.empty())
             {
                 const Entity e = world.createEntity();
                 world.emplace<TransformComponent>(e, o.position, Quaternion::IDENTITY, Vector3f{ 1.0f, 1.0f, 1.0f });
                 QuestZoneComponent zone{};
-                zone.zone = o.zone;
+                zone.zone = zoneId;
                 zone.box  = bounds;
                 world.emplace<QuestZoneComponent>(e, zone);
                 return;
             }
-            if (!o.pickup.empty())
+            if (!pickupId.empty())
             {
                 if (!host.physics || !host.pins || !host.assets || !host.renderer)
                 {
-                    DE_LOG_WARN("Scene: pickup '{}' skipped, physics world is not live", o.pickup);
+                    DE_LOG_WARN("Scene: pickup '{}' skipped, physics world is not live", pickupId);
                     return;
                 }
-                if (const ItemDef* def = findItemDef(o.pickup))
+                if (const ItemDef* def = findItemDef(pickupId))
                 {
-                    const Entity pickup = spawnItemPickup(world, *host.pins, *host.assets, *host.renderer, *host.physics, ItemStack{ def, Math::Max(1, o.pickupCount) }, o.position, Vector3f{});
+                    const Entity pickup = spawnItemPickup(world, *host.pins, *host.assets, *host.renderer, *host.physics, ItemStack{ def, Math::Max(1, scenePickupCount(o)) }, o.position, Vector3f{});
                     if (pickup.valid() && host.stampPrefix && host.stampPrefix[0] != '\0')
                         stampProceduralId(world, pickup, std::format("{}/pickup/{}", host.stampPrefix, pickupStamp++), "pickup");
                 }
                 else
-                    DE_LOG_WARN("Scene: unknown pickup item '{}'", o.pickup);
+                    DE_LOG_WARN("Scene: unknown pickup item '{}'", pickupId);
                 return;
             }
-            if (o.goal)
+            if (goal)
             {
                 const Entity e = world.createEntity();
                 world.emplace<TransformComponent>(e, o.position, Quaternion::IDENTITY, Vector3f{ 1.0f, 1.0f, 1.0f });
-                GoalVolumeComponent goal{};
-                goal.box = bounds;
-                world.emplace<GoalVolumeComponent>(e, goal);
+                GoalVolumeComponent goalVolume{};
+                goalVolume.box = bounds;
+                world.emplace<GoalVolumeComponent>(e, goalVolume);
             }
-            if (!o.circuit.empty() && !circuitLight(o))
+            if (!circuitId.empty() && !circuitLight(o))
             {
                 const Entity e = world.createEntity();
                 world.emplace<TransformComponent>(e, o.position, Quaternion::IDENTITY, Vector3f{ 1.0f, 1.0f, 1.0f });
                 PowerBoxComponent box{};
-                box.circuit = o.circuit;
+                box.circuit = circuitId;
                 box.pos     = o.position;
                 box.on      = true;
                 world.emplace<PowerBoxComponent>(e, box);
@@ -95,7 +100,7 @@ namespace Dark
                 if (host.stampPrefix && host.stampPrefix[0] != '\0')
                     stampProceduralId(world, e, std::format("{}/power/{}", host.stampPrefix, powerStamp++), "power");
             }
-            if (o.conceal)
+            if (conceal)
             {
                 const Entity e = world.createEntity();
                 world.emplace<TransformComponent>(e, o.position, Quaternion::IDENTITY, Vector3f{ 1.0f, 1.0f, 1.0f });
@@ -108,7 +113,7 @@ namespace Dark
             Math::Sphere3f walkSphere;
             std::string    walkPrimitive;
             if (sceneWalkObstacle(o, walkPrimitive)
-                && classifyWalkObstacle(walkPrimitive, o.position, o.scale, o.block, o.goal, o.conceal, !o.zone.empty(), !o.pickup.empty(), walkBox, walkSphere))
+                && classifyWalkObstacle(walkPrimitive, o.position, o.scale, sceneBlock(o), goal, conceal, !zoneId.empty(), !pickupId.empty(), walkBox, walkSphere))
             {
                 const Entity e = world.createEntity();
                 world.emplace<TransformComponent>(e, o.position, Quaternion::IDENTITY, Vector3f{ 1.0f, 1.0f, 1.0f });
@@ -144,7 +149,7 @@ namespace Dark
 
     void applySearchlight(World& world, Entity light, const SceneObjectData& object)
     {
-        const bool wanted = object.searchlight && sceneLightKind(object) == "spot";
+        const bool wanted = sceneSearchlight(object) && sceneLightKind(object) == "spot";
         if (!wanted)
         {
             if (world.get<SecurityCameraComponent>(light))
@@ -161,11 +166,11 @@ namespace Dark
         cam.def.pos         = pos;
         cam.def.yaw         = flat > 1.0e-3f ? std::atan2(aim.x, aim.z) * 57.29578f : 0.0f;
         cam.def.drop        = flat > 1.0e-3f ? Math::Clamp(-aim.y / flat, -1.0f, 8.0f) : 8.0f;
-        cam.def.sweep       = Math::Clamp(object.sweepDeg, 0.0f, 340.0f);
-        cam.def.range       = beam ? beam->range : object.lightRange;
-        cam.def.cone        = beam ? beam->outerConeDeg : object.lightOuterDeg;
-        cam.def.intensity   = beam ? beam->intensity : object.lightIntensity;
-        cam.def.circuit     = object.circuit;
+        cam.def.sweep       = sceneSweepDeg(object);
+        cam.def.range       = beam ? beam->range : sceneLightFloat(object, "range", 8.0f);
+        cam.def.cone        = beam ? beam->outerConeDeg : sceneLightFloat(object, "outer", 25.0f);
+        cam.def.intensity   = beam ? beam->intensity : sceneLightFloat(object, "intensity", 1885.0f);
+        cam.def.circuit     = sceneCircuit(object);
         cam.def.searchlight = true;
         cam.aimYaw          = cam.def.yaw;
         cam.light           = light;
@@ -186,13 +191,14 @@ namespace Dark
             applySearchlight(world, actor, object);
 
         const std::string kind = sceneLightKind(object);
+        const std::string circuit = sceneCircuit(object);
         const bool light = (kind == "point" || kind == "spot") && !sceneHasComponent(object, "ParticleEmitter");
-        if (light && !object.circuit.empty())
+        if (light && !circuit.empty())
         {
             CircuitMemberComponent* member = world.get<CircuitMemberComponent>(actor);
             if (!member)
                 member = &world.emplace<CircuitMemberComponent>(actor);
-            member->circuit = object.circuit;
+            member->circuit = circuit;
         }
 
         const bool pawn = sceneHasBehavior(object, "ai.hunter") || sceneHasBehavior(object, "ai.wolf");
@@ -204,7 +210,7 @@ namespace Dark
         if (!sceneHasBehavior(object, "ai.hunter"))
             return;
 
-        std::string path = object.dialogue;
+        std::string path = sceneDialogue(object);
         if (path.empty())
             path = loadEntityMasterType("hunter").dialogue;
         if (path.empty())
@@ -225,7 +231,8 @@ namespace Dark
         if (world.get<DialogueBindingComponent>(actor) && !world.get<DialogueMemoryComponent>(actor))
             world.emplace<DialogueMemoryComponent>(actor);
 
-        if (object.patrol.empty())
+        const std::vector<Math::Vector2f> patrolPoints = scenePatrol(object);
+        if (patrolPoints.empty())
         {
             if (world.get<PatrolComponent>(actor))
                 world.remove<PatrolComponent>(actor);
@@ -233,8 +240,8 @@ namespace Dark
         else
         {
             PatrolComponent patrol;
-            patrol.points.reserve(object.patrol.size());
-            for (const Math::Vector2f& p : object.patrol)
+            patrol.points.reserve(patrolPoints.size());
+            for (const Math::Vector2f& p : patrolPoints)
             {
                 const float y = heightAt ? heightAt(heightUser, p.x, p.y) : 0.0f;
                 patrol.points.push_back(Math::Vector3f{ p.x, y, p.y });
@@ -245,8 +252,9 @@ namespace Dark
                 world.emplace<PatrolComponent>(actor, std::move(patrol));
         }
 
+        const std::string squad = sceneSquad(object);
         if (AiAgentComponent* agent = world.get<AiAgentComponent>(actor))
-            agent->squad = object.squad.empty() ? 0u : static_cast<uint32_t>(std::hash<std::string>{}(object.squad) | 1u);
+            agent->squad = squad.empty() ? 0u : static_cast<uint32_t>(std::hash<std::string>{}(squad) | 1u);
     }
 
 } // namespace Dark

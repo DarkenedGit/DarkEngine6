@@ -108,12 +108,12 @@ TEST(ArchetypeSpawn, SpawnerCountOverrideKeepsUnit)
 TEST(ArchetypeSpawn, SceneLightOverrideCarriesIntensity)
 {
     SceneObjectData object;
-    object.archetype            = "core:point_light";
-    object.lightKind = "point";
-    object.hasLight = true;
-    object.hasLight        = true;
-    object.lightIntensity  = 1885.0f;
-    object.lightRange      = 8.0f;
+    object.archetype = "core:point_light";
+    SceneLightFields light;
+    light.kind      = "point";
+    light.intensity = 1885.0f;
+    light.range     = 8.0f;
+    sceneWriteLight(object, light);
     const nlohmann::json overlay = nlohmann::json::parse(sceneComponentOverrides(object), nullptr, false);
     ASSERT_TRUE(overlay.is_object());
     ASSERT_TRUE(overlay.contains("LocalLight"));

@@ -7,6 +7,7 @@
 #include "Play/DialogueBinding.h"
 #include "Play/DialogueMemory.h"
 #include "Content/ContentDb.h"
+#include "Content/SceneObjectSpawn.h"
 #include "Scene/SceneSpawn.h"
 #include "Scene/SceneTypes.h"
 
@@ -36,10 +37,8 @@ TEST(SceneSpawn, ApplyActorSharesCircuitDialoguePatrolAndSquad)
     World world;
     const Entity light = world.createEntity();
     SceneObjectData lamp{};
-    lamp.archetype    = "core:point_light";
-    lamp.lightKind = "point";
-    lamp.hasLight = true;
-    lamp.circuit = "yard";
+    lamp.archetype = "core:point_light";
+    sceneSetString(lamp, "circuit", "yard");
     applySceneActor(world, light, lamp, nullptr, nullptr);
     const CircuitMemberComponent* member = world.get<CircuitMemberComponent>(light);
     ASSERT_NE(member, nullptr);
@@ -47,8 +46,8 @@ TEST(SceneSpawn, ApplyActorSharesCircuitDialoguePatrolAndSquad)
 
     const Entity cube = makeActor(world, Math::Vector3f{ 0.0f, 9.0f, 0.0f });
     SceneObjectData box{};
-    box.archetype    = "core:cube";
-    box.circuit = "yard";
+    box.archetype = "core:cube";
+    sceneSetString(box, "circuit", "yard");
     applySceneActor(world, cube, box, &height3, nullptr);
     EXPECT_EQ(world.get<CircuitMemberComponent>(cube), nullptr);
     const TransformComponent* cubeXf = world.get<TransformComponent>(cube);
@@ -57,11 +56,10 @@ TEST(SceneSpawn, ApplyActorSharesCircuitDialoguePatrolAndSquad)
 
     const Entity hunter = makeActor(world, Math::Vector3f{ 4.0f, 0.0f, 6.0f });
     SceneObjectData npc{};
-    npc.archetype     = "core:hunter";
-    npc.dialogue = "dialogue/hunter_gate.dlg.json";
-    npc.squad    = "gate";
-    npc.patrol.push_back(Math::Vector2f{ 1.0f, 2.0f });
-    npc.patrol.push_back(Math::Vector2f{ 8.0f, 2.0f });
+    npc.archetype = "core:hunter";
+    sceneSetString(npc, "dialogue", "dialogue/hunter_gate.dlg.json");
+    sceneSetString(npc, "squad", "gate");
+    sceneSetPatrol(npc, { Math::Vector2f{ 1.0f, 2.0f }, Math::Vector2f{ 8.0f, 2.0f } });
     applySceneActor(world, hunter, npc, &height3, nullptr);
 
     const TransformComponent* hunterXf = world.get<TransformComponent>(hunter);
@@ -94,9 +92,9 @@ TEST(SceneSpawn, ApplyActorSharesCircuitDialoguePatrolAndSquad)
     ASSERT_FALSE(flat->points.empty());
     EXPECT_FLOAT_EQ(flat->points[0].y, 0.0f);
 
-    npc.squad.clear();
-    npc.patrol.clear();
-    npc.dialogue.clear();
+    sceneSetString(npc, "squad", {});
+    sceneSetPatrol(npc, {});
+    sceneSetString(npc, "dialogue", {});
     applySceneActor(world, hunter, npc, &height3, nullptr);
     EXPECT_EQ(world.get<AiAgentComponent>(hunter)->squad, 0u);
     EXPECT_EQ(world.get<PatrolComponent>(hunter), nullptr);
@@ -104,10 +102,10 @@ TEST(SceneSpawn, ApplyActorSharesCircuitDialoguePatrolAndSquad)
 
     const Entity wolf = makeActor(world, Math::Vector3f{ 2.0f, 8.0f, 3.0f });
     SceneObjectData beast{};
-    beast.archetype     = "core:wolf";
-    beast.dialogue = "dialogue/hunter_gate.dlg.json";
-    beast.squad    = "gate";
-    beast.patrol.push_back(Math::Vector2f{ 1.0f, 1.0f });
+    beast.archetype = "core:wolf";
+    sceneSetString(beast, "dialogue", "dialogue/hunter_gate.dlg.json");
+    sceneSetString(beast, "squad", "gate");
+    sceneSetPatrol(beast, { Math::Vector2f{ 1.0f, 1.0f } });
     applySceneActor(world, wolf, beast, &height3, nullptr);
     const TransformComponent* wolfXf = world.get<TransformComponent>(wolf);
     ASSERT_NE(wolfXf, nullptr);

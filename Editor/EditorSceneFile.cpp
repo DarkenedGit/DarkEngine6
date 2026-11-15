@@ -110,11 +110,14 @@ bool EditorApp::saveScene()
         if (!xf)
             return;
         SceneObjectData d = so.source;
-        d.emissiveMeshIndex = -1;
+        sceneSetInt(d, "emissiveMesh", -1);
         d.position = xf->position;
         d.rotation = xf->rotation;
         d.scale    = xf->scale;
         copyColor(d.color, so.color);
+        std::string circuit = sceneCircuit(so.source);
+        if (const CircuitMemberComponent* member = world().get<CircuitMemberComponent>(e))
+            circuit = member->circuit;
         if (ParticleEmitterComponent* pe = world().get<ParticleEmitterComponent>(e))
         {
             if (pe->runtime)
@@ -124,49 +127,52 @@ bool EditorApp::saveScene()
         }
         if (const auto* light = world().get<LocalLightComponent>(e))
         {
-            d.hasLight          = true;
-            d.lightKind         = light->type == LocalLightType::Spot ? "spot" : "point";
-            d.lightIntensity    = light->intensity;
-            d.lightRange        = light->range;
-            d.lightInnerDeg     = light->innerConeDeg;
-            d.lightOuterDeg     = light->outerConeDeg;
-            d.lightSourceRadius = light->sourceRadius;
-            d.lightEnabled      = light->enabled;
-            d.lightCastShadow   = light->castShadow;
-            d.color[0]          = light->color.x;
-            d.color[1]          = light->color.y;
-            d.color[2]          = light->color.z;
+            SceneLightFields fields;
+            fields.kind         = light->type == LocalLightType::Spot ? "spot" : "point";
+            fields.intensity    = light->intensity;
+            fields.range        = light->range;
+            fields.innerDeg     = light->innerConeDeg;
+            fields.outerDeg     = light->outerConeDeg;
+            fields.sourceRadius = light->sourceRadius;
+            fields.enabled      = light->enabled;
+            fields.castShadow   = light->castShadow;
+            fields.searchlight  = sceneSearchlight(so.source);
+            fields.sweepDeg     = sceneSweepDeg(so.source);
+            fields.circuit      = circuit;
+            sceneWriteLight(d, fields);
+            d.color[0] = light->color.x;
+            d.color[1] = light->color.y;
+            d.color[2] = light->color.z;
         }
         else if (const auto* dir = world().get<DirectionalLightComponent>(e))
         {
-            d.hasLight       = true;
-            d.lightKind      = "directional";
-            d.lightIntensity = dir->intensity;
-            d.lightEnabled   = dir->enabled;
-            d.color[0]       = dir->color.x;
-            d.color[1]       = dir->color.y;
-            d.color[2]       = dir->color.z;
+            SceneLightFields fields;
+            fields.kind      = "directional";
+            fields.intensity = dir->intensity;
+            fields.enabled   = dir->enabled;
+            sceneWriteLight(d, fields);
+            d.color[0] = dir->color.x;
+            d.color[1] = dir->color.y;
+            d.color[2] = dir->color.z;
         }
         else if (const auto* amb = world().get<AmbientLightComponent>(e))
         {
-            d.hasLight       = true;
-            d.lightKind      = "ambient";
-            d.lightIntensity = amb->intensity;
-            d.lightEnabled   = amb->enabled;
-            d.color[0]       = amb->color.x;
-            d.color[1]       = amb->color.y;
-            d.color[2]       = amb->color.z;
+            SceneLightFields fields;
+            fields.kind      = "ambient";
+            fields.intensity = amb->intensity;
+            fields.enabled   = amb->enabled;
+            sceneWriteLight(d, fields);
+            d.color[0] = amb->color.x;
+            d.color[1] = amb->color.y;
+            d.color[2] = amb->color.z;
         }
         if (const auto* mc = world().get<MeshComponent>(e))
-            d.emissive = mc->emissive;
+            sceneWriteEmissive(d, mc->emissive);
         if (const CloudVolumeComponent* cloud = world().get<CloudVolumeComponent>(e))
             sceneDataFromCloudDesc(cloud->desc, d);
         if (const StreamComponent* stream = world().get<StreamComponent>(e))
         {
-            d.hasStream        = true;
-            d.streamWidth      = stream->width;
-            d.streamFlowSpeed  = stream->flowSpeed;
-            d.streamPoints     = stream->points;
+            sceneWriteStream(d, stream->width, stream->flowSpeed, stream->points);
             if (!stream->points.empty())
             {
                 d.position.x = stream->points.front().x;
@@ -175,31 +181,28 @@ bool EditorApp::saveScene()
         }
         if (const SpawnerComponent* spawner = world().get<SpawnerComponent>(e))
         {
-            d.hasSpawner = true;
-            d.spawner    = spawner->desc;
-            clampSpawnerDesc(d.spawner);
+            SpawnerDesc desc = spawner->desc;
+            clampSpawnerDesc(desc);
+            sceneWriteSpawner(d, desc);
         }
         if (const MovieCueComponent* cue = world().get<MovieCueComponent>(e))
-        {
-            d.movie       = cue->path;
-            d.movieRadius = cue->radius;
-            d.movieLoop   = cue->loop;
-        }
-        d.pickup      = so.pickup;
-        d.pickupCount = so.pickup.empty() ? 1 : (so.pickupCount > 0 ? so.pickupCount : 1);
-        d.dialogue    = so.dialogue;
-        if (const CircuitMemberComponent* member = world().get<CircuitMemberComponent>(e))
-            d.circuit = member->circuit;
+            sceneWriteMovie(d, cue->path, cue->radius, cue->loop);
+        sceneSetString(d, "pickup", so.pickup);
+        sceneSetInt(d, "pickupCount", so.pickup.empty() ? 1 : (so.pickupCount > 0 ? so.pickupCount : 1));
+        sceneSetString(d, "dialogue", so.dialogue);
+        sceneSetString(d, "circuit", circuit);
         if (sceneHasBehavior(so.source, "model"))
         {
+            std::string modelPath;
             if (const ModelComponent* modelComp = world().get<ModelComponent>(e))
             {
                 if (const auto model = assets().getAs<Model>(modelComp->modelAssetID))
                 {
                     const std::string virt = assets().virtualPathFromAbsolute(model->sourcePath());
-                    d.modelPath = virt.empty() ? model->sourcePath().generic_string() : virt;
+                    modelPath = virt.empty() ? model->sourcePath().generic_string() : virt;
                 }
             }
+            sceneWriteModelPath(d, std::move(modelPath));
         }
         data.objects.push_back(d);
         saved.push_back(e);
@@ -262,7 +265,7 @@ bool EditorApp::saveScene()
         {
             if (saved[j].id() == light->emissiveMesh.id())
             {
-                data.objects[i].emissiveMeshIndex = static_cast<int>(j);
+                sceneSetInt(data.objects[i], "emissiveMesh", static_cast<int>(j));
                 break;
             }
         }
@@ -419,14 +422,14 @@ bool EditorApp::applyLoadedScene(SceneFileData& data)
         const SceneObjectData& d = data.objects[i];
         const bool generated = i >= authoredCount;
         ParticleEmitterDesc pdesc = makeDefaultParticleDesc();
-        if (d.hasParticle)
+        if (sceneCarriesComponent(d, "ParticleEmitter"))
             descFromSceneData(d, pdesc);
         Entity e{};
-        if (d.placeholder)
+        if (sceneIsPlaceholder(d))
             e = spawnPlaceholder(d);
         else
             e = spawnObject(d.archetype, d.position, d.scale, d.rotation, d.color,
-                    sceneHasComponent(d, "ParticleEmitter") ? &pdesc : nullptr, &d, !generated, true);
+                    sceneCarriesComponent(d, "ParticleEmitter") ? &pdesc : nullptr, &d, !generated, true);
         if (generated && e.valid())
         {
             if (EditorObjectComponent* so = world().get<EditorObjectComponent>(e))
@@ -467,7 +470,7 @@ bool EditorApp::applyLoadedScene(SceneFileData& data)
     }
     for (size_t i = 0; i < data.objects.size() && i < spawned.size(); ++i)
     {
-        const int idx = data.objects[i].emissiveMeshIndex;
+        const int idx = sceneEmissiveMeshIndex(data.objects[i]);
         if (idx < 0 || idx >= static_cast<int>(spawned.size()) || !spawned[i].valid())
             continue;
         if (auto* light = world().get<LocalLightComponent>(spawned[i]))

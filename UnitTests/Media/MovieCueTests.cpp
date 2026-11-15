@@ -3,6 +3,7 @@
 #include "Core/Log.h"
 #include "ECS/Components.h"
 #include "ECS/World.h"
+#include "Content/SceneObjectSpawn.h"
 #include "Media/MovieCue.h"
 #include "Media/MoviePlayer.h"
 #include "Scene/SceneTypes.h"
@@ -94,10 +95,8 @@ namespace
         xf.position = pos;
         world.emplace<TransformComponent>(e, xf);
         SceneObjectData data;
-        data.archetype        = "core:movie";
-        data.movie       = path ? path : "";
-        data.movieRadius = radius;
-        data.movieLoop   = loop;
+        data.archetype = "core:movie";
+        sceneWriteMovie(data, path ? path : "", radius, loop);
         applyMovieCue(world, e, data);
         return e;
     }
@@ -243,8 +242,7 @@ TEST(MovieCue, NoPossessedOrTransformSkips)
 
     const Entity bare = world.createEntity();
     SceneObjectData data;
-    data.movie       = "movies/a.mp4";
-    data.movieRadius = 2.0f;
+    sceneWriteMovie(data, "movies/a.mp4", 2.0f, false);
     applyMovieCue(world, bare, data);
     const Entity pawn = makePawn(world, Math::Vector3f{ 0.0f, 0.0f, 0.0f });
     tickMovieCues(world, player, pawn);
@@ -259,9 +257,7 @@ TEST(MovieCue, NegativeRadiusClampsAndDoesNotFire)
     World world;
     MoviePlayer player;
     SceneObjectData data;
-    data.movie       = "movies/a.mp4";
-    data.movieRadius = -4.0f;
-    data.movieLoop   = true;
+    data.overridesJson = R"({"Movie":{"path":"movies/a.mp4","radius":-4.0,"loop":true}})";
     const Entity e = world.createEntity();
     TransformComponent xf{};
     world.emplace<TransformComponent>(e, xf);
@@ -283,7 +279,6 @@ TEST(MovieCue, EmptyPathWarnsOnce)
     World world;
     const Entity e = world.createEntity();
     SceneObjectData data;
-    data.movieRadius = 2.0f;
     applyMovieCue(world, e, data);
     applyMovieCue(world, e, data);
     int warns = 0;

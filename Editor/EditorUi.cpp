@@ -485,10 +485,10 @@ void EditorApp::drawEditorUi()
             ImGui::PushID(static_cast<int>(e.id()));
             char label[160];
             const Archetype* arch = so.source.archetype.empty() ? nullptr : findArchetype(so.source.archetype);
-            const char* icon = so.source.placeholder
+            const char* icon = sceneIsPlaceholder(so.source)
                 ? ICON_FA_XMARK
                 : iconForContentName(arch ? std::string_view(arch->editor.icon) : std::string_view{});
-            std::string shown = so.source.placeholder ? std::string("Missing") : editorArchetypeLabel(so.source.archetype);
+            std::string shown = sceneIsPlaceholder(so.source) ? std::string("Missing") : editorArchetypeLabel(so.source.archetype);
             if (sceneHasBehavior(so.source, "model"))
             {
                 if (const ModelComponent* mc = world().get<ModelComponent>(e))
@@ -761,9 +761,9 @@ void EditorApp::drawInspector3D()
     const bool locked   = netClientLocked();
     const bool envLight = editorGlobalLight(so->source);
     ImGui::Text("Selected: %s", editorArchetypeLabel(so->source.archetype).c_str());
-    if (so->source.placeholder)
+    if (sceneIsPlaceholder(so->source))
         ImGui::TextWrapped("This object is kept and written back unchanged.");
-    else if (so->source.dataDriven)
+    else if (sceneIsDataDriven(so->source))
     {
         ImGui::Text("Archetype: %s", so->source.archetype.c_str());
         if (const Archetype* archetype = findArchetype(so->source.archetype))
@@ -907,10 +907,14 @@ void EditorApp::drawInspector3D()
                     DegreesToRadians(eulerDeg[1]),
                     DegreesToRadians(eulerDeg[2]));
             }
-            Dark::PropCheckbox("Searchlight", &so->source.searchlight);
-            if (so->source.searchlight)
+            bool searchlight = sceneSearchlight(so->source);
+            if (Dark::PropCheckbox("Searchlight", &searchlight))
+                sceneSetLocalLightBool(so->source, "searchlight", searchlight);
+            if (sceneSearchlight(so->source))
             {
-                Dark::PropSlider("Sweep (deg)", &so->source.sweepDeg, 0.0f, 180.0f);
+                float sweep = sceneSweepDeg(so->source);
+                if (Dark::PropSlider("Sweep (deg)", &sweep, 0.0f, 180.0f))
+                    sceneSetLocalLightFloat(so->source, "sweep", sweep);
                 ImGui::TextDisabled("Swings around this aim in Play and sounds the alarm when it lights the player.");
             }
             if (ImGui::Button("Aim down"))

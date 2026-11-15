@@ -902,13 +902,16 @@ bool SandboxApp::advanceBootSlice()
         while (boot.streamCursor < boot.scene.objects.size() && m_streams.size() < 16)
         {
             const SceneObjectData& o = boot.scene.objects[boot.streamCursor++];
-            if (!sceneHasComponent(o, "Stream") || !o.hasStream)
+            float width = 0.0f;
+            float flow = 0.0f;
+            std::vector<Math::Vector2f> points;
+            if (!sceneReadStream(o, width, flow, points))
                 continue;
             Dark::StreamDesc desc;
-            desc.width        = o.streamWidth;
-            desc.flowSpeed    = o.streamFlowSpeed;
+            desc.width        = width;
+            desc.flowSpeed    = flow;
             desc.bedClearance = 0.45f;
-            desc.pointsXZ     = o.streamPoints;
+            desc.pointsXZ     = std::move(points);
             MeshData cpu;
             SandboxStream slot;
             std::string err;
@@ -919,7 +922,7 @@ bool SandboxApp::advanceBootSlice()
                 DE_LOG_ERROR(LogCategory::Render, "SandboxApp: stream upload failed");
                 return true;
             }
-            slot.flowSpeed = o.streamFlowSpeed;
+            slot.flowSpeed = flow;
             m_streams.push_back(std::move(slot));
             return true;
         }
@@ -1060,7 +1063,7 @@ bool SandboxApp::ensureSceneMarker(void* user, Entity entity)
 
 Dark::Entity SandboxApp::spawnAuthoredArchetype(const Dark::SceneObjectData& object)
 {
-    if (object.placeholder)
+    if (sceneIsPlaceholder(object))
         return {};
     SceneObjectData placed = object;
     if (placed.archetype.empty())
@@ -1134,7 +1137,7 @@ bool SandboxApp::advanceSpawnBatch()
             }
             for (const SceneObjectData& o : boot.scene.objects)
             {
-                if (o.placeholder)
+                if (sceneIsPlaceholder(o))
                     continue;
                 if (sceneHasBehavior(o, "player.controller"))
                 {
@@ -1180,7 +1183,7 @@ bool SandboxApp::advanceSpawnBatch()
                     boot.clouds.push_back(o);
                     continue;
                 }
-                if (o.dataDriven)
+                if (sceneIsDataDriven(o))
                     boot.archetypes.push_back(o);
             }
             boot.phase = SandboxBootLoad::SpawnPhase::Clouds;
@@ -1367,7 +1370,7 @@ bool SandboxApp::advanceSpawnBatch()
             while (boot.grassCursor < boot.boxes.size())
             {
                 const SceneObjectData& o = boot.boxes[boot.grassCursor++];
-                if (!o.conceal || sceneMeshPrimitive(o) != "cube")
+                if (!sceneConceal(o) || sceneMeshPrimitive(o) != "cube")
                     continue;
                 const uint8_t r = static_cast<uint8_t>(Math::Clamp(o.color[0], 0.0f, 1.0f) * 255.0f);
                 const uint8_t g = static_cast<uint8_t>(Math::Clamp(o.color[1], 0.0f, 1.0f) * 255.0f);
@@ -1415,7 +1418,7 @@ bool SandboxApp::advanceSpawnBatch()
             while (boot.boxCursor < boot.boxes.size())
             {
                 const SceneObjectData& o = boot.boxes[boot.boxCursor++];
-                if (o.conceal || !o.zone.empty() || !o.pickup.empty())
+                if (sceneConceal(o) || !sceneZone(o).empty() || !scenePickup(o).empty())
                     continue;
                 ContentError err;
                 const Entity e = instantiateSceneObject(sceneHost(false), o, &err);
@@ -1491,7 +1494,8 @@ bool SandboxApp::advanceSpawnBatch()
             while (boot.modelCursor < boot.models.size())
             {
                 const SceneObjectData& o = boot.models[boot.modelCursor++];
-                if (o.modelPath.empty())
+                const std::string modelPath = sceneModelPath(o);
+                if (modelPath.empty())
                 {
                     DE_LOG_WARN(LogCategory::Render, "SandboxApp: scene model has no path");
                     continue;
@@ -1504,7 +1508,7 @@ bool SandboxApp::advanceSpawnBatch()
                 const Entity e = instantiateSceneObject(sceneHost(true), placedObject, &err);
                 if (!e.valid())
                 {
-                    DE_LOG_WARN(LogCategory::Render, "SandboxApp: scene model '{}' did not attach ({})", o.modelPath, err.message);
+                    DE_LOG_WARN(LogCategory::Render, "SandboxApp: scene model '{}' did not attach ({})", modelPath, err.message);
                     return true;
                 }
                 if (TransformComponent* placed = world().get<TransformComponent>(e))

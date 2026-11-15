@@ -1,4 +1,8 @@
+#include "Content/SceneObjectSpawn.h"
+#include "Core/Json.h"
 #include "Sky/CloudVolume.h"
+
+#include "third_party/nlohmann/json.hpp"
 
 #include "Math/MathHelper.h"
 #include "Math/Sphere3f.h"
@@ -183,50 +187,85 @@ namespace Dark
         return Clamp(1.0f - sdf / Max(r, 0.01f), 0.0f, 1.0f);
     }
 
+    float cloudJsonNumber(const nlohmann::json& item, float fallback)
+    {
+        if (const auto* number = item.get_ptr<const nlohmann::json::number_float_t*>())
+            return static_cast<float>(*number);
+        if (const auto* number = item.get_ptr<const nlohmann::json::number_integer_t*>())
+            return static_cast<float>(*number);
+        if (const auto* number = item.get_ptr<const nlohmann::json::number_unsigned_t*>())
+            return static_cast<float>(*number);
+        return fallback;
+    }
+
+    void readCloudVec(const nlohmann::json& value, Vector3f& out)
+    {
+        if (!value.is_array() || value.size() < 3)
+            return;
+        out = Vector3f(cloudJsonNumber(value[0], out.x), cloudJsonNumber(value[1], out.y), cloudJsonNumber(value[2], out.z));
+    }
+
     void cloudDescFromSceneData(const SceneObjectData& d, CloudVolumeDesc& out)
     {
-        out                  = CloudVolumeDesc{};
-        out.shape            = (d.cloudShape == 0) ? CloudShape::Box : CloudShape::Ellipsoid;
-        out.density          = d.cloudDensity;
-        out.coverage         = d.cloudCoverage;
-        out.softness         = d.cloudSoftness;
-        out.absorption       = d.cloudAbsorption;
-        out.scattering       = d.cloudScattering;
-        out.anisotropy       = d.cloudAnisotropy;
-        out.noiseScale       = d.cloudNoiseScale;
-        out.detailScale      = d.cloudDetailScale;
-        out.detailStrength   = d.cloudDetailStrength;
-        out.heightFalloff    = d.cloudHeightFalloff;
-        out.silverLining     = d.cloudSilverLining;
-        out.windSpeed        = d.cloudWindSpeed;
-        out.albedo           = Vector3f(d.cloudAlbedo[0], d.cloudAlbedo[1], d.cloudAlbedo[2]);
-        out.windDir          = Vector3f(d.cloudWindDir[0], d.cloudWindDir[1], d.cloudWindDir[2]);
-        out.enabled          = d.cloudEnabled;
+        out = CloudVolumeDesc{};
+        const nlohmann::json cloud = nlohmann::json::parse(sceneMergedComponent(d, "CloudVolume"), nullptr, false);
+        if (cloud.is_discarded() || !cloud.is_object())
+            return;
+        if (cloud.contains("shape"))
+        {
+            if (cloud["shape"].is_string())
+            {
+                const auto* text = cloud["shape"].get_ptr<const nlohmann::json::string_t*>();
+                CloudShape shape = out.shape;
+                if (text && tryParseCloudShape(*text, shape))
+                    out.shape = shape;
+            }
+            else if (cloud["shape"].is_number_integer())
+            {
+                int shape = 1;
+                jsonIntOr(cloud, "shape", shape, 1, "CloudVolume");
+                out.shape = shape == 0 ? CloudShape::Box : CloudShape::Ellipsoid;
+            }
+        }
+        jsonFloatOr(cloud, "density", out.density, out.density, "CloudVolume");
+        jsonFloatOr(cloud, "coverage", out.coverage, out.coverage, "CloudVolume");
+        jsonFloatOr(cloud, "softness", out.softness, out.softness, "CloudVolume");
+        jsonFloatOr(cloud, "absorption", out.absorption, out.absorption, "CloudVolume");
+        jsonFloatOr(cloud, "scattering", out.scattering, out.scattering, "CloudVolume");
+        jsonFloatOr(cloud, "anisotropy", out.anisotropy, out.anisotropy, "CloudVolume");
+        jsonFloatOr(cloud, "noiseScale", out.noiseScale, out.noiseScale, "CloudVolume");
+        jsonFloatOr(cloud, "detailScale", out.detailScale, out.detailScale, "CloudVolume");
+        jsonFloatOr(cloud, "detailStrength", out.detailStrength, out.detailStrength, "CloudVolume");
+        jsonFloatOr(cloud, "heightFalloff", out.heightFalloff, out.heightFalloff, "CloudVolume");
+        jsonFloatOr(cloud, "silverLining", out.silverLining, out.silverLining, "CloudVolume");
+        jsonFloatOr(cloud, "windSpeed", out.windSpeed, out.windSpeed, "CloudVolume");
+        jsonBoolOr(cloud, "enabled", out.enabled, out.enabled, "CloudVolume");
+        if (cloud.contains("albedo"))
+            readCloudVec(cloud["albedo"], out.albedo);
+        if (cloud.contains("windDir"))
+            readCloudVec(cloud["windDir"], out.windDir);
     }
 
     void sceneDataFromCloudDesc(const CloudVolumeDesc& src, SceneObjectData& d)
     {
-        d.hasCloud             = true;
-        d.cloudShape           = (src.shape == CloudShape::Box) ? 0 : 1;
-        d.cloudDensity         = src.density;
-        d.cloudCoverage        = src.coverage;
-        d.cloudSoftness        = src.softness;
-        d.cloudAbsorption      = src.absorption;
-        d.cloudScattering      = src.scattering;
-        d.cloudAnisotropy      = src.anisotropy;
-        d.cloudNoiseScale      = src.noiseScale;
-        d.cloudDetailScale     = src.detailScale;
-        d.cloudDetailStrength  = src.detailStrength;
-        d.cloudHeightFalloff   = src.heightFalloff;
-        d.cloudSilverLining    = src.silverLining;
-        d.cloudWindSpeed       = src.windSpeed;
-        d.cloudAlbedo[0]       = src.albedo.x;
-        d.cloudAlbedo[1]       = src.albedo.y;
-        d.cloudAlbedo[2]       = src.albedo.z;
-        d.cloudWindDir[0]      = src.windDir.x;
-        d.cloudWindDir[1]      = src.windDir.y;
-        d.cloudWindDir[2]      = src.windDir.z;
-        d.cloudEnabled         = src.enabled;
+        nlohmann::json cloud;
+        cloud["shape"]          = toString(src.shape);
+        cloud["density"]        = src.density;
+        cloud["coverage"]       = src.coverage;
+        cloud["softness"]       = src.softness;
+        cloud["absorption"]     = src.absorption;
+        cloud["scattering"]     = src.scattering;
+        cloud["anisotropy"]     = src.anisotropy;
+        cloud["noiseScale"]     = src.noiseScale;
+        cloud["detailScale"]    = src.detailScale;
+        cloud["detailStrength"] = src.detailStrength;
+        cloud["heightFalloff"]  = src.heightFalloff;
+        cloud["silverLining"]   = src.silverLining;
+        cloud["windSpeed"]      = src.windSpeed;
+        cloud["albedo"]         = nlohmann::json::array({ src.albedo.x, src.albedo.y, src.albedo.z });
+        cloud["windDir"]        = nlohmann::json::array({ src.windDir.x, src.windDir.y, src.windDir.z });
+        cloud["enabled"]        = src.enabled;
+        sceneSetComponentJson(d, "CloudVolume", cloud.dump());
     }
 
 } // namespace Dark

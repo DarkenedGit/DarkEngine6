@@ -1,5 +1,6 @@
 #include "Scene/Building.h"
 
+#include "Content/SceneObjectSpawn.h"
 #include "Core/Json.h"
 #include "Core/Log.h"
 #include "Scene/EntityMaster.h"
@@ -96,7 +97,8 @@ namespace Dark
                 o.scale    = Math::Vector3f{ std::fabs(b.x - a.x), std::fabs(b.y - a.y), std::fabs(b.z - a.z) };
                 for (int i = 0; i < 4; ++i)
                     o.color[i] = color[i];
-                o.block = block;
+                if (!block)
+                    sceneSetBool(o, "block", false);
                 return o;
             }
         };
@@ -412,11 +414,12 @@ namespace Dark
         for (const BuildingPickupDef& p : def.pickups)
         {
             SceneObjectData o;
-            o.archetype   = "core:cube";
-            o.position    = at.point(p.pos.x, 0.35f, p.pos.y);
-            o.scale       = Math::Vector3f{ 0.4f, 0.4f, 0.4f };
-            o.pickup      = p.item;
-            o.pickupCount = p.count;
+            o.archetype = "core:cube";
+            o.position  = at.point(p.pos.x, 0.35f, p.pos.y);
+            o.scale     = Math::Vector3f{ 0.4f, 0.4f, 0.4f };
+            sceneSetString(o, "pickup", p.item);
+            if (p.count != 1)
+                sceneSetInt(o, "pickupCount", p.count);
             out.objects.push_back(std::move(o));
         }
 
@@ -432,8 +435,8 @@ namespace Dark
         for (const BuildingPowerDef& pb : def.powerBoxes)
         {
             static const float kYellow[4]{ 0.85f, 0.70f, 0.15f, 1.0f };
-            SceneObjectData    o = at.box(pb.pos.x - 0.3f, 0.0f, pb.pos.y - 0.25f, pb.pos.x + 0.3f, 1.3f, pb.pos.y + 0.25f, kYellow, true);
-            o.circuit            = pb.circuit;
+            SceneObjectData o = at.box(pb.pos.x - 0.3f, 0.0f, pb.pos.y - 0.25f, pb.pos.x + 0.3f, 1.3f, pb.pos.y + 0.25f, kYellow, true);
+            sceneSetString(o, "circuit", pb.circuit);
             out.objects.push_back(std::move(o));
         }
 
@@ -442,12 +445,15 @@ namespace Dark
             SceneObjectData o;
             o.archetype = "core:hunter";
             o.position  = at.point(g.pos.x, 0.5f, g.pos.y);
-            o.squad    = g.squad.empty() ? "building:" + def.id : g.squad;
+            sceneSetString(o, "squad", g.squad.empty() ? "building:" + def.id : g.squad);
+            std::vector<Math::Vector2f> patrol;
+            patrol.reserve(g.patrol.size());
             for (const Math::Vector2f& p : g.patrol)
             {
                 const Math::Vector3f w = at.point(p.x, 0.0f, p.y);
-                o.patrol.emplace_back(w.x, w.z);
+                patrol.emplace_back(w.x, w.z);
             }
+            sceneSetPatrol(o, patrol);
             out.objects.push_back(std::move(o));
         }
         return true;

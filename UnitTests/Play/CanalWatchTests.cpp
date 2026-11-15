@@ -13,6 +13,7 @@
 #include "Play/Facility.h"
 #include "Scene/Building.h"
 #include "Content/ContentDb.h"
+#include "Content/SceneObjectSpawn.h"
 #include "Scene/SceneFile.h"
 #include "Scene/SceneSpawn.h"
 #include "Terrain/HeightMap.h"
@@ -64,11 +65,12 @@ namespace
         light.outerConeDeg = 22.0f;
         light.intensity    = 3000.0f;
         SceneObjectData o{};
-        o.archetype        = "core:spot_light";
-        o.lightKind = "spot";
-        o.hasLight = true;
-        o.searchlight = true;
-        o.sweepDeg    = sweep;
+        o.archetype = "core:spot_light";
+        SceneLightFields fields;
+        fields.kind        = "spot";
+        fields.searchlight = true;
+        fields.sweepDeg    = sweep;
+        sceneWriteLight(o, fields);
         applySceneActor(world, e, o, nullptr, nullptr);
         return e;
     }
@@ -205,8 +207,6 @@ TEST(CanalWatch, SearchlightTakesItsAimFromTheSpot)
 
     SceneObjectData off{};
     off.archetype = "core:spot_light";
-    off.lightKind = "spot";
-    off.hasLight = true;
     applySceneActor(world, e, off, nullptr, nullptr);
     EXPECT_EQ(world.get<SecurityCameraComponent>(e), nullptr);
 }
@@ -255,11 +255,12 @@ TEST(CanalWatch, SearchlightStaysOnItsMountAndResetsItsAim)
     EXPECT_FLOAT_EQ(restored->rotation.z, aim.z);
 
     SceneObjectData again{};
-    again.archetype        = "core:spot_light";
-    again.lightKind = "spot";
-    again.hasLight = true;
-    again.searchlight = true;
-    again.sweepDeg    = 120.0f;
+    again.archetype = "core:spot_light";
+    SceneLightFields againLight;
+    againLight.kind        = "spot";
+    againLight.searchlight = true;
+    againLight.sweepDeg    = 120.0f;
+    sceneWriteLight(again, againLight);
     applySceneActor(world, e, again, nullptr, nullptr);
     const SecurityCameraComponent* next = world.get<SecurityCameraComponent>(e);
     ASSERT_NE(next, nullptr);
@@ -327,15 +328,15 @@ TEST(CanalWatch, SearchlightSurvivesTheSceneFile)
     in.name    = "ut_searchlight";
     in.mode    = SceneMode::Scene3D;
     SceneObjectData spot{};
-    spot.archetype        = "core:spot_light";
-    spot.lightKind = "spot";
-    spot.hasLight = true;
-    spot.hasLight    = true;
-    spot.searchlight = true;
-    spot.sweepDeg    = 75.0f;
+    spot.archetype = "core:spot_light";
+    SceneLightFields spotLight;
+    spotLight.kind        = "spot";
+    spotLight.searchlight = true;
+    spotLight.sweepDeg    = 75.0f;
+    sceneWriteLight(spot, spotLight);
     in.objects.push_back(spot);
     SceneObjectData plain = spot;
-    plain.searchlight     = false;
+    sceneSetLocalLightBool(plain, "searchlight", false);
     in.objects.push_back(plain);
 
     const std::filesystem::path path = std::filesystem::temp_directory_path() / "darkengine6_searchlight_ut.json";
@@ -346,9 +347,9 @@ TEST(CanalWatch, SearchlightSurvivesTheSceneFile)
         ASSERT_TRUE(loadContentDatabase(nullptr));
     ASSERT_TRUE(loadSceneFromJson(path, out, &err)) << err;
     ASSERT_EQ(out.objects.size(), 2u);
-    EXPECT_TRUE(out.objects[0].searchlight);
-    EXPECT_FLOAT_EQ(out.objects[0].sweepDeg, 75.0f);
-    EXPECT_FALSE(out.objects[1].searchlight);
+    EXPECT_TRUE(sceneSearchlight(out.objects[0]));
+    EXPECT_FLOAT_EQ(sceneSweepDeg(out.objects[0]), 75.0f);
+    EXPECT_FALSE(sceneSearchlight(out.objects[1]));
     std::error_code ec;
     std::filesystem::remove(path, ec);
 }
@@ -443,13 +444,13 @@ TEST(CanalWatch, CanalTestSceneAimsIntoThePoolAndEveryStopSeesWater)
     int   stops        = 0;
     for (const SceneObjectData& o : scene.objects)
     {
-        if (o.archetype == "core:spot_light" && o.searchlight)
+        if (o.archetype == "core:spot_light" && sceneSearchlight(o))
         {
             const Entity e = world.createEntity();
             world.emplace<TransformComponent>(e, o.position, o.rotation, Vector3f{ 1.0f, 1.0f, 1.0f });
             auto& light        = world.emplace<LocalLightComponent>(e);
-            light.range        = o.lightRange;
-            light.outerConeDeg = o.lightOuterDeg;
+            light.range        = sceneLightFloat(o, "range", light.range);
+            light.outerConeDeg = sceneLightFloat(o, "outer", light.outerConeDeg);
             applySceneActor(world, e, o, nullptr, nullptr);
             const SecurityCameraComponent* cam = world.get<SecurityCameraComponent>(e);
             ASSERT_NE(cam, nullptr);
@@ -463,7 +464,7 @@ TEST(CanalWatch, CanalTestSceneAimsIntoThePoolAndEveryStopSeesWater)
         }
         if (o.archetype == "core:hunter")
         {
-            for (const Vector2f& stop : o.patrol)
+            for (const Vector2f& stop : scenePatrol(o))
             {
                 Vector3f dir{};
                 EXPECT_TRUE(AI::findWaterBeside(

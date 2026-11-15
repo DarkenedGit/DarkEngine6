@@ -4,7 +4,9 @@
 #include "Animation/AnimationSet.h"
 #include "Assets/GltfLoader.h"
 #include "Content/ContentDb.h"
+#include "Content/SceneObjectSpawn.h"
 #include "Core/ContentRoots.h"
+#include "Core/Json.h"
 #include "Scene/EntityMaster.h"
 #include "Scene/SceneFile.h"
 
@@ -133,9 +135,19 @@ TEST(AnimatedAnimals, ViewScenePlacesEachModel)
     std::vector<std::string> placed;
     for (const SceneObjectData& object : scene.objects)
     {
-        if (object.modelPath.empty())
+        // The view scene authors each animal on a core:model override. Archetype
+        // defaults (the player pawn's human gltf) are not placements in this file.
+        const std::string overlayText = sceneComponentOverrides(object);
+        if (overlayText.empty())
             continue;
-        placed.push_back(object.modelPath);
+        const nlohmann::json overlay = nlohmann::json::parse(overlayText, nullptr, false);
+        if (overlay.is_discarded() || !overlay.is_object() || !overlay.contains("Model") || !overlay["Model"].is_object())
+            continue;
+        std::string path;
+        jsonStringOr(overlay["Model"], "gltf", path, std::string(), "ViewScene");
+        if (path.empty())
+            continue;
+        placed.push_back(std::move(path));
     }
     ASSERT_EQ(placed.size(), std::size(kAnimals));
     for (const AnimalRow& row : kAnimals)
