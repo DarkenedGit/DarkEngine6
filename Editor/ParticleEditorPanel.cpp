@@ -2,7 +2,6 @@
 #include "Ui/Icons.h"
 
 #include <imgui.h>
-#include <cstring>
 
 void ParticleEditorPanel::draw(Dark::ParticleEmitter& emitter, bool* open)
 {

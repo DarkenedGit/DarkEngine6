@@ -1,6 +1,5 @@
 #include "Particles/ParticleEmitter.h"
 #include "Particles/ParticleRibbon.h"
-#include "Math/MathDefines.h"
 #include "Core/Log.h"
 #include "Core/MemoryTracker.h"
 
