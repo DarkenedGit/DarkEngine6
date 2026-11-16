@@ -456,6 +456,8 @@ namespace Dark
             ev.hitDir.Normalize();
         ev.flags           = Combat::DamageFlags::CanBlock | Combat::DamageFlags::CanParry | Combat::DamageFlags::HardCc;
         ev.statusDuration  = move.stunSeconds;
+        ev.knockbackMetres  = move.knockback;
+        ev.knockbackSeconds = move.knockbackSeconds;
         if (const Combat::DefenseComponent* defense = world.get<Combat::DefenseComponent>(v.e))
             ev.teamSource = defense->team;
         resolveJumpHits(world, &ev, 1);
@@ -1084,6 +1086,13 @@ namespace Dark
     {
         if (JumpAttackComponent* jac = world.get<JumpAttackComponent>(e))
             jac->jump.cancel(forceIdle ? Combat::JumpAttackCancel::ForceIdle : Combat::JumpAttackCancel::NoPound);
+        if (AiAgentComponent* ai = world.get<AiAgentComponent>(e))
+        {
+            ai->rushWindup    = 0.0f;
+            ai->rushLeft      = 0.0f;
+            ai->rushAttack    = -1;
+            ai->approachClose = false;
+        }
         if (m_jumpAttackToken.valid() && m_jumpAttackToken.id() == e.id())
         {
             m_jumpAttackToken = {};
@@ -1203,6 +1212,11 @@ namespace Dark
     {
         if (!m_jumpAttackToken.valid() || m_jumpAttackToken.id() == self.id())
             return false;
+        if (const AiAgentComponent* holder = world.get<AiAgentComponent>(m_jumpAttackToken))
+        {
+            if (holder->rushWindup > 0.0f || holder->rushLeft > 0.0f)
+                return true;
+        }
         const JumpAttackComponent* other = world.get<JumpAttackComponent>(m_jumpAttackToken);
         return other && other->jump.busy();
     }
@@ -1558,7 +1572,8 @@ namespace Dark
             if (jump)
             {
                 jump->tick(dt);
-                if (jump->phase() == Combat::JumpAttackPhase::Idle && m_jumpAttackToken.valid() && m_jumpAttackToken.id() == e.id())
+                const bool rushing = v.ai->rushWindup > 0.0f || v.ai->rushLeft > 0.0f;
+                if (jump->phase() == Combat::JumpAttackPhase::Idle && m_jumpAttackToken.valid() && m_jumpAttackToken.id() == e.id() && !rushing)
                 {
                     m_jumpAttackToken = {};
                     DE_LOG_INFO(LogCategory::AI, "Hunter: jump token clear");
@@ -1882,6 +1897,14 @@ namespace Dark
             }
             if (v.hit->hit.stunned() || (stCc && stCc->hasHardCc()))
             {
+                if (v.ai->rushWindup > 0.0f || v.ai->rushLeft > 0.0f)
+                {
+                    v.ai->rushWindup = 0.0f;
+                    v.ai->rushLeft   = 0.0f;
+                    v.ai->rushAttack = -1;
+                    if (m_jumpAttackToken.valid() && m_jumpAttackToken.id() == e.id())
+                        m_jumpAttackToken = {};
+                }
                 stampPlanarVelocity();
                 continue;
             }
@@ -1957,7 +1980,19 @@ namespace Dark
             float jumpMax = 9.0f;
             hunterJumpRanges(pattern, jumpMin, jumpMax);
             const bool wantJump = !m_playerSwimming && !pattern && !wolfCircling && (leaf == AI::Leaf::Chase || leaf == AI::Leaf::Assist) && sees && horiz >= jumpMin && horiz <= jumpMax;
-            if (pattern && !wolfCircling && (leaf == AI::Leaf::Chase || leaf == AI::Leaf::Assist) && sees && !pacing && !jumpBusy && (!duelist || lunging))
+            bool inRushBand = false;
+            if (pattern)
+            {
+                for (const AI::AttackMove& move : pattern->attacks)
+                {
+                    if (move.kind == AI::AttackKind::Rush && horiz >= move.minRange && horiz <= move.maxRange)
+                        inRushBand = true;
+                }
+            }
+            const bool closing = leaf == AI::Leaf::Chase || leaf == AI::Leaf::Assist;
+            if (!inRushBand || !closing || !sees)
+                v.ai->approachClose = false;
+            if (pattern && !wolfCircling && closing && sees && !pacing && !jumpBusy && (!duelist || lunging))
             {
                 const int attackIndex = AI::pickAttack(*pattern, horiz, v.ai->preferOtherAttack, v.ai->lastAttack);
                 if (attackIndex >= 0)
@@ -1968,6 +2003,31 @@ namespace Dark
                     {
                         if (jump && beginJumpTelegraph(v, *jump))
                             started = true;
+                    }
+                    else if (move.kind == AI::AttackKind::Rush)
+                    {
+                        if (!v.ai->approachClose && !packTokenBusy(world, e))
+                        {
+                            const uint32_t key = v.ai->approachSalt ^ (static_cast<uint32_t>(e.id()) * 0x9E3779B9u);
+                            uint32_t       salt = v.ai->approachSalt * 1664525u + 1013904223u;
+                            if (salt == 0u)
+                                salt = 1u;
+                            v.ai->approachSalt = salt;
+                            if (AI::approachKeepsClosing(move.closeChance, AI::approachRoll(key)))
+                                v.ai->approachClose = true;
+                            else
+                            {
+                                v.ai->rushAttack    = attackIndex;
+                                v.ai->rushWindup    = move.windup;
+                                v.ai->rushLeft      = move.windup > 0.0f ? 0.0f : (move.rushSeconds > 0.0f ? move.rushSeconds : 0.05f);
+                                v.ai->approachClose = false;
+                                v.path->path.points.clear();
+                                v.path->waypoint    = 0;
+                                m_jumpAttackToken   = e;
+                                started             = true;
+                                DE_LOG_INFO(LogCategory::AI, "Hunter: rush");
+                            }
+                        }
                     }
                     else if (!packTokenBusy(world, e) || m_jumpAttackToken.id() == e.id())
                     {
@@ -2021,6 +2081,59 @@ namespace Dark
             const float speed  = ((sprint || lunging) ? run : walk) * pace;
             const float currentPlanar = std::sqrt(v.ai->planarVelocity.x * v.ai->planarVelocity.x + v.ai->planarVelocity.z * v.ai->planarVelocity.z);
             const float paced = approachSpeed(currentPlanar, speed, accel, dt);
+            if (v.ai->rushWindup > 0.0f || v.ai->rushLeft > 0.0f)
+            {
+                const bool haveMove = pattern && v.ai->rushAttack >= 0 && v.ai->rushAttack < static_cast<int>(pattern->attacks.size());
+                const AI::AttackMove* rushMove = haveMove ? &pattern->attacks[static_cast<size_t>(v.ai->rushAttack)] : nullptr;
+                auto endRush = [&]() {
+                    v.ai->rushWindup = 0.0f;
+                    v.ai->rushLeft   = 0.0f;
+                    v.ai->rushAttack = -1;
+                    if (m_jumpAttackToken.valid() && m_jumpAttackToken.id() == e.id())
+                        m_jumpAttackToken = {};
+                };
+                Vector3f face{ playerPos.x - v.xf->position.x, 0.0f, playerPos.z - v.xf->position.z };
+                if (face.MagnitudeSqrd() > kLookEps)
+                {
+                    face.Normalize();
+                    v.ai->forward = face;
+                }
+                const bool lost = !rushMove || !playerAlive || playerInWater || m_playerSwimming || leaf == AI::Leaf::Flee;
+                if (lost)
+                    endRush();
+                else if (v.ai->rushWindup > 0.0f)
+                {
+                    v.ai->rushWindup -= dt;
+                    if (v.ai->rushWindup <= 0.0f)
+                    {
+                        v.ai->rushWindup = 0.0f;
+                        v.ai->rushLeft   = rushMove->rushSeconds > 0.0f ? rushMove->rushSeconds : 0.05f;
+                    }
+                }
+                else
+                {
+                    v.ai->rushLeft -= dt;
+                    const float    rushSpeed = (rushMove->rushSpeed > 0.0f ? rushMove->rushSpeed : run) * pace;
+                    const Vector3f before    = v.xf->position;
+                    seekToward(world, v, dt, terrain, rushSpeed, playerPos.x, playerPos.z);
+                    sweepSolids(v.xf->position, before, cubes, cubeCount, spheres, sphereCount, v.ai->slideMinWallXZ);
+                    const float rdx  = playerPos.x - v.xf->position.x;
+                    const float rdz  = playerPos.z - v.xf->position.z;
+                    const float dist = std::sqrt(rdx * rdx + rdz * rdz);
+                    if (dist <= rushMove->contactRange)
+                    {
+                        v.ai->meleeAttack = v.ai->rushAttack;
+                        releaseMelee(world, v, *pattern, player, playerPos, cubes, cubeCount, spheres, sphereCount);
+                        if (m_hunterCueFn)
+                            m_hunterCueFn(m_hunterCueUser, e, "pounce");
+                        endRush();
+                    }
+                    else if (v.ai->rushLeft <= 0.0f)
+                        endRush();
+                }
+                stampPlanarVelocity();
+                continue;
+            }
             if (v.ai->lureSearch)
             {
                 const float lureSpeed = approachSpeed(currentPlanar, walk * pace, accel, dt);
@@ -2426,9 +2539,19 @@ namespace Dark
         AiAgentComponent* ai = world.get<AiAgentComponent>(e);
         if (!ai)
             return;
-        ai->meleeWindup = 0.0f;
-        ai->meleeAttack = -1;
-        ai->attackGap   = Math::Max(ai->attackGap, recover);
+        ai->meleeWindup    = 0.0f;
+        ai->meleeAttack    = -1;
+        ai->rushWindup     = 0.0f;
+        ai->rushLeft       = 0.0f;
+        ai->rushAttack     = -1;
+        ai->approachClose  = false;
+        ai->attackGap      = Math::Max(ai->attackGap, recover);
+        if (m_jumpAttackToken.id() == e.id())
+        {
+            const JumpAttackComponent* jac = world.get<JumpAttackComponent>(e);
+            if (!jac || !jac->jump.busy())
+                m_jumpAttackToken = {};
+        }
         if (m_duelToken.id() == e.id())
             m_duelToken = {};
     }

@@ -306,14 +306,36 @@ bool ImGuiHost::init(Dark::Window& window, Dark::Renderer& renderer, const char*
 
     m_impl = new Impl();
     m_hwnd = window.nativeHandle();
+
+    bool contextReady = false;
+    bool win32Ready   = false;
+    const auto fail = [&]() {
+        if (win32Ready)
+            ImGui_ImplWin32_Shutdown();
+        if (contextReady)
+            ImGui::DestroyContext();
+        publishUi(1.0f, {});
+        if (m_impl)
+        {
+            m_impl->srvHeap.Reset();
+            delete m_impl;
+            m_impl = nullptr;
+        }
+        m_hwnd      = nullptr;
+        m_viewports = false;
+        m_fonts     = {};
+    };
+
     if (!m_hwnd || !renderer.device())
     {
         DE_LOG_ERROR("ImGuiHost: missing window/device");
+        fail();
         return false;
     }
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
+    contextReady = true;
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     if (docking)
@@ -348,15 +370,21 @@ bool ImGuiHost::init(Dark::Window& window, Dark::Renderer& renderer, const char*
     if (!ImGui_ImplWin32_Init(m_hwnd))
     {
         DE_LOG_ERROR("ImGuiHost: Win32 init failed");
+        fail();
         return false;
     }
+    win32Ready = true;
 
     if (!createSrvHeap(renderer))
+    {
+        fail();
         return false;
+    }
 
     if (!renderer.queue())
     {
         DE_LOG_ERROR("ImGuiHost: renderer has no command queue");
+        fail();
         return false;
     }
 
@@ -379,6 +407,7 @@ bool ImGuiHost::init(Dark::Window& window, Dark::Renderer& renderer, const char*
     if (!ImGui_ImplDX12_Init(&initInfo))
     {
         DE_LOG_ERROR("ImGuiHost: DX12 init failed");
+        fail();
         return false;
     }
 

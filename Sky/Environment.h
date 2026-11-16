@@ -26,6 +26,11 @@ struct WeatherState
     static WeatherState Storm();
 };
 
+// Preset from env/weather.json. An unknown name uses "partly", then the first row.
+WeatherState weatherPresetNamed(const char* name);
+// The one preset whose numbers match. "custom" when none match or several match.
+const char* weatherPresetName(const WeatherState& weather);
+
 // Shared celestial + weather state. Call evaluate() after changing inputs
 // (tick() does this). Terrain, water, and the sky pass all read the outputs.
 class Environment

@@ -43,6 +43,9 @@ namespace Dark::Combat
         float          statusDuration  = 0.f;
         // Weapon presentation still plays its own reaction. Resolve keeps armor, poise, teams, and god mode.
         bool           skipHitReaction = false;
+        // Above 0, replaces the severity-table shove. 0 leaves that table alone.
+        float          knockbackMetres  = 0.f;
+        float          knockbackSeconds = 0.f;
     };
 
 } // namespace Dark::Combat

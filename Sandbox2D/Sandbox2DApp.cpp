@@ -1,5 +1,6 @@
 #include "Sandbox2DApp.h"
 
+#include "Audio/MasterVolumePref.h"
 #include "Collision/Collision.h"
 #include "Content/ArchetypeParams.h"
 #include "Content/ContentDb.h"
@@ -1195,7 +1196,7 @@ void Sandbox2DApp::onInit()
     m_sfxJump  = audio().loadOrBlip(assets(), "audio/jump.wav", 420.0f, 0.14f, 0.5f);
     m_sfxCoin  = audio().loadOrBlip(assets(), "audio/coin.wav", 880.0f, 0.16f, 0.45f);
     m_sfxReset = audio().loadOrBlip(assets(), "audio/whoosh.wav", 180.0f, 0.22f, 0.35f);
-    audio().setMasterVolume(0.85f);
+    audio().setMasterVolume(loadMasterVolume(0.85f));
 
     if (menuGpu && shouldShowMainMenu(config()))
         m_menu.show();

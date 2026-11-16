@@ -1,3 +1,4 @@
+#include "Audio/MasterVolumePref.h"
 #include "Audio/SoundComponents.h"
 #include "Combat/ArmorPieces.h"
 #include "SandboxHud.h"
@@ -152,6 +153,14 @@ void SandboxHud::drawMainMenu()
     Dark::drawMainMenuImGui(m_menu, m_imgui.fonts(), app().m_sceneStarted, chrome);
     if (volume != app().audio().masterVolume())
         app().audio().setMasterVolume(volume);
+    static float savedVolume = -1.0f;
+    if (savedVolume < 0.0f)
+        savedVolume = app().audio().masterVolume();
+    if (!ImGui::IsMouseDown(ImGuiMouseButton_Left) && std::fabs(app().audio().masterVolume() - savedVolume) > 0.0001f)
+    {
+        if (Dark::saveMasterVolume(app().audio().masterVolume()))
+            savedVolume = app().audio().masterVolume();
+    }
 }
 
 void SandboxHud::drawInventory()
@@ -343,7 +352,7 @@ void SandboxHud::drawUpgrades()
         std::string cost;
         for (const UpgradeCost& c : up.cost)
         {
-            const ItemDef* def = findItemDef(c.item);
+            const ItemDef* def = tryFindItemDef(c.item);
             if (!cost.empty())
                 cost += ", ";
             cost += std::format("{} {} ({} held)", c.count, def ? def->name : c.item.c_str(), heldCount(*inv, c.item));
@@ -413,7 +422,7 @@ void SandboxHud::drawJournal()
         ImGui::TextUnformatted(app().m_play.quest().complete() ? "Rewards (received)" : "Rewards");
         for (const QuestReward& r : def.rewards)
         {
-            const ItemDef* item = findItemDef(r.item);
+            const ItemDef* item = tryFindItemDef(r.item);
             ImGui::BulletText("%s x%d", item ? item->name : r.item.c_str(), r.count);
         }
     }
@@ -1184,7 +1193,7 @@ void SandboxHud::drawPauseOverlay()
         return;
     const ImVec4 dim = ImGui::GetStyleColorVec4(ImGuiCol_ModalWindowDimBg);
     ImGui::GetBackgroundDrawList(const_cast<ImGuiViewport*>(vp))->AddRectFilled(vp->Pos, ImVec2(vp->Pos.x + vp->Size.x, vp->Pos.y + vp->Size.y), ImGui::ColorConvertFloat4ToU32(dim));
-    ImGui::SetNextWindowPos(ImVec2(vp->Pos.x + vp->Size.x * 0.5f, vp->Pos.y + vp->Size.y * 0.5f), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowPos(ImVec2(vp->Pos.x + vp->Size.x * 0.5f, vp->Pos.y + vp->Size.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
     const ImGuiWindowFlags flags = ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize;
     if (!Dark::BeginGameCard("##paused", nullptr, Dark::UiAccent::Sandbox, flags))
     {

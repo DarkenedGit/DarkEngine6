@@ -36,6 +36,20 @@ namespace
     }
 }
 
+TEST(Combat_KnockbackOverride, ReplacesSeverityShove)
+{
+    CombatSystem sys;
+    Health       hp{ HealthSettings{ 100.0f, 0.0f, 99.0f } };
+    HitReaction  hit{};
+    DamageEvent  ev          = makeHit(22.0f);
+    ev.knockbackMetres       = 2.4f;
+    ev.knockbackSeconds      = 0.22f;
+    sys.resolveDirect(ev, &hp, &hit, nullptr, nullptr, nullptr, nullptr, nullptr, 100.0f);
+    EXPECT_NEAR(hit.settings().knockbackDistance, 2.4f, 1.0e-4f);
+    EXPECT_NEAR(hit.settings().knockbackSeconds, 0.22f, 1.0e-4f);
+    EXPECT_NEAR(hit.knockbackRemaining(), 2.4f, 1.0e-4f);
+}
+
 TEST(Combat_TrueIgnoresArmor, FinalEqualsAmount)
 {
     CombatSystem sys;

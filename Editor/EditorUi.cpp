@@ -937,18 +937,72 @@ void EditorApp::drawInspector3D()
             const char* modes[] = { "Maintain", "Waves" };
             if (Dark::PropCombo("Mode", &mode, modes, 2))
                 d.mode = static_cast<SpawnerMode>(mode);
-            const char* unitLabels[] = { "Hunter", "Wolf", "Crow" };
-            int unit = 0;
-            if (d.unitArchetype == "wolf" || d.unitArchetype == "core:wolf")
-                unit = 1;
-            else if (d.unitArchetype == "crow" || d.unitArchetype == "core:crow")
-                unit = 2;
-            if (Dark::PropCombo("Unit", &unit, unitLabels, 3))
+            struct UnitRow
             {
-                const char* unitIds[] = { "hunter", "wolf", "crow" };
-                d.unitArchetype = unitIds[unit];
+                std::string id;
+                std::string label;
+                bool        crow = false;
+            };
+            std::vector<UnitRow> units;
+            for (const Archetype& archetype : archetypes())
+            {
+                if (!archetype.enabled)
+                    continue;
+                bool ai = false;
+                bool crow = false;
+                for (const ArchetypeBehavior& behavior : archetype.behaviors)
+                {
+                    if (behavior.name == "ai.crow")
+                        crow = true;
+                    if (behavior.name.rfind("ai.", 0) == 0)
+                        ai = true;
+                }
+                if (!ai)
+                    continue;
+                UnitRow row;
+                row.id    = archetype.name;
+                row.label = archetype.editor.label.empty() ? archetype.name : archetype.editor.label;
+                row.crow  = crow;
+                units.push_back(std::move(row));
             }
-            if (d.unitArchetype == "crow" || d.unitArchetype == "core:crow")
+            auto sameUnit = [](std::string_view stored, std::string_view name) {
+                if (stored == name)
+                    return true;
+                const auto colon = name.rfind(':');
+                const std::string_view bare = colon == std::string_view::npos ? name : name.substr(colon + 1);
+                return stored == bare;
+            };
+            int unit = 0;
+            bool found = false;
+            for (int i = 0; i < static_cast<int>(units.size()); ++i)
+            {
+                if (sameUnit(d.unitArchetype, units[static_cast<size_t>(i)].id))
+                {
+                    unit = i;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found)
+            {
+                UnitRow extra;
+                extra.id    = d.unitArchetype.empty() ? std::string("hunter") : d.unitArchetype;
+                extra.label = extra.id;
+                extra.crow  = false;
+                units.insert(units.begin(), std::move(extra));
+                unit = 0;
+            }
+            std::vector<const char*> unitLabels;
+            unitLabels.reserve(units.size());
+            for (const UnitRow& row : units)
+                unitLabels.push_back(row.label.c_str());
+            if (!unitLabels.empty() && Dark::PropCombo("Unit", &unit, unitLabels.data(), static_cast<int>(unitLabels.size())))
+            {
+                if (unit >= 0 && unit < static_cast<int>(units.size()))
+                    d.unitArchetype = units[static_cast<size_t>(unit)].id;
+            }
+            const bool crowUnit = unit >= 0 && unit < static_cast<int>(units.size()) && units[static_cast<size_t>(unit)].crow;
+            if (crowUnit)
                 ImGui::TextDisabled("Crows flock, perch in trees, or hop for food. A nearby hunter or the player makes them call and fly off.");
             int count = d.count;
             if (ImGui::SliderInt("Count", &count, 1, kSpawnerSlotCount))

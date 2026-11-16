@@ -111,7 +111,7 @@ namespace Dark
         const char* windowName = view.windowName ? view.windowName : "Dialogue";
         ImGui::SetNextWindowPos(ImVec2(vp->Pos.x + vp->Size.x * 0.5f, vp->Pos.y + vp->Size.y - uiPx(220.0f)), ImGuiCond_Always, ImVec2(0.5f, 1.0f));
         ImGui::SetNextWindowSize(ImVec2(uiPx(420.0f), 0.0f), ImGuiCond_Always);
-        const ImGuiWindowFlags flags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove;
+        const ImGuiWindowFlags flags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoNav;
         if (!BeginGameCard(windowName, nullptr, view.accent, flags))
         {
             EndGameCard();

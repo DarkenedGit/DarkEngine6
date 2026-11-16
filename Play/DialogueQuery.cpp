@@ -204,7 +204,7 @@ namespace Dark
                 }
                 if (effect.op == DialogueEffectOp::GiveItem)
                 {
-                    const ItemDef* def = findItemDef(effect.key);
+                    const ItemDef* def = tryFindItemDef(effect.key);
                     if (!def)
                     {
                         DE_LOG_ERROR(LogCategory::AI, "Dialogue: unknown item \"{}\"", effect.key);

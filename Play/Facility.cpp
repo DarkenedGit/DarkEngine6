@@ -505,7 +505,7 @@ namespace Dark
             if (!door->lock.empty())
             {
                 const InventoryComponent* inv = host.player.valid() ? world->get<InventoryComponent>(host.player) : nullptr;
-                const ItemDef*            key = findItemDef(door->lock);
+                const ItemDef*            key = tryFindItemDef(door->lock);
                 if (!inv || !hasItem(*inv, door->lock))
                 {
                     state.doorMsg     = std::string("Locked. Needs a ") + (key ? key->name : door->lock.c_str());
@@ -724,7 +724,7 @@ namespace Dark
                 loot.label = labels->back().c_str();
                 for (const BuildingLoot& l : c.loot)
                 {
-                    if (const ItemDef* def = findItemDef(l.item))
+                    if (const ItemDef* def = tryFindItemDef(l.item))
                         addItem(loot.contents, *def, Math::Max(1, l.count));
                     else
                         DE_LOG_WARN("Building: unknown loot item '{}'", l.item);

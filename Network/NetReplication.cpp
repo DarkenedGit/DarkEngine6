@@ -233,7 +233,9 @@ namespace Dark
         }
         if (world.has<NetworkedComponent>(e))
             return true;
-        if (m_entityToNet.size() >= kNetMaxReplicated)
+        // Idle play keeps every replica. The snapshot table is capped only while hosting,
+        // so a full scene cannot reject the local pawn before a session starts.
+        if (m_role == NetRole::Host && m_entityToNet.size() >= kNetMaxReplicated)
         {
             DE_LOG_WARN(LogCategory::Networking, "NetworkSystem: registerEntity cap {} reached", kNetMaxReplicated);
             return false;

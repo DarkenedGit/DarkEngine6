@@ -28,7 +28,6 @@
 #include "Physics/PhysicsBind.h"
 #include "Physics/PhysicsBodyComponent.h"
 #include "Physics/PhysicsComponent.h"
-#include "Play/Interaction.h"
 #include "Save/HostSync.h"
 #include "Save/PersistentId.h"
 #include "Save/ProgressComponents.h"
@@ -248,7 +247,10 @@ Entity SandboxApp::saveRespawn(void* user, World& world, std::string_view archet
         return {};
     if (world.has<AiAgentComponent>(e))
     {
-        app->bindEntityPhysics(e, isInteractGuard(world, e) ? "human" : "wolf");
+        if (world.has<PhysicsComponent>(e))
+            app->bindEntityPhysics(e, "respawn");
+        else
+            DE_LOG_WARN(LogCategory::Collision, "Sandbox: respawn '{}' has no physics card", archetype);
         noteListedHunter(app, e);
     }
     else if (world.has<PhysicsComponent>(e) && app->m_physics.valid())

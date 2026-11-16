@@ -15,6 +15,10 @@ namespace Dark
         std::string modelAnim;
         std::string physicsFile;
         std::string combatAttacks;
+        // Combat.movement type name, for example "wolf". Empty keeps the species default.
+        std::string movementType;
+        // Combat.skill id from profiles.json. Empty keeps the species default.
+        std::string skillProfile;
         std::string dialogue;
         std::string hsm;
         float       healthMax        = -1.0f;

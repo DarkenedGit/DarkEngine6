@@ -66,7 +66,7 @@ namespace Dark
     {
         const Archetype* archetype = findArchetype(sceneArchetypeId(object));
         if (!archetype)
-            return false;
+            return sceneIsPlaceholder(object);
         return archetypeVisibleInMode(*archetype, mode);
     }
 

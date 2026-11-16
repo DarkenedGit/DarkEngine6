@@ -63,9 +63,21 @@ namespace Dark
             return {};
         World& world = *host.world;
         const std::string archetypeId = resolveListedArchetype(req.unitArchetype);
-        const bool crow = archetypeId == "core:crow";
-        const bool wolf = archetypeId == "core:wolf";
-        const bool hunter = archetypeId == "core:hunter";
+        bool crow = false;
+        bool wolf = false;
+        bool hunter = false;
+        if (const Archetype* archetype = findArchetype(archetypeId))
+        {
+            for (const ArchetypeBehavior& behavior : archetype->behaviors)
+            {
+                if (behavior.name == "ai.crow")
+                    crow = true;
+                else if (behavior.name == "ai.wolf" || behavior.name == "ai.animal")
+                    wolf = true;
+                else if (behavior.name == "ai.hunter")
+                    hunter = true;
+            }
+        }
         if (crow && !host.crows)
             return {};
         if (!crow && (!host.ai || !host.play))

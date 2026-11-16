@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <filesystem>
 #include <string>
 #include <string_view>
@@ -11,6 +12,7 @@ namespace Dark::AI
     {
         Melee = 0,
         Jump,
+        Rush,
     };
 
     enum class AttackAfterChain : unsigned char
@@ -29,7 +31,34 @@ namespace Dark::AI
         float       damage    = 12.0f;
         float       stunSeconds = 0.28f;
         float       poise     = 10.0f;
+        // Share of visits to this band that keep closing. The rest rush. 0 always rushes. 1 always closes.
+        // A value above 1 and at most 100 is read as a percent.
+        float       closeChance      = 0.5f;
+        float       contactRange     = 1.2f;
+        float       knockback        = 0.0f;
+        float       knockbackSeconds = 0.18f;
+        float       rushSpeed        = 0.0f; // 0 uses the hunter's run speed
+        float       rushSeconds      = 1.25f;
     };
+
+    // roll is in [0, 1). closeChance is the fraction of approaches that keep closing.
+    inline bool approachKeepsClosing(float closeChance, float roll)
+    {
+        if (!(closeChance > 0.0f))
+            return false;
+        if (closeChance >= 1.0f)
+            return true;
+        if (roll < 0.0f)
+            roll = 0.0f;
+        return roll < closeChance;
+    }
+
+    // Stable 0..1 value from a salt. The same key always returns the same roll.
+    inline float approachRoll(uint32_t key)
+    {
+        const uint32_t x = key * 1664525u + 1013904223u;
+        return static_cast<float>(x >> 8) * (1.0f / 16777216.0f);
+    }
 
     struct AttackPattern
     {

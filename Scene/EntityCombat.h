@@ -2,6 +2,7 @@
 
 #include "ECS/Entity.h"
 
+#include <cstdint>
 #include <filesystem>
 #include <string>
 #include <string_view>
@@ -118,6 +119,9 @@ namespace Dark
         static constexpr const char* kTypeName = "CombatProfile";
 
         std::string archetype;
+        // Index into the profile table. Invalid when cacheGeneration does not match the table.
+        uint32_t    cacheGeneration = 0;
+        uint32_t    cacheIndex      = 0;
     };
 
     EntityCombat entityCombatDefault(std::string_view typeName);
@@ -136,8 +140,8 @@ namespace Dark
     // for player, hunter, and wolf when the component omits the path.
     const EntityCombat& combatProfileForId(std::string_view archetypeId);
 
-    // The entity's stored profile. A wolf tag wins. A missing component uses the
-    // archetype params, then a player motor, then the hunter profile.
+    // Stored CombatProfileComponent first, so a mod wolf keeps its own profile.
+    // A missing component uses archetype params, then a wolf or player tag, then hunter.
     const EntityCombat& entityCombatProfile(World& world, Entity entity);
 
     void assignCombatProfile(World& world, Entity entity, std::string_view archetypeId);

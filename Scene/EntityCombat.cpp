@@ -282,6 +282,7 @@ namespace Dark
     {
         std::deque<EntityCombat> gCombatProfiles;
         std::unordered_map<uint64_t, size_t> gCombatIndex;
+        uint32_t gCombatGeneration = 1;
 
         std::string bareArchetypeName(std::string_view id)
         {
@@ -329,15 +330,18 @@ namespace Dark
     {
         gCombatProfiles.clear();
         gCombatIndex.clear();
+        ++gCombatGeneration;
+        if (gCombatGeneration == 0)
+            gCombatGeneration = 1;
     }
 
-    const EntityCombat& combatProfileForId(std::string_view archetypeId)
+    static size_t combatProfileIndex(std::string_view archetypeId)
     {
         const std::string canonical = canonicalContentId(archetypeId.empty() ? std::string_view("hunter") : archetypeId);
         const ContentId id = hashContentId(canonical);
         const auto found = gCombatIndex.find(id.hash);
         if (found != gCombatIndex.end())
-            return gCombatProfiles[found->second];
+            return found->second;
 
         std::string bare;
         const std::string path = profilePathFor(canonical, bare);
@@ -352,24 +356,46 @@ namespace Dark
         gCombatProfiles.push_back(std::move(combat));
         const size_t index = gCombatProfiles.size() - 1;
         gCombatIndex.emplace(id.hash, index);
-        return gCombatProfiles[index];
+        return index;
+    }
+
+    const EntityCombat& combatProfileForId(std::string_view archetypeId)
+    {
+        return gCombatProfiles[combatProfileIndex(archetypeId)];
     }
 
     const EntityCombat& entityCombatProfile(World& world, Entity entity)
     {
+        CombatProfileComponent* stored = entity.valid() ? world.get<CombatProfileComponent>(entity) : nullptr;
+        if (stored && !stored->archetype.empty() && stored->cacheGeneration == gCombatGeneration && stored->cacheIndex < gCombatProfiles.size())
+            return gCombatProfiles[stored->cacheIndex];
+
         std::string id;
-        const TagComponent* tag = entity.valid() ? world.get<TagComponent>(entity) : nullptr;
-        if (tagIsWolfName(tag))
-            id = "core:wolf";
-        else if (const CombatProfileComponent* stored = entity.valid() ? world.get<CombatProfileComponent>(entity) : nullptr)
+        if (stored && !stored->archetype.empty())
             id = stored->archetype;
         else if (const ArchetypeParamsComponent* params = entity.valid() ? world.get<ArchetypeParamsComponent>(entity) : nullptr)
-            id = params->archetype;
-        else if (entity.valid() && (world.has<PlayerMotorComponent>(entity) || tagIsPlayerName(tag)))
-            id = "core:player";
+        {
+            if (!params->archetype.empty())
+                id = params->archetype;
+        }
+        if (id.empty())
+        {
+            const TagComponent* tag = entity.valid() ? world.get<TagComponent>(entity) : nullptr;
+            if (tagIsWolfName(tag))
+                id = "core:wolf";
+            else if (entity.valid() && (world.has<PlayerMotorComponent>(entity) || tagIsPlayerName(tag)))
+                id = "core:player";
+        }
         if (id.empty())
             id = "core:hunter";
-        return combatProfileForId(id);
+
+        const size_t index = combatProfileIndex(id);
+        if (stored && !stored->archetype.empty())
+        {
+            stored->cacheGeneration = gCombatGeneration;
+            stored->cacheIndex      = static_cast<uint32_t>(index);
+        }
+        return gCombatProfiles[index];
     }
 
     void assignCombatProfile(World& world, Entity entity, std::string_view archetypeId)
@@ -378,7 +404,10 @@ namespace Dark
             return;
         const std::string canonical = canonicalContentId(archetypeId);
         if (CombatProfileComponent* stored = world.get<CombatProfileComponent>(entity))
-            stored->archetype = canonical;
+        {
+            stored->archetype        = canonical;
+            stored->cacheGeneration  = 0;
+        }
         else
             world.emplace<CombatProfileComponent>(entity, CombatProfileComponent{ canonical });
     }

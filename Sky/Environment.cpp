@@ -1,4 +1,5 @@
 #include "Sky/Environment.h"
+#include "Content/ContentDb.h"
 #include "Core/Json.h"
 #include "Core/Log.h"
 #include "Math/MathDefines.h"
@@ -72,71 +73,107 @@ struct NamedWeather
     WeatherState state;
 };
 
+std::vector<NamedWeather> readWeatherFile()
+{
+    std::vector<NamedWeather> loaded;
+    const std::filesystem::path path = resolveContentFile("env/weather.json");
+    if (path.empty())
+        return loaded;
+    std::ifstream in(path, std::ios::binary);
+    if (!in)
+        return loaded;
+    std::ostringstream text;
+    text << in.rdbuf();
+    const nlohmann::json root = nlohmann::json::parse(text.str(), nullptr, false);
+    if (root.is_discarded() || !root.is_object())
+        return loaded;
+    const auto presets = root.find("presets");
+    if (presets == root.end() || !presets->is_array())
+        return loaded;
+    for (const nlohmann::json& row : *presets)
+    {
+        if (!row.is_object())
+            continue;
+        std::string name;
+        jsonStringOr(row, "name", name, std::string(), "Weather");
+        if (name.empty())
+            continue;
+        WeatherState state;
+        jsonFloatOr(row, "coverage", state.cloudCoverage, state.cloudCoverage, "Weather");
+        jsonFloatOr(row, "turbidity", state.turbidity, state.turbidity, "Weather");
+        jsonFloatOr(row, "wind", state.windSpeed, state.windSpeed, "Weather");
+        jsonFloatOr(row, "rain", state.rain, state.rain, "Weather");
+        loaded.push_back(NamedWeather{ std::move(name), state });
+    }
+    return loaded;
+}
+
 const std::vector<NamedWeather>& weatherRows()
 {
-    static const std::vector<NamedWeather> rows = [] {
-        std::vector<NamedWeather> loaded;
-        const std::filesystem::path path = resolveContentFile("env/weather.json");
-        if (path.empty())
+    static std::vector<NamedWeather> rows;
+    static uint64_t seenHash = 0;
+    static bool ready = false;
+    static bool triedBeforeDatabase = false;
+    static bool logged = false;
+    const bool database = contentDatabaseLoaded();
+    if (!database)
+    {
+        if (!triedBeforeDatabase)
         {
+            rows = readWeatherFile();
+            triedBeforeDatabase = true;
+            if (rows.empty() && !logged)
+            {
+                logged = true;
+                DE_LOG_WARN(LogCategory::Render, "Weather: env/weather.json is missing");
+            }
+        }
+        return rows;
+    }
+    const uint64_t hash = contentSetHash();
+    if (!ready || hash != seenHash)
+    {
+        std::vector<NamedWeather> loaded = readWeatherFile();
+        if (!loaded.empty())
+            rows.swap(loaded);
+        else if (!ready)
+            rows.clear();
+        if (rows.empty() && !logged)
+        {
+            logged = true;
             DE_LOG_WARN(LogCategory::Render, "Weather: env/weather.json is missing");
-            return loaded;
         }
-        std::ifstream in(path, std::ios::binary);
-        if (!in)
-        {
-            DE_LOG_WARN(LogCategory::Render, "Weather: env/weather.json is missing");
-            return loaded;
-        }
-        std::ostringstream text;
-        text << in.rdbuf();
-        const nlohmann::json root = nlohmann::json::parse(text.str(), nullptr, false);
-        if (root.is_discarded() || !root.is_object())
-        {
-            DE_LOG_WARN(LogCategory::Render, "Weather: env/weather.json did not load");
-            return loaded;
-        }
-        const auto presets = root.find("presets");
-        if (presets == root.end() || !presets->is_array())
-        {
-            DE_LOG_WARN(LogCategory::Render, "Weather: env/weather.json did not load");
-            return loaded;
-        }
-        for (const nlohmann::json& row : *presets)
-        {
-            if (!row.is_object())
-                continue;
-            std::string name;
-            jsonStringOr(row, "name", name, std::string(), "Weather");
-            if (name.empty())
-                continue;
-            WeatherState state;
-            jsonFloatOr(row, "coverage", state.cloudCoverage, state.cloudCoverage, "Weather");
-            jsonFloatOr(row, "turbidity", state.turbidity, state.turbidity, "Weather");
-            jsonFloatOr(row, "wind", state.windSpeed, state.windSpeed, "Weather");
-            jsonFloatOr(row, "rain", state.rain, state.rain, "Weather");
-            loaded.push_back(NamedWeather{ std::move(name), state });
-        }
-        if (loaded.empty())
-            DE_LOG_WARN(LogCategory::Render, "Weather: env/weather.json did not load");
-        return loaded;
-    }();
+        ready = true;
+        seenHash = hash;
+    }
     return rows;
+}
+
+bool sameWeather(const WeatherState& a, const WeatherState& b)
+{
+    return std::fabs(a.cloudCoverage - b.cloudCoverage) < 1.0e-3f && std::fabs(a.turbidity - b.turbidity) < 1.0e-3f
+        && std::fabs(a.windSpeed - b.windSpeed) < 1.0e-3f && std::fabs(a.windDir.x - b.windDir.x) < 1.0e-3f
+        && std::fabs(a.windDir.y - b.windDir.y) < 1.0e-3f && std::fabs(a.rain - b.rain) < 1.0e-3f;
 }
 
 WeatherState weatherFromFile(const char* name)
 {
     const WeatherState* partly = nullptr;
+    const WeatherState* first = nullptr;
     for (const NamedWeather& row : weatherRows())
     {
-        if (row.name == name)
+        if (!first)
+            first = &row.state;
+        if (name && row.name == name)
             return row.state;
         if (row.name == "partly")
             partly = &row.state;
     }
     if (partly)
         return *partly;
-    return {};
+    if (first)
+        return *first;
+    return WeatherState{};
 }
 
 } // namespace
@@ -159,6 +196,31 @@ WeatherState WeatherState::Overcast()
 WeatherState WeatherState::Storm()
 {
     return weatherFromFile("storm");
+}
+
+WeatherState weatherPresetNamed(const char* name)
+{
+    if (!name || name[0] == '\0')
+        return weatherFromFile("partly");
+    return weatherFromFile(name);
+}
+
+const char* weatherPresetName(const WeatherState& weather)
+{
+    const char* match = nullptr;
+    int matches = 0;
+    for (const NamedWeather& row : weatherRows())
+    {
+        if (!sameWeather(row.state, weather))
+            continue;
+        match = row.name.c_str();
+        ++matches;
+        if (matches > 1)
+            return "custom";
+    }
+    if (matches == 1 && match)
+        return match;
+    return "custom";
 }
 
 void Environment::sunMoonDirections(

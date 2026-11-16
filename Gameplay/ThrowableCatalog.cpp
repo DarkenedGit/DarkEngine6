@@ -278,7 +278,7 @@ namespace Dark
         if (file.state == ContentFile::Missing)
         {
             m_items.clear();
-            DE_LOG_WARN(LogCategory::Core, "ThrowableCatalog: items/throwables.json is missing");
+            DE_LOG_ERROR(LogCategory::Core, "ThrowableCatalog: items/throwables.json is missing");
             ok = false;
         }
         else if (file.state != ContentFile::Ok)

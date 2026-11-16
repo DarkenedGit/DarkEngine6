@@ -51,6 +51,12 @@ namespace Dark
         int                          lastAttack  = -1;
         int                          meleeAttack = -1;
         bool                         preferOtherAttack = false;
+        // One roll per visit to a rush band. Not saved. Close keeps the normal approach.
+        bool                         approachClose = false;
+        uint32_t                     approachSalt  = 1;
+        int                          rushAttack    = -1;
+        float                        rushWindup    = 0.0f;
+        float                        rushLeft      = 0.0f;
         bool                         givenUp     = false;
         Math::Vector3f               repositionDest{};
         bool                         hasLastSeen = false;

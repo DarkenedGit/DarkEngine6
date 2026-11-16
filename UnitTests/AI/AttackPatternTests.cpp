@@ -83,4 +83,35 @@ TEST(AttackPattern, ContentFiles)
     EXPECT_EQ(wolf.chainCount, 2);
     EXPECT_EQ(hunter.attacks.size(), 2u);
     EXPECT_EQ(wolf.attacks[0].id, "bite");
+    EXPECT_EQ(hunter.attacks[1].kind, AttackKind::Rush);
+    EXPECT_FLOAT_EQ(hunter.attacks[1].closeChance, 0.5f);
+    EXPECT_EQ(wolf.attacks[1].kind, AttackKind::Jump);
+}
+
+TEST(AttackPattern, CloseChanceIsAFractionOrAPercent)
+{
+    const char* text = R"({
+        "version": 1,
+        "id": "hunter",
+        "attacks": [
+            { "id": "rush", "kind": "rush", "minRange": 2, "maxRange": 4, "closeChance": 70, "knockback": 2.4 }
+        ]
+    })";
+    AttackPattern pattern;
+    ASSERT_TRUE(parseAttackPattern(text, pattern));
+    EXPECT_FLOAT_EQ(pattern.attacks[0].closeChance, 0.70f);
+    EXPECT_FALSE(approachKeepsClosing(0.0f, 0.2f));
+    EXPECT_TRUE(approachKeepsClosing(1.0f, 0.2f));
+    EXPECT_TRUE(approachKeepsClosing(0.5f, 0.49f));
+    EXPECT_FALSE(approachKeepsClosing(0.5f, 0.50f));
+
+    const char* bad = R"({
+        "version": 1,
+        "id": "hunter",
+        "attacks": [
+            { "id": "rush", "kind": "rush", "minRange": 2, "maxRange": 4, "closeChance": 150 }
+        ]
+    })";
+    AttackPattern rejected;
+    EXPECT_FALSE(parseAttackPattern(bad, rejected));
 }

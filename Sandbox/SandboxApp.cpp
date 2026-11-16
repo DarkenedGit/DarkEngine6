@@ -1,6 +1,8 @@
 #include "SandboxApp.h"
 #include "SandboxInternal.h"
 
+#include "Audio/MasterVolumePref.h"
+
 #include "Play/AttachedLights.h"
 #include "Play/EnvironmentTick.h"
 #include "Play/Carry.h"
@@ -1854,7 +1856,12 @@ void SandboxApp::bindCharacterPhysics()
     for (int i = 0; i < m_chase.hunterCount(); ++i)
     {
         const Entity e = m_chase.hunterEntity(i);
-        bindEntityPhysics(e, isInteractGuard(world(), e) ? "human" : "wolf");
+        if (!world().has<PhysicsComponent>(e))
+        {
+            DE_LOG_WARN(LogCategory::Collision, "Sandbox: actor #{} has no physics card", e.id());
+            continue;
+        }
+        bindEntityPhysics(e, "actor");
     }
 }
 
@@ -1878,7 +1885,7 @@ void SandboxApp::onInit()
     throwableCatalog().loadFromContent();
     m_chase.setGround(&m_ground);
     registerDefaultActions();
-    audio().setMasterVolume(0.85f);
+    audio().setMasterVolume(loadMasterVolume(0.85f));
 
     if (!renderer().enableSceneBuffers(config().scenePath))
         DE_LOG_ERROR(LogCategory::Render, "SandboxApp: SceneBuffers enable failed; SwapChainForward");

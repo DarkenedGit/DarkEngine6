@@ -72,7 +72,8 @@ namespace Dark
         const AI::AttackMove* jump = jumpMove(pattern);
         if (!jump)
         {
-            logMissingJumpOnce();
+            if (!pattern || !pattern->loaded)
+                logMissingJumpOnce();
             return def;
         }
         def.telegraphSeconds = jump->windup;

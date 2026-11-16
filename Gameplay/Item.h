@@ -42,12 +42,14 @@ namespace Dark
     };
 
     const ItemDef* findItemDef(std::string_view id);
+    // Same lookup as findItemDef. A miss stays quiet so a HUD probe can call it every frame.
+    const ItemDef* tryFindItemDef(std::string_view id);
     const char*    itemTypeName(ItemType type);
     const char*    equipSlotName(EquipSlot slot);
     bool           tryParseItemType(std::string_view text, ItemType& out);
     bool           tryParseEquipSlot(std::string_view text, EquipSlot& out);
 
-    // Replaces the compiled table with content/items/*.items.json. Missing files keep the compiled rows.
+    // Replaces the catalog with content/items/*.items.json. No files logs an error and leaves it empty.
     void reloadItemCatalog();
 
     struct LoadoutGrant

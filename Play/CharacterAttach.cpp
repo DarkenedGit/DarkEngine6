@@ -32,16 +32,18 @@
 #include "Scene/EntityMaster.h"
 #include "Scene/EntityMovement.h"
 
+#include "Content/ArchetypeParams.h"
+
 #include "third_party/nlohmann/json.hpp"
 
-#include <fstream>
-#include <sstream>
 #include "Weapons/HittableComponent.h"
 #include "Weapons/MeleeWeapon.h"
 #include "Weapons/WeaponLoadoutComponent.h"
 
 #include <filesystem>
+#include <fstream>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <string_view>
 
@@ -205,6 +207,8 @@ namespace Dark
             return false;
         }
 
+        // Before the content database is loaded, the archetype file is the only Health source.
+        // A loaded database is authoritative: a missing entry does not fall through to a stripped filename.
         bool healthFromArchetypeFile(std::string_view archetypeId, HealthSettings& settings)
         {
             const auto colon = archetypeId.rfind(':');
@@ -239,8 +243,9 @@ namespace Dark
                 noteMissingHealth(archetypeId.empty() ? std::string_view("entity") : archetypeId);
             return settings;
         }
-        if (!healthFromArchetypeFile(archetypeId, settings))
-            noteMissingHealth(archetypeId.empty() ? std::string_view("entity") : archetypeId);
+        if (!contentDatabaseLoaded() && healthFromArchetypeFile(archetypeId, settings))
+            return settings;
+        noteMissingHealth(archetypeId.empty() ? std::string_view("entity") : archetypeId);
         return settings;
     }
 
@@ -427,6 +432,7 @@ namespace Dark
             return;
 
         const bool wolf = kind == NpcKind::Wolf;
+        const ArchetypeParamsComponent* params = host.world.get<ArchetypeParamsComponent>(e);
         if (HittableComponent* hit = host.world.get<HittableComponent>(e))
             hit->halfExtents = wolf ? Math::Vector3f{ 0.45f, 0.45f, 0.70f } : Math::Vector3f{ 0.4f, 0.7f, 0.4f };
         if (wolf)
@@ -434,13 +440,19 @@ namespace Dark
             if (TagComponent* tag = host.world.get<TagComponent>(e))
                 tag->name = "Wolf";
             applySpeciesCombat(host.world, e);
-            applySkillProfile(host.world, e, "wolf");
             clearInteractable(host.world, e);
         }
         else if (!host.world.has<InteractableComponent>(e))
             setInteractable(host.world, e, InteractKind::Guard, kInteractBodyRange);
+        if (params && !params->skillProfile.empty())
+            applySkillProfile(host.world, e, params->skillProfile.c_str());
+        else if (wolf)
+            applySkillProfile(host.world, e, "wolf");
         attachHunterSounds(host.world, host.pins, host.assets, host.audio, e, host.ground);
-        applyNpcMovementFile(host.world, e, wolf ? "wolf" : "hunter");
+        const char* movement = wolf ? "wolf" : "hunter";
+        if (params && !params->movementType.empty())
+            movement = params->movementType.c_str();
+        applyNpcMovementFile(host.world, e, movement);
     }
 
     ContentModelResult attachNpcVisual(const CharacterHost& host, Entity e, NpcKind kind, ModelAttach mode)

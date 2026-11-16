@@ -854,6 +854,17 @@ namespace Dark
         sceneWriteComponentDiff(object, "Model", live.dump(), diffBaseline(object, "Model", json::object()).dump());
     }
 
+    void sceneWritePlaceholderTransform(SceneObjectData& object)
+    {
+        json bag = loadBag(object);
+        if (!bag.is_object())
+            bag = json::object();
+        bag["position"] = json::array({ object.position.x, object.position.y, object.position.z });
+        bag["rotation"] = json::array({ object.rotation.w, object.rotation.x, object.rotation.y, object.rotation.z });
+        bag["scale"]    = json::array({ object.scale.x, object.scale.y, object.scale.z });
+        storeBag(object, bag);
+    }
+
     void sceneWriteEmissiveDiff(SceneObjectData& object, float emissive)
     {
         json live = json::object();

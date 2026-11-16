@@ -12,6 +12,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <format>
 #include <string>
 #include <string_view>
@@ -57,20 +58,28 @@ bool Dark::BeginGameCard(const char* name, bool* open, UiAccent accent, ImGuiWin
             const float  closeW   = canClose ? btn : 0.0f;
             const float  rowW     = ImGui::GetContentRegionAvail().x;
             const float  dragW    = rowW > closeW ? rowW - closeW : 0.0f;
+            const float  buttonW  = dragW >= 1.0f ? dragW : 1.0f;
+            const float  buttonH  = btn >= 1.0f ? btn : 1.0f;
             const ImVec2 rowPos   = ImGui::GetCursorScreenPos();
             const bool   canMove  = (extra & ImGuiWindowFlags_NoMove) == 0;
             if (canMove)
             {
-                ImGui::InvisibleButton("##carddrag", ImVec2(dragW, btn));
-                if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left))
+                ImGui::InvisibleButton("##carddrag", ImVec2(buttonW, buttonH));
+                static ImVec2 dragOffset(0.0f, 0.0f);
+                if (ImGui::IsItemActivated())
                 {
-                    const ImVec2 p = ImGui::GetWindowPos();
-                    const ImVec2 d = ImGui::GetIO().MouseDelta;
-                    ImGui::SetWindowPos(ImVec2(p.x + d.x, p.y + d.y));
+                    const ImVec2 win   = ImGui::GetWindowPos();
+                    const ImVec2 mouse = ImGui::GetIO().MousePos;
+                    dragOffset         = ImVec2(win.x - mouse.x, win.y - mouse.y);
+                }
+                if (ImGui::IsItemActive() && ImGui::IsMouseDown(ImGuiMouseButton_Left))
+                {
+                    const ImVec2 mouse = ImGui::GetMousePos();
+                    ImGui::SetWindowPos(ImVec2(mouse.x + dragOffset.x, mouse.y + dragOffset.y));
                 }
             }
             else
-                ImGui::Dummy(ImVec2(dragW, btn));
+                ImGui::Dummy(ImVec2(buttonW, buttonH));
 
             ImFont*         font = ImGui::GetFont();
             const float     textY = rowPos.y + (btn - font->FontSize) * 0.5f;
@@ -338,6 +347,10 @@ void drawListHeading(ImDrawList* dl, ImFont* font, float headPx, ImVec2 pos, flo
         dl->AddLine(ImVec2(pos.x, lineY), ImVec2(pos.x + lineW, lineY), IM_COL32(120, 210, 206, 90), 1.0f);
 }
 
+const char* hoveredControlList     = nullptr;
+float       pendingControlScroll   = 0.0f;
+const char* pendingControlScrollId = nullptr;
+
 void drawControlList(const char* id, ImVec2 pos, ImVec2 size, const std::vector<Dark::ControlRow>& rows, ImFont* font, bool locked)
 {
     if (size.x < 8.0f || size.y < 8.0f)
@@ -356,6 +369,14 @@ void drawControlList(const char* id, ImVec2 pos, ImVec2 size, const std::vector<
     if (locked)
         flags |= ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
     ImGui::BeginChild(id, size, ImGuiChildFlags_None, flags);
+    if (ImGui::IsWindowHovered())
+        hoveredControlList = id;
+    if (pendingControlScrollId && id && std::strcmp(pendingControlScrollId, id) == 0)
+    {
+        ImGui::SetScrollY(ImGui::GetScrollY() + pendingControlScroll);
+        pendingControlScroll   = 0.0f;
+        pendingControlScrollId = nullptr;
+    }
     if (font)
         ImGui::PushFont(font);
     const ImVec4 keyCol(0.73f, 0.93f, 0.90f, 0.95f);
@@ -391,6 +412,7 @@ void drawControlList(const char* id, ImVec2 pos, ImVec2 size, const std::vector<
 
 float drawSettingsBody(const SettingsPage& page, float y)
 {
+    hoveredControlList = nullptr;
     const float backH  = page.itemPx * 1.15f;
     const float backY  = page.vp->Pos.y + page.vp->Size.y - uiPx(36.0f) - backH;
     const float gap    = uiPx(36.0f);
@@ -500,11 +522,20 @@ float drawSettingsBody(const SettingsPage& page, float y)
 void Dark::drawMainMenuImGui(MainMenu& menu, const UiFonts& fonts, bool cancelHides, const MainMenuChrome& chrome)
 {
     if (!menu.visible())
+    {
+        pendingControlScroll   = 0.0f;
+        pendingControlScrollId = nullptr;
+        hoveredControlList     = nullptr;
         return;
+    }
 
     const ImGuiViewport* vp = ImGui::GetMainViewport();
     if (!vp || vp->Size.x < 8.0f || vp->Size.y < 8.0f)
+    {
+        pendingControlScroll   = 0.0f;
+        pendingControlScrollId = nullptr;
         return;
+    }
 
     MainMenuPage page = chrome.page ? *chrome.page : MainMenuPage::Front;
     const auto setPage = [&](MainMenuPage next) {
@@ -654,6 +685,9 @@ void Dark::drawMainMenuImGui(MainMenu& menu, const UiFonts& fonts, bool cancelHi
             headY += uiPx(10.0f);
 
             const float rowH = headPx * 2.05f;
+            static size_t lastLevelSelection = static_cast<size_t>(-1);
+            const size_t  selectedNow        = menu.selectedIndex();
+            const bool    scrollToSelection  = selectedNow != lastLevelSelection;
             int         levelCount = 0;
             for (const MainMenuEntry& entry : menu.entries())
             {
@@ -669,6 +703,7 @@ void Dark::drawMainMenuImGui(MainMenu& menu, const UiFonts& fonts, bool cancelHi
             if (locked)
                 listFlags |= ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
             ImGui::BeginChild("##leveljump", ImVec2(levelW, listH), ImGuiChildFlags_None, listFlags);
+            const bool  centerSelection = scrollToSelection || ImGui::IsWindowAppearing();
             ImDrawList* listDl = ImGui::GetWindowDrawList();
             const float namePx = headPx * 1.2f;
             int         shown  = 0;
@@ -682,7 +717,7 @@ void Dark::drawMainMenuImGui(MainMenu& menu, const UiFonts& fonts, bool cancelHi
                 ImGui::PushID(static_cast<int>(i));
                 const bool clicked = ImGui::InvisibleButton("##lvl", ImVec2(levelW, rowH));
                 const bool hovered = ImGui::IsItemHovered();
-                if (i == menu.selectedIndex())
+                if (centerSelection && i == selectedNow)
                     ImGui::SetScrollHereY(0.5f);
                 ImGui::PopID();
                 if (mouseMoved && hovered)
@@ -702,6 +737,7 @@ void Dark::drawMainMenuImGui(MainMenu& menu, const UiFonts& fonts, bool cancelHi
                 listDl->PopClipRect();
                 ++shown;
             }
+            lastLevelSelection = selectedNow;
             ImGui::EndChild();
             ImGui::PopStyleColor();
         }
@@ -748,10 +784,47 @@ void Dark::drawMainMenuImGui(MainMenu& menu, const UiFonts& fonts, bool cancelHi
             setPage(MainMenuPage::Front);
     }
 
+    if (page != MainMenuPage::Settings)
+    {
+        pendingControlScroll   = 0.0f;
+        pendingControlScrollId = nullptr;
+    }
+
     const bool focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
-    const bool backKey = ImGui::IsKeyPressed(ImGuiKey_Escape) || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight) || ImGui::IsKeyPressed(ImGuiKey_GamepadBack);
+    const bool backKey = ImGui::IsKeyPressed(ImGuiKey_Escape, false) || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) || ImGui::IsKeyPressed(ImGuiKey_GamepadBack, false);
     if (!locked && focused && !front)
     {
+        if (page == MainMenuPage::Settings)
+        {
+            if (chrome.masterVolume)
+            {
+                float step = 0.0f;
+                if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow) || ImGui::IsKeyPressed(ImGuiKey_GamepadDpadLeft))
+                    step -= 0.05f;
+                if (ImGui::IsKeyPressed(ImGuiKey_RightArrow) || ImGui::IsKeyPressed(ImGuiKey_GamepadDpadRight))
+                    step += 0.05f;
+                if (step != 0.0f)
+                {
+                    float volume = *chrome.masterVolume + step;
+                    if (volume < 0.0f)
+                        volume = 0.0f;
+                    if (volume > 1.0f)
+                        volume = 1.0f;
+                    *chrome.masterVolume = volume;
+                }
+            }
+            float scroll = 0.0f;
+            const float line = ImGui::GetTextLineHeightWithSpacing();
+            if (ImGui::IsKeyPressed(ImGuiKey_DownArrow) || ImGui::IsKeyPressed(ImGuiKey_GamepadDpadDown))
+                scroll += line * 3.0f;
+            if (ImGui::IsKeyPressed(ImGuiKey_UpArrow) || ImGui::IsKeyPressed(ImGuiKey_GamepadDpadUp))
+                scroll -= line * 3.0f;
+            if (scroll != 0.0f)
+            {
+                pendingControlScroll   = scroll;
+                pendingControlScrollId = hoveredControlList ? hoveredControlList : "##game_controls";
+            }
+        }
         if (!appearing && backKey)
             setPage(MainMenuPage::Front);
     }
@@ -769,7 +842,7 @@ void Dark::drawMainMenuImGui(MainMenu& menu, const UiFonts& fonts, bool cancelHi
             menu.setLevelFocus(true);
         if (levels && (ImGui::IsKeyPressed(ImGuiKey_LeftArrow) || ImGui::IsKeyPressed(ImGuiKey_GamepadDpadLeft)))
             menu.setLevelFocus(false);
-        if (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_Space) || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown))
+        if (ImGui::IsKeyPressed(ImGuiKey_Enter, false) || ImGui::IsKeyPressed(ImGuiKey_Space, false) || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false))
             menu.confirm();
         if (!appearing && backKey)
         {

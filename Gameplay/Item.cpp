@@ -187,7 +187,7 @@ namespace Dark
             scan(*it);
         catalogLoaded() = true;
         if (files == 0)
-            DE_LOG_WARN(LogCategory::Core, "Items: no items json found");
+            DE_LOG_ERROR(LogCategory::Core, "Items: no items json found");
     }
 
     bool loadStartingLoadout(std::vector<LoadoutGrant>& out)
@@ -218,8 +218,10 @@ namespace Dark
         return !out.empty();
     }
 
-    const ItemDef* findItemDef(std::string_view id)
+    const ItemDef* tryFindItemDef(std::string_view id)
     {
+        if (id.empty())
+            return nullptr;
         if (!catalogLoaded())
             reloadItemCatalog();
         for (const std::unique_ptr<OwnedItem>& row : catalog())
@@ -227,8 +229,15 @@ namespace Dark
             if (row && row->id == id)
                 return &row->def;
         }
-        DE_LOG_WARN(LogCategory::Core, "Items: '{}' is not in the catalog", std::string(id));
         return nullptr;
+    }
+
+    const ItemDef* findItemDef(std::string_view id)
+    {
+        const ItemDef* def = tryFindItemDef(id);
+        if (!def && !id.empty())
+            DE_LOG_WARN(LogCategory::Core, "Items: '{}' is not in the catalog", std::string(id));
+        return def;
     }
 
     const char* itemTypeName(ItemType type)

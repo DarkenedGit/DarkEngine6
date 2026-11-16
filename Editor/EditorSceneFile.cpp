@@ -110,10 +110,17 @@ bool EditorApp::saveScene()
         if (!xf)
             return;
         SceneObjectData d = so.source;
-        sceneSetInt(d, "emissiveMesh", -1);
         d.position = xf->position;
         d.rotation = xf->rotation;
         d.scale    = xf->scale;
+        if (sceneIsPlaceholder(d))
+        {
+            sceneWritePlaceholderTransform(d);
+            data.objects.push_back(std::move(d));
+            saved.push_back(e);
+            return;
+        }
+        sceneSetInt(d, "emissiveMesh", -1);
         copyColor(d.color, so.color);
         std::string circuit = sceneCircuit(so.source);
         if (const CircuitMemberComponent* member = world().get<CircuitMemberComponent>(e))
@@ -196,7 +203,8 @@ bool EditorApp::saveScene()
                     modelPath = virt.empty() ? model->sourcePath().generic_string() : virt;
                 }
             }
-            sceneWriteModelDiff(d, std::move(modelPath));
+            if (!modelPath.empty())
+                sceneWriteModelDiff(d, std::move(modelPath));
         }
         data.objects.push_back(d);
         saved.push_back(e);

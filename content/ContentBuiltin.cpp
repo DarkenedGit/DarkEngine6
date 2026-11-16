@@ -117,8 +117,13 @@ namespace Dark
             json object;
             if (!readObject(jsonText, object, err, "Combat"))
                 return false;
+            ArchetypeParamsComponent& params = paramsOf(world, entity);
             if (object.contains("attacks") && object["attacks"].is_string())
-                paramsOf(world, entity).combatAttacks = object["attacks"].get<std::string>();
+                params.combatAttacks = object["attacks"].get<std::string>();
+            if (object.contains("movement") && object["movement"].is_string())
+                params.movementType = object["movement"].get<std::string>();
+            if (object.contains("skill") && object["skill"].is_string())
+                params.skillProfile = object["skill"].get<std::string>();
             return true;
         }
 

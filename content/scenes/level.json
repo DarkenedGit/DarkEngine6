@@ -537,6 +537,15 @@
       "dirtFlowersPerM2": 0.006000000052154064,
       "dirtTreesPerM2": 0.0020000000949949026,
       "flowerModel": "models/Dandelion/dandelion_01_2k.gltf",
+      "flowers": [
+        {
+          "path": "models/Dandelion/dandelion_01_2k.gltf",
+          "weight": 1.0,
+          "scaleMin": 0.25,
+          "scaleMax": 0.50,
+          "worldScale": false
+        }
+      ],
       "grassFlowersPerM2": 0.00800000037997961,
       "grassModel": "models/Grass/grass_medium_01_2k.gltf",
       "grassPerM2": 0.25,

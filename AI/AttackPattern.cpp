@@ -60,6 +60,8 @@ namespace Dark::AI
         {
             if (text == "jump" || text == "pounce")
                 return AttackKind::Jump;
+            if (text == "rush")
+                return AttackKind::Rush;
             return AttackKind::Melee;
         }
     }
@@ -130,7 +132,19 @@ namespace Dark::AI
             readFloat(item, "damage", move.damage);
             readFloat(item, "stunSeconds", move.stunSeconds);
             readFloat(item, "poise", move.poise);
-            if (move.maxRange < move.minRange || move.windup < 0.0f || move.damage < 0.0f || move.stunSeconds < 0.0f)
+            float close = move.closeChance;
+            if (readFloat(item, "closeChance", close))
+            {
+                if (close > 1.0f && close <= 100.0f)
+                    close *= 0.01f;
+                move.closeChance = close;
+            }
+            readFloat(item, "contactRange", move.contactRange);
+            readFloat(item, "knockback", move.knockback);
+            readFloat(item, "knockbackSeconds", move.knockbackSeconds);
+            readFloat(item, "rushSpeed", move.rushSpeed);
+            readFloat(item, "rushSeconds", move.rushSeconds);
+            if (move.maxRange < move.minRange || move.windup < 0.0f || move.damage < 0.0f || move.stunSeconds < 0.0f || move.closeChance < 0.0f || move.closeChance > 1.0f || move.contactRange < 0.0f || move.knockback < 0.0f || move.knockbackSeconds < 0.0f || move.rushSpeed < 0.0f || move.rushSeconds < 0.0f)
             {
                 DE_LOG_ERROR(LogCategory::AI, "AttackPattern: bad move '{}'", move.id);
                 return false;

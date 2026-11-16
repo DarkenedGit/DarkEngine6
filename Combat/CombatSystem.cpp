@@ -360,9 +360,16 @@ namespace Dark::Combat
                 hitReaction->setSettings(hitch);
                 hitReaction->apply(reactionDir);
             }
-            else if (r.severity != Severity::Tick && !hyper)
+            else if ((r.severity != Severity::Tick || ev.knockbackMetres > 0.0f) && !hyper)
             {
-                hitReaction->setSettings(hitReactionForSeverity(r.severity));
+                HitReactionSettings shove = hitReactionForSeverity(r.severity);
+                if (ev.knockbackMetres > 0.0f)
+                {
+                    shove.knockbackDistance = ev.knockbackMetres;
+                    if (ev.knockbackSeconds > 0.0f)
+                        shove.knockbackSeconds = ev.knockbackSeconds;
+                }
+                hitReaction->setSettings(shove);
                 hitReaction->apply(reactionDir);
             }
         }

@@ -480,7 +480,7 @@ namespace Dark
             return;
         std::vector<LoadoutGrant> grants;
         if (!loadStartingLoadout(grants))
-            DE_LOG_WARN("Play: player/loadout.json did not load");
+            DE_LOG_ERROR("Play: player/loadout.json did not load");
         const bool hadSword = hasItem(*inv, "sword");
         const bool hadRifle = hasItem(*inv, "rifle");
         for (const LoadoutGrant& grant : grants)
@@ -492,7 +492,7 @@ namespace Dark
             }
             else if (countItem(*inv, grant.id) > 0)
                 continue;
-            if (const ItemDef* def = findItemDef(grant.id))
+            if (const ItemDef* def = tryFindItemDef(grant.id))
                 addItem(*inv, *def, grant.count);
             else
                 DE_LOG_WARN("Play: '{}' is not in the item catalog", grant.id);
@@ -517,7 +517,7 @@ namespace Dark
         World* world = m_host.world;
         if (!world || !hunter.valid() || !m_host.pins || !m_host.assets || !m_host.renderer || !m_host.physics)
             return;
-        const ItemDef* med = findItemDef("medkit");
+        const ItemDef* med = tryFindItemDef("medkit");
         if (!med)
         {
             DE_LOG_WARN("Play: medkit is not in the item catalog");

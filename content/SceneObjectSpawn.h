@@ -97,6 +97,8 @@ namespace Dark
     void sceneWriteSpawnerDiff(SceneObjectData& object, const SpawnerDesc& desc);
     void sceneWriteMovieDiff(SceneObjectData& object, std::string path, float radius, bool loop);
     void sceneWriteModelDiff(SceneObjectData& object, std::string path);
+    // Writes the live pose into a placeholder's raw object and leaves every other key alone.
+    void sceneWritePlaceholderTransform(SceneObjectData& object);
     void sceneWriteEmissiveDiff(SceneObjectData& object, float emissive);
 
     // Placement markers. Absent keys use the file defaults (block true, pickupCount 1, emissive mesh -1).

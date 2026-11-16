@@ -9,6 +9,7 @@
 #include "Ui/ImGuiTheme.h"
 #include "Play/DialogueMemory.h"
 #include "Play/CharacterAttach.h"
+#include "Scene/EntityCombat.h"
 #include "Play/ContactGrind.h"
 #include "Gameplay/PowerComponents.h"
 #include "Media/MovieCue.h"
@@ -138,9 +139,10 @@ bool EditorApp::attachEditorPlayer(Entity e)
 
 bool EditorApp::attachEditorNpc(Entity e, NpcKind kind, const char* proxyWarn)
 {
+    const char* archetypeId = kind == NpcKind::Wolf ? "core:wolf" : "core:hunter";
+    assignCombatProfile(world(), e, archetypeId);
     if (!m_ai.attachHunter(world(), e, pins(), assets()))
         return false;
-    const char* archetypeId = kind == NpcKind::Wolf ? "core:wolf" : "core:hunter";
     ensureHumanoidBody(world(), e, archetypeHealthSettings(archetypeId), Vector3f{ 0.35f, 0.7f, 0.35f });
     const CharacterHost host{ world(), renderer(), assets(), pins(), audio(), m_ground };
     const bool haveModel = world().has<ModelComponent>(e) && world().get<ModelComponent>(e)->modelAssetID != NULL_ASSET;
@@ -731,7 +733,7 @@ void EditorApp::spawnPlayPickups()
             so.playPickupSpent = true;
             return;
         }
-        const ItemDef* def = findItemDef(so.pickup);
+        const ItemDef* def = tryFindItemDef(so.pickup);
         if (!def)
         {
             DE_LOG_WARN("Editor: unknown pickup item '{}'", so.pickup);
@@ -827,7 +829,7 @@ void EditorApp::drawUpgrades()
         std::string cost;
         for (const UpgradeCost& c : up.cost)
         {
-            const ItemDef* def = findItemDef(c.item);
+            const ItemDef* def = tryFindItemDef(c.item);
             if (!cost.empty())
                 cost += ", ";
             cost += std::format("{} {} ({} held)", c.count, def ? def->name : c.item.c_str(), heldCount(*inv, c.item));

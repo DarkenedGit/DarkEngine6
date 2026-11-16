@@ -20,14 +20,20 @@
       "poise": 10
     },
     {
-      "id": "pounce",
-      "kind": "jump",
-      "minRange": 4.0,
-      "maxRange": 9.0,
-      "windup": 0.40,
+      "id": "rush",
+      "kind": "rush",
+      "minRange": 2.0,
+      "maxRange": 4.0,
+      "closeChance": 0.5,
+      "windup": 0.15,
       "damage": 22,
       "stunSeconds": 0.85,
-      "poise": 16
+      "poise": 16,
+      "contactRange": 1.25,
+      "knockback": 2.4,
+      "knockbackSeconds": 0.22,
+      "rushSpeed": 8.0,
+      "rushSeconds": 1.25
     }
   ]
 }

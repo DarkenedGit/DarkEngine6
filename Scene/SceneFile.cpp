@@ -119,33 +119,12 @@ bool readQuat(const json& j, Math::Quaternion& out, std::string* err, const char
 
 Sky::WeatherState weatherPreset(const std::string& name)
 {
-    if (name == "clear")
-        return Sky::WeatherState::Clear();
-    if (name == "overcast")
-        return Sky::WeatherState::Overcast();
-    if (name == "storm")
-        return Sky::WeatherState::Storm();
-    return Sky::WeatherState::PartlyCloudy();
-}
-
-bool weatherMatches(const Sky::WeatherState& a, const Sky::WeatherState& b)
-{
-    return std::fabs(a.cloudCoverage - b.cloudCoverage) < 1.0e-3f && std::fabs(a.turbidity - b.turbidity) < 1.0e-3f
-        && std::fabs(a.windSpeed - b.windSpeed) < 1.0e-3f && std::fabs(a.windDir.x - b.windDir.x) < 1.0e-3f
-        && std::fabs(a.windDir.y - b.windDir.y) < 1.0e-3f && std::fabs(a.rain - b.rain) < 1.0e-3f;
+    return Sky::weatherPresetNamed(name.c_str());
 }
 
 const char* weatherNameFor(const Sky::WeatherState& weather)
 {
-    if (weatherMatches(weather, Sky::WeatherState::Clear()))
-        return "clear";
-    if (weatherMatches(weather, Sky::WeatherState::PartlyCloudy()))
-        return "partly";
-    if (weatherMatches(weather, Sky::WeatherState::Overcast()))
-        return "overcast";
-    if (weatherMatches(weather, Sky::WeatherState::Storm()))
-        return "storm";
-    return "custom";
+    return Sky::weatherPresetName(weather);
 }
 
 json skyToJson(const SkySceneDesc& sky)
@@ -1223,8 +1202,8 @@ bool loadSceneFromJson(const std::filesystem::path& path, SceneFileData& outScen
                 readQuat(jo["rotation"], o.rotation, &ignored, "rotation");
             if (jo.contains("scale") && jo["scale"].is_array())
                 readVec3(jo["scale"], o.scale, &ignored, "scale");
-            outScene.objects.push_back(std::move(o));
             DE_LOG_WARN("SceneFile: unknown archetype '{}' kept as a placeholder", o.archetype);
+            outScene.objects.push_back(std::move(o));
             continue;
         }
 

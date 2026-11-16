@@ -180,6 +180,32 @@ namespace
                 path->waypoint = 0;
             }
         }
+
+        // The hunter content file rushes instead of jumping. These tests start the leap themselves.
+        bool beginTelegraph(Entity e)
+        {
+            Dark::Combat::JumpAttack* jumpAttack = jump(e);
+            TransformComponent*       xf         = world.get<TransformComponent>(e);
+            TransformComponent*       px         = world.get<TransformComponent>(player);
+            AiAgentComponent*         agent      = world.get<AiAgentComponent>(e);
+            if (!jumpAttack || !xf || !px || !agent)
+                return false;
+            Dark::Combat::JumpAttackBegin req{};
+            req.attacker       = e;
+            req.position       = xf->position;
+            Vector3f look{ px->position.x - xf->position.x, 0.0f, px->position.z - xf->position.z };
+            if (look.MagnitudeSqrd() > 1.0e-6f)
+                look.Normalize();
+            else
+                look = agent->forward;
+            req.lookFlat          = look;
+            req.intendedTarget    = player;
+            req.intendedTargetPos = px->position;
+            if (!jumpAttack->begin(req))
+                return false;
+            ai.setJumpAttackToken(e);
+            return jumpAttack->phase() == JumpAttackPhase::Telegraph;
+        }
     };
 
     // Same radius as sweepSolids. The helper is anonymous, so the tick is the lock.
@@ -214,6 +240,8 @@ namespace
         auto def       = h.jump(out.e)->def();
         def.homingRate = 0.0f;
         h.jump(out.e)->setDef(def);
+        if (!h.beginTelegraph(out.e))
+            return false;
         const float hang = 2.0f * def.leapVerticalSpeed / def.gravity;
         if (!(hang > 0.0f))
             return false;
@@ -264,51 +292,92 @@ TEST(HunterJumpAttack, SpawnUsesHunterDef)
     EXPECT_NEAR(def.poundDamage, 14.0f, 1.0e-4f);
 }
 
-TEST(HunterJumpAttack, RangeBandInclusive)
-{
-    auto tryAt = [](float hunterX, float playerX, bool wantBegin) {
-        Harness h;
-        ASSERT_TRUE(h.setup());
-        h.placePlayer(playerX, 8.0f);
-        Entity e = h.spawnHunterAt(hunterX, 8.0f);
-        ASSERT_TRUE(e.valid());
-        h.tick();
-        if (wantBegin)
-        {
-            EXPECT_EQ(h.jump(e)->phase(), JumpAttackPhase::Telegraph) << "dist " << (playerX - hunterX);
-            EXPECT_EQ(h.ai.jumpAttackToken().id(), e.id());
-        }
-        else
-        {
-            EXPECT_EQ(h.jump(e)->phase(), JumpAttackPhase::Idle) << "dist " << (playerX - hunterX);
-            EXPECT_FALSE(h.ai.jumpAttackToken().valid());
-        }
-    };
-    tryAt(8.0f, 12.0f, true);  // 4.0
-    tryAt(5.0f, 14.0f, true);  // 9.0
-    tryAt(8.0f, 11.5f, false); // 3.5
-    tryAt(4.0f, 14.0f, false); // 10.0
-}
-
-TEST(HunterJumpAttack, PackTokenOneJumper)
+TEST(HunterJumpAttack, RushRollKeepsClosingOrStartsTheRush)
 {
     Harness h;
     ASSERT_TRUE(h.setup());
-    h.placePlayer(14.0f, 8.0f);
-    Entity a = h.spawnHunterAt(8.0f, 8.0f);
-    Entity b = h.spawnHunterAt(8.0f, 10.0f);
-    ASSERT_TRUE(a.valid());
-    ASSERT_TRUE(b.valid());
+    h.placePlayer(12.0f, 8.0f); // 4 m, the far edge of the rush band, outside the duel ring
+    Entity e = h.spawnHunterAt(8.0f, 8.0f);
+    ASSERT_TRUE(e.valid());
     h.tick();
-    EXPECT_EQ(h.jump(a)->phase(), JumpAttackPhase::Telegraph);
-    EXPECT_EQ(h.jump(b)->phase(), JumpAttackPhase::Idle);
-    EXPECT_EQ(h.ai.jumpAttackToken().id(), a.id());
 
-    h.tickFor(0.40f);
-    EXPECT_TRUE(h.jump(a)->busy());
-    EXPECT_NE(h.jump(a)->phase(), JumpAttackPhase::Idle);
+    const AiAgentComponent* agent = h.world.get<AiAgentComponent>(e);
+    ASSERT_NE(agent, nullptr);
+    const uint32_t key   = 1u ^ (static_cast<uint32_t>(e.id()) * 0x9E3779B9u);
+    const bool     close = Dark::AI::approachKeepsClosing(0.5f, Dark::AI::approachRoll(key));
+    if (close)
+    {
+        EXPECT_TRUE(agent->approachClose);
+        EXPECT_FLOAT_EQ(agent->rushWindup, 0.0f);
+        EXPECT_FLOAT_EQ(agent->rushLeft, 0.0f);
+        EXPECT_FALSE(h.ai.jumpAttackToken().valid());
+    }
+    else
+    {
+        EXPECT_FALSE(agent->approachClose);
+        EXPECT_GT(agent->rushWindup + agent->rushLeft, 0.0f);
+        EXPECT_EQ(h.ai.jumpAttackToken().id(), e.id());
+        EXPECT_EQ(h.jump(e)->phase(), JumpAttackPhase::Idle);
+    }
+}
+
+TEST(HunterJumpAttack, RushConnectKnocksThePlayerBack)
+{
+    Harness h;
+    ASSERT_TRUE(h.setup());
+    h.placePlayer(11.0f, 8.0f);
+    Entity e = h.spawnHunterAt(8.0f, 8.0f);
+    ASSERT_TRUE(e.valid());
     h.tick();
-    EXPECT_EQ(h.jump(b)->phase(), JumpAttackPhase::Idle);
+    AiAgentComponent* agent = h.world.get<AiAgentComponent>(e);
+    ASSERT_NE(agent, nullptr);
+    agent->approachClose = false;
+    agent->rushAttack    = 1;
+    agent->rushWindup    = 0.0f;
+    agent->rushLeft      = 1.25f;
+    h.ai.setJumpAttackToken(e);
+
+    const float before = h.world.get<HealthComponent>(h.player)->health.hp();
+    h.tickFor(0.8f);
+    EXPECT_LT(h.world.get<HealthComponent>(h.player)->health.hp(), before);
+    const HitReactionComponent* hit = h.world.get<HitReactionComponent>(h.player);
+    ASSERT_NE(hit, nullptr);
+    EXPECT_NEAR(hit->hit.settings().knockbackDistance, 2.4f, 1.0e-3f);
+    EXPECT_GT(hit->hit.knockbackRemaining(), 0.0f);
+}
+
+TEST(HunterJumpAttack, OneRushHoldsTheToken)
+{
+    Harness h;
+    ASSERT_TRUE(h.setup());
+    h.placePlayer(12.0f, 8.0f);
+    Entity a = h.spawnHunterAt(8.0f, 8.0f);
+    Entity b = h.spawnHunterAt(8.0f, 8.0f);
+    ASSERT_TRUE(a.valid() && b.valid());
+    h.tick();
+    if (AiAgentComponent* agent = h.world.get<AiAgentComponent>(a))
+    {
+        agent->rushAttack = 1;
+        agent->rushWindup = 0.0f;
+        agent->rushLeft   = 1.25f;
+    }
+    h.ai.setJumpAttackToken(a);
+    if (AiAgentComponent* agent = h.world.get<AiAgentComponent>(b))
+    {
+        agent->approachClose = false;
+        agent->approachSalt  = 1;
+        agent->rushWindup    = 0.0f;
+        agent->rushLeft      = 0.0f;
+        agent->rushAttack    = -1;
+        agent->attackGap     = 0.0f;
+        agent->attackPause   = 0.0f;
+        agent->repositionLeft = 0.0f;
+    }
+    h.tick();
+    const AiAgentComponent* second = h.world.get<AiAgentComponent>(b);
+    ASSERT_NE(second, nullptr);
+    EXPECT_FLOAT_EQ(second->rushWindup, 0.0f);
+    EXPECT_FLOAT_EQ(second->rushLeft, 0.0f);
     EXPECT_EQ(h.ai.jumpAttackToken().id(), a.id());
 }
 
@@ -319,8 +388,7 @@ TEST(HunterJumpAttack, RecoverHoldsTokenUntilIdle)
     Entity a = h.spawnHunterAt(8.0f, 8.0f);
     Entity b = h.spawnHunterAt(8.0f, 10.0f);
     ASSERT_TRUE(a.valid() && b.valid());
-    h.tick();
-    ASSERT_EQ(h.jump(a)->phase(), JumpAttackPhase::Telegraph);
+    ASSERT_TRUE(h.beginTelegraph(a));
     ASSERT_TRUE(h.tickUntilAir(a));
 
     h.jump(a)->onLanded(h.world.get<TransformComponent>(a)->position);
@@ -342,8 +410,7 @@ TEST(HunterJumpAttack, CooldownBlocksSecondBegin)
     ASSERT_TRUE(h.setup());
     Entity e = h.spawnHunterAt(8.0f, 8.0f);
     ASSERT_TRUE(e.valid());
-    h.tick();
-    ASSERT_EQ(h.jump(e)->phase(), JumpAttackPhase::Telegraph);
+    ASSERT_TRUE(h.beginTelegraph(e));
     EXPECT_NEAR(h.jump(e)->cooldownLeft(), 3.5f, 0.02f);
     h.jump(e)->cancel(JumpAttackCancel::NoPound);
     EXPECT_EQ(h.jump(e)->phase(), JumpAttackPhase::Idle);
@@ -370,8 +437,8 @@ TEST(HunterJumpAttack, CooldownBlocksSecondBegin)
         ai->preferOtherAttack = false;
     }
     h.tick();
-    EXPECT_EQ(h.jump(e)->phase(), JumpAttackPhase::Telegraph);
-    EXPECT_EQ(h.ai.jumpAttackToken().id(), e.id());
+    EXPECT_EQ(h.jump(e)->phase(), JumpAttackPhase::Idle);
+    EXPECT_TRUE(h.beginTelegraph(e));
 }
 
 TEST(HunterJumpAttack, DeathClearsToken)
@@ -380,8 +447,7 @@ TEST(HunterJumpAttack, DeathClearsToken)
     ASSERT_TRUE(h.setup());
     Entity e = h.spawnHunterAt(8.0f, 8.0f);
     ASSERT_TRUE(e.valid());
-    h.tick();
-    ASSERT_EQ(h.jump(e)->phase(), JumpAttackPhase::Telegraph);
+    ASSERT_TRUE(h.beginTelegraph(e));
     EXPECT_EQ(h.ai.jumpAttackToken().id(), e.id());
 
     EXPECT_TRUE(h.world.get<HealthComponent>(e)->health.applyDamage(200.0f));
@@ -399,8 +465,7 @@ TEST(HunterJumpAttack, ApplyHunterDamageDeathClearsToken)
     ASSERT_TRUE(h.setup());
     Entity e = h.spawnHunterAt(8.0f, 8.0f);
     ASSERT_TRUE(e.valid());
-    h.tick();
-    ASSERT_EQ(h.jump(e)->phase(), JumpAttackPhase::Telegraph);
+    ASSERT_TRUE(h.beginTelegraph(e));
     EXPECT_TRUE(h.ai.applyHunterDamage(h.world, e, 200.0f));
     EXPECT_EQ(h.jump(e)->phase(), JumpAttackPhase::Idle);
     EXPECT_FALSE(h.ai.jumpAttackToken().valid());
@@ -412,7 +477,7 @@ TEST(HunterJumpAttack, DeathDuringLeapFallsToGround)
     ASSERT_TRUE(h.setup());
     Entity e = h.spawnHunterAt(8.0f, 8.0f);
     ASSERT_TRUE(e.valid());
-    h.tick();
+    ASSERT_TRUE(h.beginTelegraph(e));
     ASSERT_TRUE(h.tickUntilAir(e));
     h.tickFor(0.25f);
     ASSERT_TRUE(h.jump(e)->inAirCommit());
@@ -443,8 +508,7 @@ TEST(HunterJumpAttack, RecoverToIdleWhileCcClearsToken)
     ASSERT_TRUE(h.setup());
     Entity e = h.spawnHunterAt(8.0f, 8.0f);
     ASSERT_TRUE(e.valid());
-    h.tick();
-    ASSERT_EQ(h.jump(e)->phase(), JumpAttackPhase::Telegraph);
+    ASSERT_TRUE(h.beginTelegraph(e));
     ASSERT_TRUE(h.tickUntilAir(e));
 
     h.jump(e)->onLanded(h.world.get<TransformComponent>(e)->position);
@@ -479,8 +543,7 @@ TEST(HunterJumpAttack, WalkableBackStepOnLand)
     h.jump(e)->setDef(def);
 
     EXPECT_FALSE(h.ai.walkability().walkableWorld(12.0f, 8.0f));
-    h.tick();
-    ASSERT_EQ(h.jump(e)->phase(), JumpAttackPhase::Telegraph);
+    ASSERT_TRUE(h.beginTelegraph(e));
     h.tickFor(1.5f);
 
     const TransformComponent* xf = h.world.get<TransformComponent>(e);
@@ -496,8 +559,7 @@ TEST(HunterJumpAttack, WetCancelsAndClearsToken)
     ASSERT_TRUE(h.setup());
     Entity e = h.spawnHunterAt(8.0f, 8.0f);
     ASSERT_TRUE(e.valid());
-    h.tick();
-    ASSERT_EQ(h.jump(e)->phase(), JumpAttackPhase::Telegraph);
+    ASSERT_TRUE(h.beginTelegraph(e));
     h.tick(kDt, true);
     EXPECT_EQ(h.jump(e)->phase(), JumpAttackPhase::Idle);
     EXPECT_FALSE(h.ai.jumpAttackToken().valid());
@@ -509,7 +571,7 @@ TEST(HunterJumpAttack, WetCancelsLeapNoConnectOrPound)
     ASSERT_TRUE(h.setup());
     Entity e = h.spawnHunterAt(8.0f, 8.0f);
     ASSERT_TRUE(e.valid());
-    h.tick();
+    ASSERT_TRUE(h.beginTelegraph(e));
     ASSERT_TRUE(h.tickUntilAir(e));
     ASSERT_TRUE(h.jump(e)->inAirCommit());
     const float playerHp = h.world.get<HealthComponent>(h.player)->health.hp();
@@ -526,8 +588,7 @@ TEST(HunterJumpAttack, FleeCancelsAndClearsToken)
     Entity jumper = h.spawnHunterAt(8.0f, 8.0f);
     Entity dummy  = h.spawnHunterAt(10.0f, 8.0f);
     ASSERT_TRUE(jumper.valid() && dummy.valid());
-    h.tick();
-    ASSERT_EQ(h.jump(jumper)->phase(), JumpAttackPhase::Telegraph);
+    ASSERT_TRUE(h.beginTelegraph(jumper));
 
     h.world.get<HealthComponent>(dummy)->health.applyDamage(200.0f);
     h.ai.onHunterKilled(h.world, dummy);
@@ -544,8 +605,7 @@ TEST(HunterJumpAttack, SplashCancelsNoPound)
     Entity e = h.spawnHunterAt(8.0f, 8.0f);
     ASSERT_TRUE(e.valid());
     const float playerHp = h.world.get<HealthComponent>(h.player)->health.hp();
-    h.tick();
-    ASSERT_EQ(h.jump(e)->phase(), JumpAttackPhase::Telegraph);
+    ASSERT_TRUE(h.beginTelegraph(e));
     h.tickFor(0.50f);
     EXPECT_EQ(h.jump(e)->phase(), JumpAttackPhase::Idle);
     EXPECT_FALSE(h.ai.jumpAttackToken().valid());
@@ -605,8 +665,7 @@ TEST(HunterJumpAttack, TelegraphSkipsFollowKeepsHitReaction)
     ASSERT_TRUE(h.setup());
     Entity e = h.spawnHunterAt(8.0f, 8.0f);
     ASSERT_TRUE(e.valid());
-    h.tick();
-    ASSERT_EQ(h.jump(e)->phase(), JumpAttackPhase::Telegraph);
+    ASSERT_TRUE(h.beginTelegraph(e));
     const Vector3f start = h.world.get<TransformComponent>(e)->position;
     h.tickFor(0.30f);
     EXPECT_EQ(h.jump(e)->phase(), JumpAttackPhase::Telegraph);
@@ -624,7 +683,7 @@ TEST(HunterJumpAttack, InAirCommitSkipsHitReactionAndYSnap)
     ASSERT_TRUE(h.setup());
     Entity e = h.spawnHunterAt(8.0f, 8.0f);
     ASSERT_TRUE(e.valid());
-    h.tick();
+    ASSERT_TRUE(h.beginTelegraph(e));
     ASSERT_TRUE(h.tickUntilAir(e));
     const float y = h.world.get<TransformComponent>(e)->position.y;
     EXPECT_GT(y, 1.05f);
@@ -644,7 +703,7 @@ TEST(HunterJumpAttack, LeapResolvesThroughCombatNotApplyHunterDamage)
     ASSERT_TRUE(e.valid());
     const float hunterHp = h.world.get<HealthComponent>(e)->health.hp();
     const float playerHp = h.world.get<HealthComponent>(h.player)->health.hp();
-    h.tick();
+    ASSERT_TRUE(h.beginTelegraph(e));
     h.tickFor(1.5f);
     EXPECT_LT(h.world.get<HealthComponent>(h.player)->health.hp(), playerHp);
     EXPECT_NEAR(h.world.get<HealthComponent>(e)->health.hp(), hunterHp, 1.0e-3f);
