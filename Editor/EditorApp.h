@@ -11,8 +11,6 @@
 #include "Render/FoliagePipeline.h"
 #include "Render/FoliagePrototypes.h"
 #include "Render/GrassPipeline.h"
-#include "Terrain/GrassField.h"
-#include "Terrain/WindField.h"
 #include "Render/LinePipeline.h"
 #include "Render/SceneRenderer.h"
 #include "Render/Camera3D.h"
@@ -23,10 +21,9 @@
 #include "Render/Texture2D.h"
 #include "Content/ContentDb.h"
 #include "Scene/SceneTypes.h"
-#include "Play/Crow.h"
+#include "Scene/SceneWorld.h"
 #include "Media/MoviePlayer.h"
 #include "Play/DialogueController.h"
-#include "Play/GuardVoice.h"
 #include "Play/PlaySession.h"
 #include "Editor/EditorObject.h"
 #include "Math/AABox2f.h"
@@ -41,16 +38,12 @@
 #include <string>
 #include <vector>
 #include "Animation/AnimGraphComponent.h"
-#include "Particles/BloodSplatPool.h"
 #include "Particles/ParticleComponents.h"
 #include "Particles/ParticleEmitter.h"
 #include "Particles/ParticleRenderer.h"
-#include "Play/PlayFeedback.h"
 #include "Play/QuestBanner.h"
 #include "Particles/GpuParticleSystem.h"
 #include "Particles/LeafRenderer.h"
-#include "Terrain/LeafField.h"
-#include "Terrain/LeafRustle.h"
 
 #include "AI/AiSystem.h"
 #include "Audio/SoundClip.h"
@@ -68,22 +61,15 @@
 #include "Terrain/FoliageCover.h"
 #include "Terrain/FoliageFile.h"
 #include "Terrain/TerrainGround.h"
-#include "Terrain/TerrainGrid.h"
 #include "Terrain/TerrainMaterial.h"
-#include "Sky/Environment.h"
-#include "Water/Water.h"
 #include "Water/WaterBody.h"
-#include "Water/WaterStream.h"
 #include "Weapons/Weapon.h"
 #include "Weapons/WeaponLoadout.h"
 #include "Physics/PhysicsComponent.h"
 #include "Physics/PhysicsSurface.h"
-#include "Physics/PhysicsWorld.h"
-#include "Physics/FoliageCollision.h"
 #include "Save/SaveSystem.h"
 
 #include <atomic>
-#include <deque>
 #include <filesystem>
 #include <memory>
 #include <mutex>
@@ -414,16 +400,10 @@ private:
     Camera3D m_camera;
     Camera2D m_camera2D;
     SceneMode m_sceneMode = SceneMode::Scene3D;
-    Sky::Environment m_env;
+    SceneWorld        m_sceneWorld;
     WaterSceneDesc    m_authoredWater{};
     ExposureSceneDesc m_authoredExposure{};
-    StealthSceneDesc  m_authoredStealth{};
-    GrassSceneDesc        m_authoredGrass{};
-    Terrain::WindSettings m_wind = Terrain::defaultWindSettings();
-    IblSettings  m_ibl;
-    GtaoSettings m_ssao;
-    SsrSettings  m_ssr;
-    AssetID      m_iblImageId = NULL_ASSET;
+    GrassSceneDesc    m_authoredGrass{};
 
     SpritePipeline     m_spritePipe;
     Mesh     m_quadMesh;
@@ -443,10 +423,6 @@ private:
     ParticleRenderer                           m_particleRenderer;
     GpuParticleSystem                          m_gpuParticles;
     LeafRenderer                               m_leafRenderer;
-    Terrain::LeafField                         m_leafField;
-    Terrain::LeafRustleVoices                  m_leafRustle;
-    float                                      m_leafShedScale  = 1.0f;
-    double                                     m_leafSimSeconds = 0.0;
     Entity                                     m_selected{};
 
     EditorImGui          m_imgui;
@@ -465,7 +441,6 @@ private:
     std::string     m_placeArchetype = "core:cube";
     bool            m_showContentReport = false;
     float           m_contentPoll       = 0.0f;
-    float           m_cloudTime  = 0.0f;
     bool                  m_queuePlaceAtCursor = false;
     bool                  m_queueGlowProp      = false;
     bool                  m_queueAssetPlace    = false;
@@ -523,8 +498,6 @@ private:
     uint64_t        m_fileIconId   = 0;
     uint64_t        m_folderIconId = 0;
 
-    Terrain::TerrainGrid          m_terrain;
-    WaterWorld                    m_water;
     struct EditorWaterSlot
     {
         EntityID entityId = 0;
@@ -560,9 +533,6 @@ private:
     std::string                   m_terrainCoarseFile;
     std::string                   m_terrainTileDir;
     uint32_t                      m_terrainSeed     = 1337u;
-    float                         m_terrainSeaLevel = 32.0f;
-    Terrain::FoliageDensity             m_foliageDensity{};
-    std::vector<Terrain::FoliageRecord> m_foliage;
     std::vector<Terrain::FoliageRecord> m_foliagePending;
     Terrain::FoliageCover               m_foliagePendingCover;
     std::vector<Terrain::TrailPath>     m_foliagePendingTrails;
@@ -596,10 +566,6 @@ private:
     FoliagePrototypes                   m_foliagePrototypes;
     FoliagePipeline                     m_foliagePipeline;
     GrassPipeline                       m_grassPipeline;
-    Terrain::GrassField                 m_grassField;
-    double                              m_grassWindSeconds = 0.0;
-    Terrain::WindClock                  m_windClock;
-    bool                                m_loggedForwardGrassSkip = false;
     std::string                   m_terrainAlbedoPath[Terrain::kMaxTerrainLayers];
     std::string                   m_terrainNormalPath[Terrain::kMaxTerrainLayers];
     std::string                   m_terrainOrmPath[Terrain::kMaxTerrainLayers];
@@ -629,23 +595,12 @@ private:
 
     Dark::AiSystem            m_ai;
     Dark::PlaySession         m_play;
-    Dark::GuardVoice          m_guardVoice;
     Dark::DialogueController  m_dialogue;
     Dark::MoviePlayer         m_movie;
-    bool                      m_movieWasBlocking = false;
-    std::string               m_sceneQuest;
     std::vector<Dark::SceneBuildingDesc> m_sceneBuildings;
-    std::deque<std::string>   m_buildingLabels;
-    std::vector<BuildingContainer> m_buildingContainers;
-    std::vector<BuildingHideSpot>  m_buildingHides;
-    std::vector<BuildingDoor>      m_buildingDoors;
-    std::vector<BuildingCamera>    m_buildingCameras;
     bool                      m_showUpgrades = false;
     std::vector<Dark::QuestBanner> m_questBanners;
-    Physics::PhysicsWorld          m_physics;
     Physics::PhysicsSurfaceCatalog m_surfaces;
-    Physics::PhysicsBodyId         m_physicsGround = Physics::kNullPhysicsBody;
-    Physics::FoliageCollisionSet   m_foliageCollision;
     bool                      m_playMode = false;
     // Gold tracer sphere for a live rifle shot.
     AssetID                   m_tracerModelId = NULL_ASSET;
@@ -653,25 +608,15 @@ private:
     bool                      m_suspendLiveStamp = false;
     int                       m_liveStamp = 0;
     Dark::Save::SaveSystem    m_save;
-    Dark::Entity              m_session{};
     Dark::Entity              m_playPlayer{};
     Dark::Entity              m_lootTarget{};
     std::string               m_defenseText;
     float                     m_defenseTextLeft = 0.0f;
     bool                      m_defenseParry    = false;
-    CrowModels                m_crowModels{};
-    Dark::Entity              m_playShield{};
-    Dark::Entity              m_playMuzzle{};
-    float                     m_playMuzzleTimer = 0.0f;
-    Dark::PlayFeedback        m_playFeedback{};
-    Dark::ParticleEmitter     m_blood;
-    Dark::BloodSplatPool      m_bloodSplats;
     Dark::Terrain::HeightMap           m_playGrid{};
-    Dark::Terrain::TerrainGround       m_ground{};
     std::vector<Dark::Math::AABox3f> m_playCubes;
     std::vector<Dark::Math::Sphere3f> m_playSpheres;
     float                  m_playGroundProbeY = 0.0f;
-    Physics::PhysicsBodyId m_playGroundIgnore = Physics::kNullPhysicsBody;
     std::vector<Dark::Entity>        m_playCubeEntities;
     std::vector<Dark::Entity>        m_playSphereEntities;
 };

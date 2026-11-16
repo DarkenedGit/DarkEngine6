@@ -80,7 +80,7 @@ void EditorApp::startCoverRestamp()
         return;
 
     m_foliageTrailGeneration = m_trailGeneration;
-    std::vector<FoliageRecord> records = m_foliage;
+    std::vector<FoliageRecord> records = m_sceneWorld.foliage;
     m_foliageCoverOnly = true;
     m_foliageApplyTrails = false;
     m_foliageSplat = false;
@@ -113,7 +113,7 @@ void EditorApp::startTrailGenerate()
         return;
 
     TrailSet trailSet = m_trails;
-    std::vector<FoliageRecord> records = m_foliage;
+    std::vector<FoliageRecord> records = m_sceneWorld.foliage;
     m_foliageTrailGeneration = m_trailGeneration;
     m_foliageCoverOnly = true;
     m_foliageApplyTrails = true;
@@ -189,8 +189,8 @@ void EditorApp::startTrailSplat()
     if (!acquireFoliageThread())
         return;
 
-    HeightMap* height = m_terrain.editableWorking();
-    SplatMap* splat = m_terrain.editableWorkingSplat();
+    HeightMap* height = m_sceneWorld.terrain.editableWorking();
+    SplatMap* splat = m_sceneWorld.terrain.editableWorkingSplat();
     if (height == nullptr || splat == nullptr || !height->valid() || !splat->valid())
         return;
 
@@ -529,7 +529,7 @@ void EditorApp::rebuildTrailMesh()
     LineMeshData center;
     LineMeshData ribbon;
     LineMeshData picks;
-    const bool draw = m_showTrails && m_haveTerrain && m_terrain.valid() && !m_trails.paths.empty();
+    const bool draw = m_showTrails && m_haveTerrain && m_sceneWorld.terrain.valid() && !m_trails.paths.empty();
     if (draw)
     {
     int centerBudget = kTrailMeshVerts;
@@ -537,7 +537,7 @@ void EditorApp::rebuildTrailMesh()
     int pickBudget = kTrailMeshVerts;
 
     auto lift = [&](float x, float z) {
-        return Vector3f(x, m_terrain.heightAtWorld(x, z) + kTrailLiftMetres, z);
+        return Vector3f(x, m_sceneWorld.terrain.heightAtWorld(x, z) + kTrailLiftMetres, z);
     };
 
     for (int pathIndex = 0; pathIndex < static_cast<int>(m_trails.paths.size()); ++pathIndex)

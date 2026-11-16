@@ -18,7 +18,7 @@ When the same function, tick, query, load path, or rule shows up in `Sandbox/` a
 | Authoring: gizmos, inspectors, asset browsers, graph editors, file dialogs | `Editor/` |
 | Sandbox demo content: the demo cube, the glTF demo, health packs placed at Sandbox boot | `Sandbox/SandboxDemo` |
 
-Sandbox's shell is split. `SandboxApp` schedules the host. `SandboxDemo` owns demo content. `SandboxFrame` owns the 3D frame, and `SandboxApp::onRender` calls `render()`. `SandboxHud` owns the dev HUD. `DevToolsPanel.cpp` is gone. The README layout section is the file map.
+Sandbox's shell is split. `SandboxApp` schedules the host. `SandboxDemo` owns demo content. `SandboxFrame` owns the 3D frame, and `SandboxApp::onRender` calls `render()`. `SandboxHud` owns the dev HUD. `DevToolsPanel.cpp` is gone. Each app owns one `SceneWorld` and one `PlaySession`. GPU pipelines stay on the frame that submits them. The README layout section is the file map.
 
 Each app still submits its own render frame. Shared simulation is an input to that frame. Do not write a second simulation so the frames can differ.
 

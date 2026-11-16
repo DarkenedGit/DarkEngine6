@@ -105,7 +105,7 @@ void SandboxDemo::spawnGltfDemo(int step)
             DE_LOG_WARN("SandboxApp: glTF '{}' not loaded", virtualPath);
             return;
         }
-        const float groundY = app().m_terrain.heightAtWorld(x, z);
+        const float groundY = app().m_sceneWorld.terrain.heightAtWorld(x, z);
         const float y       = groundY + scale * 0.5f;
         Entity e = app().world().createEntity();
         app().world().emplace<TagComponent>(e, tag);
@@ -165,7 +165,7 @@ void SandboxDemo::spawnAnimatedDemo()
     constexpr float x = 8.0f;
     constexpr float z = 3.0f;
     constexpr float scale = 2.0f;
-    const float groundY = app().m_terrain.heightAtWorld(x, z);
+    const float groundY = app().m_sceneWorld.terrain.heightAtWorld(x, z);
     Entity e = app().world().createEntity();
     app().world().emplace<TagComponent>(e, "Wiggle");
     app().world().emplace<TransformComponent>(e, Vector3f{ x, groundY, z }, Quaternion::IDENTITY, Vector3f{ scale, scale, scale });
@@ -347,16 +347,16 @@ void SandboxDemo::spawnHybridLocalLights()
     if (app().renderer().scenePath() != ScenePath::HybridDeferred)
         return;
 
-    app().m_muzzle = app().world().createEntity();
-    app().world().emplace<TagComponent>(app().m_muzzle, "Muzzle");
-    app().world().emplace<TransformComponent>(app().m_muzzle, Vector3f{}, Quaternion::IDENTITY, Vector3f{ 1.0f, 1.0f, 1.0f });
-    auto& muzzle     = app().world().emplace<LocalLightComponent>(app().m_muzzle);
+    app().m_play.muzzle() = app().world().createEntity();
+    app().world().emplace<TagComponent>(app().m_play.muzzle(), "Muzzle");
+    app().world().emplace<TransformComponent>(app().m_play.muzzle(), Vector3f{}, Quaternion::IDENTITY, Vector3f{ 1.0f, 1.0f, 1.0f });
+    auto& muzzle     = app().world().emplace<LocalLightComponent>(app().m_play.muzzle());
     muzzle.type      = LocalLightType::Point;
     muzzle.color     = Vector3f{ 1.0f, 0.82f, 0.45f };
     muzzle.intensity = 37699.0f; // 12000*π after Fd/π
     muzzle.range     = 6.0f;
     muzzle.enabled   = false;
-    app().m_muzzleTimer = 0.0f;
+    app().m_play.feedback().muzzleTimer = 0.0f;
 
     // ±1.2 from pack/tree XZ so 0.22 cubes sit outside trunks (r=0.5) and health crosses.
     const Vector3f spots[] = {
@@ -369,18 +369,18 @@ void SandboxDemo::spawnHybridLocalLights()
         { 14.0f, 0.0f, -7.2f },
         { 5.2f, 0.0f, -18.0f },
     };
-    if (!app().m_demoScene)
+    if (!app().m_demo.demoScene())
     {
         app().m_play.runtime().offhand.lightOn = false;
         DE_LOG_INFO("SandboxApp: flashlight off, no demo lanterns in this scene");
         return;
     }
-    const float waterY = app().m_water.params().waterLevel;
+    const float waterY = app().m_sceneWorld.water.params().waterLevel;
     int         spawned = 0;
     bool        firstLantern = true;
     for (const Vector3f& s : spots)
     {
-        const float gy = app().m_terrain.heightAtWorld(s.x, s.z);
+        const float gy = app().m_sceneWorld.terrain.heightAtWorld(s.x, s.z);
         if (gy < waterY - 0.2f)
             continue;
         const Vector3f pos{ s.x, gy + 1.55f, s.z };
@@ -431,11 +431,11 @@ void SandboxDemo::placeHealthPacks()
         { 8.0f, 0.0f, -8.0f },
         { -4.0f, 0.0f, -7.0f },
     };
-    const float   waterY = app().m_water.params().waterLevel;
+    const float   waterY = app().m_sceneWorld.water.params().waterLevel;
     int count = 0;
     for (const Vector3f& s : spots)
     {
-        const float gy = app().m_terrain.heightAtWorld(s.x, s.z);
+        const float gy = app().m_sceneWorld.terrain.heightAtWorld(s.x, s.z);
         if (gy < waterY - 0.2f)
             continue;
         const Vector3f pos{ s.x, gy + 0.95f, s.z };

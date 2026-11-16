@@ -385,7 +385,7 @@ bool SandboxApp::advanceBootSlice()
     case BootSlice::Ibl:
     {
         HitchClock clock("Ibl");
-        if (!loadAndBakeIbl(renderer(), assets(), m_ibl, m_iblImageId))
+        if (!loadAndBakeIbl(renderer(), assets(), m_sceneWorld.ibl, m_sceneWorld.iblImageId))
             DE_LOG_INFO(LogCategory::Render, "SandboxApp: IBL off — using ambient");
         // Menu confirm runs the rest. Ibl alone must not mark the scene started.
         if (!boot.runScene)
@@ -454,50 +454,50 @@ bool SandboxApp::advanceBootSlice()
         if (!boot.headerApplied)
         {
             boot.headerApplied = true;
-            m_sceneStealth = boot.scene.stealth;
-            applySceneAwareness(m_chase.ai(), m_sceneStealth);
-            m_sceneQuest = boot.scene.quest;
-            applySceneAtmosphere(m_env, boot.scene);
+            m_sceneWorld.stealth = boot.scene.stealth;
+            applySceneAwareness(m_chase.ai(), m_sceneWorld.stealth);
+            m_play.sceneQuest() = boot.scene.quest;
+            applySceneAtmosphere(m_sceneWorld.env, boot.scene);
             {
                 const ExposureSceneDesc exposure = boot.scene.exposure.present ? boot.scene.exposure : ExposureSceneDesc{};
-                m_autoExposure.mode        = exposure.autoExposure ? ExposureMode::Auto : ExposureMode::Manual;
-                m_autoExposure.evBias      = exposure.evBias;
-                m_autoExposure.maxEv       = exposure.maxEv;
-                m_autoExposure.adaptBright = exposure.adaptBright;
-                m_autoExposure.adaptDark   = exposure.adaptDark;
-                resetAutoExposure(m_autoExposureState);
+                m_frame.autoExposure().mode        = exposure.autoExposure ? ExposureMode::Auto : ExposureMode::Manual;
+                m_frame.autoExposure().evBias      = exposure.evBias;
+                m_frame.autoExposure().maxEv       = exposure.maxEv;
+                m_frame.autoExposure().adaptBright = exposure.adaptBright;
+                m_frame.autoExposure().adaptDark   = exposure.adaptDark;
+                resetAutoExposure(m_frame.autoExposureState());
                 DE_LOG_INFO(LogCategory::Render, "SandboxApp: exposure auto={}", exposure.autoExposure);
             }
-            m_foliageDensity.dirtTreesPerM2    = boot.scene.terrain.foliage.dirtTreesPerM2;
-            m_foliageDensity.dirtFlowersPerM2  = boot.scene.terrain.foliage.dirtFlowersPerM2;
-            m_foliageDensity.grassTreesPerM2   = boot.scene.terrain.foliage.grassTreesPerM2;
-            m_foliageDensity.grassFlowersPerM2 = boot.scene.terrain.foliage.grassFlowersPerM2;
-            m_foliageDensity.rockPerM2         = boot.scene.terrain.foliage.rockPerM2;
-            m_foliageDensity.grassPerM2        = boot.scene.terrain.foliage.grassPerM2;
-            m_foliageDensity.treeMinNormalY    = boot.scene.terrain.foliage.treeMinNormalY;
-            m_foliageDensity.flowerMinNormalY  = boot.scene.terrain.foliage.flowerMinNormalY;
-            m_foliageDensity.tuftMinNormalY    = boot.scene.terrain.foliage.tuftMinNormalY;
-            m_foliageDensity.rockMinNormalY    = boot.scene.terrain.foliage.rockMinNormalY;
-            m_foliageDensity.treeMaxLeanDeg    = boot.scene.terrain.foliage.treeMaxLeanDeg;
-            m_foliageDensity.rockMaxPitchDeg   = boot.scene.terrain.foliage.rockMaxPitchDeg;
-            m_foliageDensity.treeSpacingM      = boot.scene.terrain.foliage.treeSpacingM;
-            m_foliageDensity.rockSpacingM      = boot.scene.terrain.foliage.rockSpacingM;
-            m_foliageDensity.patchStrength     = boot.scene.terrain.foliage.patchStrength;
-            m_foliageDensity.patchLargeM       = boot.scene.terrain.foliage.patchLargeM;
-            m_foliageDensity.patchMediumM      = boot.scene.terrain.foliage.patchMediumM;
-            m_foliageDensity.patchFineM        = boot.scene.terrain.foliage.patchFineM;
-            m_foliageDensity.seed              = boot.scene.terrain.foliage.seed;
-            m_foliageDensity.treeModel         = boot.scene.terrain.foliage.treeModel;
-            m_foliageDensity.flowerModel       = boot.scene.terrain.foliage.flowerModel;
-            m_foliageDensity.rockModel         = boot.scene.terrain.foliage.rockModel;
-            m_foliageDensity.grassModel        = boot.scene.terrain.foliage.grassModel;
-            m_foliageDensity.trees             = boot.scene.terrain.foliage.trees;
-            m_foliageDensity.flowers           = boot.scene.terrain.foliage.flowers;
-            m_foliageDensity.rocks             = boot.scene.terrain.foliage.rocks;
-            m_foliageDensity.tufts             = boot.scene.terrain.foliage.tufts;
-            m_leafShedScale                    = boot.scene.terrain.foliage.shedScale;
-            m_wind = boot.scene.terrain.wind.settings;
-            clampWindSettings(m_wind);
+            m_sceneWorld.foliageDensity.dirtTreesPerM2    = boot.scene.terrain.foliage.dirtTreesPerM2;
+            m_sceneWorld.foliageDensity.dirtFlowersPerM2  = boot.scene.terrain.foliage.dirtFlowersPerM2;
+            m_sceneWorld.foliageDensity.grassTreesPerM2   = boot.scene.terrain.foliage.grassTreesPerM2;
+            m_sceneWorld.foliageDensity.grassFlowersPerM2 = boot.scene.terrain.foliage.grassFlowersPerM2;
+            m_sceneWorld.foliageDensity.rockPerM2         = boot.scene.terrain.foliage.rockPerM2;
+            m_sceneWorld.foliageDensity.grassPerM2        = boot.scene.terrain.foliage.grassPerM2;
+            m_sceneWorld.foliageDensity.treeMinNormalY    = boot.scene.terrain.foliage.treeMinNormalY;
+            m_sceneWorld.foliageDensity.flowerMinNormalY  = boot.scene.terrain.foliage.flowerMinNormalY;
+            m_sceneWorld.foliageDensity.tuftMinNormalY    = boot.scene.terrain.foliage.tuftMinNormalY;
+            m_sceneWorld.foliageDensity.rockMinNormalY    = boot.scene.terrain.foliage.rockMinNormalY;
+            m_sceneWorld.foliageDensity.treeMaxLeanDeg    = boot.scene.terrain.foliage.treeMaxLeanDeg;
+            m_sceneWorld.foliageDensity.rockMaxPitchDeg   = boot.scene.terrain.foliage.rockMaxPitchDeg;
+            m_sceneWorld.foliageDensity.treeSpacingM      = boot.scene.terrain.foliage.treeSpacingM;
+            m_sceneWorld.foliageDensity.rockSpacingM      = boot.scene.terrain.foliage.rockSpacingM;
+            m_sceneWorld.foliageDensity.patchStrength     = boot.scene.terrain.foliage.patchStrength;
+            m_sceneWorld.foliageDensity.patchLargeM       = boot.scene.terrain.foliage.patchLargeM;
+            m_sceneWorld.foliageDensity.patchMediumM      = boot.scene.terrain.foliage.patchMediumM;
+            m_sceneWorld.foliageDensity.patchFineM        = boot.scene.terrain.foliage.patchFineM;
+            m_sceneWorld.foliageDensity.seed              = boot.scene.terrain.foliage.seed;
+            m_sceneWorld.foliageDensity.treeModel         = boot.scene.terrain.foliage.treeModel;
+            m_sceneWorld.foliageDensity.flowerModel       = boot.scene.terrain.foliage.flowerModel;
+            m_sceneWorld.foliageDensity.rockModel         = boot.scene.terrain.foliage.rockModel;
+            m_sceneWorld.foliageDensity.grassModel        = boot.scene.terrain.foliage.grassModel;
+            m_sceneWorld.foliageDensity.trees             = boot.scene.terrain.foliage.trees;
+            m_sceneWorld.foliageDensity.flowers           = boot.scene.terrain.foliage.flowers;
+            m_sceneWorld.foliageDensity.rocks             = boot.scene.terrain.foliage.rocks;
+            m_sceneWorld.foliageDensity.tufts             = boot.scene.terrain.foliage.tufts;
+            m_sceneWorld.leafShedScale                    = boot.scene.terrain.foliage.shedScale;
+            m_sceneWorld.wind = boot.scene.terrain.wind.settings;
+            clampWindSettings(m_sceneWorld.wind);
             const GrassSceneDesc& grassScene = boot.scene.terrain.grass;
             GrassParams grassParams;
             grassParams.enabled       = grassScene.enabled;
@@ -509,10 +509,10 @@ bool SandboxApp::advanceBootSlice()
             grassParams.faceYaw       = grassScene.faceYaw;
             grassParams.faceLean      = grassScene.faceLean;
             grassParams.faceSteep     = grassScene.faceSteep;
-            applyWindToGrass(m_wind, grassParams);
-            if (!m_grassPipeline.isValid())
+            applyWindToGrass(m_sceneWorld.wind, grassParams);
+            if (!m_frame.grassPipeline().isValid())
                 grassParams.enabled = false;
-            m_grassField.setParams(grassParams);
+            m_sceneWorld.grassField.setParams(grassParams);
         }
 
         if (!boot.terrainArmed)
@@ -620,11 +620,11 @@ bool SandboxApp::advanceBootSlice()
         if (boot.kind == SandboxBootLoad::TerrainKind::WorldEngine)
         {
             const bool loaded = boot.terrainStatus == JobStatus::Ok
-                && m_terrain.createFromHeightMap(std::move(boot.worldMaps.height), boot.chunkCells);
+                && m_sceneWorld.terrain.createFromHeightMap(std::move(boot.worldMaps.height), boot.chunkCells);
             if (loaded)
             {
                 boot.matSplat = boot.worldMaps.splat;
-                if (!m_terrain.setWorkingSplat(std::move(boot.worldMaps.splat)))
+                if (!m_sceneWorld.terrain.setWorkingSplat(std::move(boot.worldMaps.splat)))
                     DE_LOG_WARN(LogCategory::Render, "SandboxApp: World Engine splat was not kept");
                 boot.loadedScene = true;
                 boot.worldEngine = true;
@@ -637,12 +637,12 @@ bool SandboxApp::advanceBootSlice()
         {
             bool ok = false;
             if (boot.terrainStatus == JobStatus::Ok)
-                ok = m_terrain.createFromCoarse(boot.gridDesc, std::move(boot.loadedHeight));
+                ok = m_sceneWorld.terrain.createFromCoarse(boot.gridDesc, std::move(boot.loadedHeight));
             if (ok)
             {
                 boot.loadedScene  = true;
-                m_haveTerrainSea  = true;
-                m_terrainSeaLevel = boot.scene.terrain.grid.seaLevel;
+                m_sceneWorld.haveTerrainSea  = true;
+                m_sceneWorld.terrainSeaLevel = boot.scene.terrain.grid.seaLevel;
                 DE_LOG_INFO(LogCategory::Render, "SandboxApp: streaming scene terrain {}x{} tiles", boot.gridDesc.tilesX, boot.gridDesc.tilesZ);
             }
             else
@@ -651,7 +651,7 @@ bool SandboxApp::advanceBootSlice()
         else if (boot.kind == SandboxBootLoad::TerrainKind::HeightFile)
         {
             if (boot.terrainStatus == JobStatus::Ok
-                && m_terrain.createFromHeightMap(std::move(boot.loadedHeight), boot.chunkCells))
+                && m_sceneWorld.terrain.createFromHeightMap(std::move(boot.loadedHeight), boot.chunkCells))
             {
                 boot.loadedScene = true;
                 DE_LOG_INFO(LogCategory::Render, "SandboxApp: loaded legacy heightFile as 1-tile Grid");
@@ -686,16 +686,16 @@ bool SandboxApp::advanceBootSlice()
                 requestQuit();
                 return false;
             }
-            if (!m_terrain.createFromHeightMap(std::move(base), 16))
+            if (!m_sceneWorld.terrain.createFromHeightMap(std::move(base), 16))
             {
                 DE_LOG_FATAL("SandboxApp: terrain create failed");
                 requestQuit();
                 return false;
             }
-            m_terrain.setWorkingSplat(SplatMap(boot.matSplat));
+            m_sceneWorld.terrain.setWorkingSplat(SplatMap(boot.matSplat));
             if (bareGround)
             {
-                m_showTerrain = false;
+                m_sceneWorld.showTerrain = false;
                 DE_LOG_INFO(LogCategory::Render, "SandboxApp: scene has no terrain; flat ground, mesh hidden");
             }
         }
@@ -706,14 +706,14 @@ bool SandboxApp::advanceBootSlice()
     {
         if (!boot.waterReady)
         {
-            const AABox3f terrainBox = m_terrain.bounds();
+            const AABox3f terrainBox = m_sceneWorld.terrain.bounds();
             const WaterSceneDesc& waterScene = boot.scene.water;
             float waterLevel = Lerp(terrainBox.Min.y, terrainBox.Max.y, waterScene.levelFraction);
             if (waterScene.hasLevel)
                 waterLevel = waterScene.level;
-            else if (m_haveTerrainSea)
-                waterLevel = m_terrainSeaLevel;
-            else if (!m_showTerrain)
+            else if (m_sceneWorld.haveTerrainSea)
+                waterLevel = m_sceneWorld.terrainSeaLevel;
+            else if (!m_sceneWorld.showTerrain)
                 waterLevel = -50.0f;
             boot.waterLevel = waterLevel;
             boot.waterReady = true;
@@ -725,23 +725,23 @@ bool SandboxApp::advanceBootSlice()
             bool inlineWork = false;
             if (boot.worldEngine)
             {
-                const HeightMap* height = m_terrain.editableWorking();
-                const SplatMap*  splat  = m_terrain.editableWorkingSplat();
+                const HeightMap* height = m_sceneWorld.terrain.editableWorking();
+                const SplatMap*  splat  = m_sceneWorld.terrain.editableWorkingSplat();
                 if (height && splat)
                 {
                     boot.foliageIn.height    = height;
                     boot.foliageIn.splat     = splat;
-                    boot.foliageIn.density   = m_foliageDensity;
+                    boot.foliageIn.density   = m_sceneWorld.foliageDensity;
                     boot.foliageIn.trails    = boot.scene.terrain.trails.paths;
-                    boot.foliageIn.tilesX    = m_terrain.tilesX();
-                    boot.foliageIn.tilesZ    = m_terrain.tilesZ();
-                    const int cells = m_terrain.tileCells();
+                    boot.foliageIn.tilesX    = m_sceneWorld.terrain.tilesX();
+                    boot.foliageIn.tilesZ    = m_sceneWorld.terrain.tilesZ();
+                    const int cells = m_sceneWorld.terrain.tileCells();
                     boot.foliageIn.tileCells = cells > 0 ? static_cast<uint32_t>(cells) : 0u;
-                    boot.foliageIn.cellSize  = m_terrain.cellSize();
-                    boot.foliageIn.origin    = m_terrain.origin();
+                    boot.foliageIn.cellSize  = m_sceneWorld.terrain.cellSize();
+                    boot.foliageIn.origin    = m_sceneWorld.terrain.origin();
                     boot.foliageIn.seaLevel  = height->origin().y;
-                    m_foliagePrototypes.sync(renderer(), assets(), m_foliageDensity);
-                    const AssetRef<Model>& treeModel = m_foliagePrototypes.model(FoliageKind::Tree);
+                    m_frame.foliagePrototypes().sync(renderer(), assets(), m_sceneWorld.foliageDensity);
+                    const AssetRef<Model>& treeModel = m_frame.foliagePrototypes().model(FoliageKind::Tree);
                     if (treeModel && treeModel->bounds().IsValid())
                     {
                         const Vector3f extent = treeModel->bounds().Size();
@@ -817,9 +817,9 @@ bool SandboxApp::advanceBootSlice()
                 && boot.foliageStatus == JobStatus::Ok;
             if (foliageOk)
             {
-                m_foliage.swap(boot.foliageOut.records);
-                m_terrain.setWorkingCover(std::move(boot.foliageOut.cover));
-                m_grassField.markAllDirty();
+                m_sceneWorld.foliage.swap(boot.foliageOut.records);
+                m_sceneWorld.terrain.setWorkingCover(std::move(boot.foliageOut.cover));
+                m_sceneWorld.grassField.markAllDirty();
             }
             else
                 DE_LOG_WARN(LogCategory::Render, "SandboxApp: splat foliage spawn failed");
@@ -840,7 +840,7 @@ bool SandboxApp::advanceBootSlice()
         {
             // A failed decode leaves the upload on its own file read.
             const WorldEngineCpuImages* decoded = boot.decodedOk ? &boot.decoded : nullptr;
-            if (!uploadWorldEngineMaterial(renderer(), assets(), boot.matSplat, boot.worldMaps, m_terrainMaterial, nullptr, decoded))
+            if (!uploadWorldEngineMaterial(renderer(), assets(), boot.matSplat, boot.worldMaps, m_frame.terrainMaterial(), nullptr, decoded))
             {
                 DE_LOG_FATAL("SandboxApp: World Engine material failed");
                 requestQuit();
@@ -848,42 +848,42 @@ bool SandboxApp::advanceBootSlice()
             }
             DE_LOG_INFO(LogCategory::Render, "Terrain: World Engine albedo and roughness");
         }
-        else if (tryCreateTerrainFromContent(renderer(), assets(), boot.matSplat, m_terrainMaterial))
+        else if (tryCreateTerrainFromContent(renderer(), assets(), boot.matSplat, m_frame.terrainMaterial()))
             DE_LOG_INFO(LogCategory::Render, "Terrain: using content layer set");
         else
         {
             DE_LOG_INFO(LogCategory::Render, "Terrain: checkers fallback");
-            if (!m_terrainMaterial.createDefault(renderer(), boot.matSplat))
+            if (!m_frame.terrainMaterial().createDefault(renderer(), boot.matSplat))
             {
                 DE_LOG_FATAL("SandboxApp: terrain material create failed");
                 requestQuit();
                 return false;
             }
         }
-        m_terrainMaterial.setLayerSamplingRaw(renderer().device(), renderer().debugState().legacyUnormAlbedo);
+        m_frame.terrainMaterial().setLayerSamplingRaw(renderer().device(), renderer().debugState().legacyUnormAlbedo);
         m_bootSlice = BootSlice::PrimeStream;
         return true;
     }
     case BootSlice::PrimeStream:
     {
         HitchClock clock("PrimeStream");
-        m_terrain.updateStreaming(Vector3f{ 0.0f, 50.0f, -80.0f }, &renderer(), &m_terrainMaterial);
+        m_sceneWorld.terrain.updateStreaming(Vector3f{ 0.0f, 50.0f, -80.0f }, &renderer(), &m_frame.terrainMaterial());
         m_bootSlice = BootSlice::CoarseHeight;
         return true;
     }
     case BootSlice::CoarseHeight:
     {
         HitchClock clock("CoarseHeight");
-        if (!m_terrain.uploadCoarseHeightTexture(renderer()))
+        if (!m_sceneWorld.terrain.uploadCoarseHeightTexture(renderer()))
         {
             DE_LOG_FATAL("SandboxApp: coarse height texture upload failed");
             requestQuit();
             return false;
         }
-        if (m_terrain.heightTexture().valid())
+        if (m_sceneWorld.terrain.heightTexture().valid())
         {
-            renderer().setHeightSrv(m_terrain.heightTexture().cpuHandle());
-            m_frame.scene().waterPipeline().setHeightSrv(renderer().device(), m_terrain.heightTexture().cpuHandle());
+            renderer().setHeightSrv(m_sceneWorld.terrain.heightTexture().cpuHandle());
+            m_frame.scene().waterPipeline().setHeightSrv(renderer().device(), m_sceneWorld.terrain.heightTexture().cpuHandle());
         }
         m_bootSlice = BootSlice::WaterCpu;
         return true;
@@ -900,32 +900,32 @@ bool SandboxApp::advanceBootSlice()
         for (int i = 0; i < lodCount; ++i)
             waterDesc.lodDistances[i] = waterScene.lodDistances[i];
         waterDesc.params = sceneWaterParams(waterScene, boot.waterLevel);
-        if (!m_water.create(m_terrain.coarse(), waterDesc))
+        if (!m_sceneWorld.water.create(m_sceneWorld.terrain.coarse(), waterDesc))
         {
             DE_LOG_FATAL("SandboxApp: water create failed");
             requestQuit();
             return false;
         }
-        m_water.updateLod(Vector3f{ 0.0f, 50.0f, -80.0f });
+        m_sceneWorld.water.updateLod(Vector3f{ 0.0f, 50.0f, -80.0f });
         m_bootSlice = BootSlice::WaterGpu;
         return true;
     }
     case BootSlice::WaterGpu:
     {
         HitchClock clock("WaterGpu");
-        if (!m_water.createGpu(renderer()))
+        if (!m_sceneWorld.water.createGpu(renderer()))
         {
             DE_LOG_FATAL("SandboxApp: water GPU upload failed");
             requestQuit();
             return false;
         }
-        DE_LOG_INFO("SandboxApp: water level {:.2f}, {} wet chunks", boot.waterLevel, m_water.wetChunkCount());
+        DE_LOG_INFO("SandboxApp: water level {:.2f}, {} wet chunks", boot.waterLevel, m_sceneWorld.water.wetChunkCount());
         m_bootSlice = BootSlice::StreamRibbon;
         return true;
     }
     case BootSlice::StreamRibbon:
     {
-        while (boot.streamCursor < boot.scene.objects.size() && m_streams.size() < 16)
+        while (boot.streamCursor < boot.scene.objects.size() && m_sceneWorld.water.ribbons().size() < 16)
         {
             const SceneObjectData& o = boot.scene.objects[boot.streamCursor++];
             float width = 0.0f;
@@ -939,17 +939,17 @@ bool SandboxApp::advanceBootSlice()
             desc.bedClearance = 0.45f;
             desc.pointsXZ     = std::move(points);
             MeshData cpu;
-            SandboxStream slot;
+            Math::AABox3f bounds;
             std::string err;
-            if (!buildStreamRibbon(m_terrain.coarse(), desc, boot.waterLevel, cpu, &slot.bounds, &err))
+            if (!buildStreamRibbon(m_sceneWorld.terrain.coarse(), desc, boot.waterLevel, cpu, &bounds, &err))
                 return true;
-            if (!Mesh::tryCreate(renderer(), cpu, slot.mesh))
+            Mesh mesh;
+            if (!Mesh::tryCreate(renderer(), cpu, mesh))
             {
                 DE_LOG_ERROR(LogCategory::Render, "SandboxApp: stream upload failed");
                 return true;
             }
-            slot.flowSpeed = flow;
-            m_streams.push_back(std::move(slot));
+            m_sceneWorld.water.addRibbon(std::move(mesh), flow, bounds);
             return true;
         }
         m_bootSlice = BootSlice::PrimitiveMesh;
@@ -972,7 +972,7 @@ bool SandboxApp::advanceBootSlice()
             return true;
         }
         MeshData crossData;
-        if (!CreateCross(crossData, 1.0f, 0.30f, 0.22f) || !Mesh::tryCreate(renderer(), crossData, m_crossMesh))
+        if (!CreateCross(crossData, 1.0f, 0.30f, 0.22f) || !Mesh::tryCreate(renderer(), crossData, m_demo.crossMesh()))
         {
             DE_LOG_FATAL("SandboxApp: health pack mesh failed");
             requestQuit();
@@ -1006,10 +1006,10 @@ bool SandboxApp::advanceBootSlice()
                 const LocalShadowSystem::CpuSrvs localSrvs = m_frame.scene().localShadows().cpuSrvs();
                 renderer().setLocalShadowSrvs(localSrvs.arraySrv, localSrvs.recordsSrv);
             }
-            m_demoScene = boot.scenePath.filename() == "level.json";
-            if (!m_demoScene)
-                m_npcInfo.enabled = false;
-            if (!m_demoScene)
+            m_demo.demoScene() = boot.scenePath.filename() == "level.json";
+            if (!m_demo.demoScene())
+                m_hud.npcInfo().enabled = false;
+            if (!m_demo.demoScene())
                 m_bootSlice = BootSlice::SpawnBatch;
             return true;
         }
@@ -1102,15 +1102,15 @@ Dark::Entity SandboxApp::spawnAuthoredArchetype(const Dark::SceneObjectData& obj
     services.pins            = &pins();
     services.renderer        = &renderer();
     services.audio           = &audio();
-    services.ground          = &m_ground;
+    services.ground          = &m_sceneWorld.ground;
     services.ai              = m_chaseOk ? const_cast<AiSystem*>(&m_chase.ai()) : nullptr;
     services.ensurePrimitive = &SandboxApp::ensureScenePrimitive;
     services.ensureMarker    = &SandboxApp::ensureSceneMarker;
     services.onWeaponHit     = &SandboxApp::onWeaponHitThunk;
     services.weaponHitUser   = this;
     services.user            = this;
-    services.crows           = &m_crowModels;
-    services.crowTerrain     = &m_terrain;
+    services.crows           = &m_play.crows();
+    services.crowTerrain     = &m_sceneWorld.terrain;
     const ArchetypeSpawnHost host = makeSpawnHost(services);
     ContentError err;
     const Entity e = instantiateSceneObject(host, placed, &err);
@@ -1147,7 +1147,7 @@ bool SandboxApp::advanceSpawnBatch()
         services.pins              = &pins();
         services.renderer          = &renderer();
         services.audio             = &audio();
-        services.ground            = &m_ground;
+        services.ground            = &m_sceneWorld.ground;
         services.ai                = m_chaseOk ? const_cast<AiSystem*>(&m_chase.ai()) : nullptr;
         services.ensurePrimitive   = &SandboxApp::ensureScenePrimitive;
         services.ensureMarker      = &SandboxApp::ensureSceneMarker;
@@ -1155,8 +1155,8 @@ bool SandboxApp::advanceSpawnBatch()
         services.weaponHitUser     = this;
         services.modelAnimatedOnly = animatedOnly;
         services.user              = this;
-        services.crows             = &m_crowModels;
-        services.crowTerrain       = &m_terrain;
+        services.crows             = &m_play.crows();
+        services.crowTerrain       = &m_sceneWorld.terrain;
         return makeSpawnHost(services);
     };
 
@@ -1267,21 +1267,21 @@ bool SandboxApp::advanceSpawnBatch()
         case SandboxBootLoad::SpawnPhase::Camera:
         {
             const float aspect = (renderer().height() > 0) ? static_cast<float>(renderer().width()) / static_cast<float>(renderer().height()) : 1.0f;
-            m_viewCamera.SetLens(1.04719755f, aspect, 0.05f, 1.0e5f);
-            m_viewCamera.LookAt(Vector3f(0.0f, 48.0f, -86.0f), Vector3f(0.0f, 8.0f, 0.0f), Vector3f(0.0f, 1.0f, 0.0f));
-            m_camera = world().createEntity();
-            world().emplace<TagComponent>(m_camera, "Main Camera");
-            world().emplace<TransformComponent>(m_camera, m_viewCamera.GetPosition(), Quaternion::IDENTITY, Vector3f{ 1, 1, 1 });
-            world().emplace<CameraComponent>(m_camera, 60.0f, 0.5f, 1.0e5f, true);
-            world().emplace<AudioListenerComponent>(m_camera);
-            attachCameraSounds(world(), pins(), assets(), audio(), m_camera);
+            m_sceneWorld.camera.SetLens(1.04719755f, aspect, 0.05f, 1.0e5f);
+            m_sceneWorld.camera.LookAt(Vector3f(0.0f, 48.0f, -86.0f), Vector3f(0.0f, 8.0f, 0.0f), Vector3f(0.0f, 1.0f, 0.0f));
+            m_play.cameraEntity() = world().createEntity();
+            world().emplace<TagComponent>(m_play.cameraEntity(), "Main Camera");
+            world().emplace<TransformComponent>(m_play.cameraEntity(), m_sceneWorld.camera.GetPosition(), Quaternion::IDENTITY, Vector3f{ 1, 1, 1 });
+            world().emplace<CameraComponent>(m_play.cameraEntity(), 60.0f, 0.5f, 1.0e5f, true);
+            world().emplace<AudioListenerComponent>(m_play.cameraEntity());
+            attachCameraSounds(world(), pins(), assets(), audio(), m_play.cameraEntity());
             boot.phase = SandboxBootLoad::SpawnPhase::Cube;
             return true;
         }
         case SandboxBootLoad::SpawnPhase::Cube:
         {
             const float aspect = (renderer().height() > 0) ? static_cast<float>(renderer().width()) / static_cast<float>(renderer().height()) : 1.0f;
-            const float groundY = m_terrain.heightAtWorld(0.0f, 0.0f) + 0.5f;
+            const float groundY = m_sceneWorld.terrain.heightAtWorld(0.0f, 0.0f) + 0.5f;
             m_demo.cube() = world().createEntity();
             world().emplace<TagComponent>(m_demo.cube(), "Cube");
             world().emplace<TransformComponent>(m_demo.cube(), Vector3f{ 0.0f, groundY, 0.0f }, Quaternion::IDENTITY, Vector3f{ 1, 1, 1 });
@@ -1305,8 +1305,8 @@ bool SandboxApp::advanceSpawnBatch()
                 m_demo.cubeMesh().indexCount(),
                 aspect,
                 m_demo.cubeModelId(),
-                m_terrain.tilesX(),
-                m_terrain.tilesZ());
+                m_sceneWorld.terrain.tilesX(),
+                m_sceneWorld.terrain.tilesZ());
             DE_LOG_INFO(LogCategory::Networking, "Sandbox net: Sandbox.exe -host   and   Sandbox.exe -join 127.0.0.1");
             DE_LOG_INFO(LogCategory::Networking, "Sandbox net: M opens Dev Tools (host / join / browse / debugger)");
             boot.phase = SandboxBootLoad::SpawnPhase::Physics;
@@ -1330,7 +1330,7 @@ bool SandboxApp::advanceSpawnBatch()
                 const size_t count = remain > static_cast<size_t>(kBootSpawnBatch) ? static_cast<size_t>(kBootSpawnBatch) : remain;
                 SceneSpawnHost host{};
                 host.world       = &world();
-                host.physics     = m_physics.valid() ? &m_physics : nullptr;
+                host.physics     = m_sceneWorld.physics.valid() ? &m_sceneWorld.physics : nullptr;
                 host.pins        = &pins();
                 host.assets      = &assets();
                 host.renderer    = &renderer();
@@ -1347,7 +1347,7 @@ bool SandboxApp::advanceSpawnBatch()
             if (boot.buildingModelStep == 0)
             {
                 boot.buildingModelStep = 1;
-                if (!m_buildingDoors.empty())
+                if (!m_play.buildingDoors().empty())
                 {
                     HitchClock clock("BuildingDoorModel");
                     boot.fixtures.doorModel = loadAndUploadModel(renderer(), assets(), kUnitCubeModel);
@@ -1357,7 +1357,7 @@ bool SandboxApp::advanceSpawnBatch()
             if (boot.buildingModelStep == 1)
             {
                 boot.buildingModelStep = 2;
-                if (!m_buildingCameras.empty())
+                if (!m_play.buildingCameras().empty())
                 {
                     HitchClock clock("BuildingCameraModel");
                     boot.fixtures.camModel = loadAndUploadModel(renderer(), assets(), kUnitCubeModel);
@@ -1380,12 +1380,12 @@ bool SandboxApp::advanceSpawnBatch()
             return true;
         }
         case SandboxBootLoad::SpawnPhase::Chase:
-            m_chaseOk = m_chase.init(renderer(), m_terrain, m_water, world(), pins(), assets());
+            m_chaseOk = m_chase.init(renderer(), m_sceneWorld.terrain, m_sceneWorld.water, world(), pins(), assets());
             boot.phase = SandboxBootLoad::SpawnPhase::Quest;
             return true;
         case SandboxBootLoad::SpawnPhase::Quest:
-            if (!m_sceneQuest.empty())
-                startQuest(m_sceneQuest);
+            if (!m_play.sceneQuest().empty())
+                startQuest(m_play.sceneQuest());
             m_play.clearFacility();
             if (m_play.facility().defs.empty())
             {
@@ -1398,7 +1398,7 @@ bool SandboxApp::advanceSpawnBatch()
                 GuardBarks barks;
                 std::string barkError;
                 if (loadGuardBarks(resolveContentFile("ai/barks.json"), barks, &barkError))
-                    m_guardVoice.start(std::move(barks));
+                    m_play.guardVoice().start(std::move(barks));
                 else
                     DE_LOG_WARN(LogCategory::AI, "Guard barks: {}", barkError);
             }
@@ -1415,7 +1415,7 @@ bool SandboxApp::advanceSpawnBatch()
                 const uint8_t b = static_cast<uint8_t>(Math::Clamp(o.color[2], 0.0f, 1.0f) * 255.0f);
                 const std::string key = std::format("runtime:/scene/grass-{}", boot.patchSeed);
                 const Entity e = world().createEntity();
-                world().emplace<TransformComponent>(e, Vector3f{ o.position.x, m_terrain.heightAtWorld(o.position.x, o.position.z), o.position.z }, Quaternion::IDENTITY, Vector3f{ 1.0f, 1.0f, 1.0f });
+                world().emplace<TransformComponent>(e, Vector3f{ o.position.x, m_sceneWorld.terrain.heightAtWorld(o.position.x, o.position.z), o.position.z }, Quaternion::IDENTITY, Vector3f{ 1.0f, 1.0f, 1.0f });
                 AssetRef<Model> patch = internAndUploadProceduralModel(renderer(), assets(), makeGrassPatch(o.scale.x, o.scale.z, boot.patchSeed++),
                     internSolidMaterial(assets(), r, g, b, 255, "runtime:/scene/grass-mat"), key);
                 if (!patch)
@@ -1487,7 +1487,7 @@ bool SandboxApp::advanceSpawnBatch()
             boot.phase = SandboxBootLoad::SpawnPhase::Shield;
             return true;
         case SandboxBootLoad::SpawnPhase::Shield:
-            m_shield = spawnPlayerShield(world(), pins(), assets(), renderer());
+            m_play.shield() = spawnPlayerShield(world(), pins(), assets(), renderer());
             boot.phase = SandboxBootLoad::SpawnPhase::Pawns;
             return true;
         case SandboxBootLoad::SpawnPhase::Pawns:
@@ -1509,7 +1509,7 @@ bool SandboxApp::advanceSpawnBatch()
                 if (PathAgentComponent* path = world().get<PathAgentComponent>(hunter))
                     path->repathAt = static_cast<float>(m_chase.hunterCount()) * (0.5f / 3.0f);
                 m_chase.addHunter(hunter);
-                applySceneActor(world(), hunter, o, &sandboxBootGroundY, &m_terrain);
+                applySceneActor(world(), hunter, o, &sandboxBootGroundY, &m_sceneWorld.terrain);
                 const TransformComponent* placed = world().get<TransformComponent>(hunter);
                 const float placedX = placed ? placed->position.x : o.position.x;
                 const float placedZ = placed ? placed->position.z : o.position.z;
@@ -1606,7 +1606,7 @@ bool SandboxApp::advanceSpawnBatch()
                 SceneObjectData placedObject = o;
                 if (zeroScale(placedObject.scale))
                     placedObject.scale = Vector3f{ 0.8f, 0.8f, 0.8f };
-                placedObject.position.y = m_terrain.heightAtWorld(o.position.x, o.position.z) + 0.5f * std::fabs(placedObject.scale.y);
+                placedObject.position.y = m_sceneWorld.terrain.heightAtWorld(o.position.x, o.position.z) + 0.5f * std::fabs(placedObject.scale.y);
                 ContentError err;
                 const Entity e = instantiateSceneObject(sceneHost(false), placedObject, &err);
                 if (!e.valid())
@@ -1656,7 +1656,7 @@ bool SandboxApp::advanceSpawnBatch()
                 SceneObjectData placedObject = o;
                 if (zeroScale(placedObject.scale))
                     placedObject.scale = Vector3f{ 0.8f, 0.8f, 0.8f };
-                placedObject.position.y = m_terrain.heightAtWorld(o.position.x, o.position.z) + 0.5f * std::fabs(placedObject.scale.y);
+                placedObject.position.y = m_sceneWorld.terrain.heightAtWorld(o.position.x, o.position.z) + 0.5f * std::fabs(placedObject.scale.y);
                 ContentError err;
                 const Entity e = instantiateSceneObject(sceneHost(false), placedObject, &err);
                 if (!e.valid())
@@ -1702,7 +1702,7 @@ bool SandboxApp::advanceSpawnBatch()
         case SandboxBootLoad::SpawnPhase::Throwables:
             if (const TransformComponent* start = m_chase.walker().valid() ? world().get<TransformComponent>(m_chase.walker()) : nullptr)
             {
-                stockMissingThrowablePickups(world(), pins(), assets(), renderer(), m_physics, start->position,
+                stockMissingThrowablePickups(world(), pins(), assets(), renderer(), m_sceneWorld.physics, start->position,
                     worldHasThrowablePickup(world(), "rock"), worldHasThrowablePickup(world(), "bottle"));
             }
             boot.phase = SandboxBootLoad::SpawnPhase::Hybrid;

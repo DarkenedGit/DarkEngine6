@@ -9,8 +9,11 @@
 #include "Gameplay/Inventory.h"
 #include "Gameplay/Item.h"
 #include "Gameplay/QuestRuntime.h"
+#include "Play/Crow.h"
 #include "Play/Facility.h"
+#include "Play/GuardVoice.h"
 #include "Play/ImpactFx.h"
+#include "Play/PlayFeedback.h"
 #include "Play/Interaction.h"
 #include "Play/PlayerCombat.h"
 #include "Math/AABox3f.h"
@@ -23,6 +26,7 @@
 #include "Weapons/Weapon.h"
 
 #include <cstdint>
+#include <deque>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -254,6 +258,21 @@ namespace Dark
         void clearFacility();
         void refreshUpgrades();
 
+        // Owned here so Sandbox and the Editor do not each keep a copy.
+        GuardVoice&    guardVoice() { return m_guardVoice; }
+        CrowModels&    crows() { return m_crowModels; }
+        PlayFeedback&  feedback() { return m_feedback; }
+        Entity&        shield() { return m_shield; }
+        Entity&        muzzle() { return m_muzzle; }
+        Entity&        cameraEntity() { return m_camera; }
+        Entity&        session() { return m_session; }
+        std::string&   sceneQuest() { return m_sceneQuest; }
+        std::vector<BuildingContainer>& buildingContainers() { return m_buildingContainers; }
+        std::vector<BuildingHideSpot>&  buildingHides() { return m_buildingHides; }
+        std::vector<BuildingDoor>&      buildingDoors() { return m_buildingDoors; }
+        std::vector<BuildingCamera>&    buildingCameras() { return m_buildingCameras; }
+        std::deque<std::string>&        buildingLabels() { return m_buildingLabels; }
+
         // Save hooks. FacilityProgress lives on the session entity.
         void forgetFacilitySave(World& world, Entity session);
         void captureFacilitySave(World& world, Entity session);
@@ -296,6 +315,19 @@ namespace Dark
         PlayRuntime  m_rt{};
         FacilityState m_facility{};
         Combat::CombatSystem m_combat{};
+        GuardVoice   m_guardVoice;
+        CrowModels   m_crowModels{};
+        PlayFeedback m_feedback{};
+        Entity       m_shield{};
+        Entity       m_muzzle{};
+        Entity       m_camera{};
+        Entity       m_session{};
+        std::string  m_sceneQuest;
+        std::vector<BuildingContainer> m_buildingContainers;
+        std::vector<BuildingHideSpot>  m_buildingHides;
+        std::vector<BuildingDoor>      m_buildingDoors;
+        std::vector<BuildingCamera>    m_buildingCameras;
+        std::deque<std::string>        m_buildingLabels;
     };
 
     int grantInventoryItem(World& world, Audio::AudioSystem& audio, AssetManager& assets, Entity listener, InventoryComponent& inv, const ItemStack& item);

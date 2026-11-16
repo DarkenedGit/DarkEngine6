@@ -33,6 +33,7 @@ EditorApp::EditorApp(const AppConfig& cfg)
     : Application(cfg)
     , m_cliJoin(cfg.netJoin.ipv4 != 0 || cfg.netJoin.port != 0)
 {
+    m_sceneWorld.terrainSeaLevel = 32.0f;
 }
 
 EditorApp::~EditorApp()
@@ -199,7 +200,7 @@ void EditorApp::newScene3D()
     if (netSceneLocked())
         return;
     invalidatePendingSceneLoad();
-    m_ibl = IblSettings{};
+    m_sceneWorld.ibl = IblSettings{};
     applySceneMode(SceneMode::Scene3D);
     m_scenePath.clear();
     m_sceneName = "untitled";
@@ -209,14 +210,14 @@ void EditorApp::newScene3D()
     releaseUnreferencedAssets();
     m_authoredWater = {};
     m_authoredExposure = {};
-    m_authoredStealth = {};
+    m_sceneWorld.stealth = {};
     m_authoredGrass = {};
-    m_wind          = Terrain::defaultWindSettings();
+    m_sceneWorld.wind          = Terrain::defaultWindSettings();
     applyAuthoredGrass();
     applyAuthoredStealth();
-    m_env = Sky::Environment{};
+    m_sceneWorld.env = Sky::Environment{};
     ensureGlobalLights();
-    m_env.evaluate();
+    m_sceneWorld.env.evaluate();
     applySkyToLights();
     m_camera.LookAt(Vector3f(8.0f, 6.0f, -10.0f), Vector3f(0.0f, 0.0f, 0.0f), Vector3f(0.0f, 1.0f, 0.0f));
     DE_LOG_INFO("Editor: new 3D scene");
@@ -234,9 +235,9 @@ void EditorApp::newScene2D()
     clearScene();
     removeEditorTerrain();
     releaseUnreferencedAssets();
-    m_authoredStealth = {};
+    m_sceneWorld.stealth = {};
     m_authoredGrass = {};
-    m_wind          = Terrain::defaultWindSettings();
+    m_sceneWorld.wind          = Terrain::defaultWindSettings();
     applyAuthoredGrass();
     applyAuthoredStealth();
     m_worldMin = Vector2f(0.0f, 0.0f);

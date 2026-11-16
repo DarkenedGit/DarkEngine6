@@ -210,7 +210,7 @@ void EditorApp::drawPlayProjectiles(ID3D12GraphicsCommandList* cmd, const Matrix
 
 void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
 {
-    m_foliagePipeline.setWind(m_wind, m_windClock.time, m_windClock.prevTime);
+    m_foliagePipeline.setWind(m_sceneWorld.wind, m_sceneWorld.windClock.time, m_sceneWorld.windClock.prevTime);
     GpuResourceCache& gpu = renderer().gpuResources();
     PassId   playedPasses[24]{};
     uint32_t playedCount = 0;
@@ -238,7 +238,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
     else
         m_scene.setFogOccluders(nullptr, 0);
     AABox3f sceneBounds = drawTerrain
-        ? m_terrain.shadowBounds(m_camera)
+        ? m_sceneWorld.terrain.shadowBounds(m_camera)
         : AABox3f(Vector3f(-22.0f, -2.0f, -22.0f), Vector3f(22.0f, 16.0f, 22.0f));
     world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent&) {
         if (const auto* xf = world().get<TransformComponent>(e))
@@ -400,11 +400,11 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
     shadowHost.skinned           = &m_skinnedInstances;
     shadowHost.skinnedShadow     = &m_skinnedShadowPipeline;
     shadowHost.skinRing          = &m_skinRing;
-    shadowHost.terrain           = &m_terrain;
+    shadowHost.terrain           = &m_sceneWorld.terrain;
     shadowHost.foliage           = &m_foliagePipeline;
     shadowHost.foliagePrototypes = &m_foliagePrototypes;
-    shadowHost.foliageRecords    = &m_foliage;
-    shadowHost.foliageDensity    = &m_foliageDensity;
+    shadowHost.foliageRecords    = &m_sceneWorld.foliage;
+    shadowHost.foliageDensity    = &m_sceneWorld.foliageDensity;
     shadowHost.camera            = &m_camera;
     shadowHost.ground            = &m_groundMesh;
     // CreateGroundPlane(40, 0, 10) is the ±20 square on Y=0.
@@ -529,15 +529,16 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         const Frustum3f frustum(m_camera.GetCullViewProj());
         if (deferred)
         {
-            m_terrain.drawGBuffer(cmd, m_scene.terrainPipeline(), m_terrainMaterial, m_camera, &frustum, &renderer().debugState(), &prevViewProj);
+            m_sceneWorld.terrain.drawGBuffer(cmd, m_scene.terrainPipeline(), m_terrainMaterial, m_camera, &frustum, &renderer().debugState(), &prevViewProj);
             drawEditorGrass(cmd, viewProj, prevViewProj, frustum);
         }
         else
         {
-            m_terrain.draw(cmd, m_scene.terrainPipeline(), m_terrainMaterial, m_camera, &frustum, nullptr, &m_shadows, &renderer().debugState());
-            if (!m_loggedForwardGrassSkip && m_grassPipeline.isValid() && m_grassField.params().enabled)
+            m_sceneWorld.terrain.draw(cmd, m_scene.terrainPipeline(), m_terrainMaterial, m_camera, &frustum, nullptr, &m_shadows, &renderer().debugState());
+            static bool loggedForwardGrassSkip = false;
+            if (!loggedForwardGrassSkip && m_grassPipeline.isValid() && m_sceneWorld.grassField.params().enabled)
             {
-                m_loggedForwardGrassSkip = true;
+                loggedForwardGrassSkip = true;
                 DE_LOG_INFO(LogCategory::Render, "Editor: forward frame skips grass");
             }
         }
@@ -797,10 +798,10 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
             }
         });
         drawPlayProjectiles(cmd, viewProj, prevViewProj, true, instanceColor, nullptr, nullptr, &rejectedShots);
-        if (m_haveTerrain && m_terrain.valid())
+        if (m_haveTerrain && m_sceneWorld.terrain.valid())
         {
             const Frustum3f foliageFrustum(m_camera.GetCullViewProj());
-            m_foliagePipeline.drawGBuffer(cmd, renderer(), assets(), m_foliagePrototypes, m_terrain, &m_foliage, m_foliageDensity, m_camera, viewProj, prevViewProj, foliageFrustum);
+            m_foliagePipeline.drawGBuffer(cmd, renderer(), assets(), m_foliagePrototypes, m_sceneWorld.terrain, &m_sceneWorld.foliage, m_sceneWorld.foliageDensity, m_camera, viewProj, prevViewProj, foliageFrustum);
         }
     }
     else
@@ -888,8 +889,8 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         lc.ambientColor[0] = ambientColor.x;
         lc.ambientColor[1] = ambientColor.y;
         lc.ambientColor[2] = ambientColor.z;
-        fillIblLightingConstants(lc, m_ibl, renderer().debugState().iblEnabled, renderer().debugState().iblDebug, iblGpuReady(renderer().gpuResources(), m_iblImageId));
-        fillSsrLightingConstants(lc, m_ssr, renderer().debugState().ssrEnabled, m_scene.ssr().isValid() && renderer().hasGBuffer());
+        fillIblLightingConstants(lc, m_sceneWorld.ibl, renderer().debugState().iblEnabled, renderer().debugState().iblDebug, iblGpuReady(renderer().gpuResources(), m_sceneWorld.iblImageId));
+        fillSsrLightingConstants(lc, m_sceneWorld.ssr, renderer().debugState().ssrEnabled, m_scene.ssr().isValid() && renderer().hasGBuffer());
         // The pass list is an order check after the frame. These five run inside resolveDeferred in this order.
         markPass(PassId::Decals);
         markPass(PassId::Gtao);
@@ -899,8 +900,8 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         DeferredResolveInput resolve;
         resolve.viewProj     = &viewProj;
         resolve.prevViewProj = &prevViewProj;
-        resolve.gtao         = &m_ssao;
-        resolve.ssr          = &m_ssr;
+        resolve.gtao         = &m_sceneWorld.ssao;
+        resolve.ssr          = &m_sceneWorld.ssr;
         resolve.ssrEnv       = nullptr;
         resolve.lighting     = &lc;
         m_scene.resolveDeferred(cmd, renderer(), world(), m_camera, resolve);
@@ -908,8 +909,8 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         if (m_skyPipeline.isValid())
         {
             markPass(PassId::Sky);
-            const float waterLevel = m_water.params().waterLevel;
-            m_skyPipeline.upload(renderer().frameIndex(), m_camera, m_env, 1.0f, waterLevel, 0.0f);
+            const float waterLevel = m_sceneWorld.water.params().waterLevel;
+            m_skyPipeline.upload(renderer().frameIndex(), m_camera, m_sceneWorld.env, 1.0f, waterLevel, 0.0f);
             m_skyPipeline.draw(cmd, renderer().frameIndex(), &m_shadows);
         }
         markPass(PassId::SsrCapture);
@@ -920,10 +921,10 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
             const Frustum3f waterFrustum(m_camera.GetCullViewProj());
             ID3D12DescriptorHeap*       heightHeap = nullptr;
             D3D12_GPU_DESCRIPTOR_HANDLE heightGpu{};
-            if (m_terrain.heightTexture().valid())
+            if (m_sceneWorld.terrain.heightTexture().valid())
             {
-                heightHeap = m_terrain.heightTexture().srvHeap();
-                heightGpu  = m_terrain.heightTexture().gpuHandle();
+                heightHeap = m_sceneWorld.terrain.heightTexture().srvHeap();
+                heightGpu  = m_sceneWorld.terrain.heightTexture().gpuHandle();
             }
             D3D12_CPU_DESCRIPTOR_HANDLE waterSceneColor{};
             D3D12_CPU_DESCRIPTOR_HANDLE waterDepth{};
@@ -932,9 +933,9 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
             {
                 waterSceneColor = m_scene.ssr().sceneColorSrvCpu();
                 waterDepth      = renderer().depthSrvCpu();
-                waterSsr        = &m_ssr;
+                waterSsr        = &m_sceneWorld.ssr;
             }
-            const bool anyWater = m_water.wetChunkCount() > 0 || !m_placedWater.empty() || !m_editorStreams.empty();
+            const bool anyWater = m_sceneWorld.water.wetChunkCount() > 0 || !m_placedWater.empty() || !m_editorStreams.empty();
             if (anyWater)
             {
                 markPass(PassId::Water);
@@ -948,7 +949,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
             cf.sunDir       = lightDir;
             cf.sunColor     = sunColor;
             cf.ambientColor = ambientColor;
-            cf.time         = m_cloudTime;
+            cf.time         = m_sceneWorld.cloudTime;
             m_scene.drawCloudVolumes(cmd, renderer(), world(), m_camera, viewProj, cf);
         }
         drawGrid();
@@ -1027,8 +1028,8 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
         // Editor does not run camouflage, so this frame's depth was not rewritten.
         m_gpuParticles.simulateAndDraw(cmd, renderer(), m_camera, world(), assets(), false);
         m_particleRenderer.beginFrame(renderer().frameIndex());
-        if (m_blood.aliveCount() > 0)
-            m_particleRenderer.draw(cmd, m_camera, m_blood, false);
+        if (m_play.feedback().blood.aliveCount() > 0)
+            m_particleRenderer.draw(cmd, m_camera, m_play.feedback().blood, false);
         world().each<ParticleEmitterComponent>([&](Entity, ParticleEmitterComponent& pe) {
         if (!pe.runtime)
             return;
@@ -1047,9 +1048,9 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
             if (impact.aliveCount() > 0)
                 m_particleRenderer.draw(cmd, m_camera, impact, true);
         }
-        m_leafRenderer.draw(cmd, m_camera, m_leafField);
+        m_leafRenderer.draw(cmd, m_camera, m_sceneWorld.leafField);
         if (!deferredDecals())
-            m_bloodSplats.draw(cmd, m_camera);
+            m_play.feedback().splats.draw(cmd, m_camera);
     }
 
     {
@@ -1184,19 +1185,19 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
 
 void EditorApp::drawEditorGrass(ID3D12GraphicsCommandList* cmd, const Matrix4f& viewProj, const Matrix4f& prevViewProj, const Frustum3f& frustum)
 {
-    if (!cmd || !m_grassPipeline.isValid() || !m_grassField.params().enabled)
+    if (!cmd || !m_grassPipeline.isValid() || !m_sceneWorld.grassField.params().enabled)
         return;
 
     const GpuScope               grassScope(cmd, "Grass", ProfileColor::Grass);
     Terrain::GrassFrameConstants grassFrame{};
     copyMatrix(grassFrame.viewProj, viewProj);
     copyMatrix(grassFrame.prevViewProj, prevViewProj);
-    grassFrame.heightMetres = m_grassField.params().heightMetres;
-    grassFrame.flexibility  = m_grassField.params().flexibility;
-    grassFrame.faceEdge     = m_grassField.params().faceEdge;
-    grassFrame.faceYaw      = m_grassField.params().faceYaw;
-    grassFrame.faceLean     = m_grassField.params().faceLean;
-    grassFrame.faceSteep    = m_grassField.params().faceSteep;
+    grassFrame.heightMetres = m_sceneWorld.grassField.params().heightMetres;
+    grassFrame.flexibility  = m_sceneWorld.grassField.params().flexibility;
+    grassFrame.faceEdge     = m_sceneWorld.grassField.params().faceEdge;
+    grassFrame.faceYaw      = m_sceneWorld.grassField.params().faceYaw;
+    grassFrame.faceLean     = m_sceneWorld.grassField.params().faceLean;
+    grassFrame.faceSteep    = m_sceneWorld.grassField.params().faceSteep;
     {
         const Vector3f eye   = m_camera.GetPosition();
         const Vector3f right = m_camera.GetRight();
@@ -1211,23 +1212,23 @@ void EditorApp::drawEditorGrass(ID3D12GraphicsCommandList* cmd, const Matrix4f& 
         grassFrame.cameraLook[1]  = look.y;
         grassFrame.cameraLook[2]  = look.z;
     }
-    m_grassField.writeFrameInteraction(grassFrame);
+    m_sceneWorld.grassField.writeFrameInteraction(grassFrame);
 
     GrassLodSpan grassLods[Terrain::kGrassLodCount]{};
     for (int lod = 0; lod < Terrain::kGrassLodCount; ++lod)
     {
-        const Terrain::GrassField::BladeSpan span = m_grassField.blades(lod);
+        const Terrain::GrassField::BladeSpan span = m_sceneWorld.grassField.blades(lod);
         grassLods[lod].blades                     = span.data;
         grassLods[lod].count                      = span.count;
-        grassLods[lod].staleMask                  = m_grassField.lodStaleMask(lod);
+        grassLods[lod].staleMask                  = m_sceneWorld.grassField.lodStaleMask(lod);
     }
     const uint32_t                      residentTiles = Terrain::grassRegionBudget().residentTiles;
     std::vector<Terrain::GrassTileDraw> grassTiles(residentTiles);
-    const uint32_t                      grassDraws = m_grassField.visibleTiles(frustum, grassTiles.data(), residentTiles);
-    if (m_grassPipeline.draw(cmd, renderer(), grassLods, m_grassField.tileWind(), m_grassField.tileWindCount(), grassFrame, grassTiles.data(), grassDraws))
+    const uint32_t                      grassDraws = m_sceneWorld.grassField.visibleTiles(frustum, grassTiles.data(), residentTiles);
+    if (m_grassPipeline.draw(cmd, renderer(), grassLods, m_sceneWorld.grassField.tileWind(), m_sceneWorld.grassField.tileWindCount(), grassFrame, grassTiles.data(), grassDraws))
     {
         const uint32_t slot = renderer().frameIndex() % Terrain::kGrassFrameSlots;
         for (int lod = 0; lod < Terrain::kGrassLodCount; ++lod)
-            m_grassField.clearLodStale(lod, slot);
+            m_sceneWorld.grassField.clearLodStale(lod, slot);
     }
 }

@@ -31,7 +31,10 @@ using namespace Terrain;
         // while a recorded draw can still be unsubmitted or in flight.
         for (WaterChunk& c : m_chunks)
             m_gpuRetire.push(std::move(c.gpu));
+        for (WaterRibbon& ribbon : m_ribbons)
+            m_gpuRetire.push(std::move(ribbon.mesh));
         m_chunks.clear();
+        m_ribbons.clear();
         m_lods.clear();
         m_chunksX    = 0;
         m_chunksZ    = 0;
@@ -325,7 +328,27 @@ using namespace Terrain;
     {
         for (WaterChunk& c : m_chunks)
             retire.push(std::move(c.gpu));
+        for (WaterRibbon& ribbon : m_ribbons)
+            retire.push(std::move(ribbon.mesh));
+        m_ribbons.clear();
         retire.takeFrom(m_gpuRetire);
+    }
+
+    bool WaterWorld::addRibbon(Mesh mesh, float flowSpeed, const Math::AABox3f& bounds)
+    {
+        if (!mesh.valid())
+            return false;
+        if (m_ribbons.size() >= 16)
+        {
+            DE_LOG_WARN(LogCategory::Render, "WaterWorld: stream ribbon cap is 16");
+            return false;
+        }
+        WaterRibbon ribbon;
+        ribbon.mesh      = std::move(mesh);
+        ribbon.flowSpeed = flowSpeed;
+        ribbon.bounds    = bounds;
+        m_ribbons.push_back(std::move(ribbon));
+        return true;
     }
 
     void WaterWorld::draw(

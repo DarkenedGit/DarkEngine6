@@ -34,6 +34,9 @@ public:
     Dark::AssetID                    packModelId() const { return m_packModelId; }
     Dark::AssetID                    tracerModelId() const { return m_tracerModelId; }
     Dark::LinePipeline&              skeletonPipeline() { return m_skelLinePipeline; }
+    bool&                            demoScene() { return m_demoScene; }
+    Dark::Mesh&                      crossMesh() { return m_crossMesh; }
+    float&                           spinSpeed() { return m_spinSpeed; }
 
 private:
     static void onWiggleNotify(void* user, const Dark::AnimNotify& n);
@@ -48,6 +51,9 @@ private:
     Dark::AssetID m_lanternModelId = Dark::NULL_ASSET;
     Dark::AssetID m_tracerModelId  = Dark::NULL_ASSET;
 
+    bool         m_demoScene = true;
+    Dark::Mesh   m_crossMesh;
+    float        m_spinSpeed = 0.8f;
     Dark::LinePipeline                     m_skelLinePipeline;
     Microsoft::WRL::ComPtr<ID3D12Resource> m_skelLineVb[2];
     Microsoft::WRL::ComPtr<ID3D12Resource> m_skelLineIb[2];

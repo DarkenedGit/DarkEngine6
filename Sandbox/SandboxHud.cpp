@@ -282,7 +282,7 @@ void SandboxHud::drawQuestHud()
     const TransformComponent* pxf  = pawn.valid() ? app().world().get<TransformComponent>(pawn) : nullptr;
     if (!pxf || app().m_play.quest().complete() || !app().questTarget(target))
         return;
-    Dark::drawObjectiveDiamond(dl, vp->Pos, vp->Size, app().m_viewCamera.GetViewProj(), target, pxf->position);
+    Dark::drawObjectiveDiamond(dl, vp->Pos, vp->Size, app().m_sceneWorld.camera.GetViewProj(), target, pxf->position);
 }
 
 void SandboxHud::drawAlarm()
@@ -366,7 +366,7 @@ void SandboxHud::drawUpgrades()
             {
                 facility.owned.push_back(up.id);
                 app().m_play.refreshUpgrades();
-                playSoundCue(app().world(), app().audio(), app().assets(), app().m_camera, "click");
+                playSoundCue(app().world(), app().audio(), app().assets(), app().m_play.cameraEntity(), "click");
                 DE_LOG_INFO("Upgrades: bought {}", up.name);
             }
             ImGui::EndDisabled();
@@ -431,7 +431,7 @@ void SandboxHud::drawJournal()
 
 void SandboxHud::drawGuardSpeech()
 {
-    const std::vector<GuardSubtitle>& subs = app().m_guardVoice.subtitles();
+    const std::vector<GuardSubtitle>& subs = app().m_play.guardVoice().subtitles();
     if (subs.empty())
         return;
     const ImGuiViewport*      vp   = ImGui::GetMainViewport();
@@ -458,7 +458,7 @@ void SandboxHud::drawGuardSpeech()
             closestD = d;
             closest  = &sub;
         }
-        const Vector4f clip = app().m_viewCamera.GetViewProj() * Vector4f(Vector3f(gxf->position.x, gxf->position.y + 2.1f, gxf->position.z), 1.0f);
+        const Vector4f clip = app().m_sceneWorld.camera.GetViewProj() * Vector4f(Vector3f(gxf->position.x, gxf->position.y + 2.1f, gxf->position.z), 1.0f);
         if (clip.w <= 1.0e-4f || clip.z / clip.w < 0.0f || clip.z / clip.w > 1.0f)
             continue;
         const int    a  = static_cast<int>(Math::Clamp(sub.timeLeft * 3.0f, 0.0f, 1.0f) * 255.0f);
@@ -484,7 +484,7 @@ void SandboxHud::drawDialogue()
     if (!vp)
         return;
     DialogueHudView view;
-    view.viewProj      = app().m_viewCamera.GetViewProj();
+    view.viewProj      = app().m_sceneWorld.camera.GetViewProj();
     view.list          = ImGui::GetBackgroundDrawList(const_cast<ImGuiViewport*>(vp));
     view.projectWidth  = static_cast<float>(app().renderer().width());
     view.projectHeight = static_cast<float>(app().renderer().height());
@@ -605,7 +605,7 @@ void SandboxHud::drawPickupLabels()
         if (pxf && (xf->position - pxf->position).MagnitudeSqrd() > 15.0f * 15.0f)
             return;
 
-        const Vector4f clip = app().m_viewCamera.GetViewProj() * Vector4f(Vector3f(xf->position.x, xf->position.y + 0.5f, xf->position.z), 1.0f);
+        const Vector4f clip = app().m_sceneWorld.camera.GetViewProj() * Vector4f(Vector3f(xf->position.x, xf->position.y + 0.5f, xf->position.z), 1.0f);
         if (clip.w <= 1.0e-4f)
             return;
         const float invW = 1.0f / clip.w;
@@ -633,7 +633,7 @@ void SandboxHud::drawPickupLabels()
         const Vector3f            d{ at.x - pxf->position.x, 0.0f, at.z - pxf->position.z };
         if (d.MagnitudeSqrd() > 15.0f * 15.0f)
             return;
-        const Vector4f clip = app().m_viewCamera.GetViewProj() * Vector4f(Vector3f(at.x, at.y + 1.0f, at.z), 1.0f);
+        const Vector4f clip = app().m_sceneWorld.camera.GetViewProj() * Vector4f(Vector3f(at.x, at.y + 1.0f, at.z), 1.0f);
         if (clip.w <= 1.0e-4f || clip.z / clip.w < 0.0f || clip.z / clip.w > 1.0f)
             return;
         const bool        close = pick.kind == PlayInteract::Power && pick.e == e;
@@ -646,7 +646,7 @@ void SandboxHud::drawPickupLabels()
     });
 
     auto prompt = [&](const Vector3f& at, const char* text, ImU32 color) {
-        const Vector4f clip = app().m_viewCamera.GetViewProj() * Vector4f(at, 1.0f);
+        const Vector4f clip = app().m_sceneWorld.camera.GetViewProj() * Vector4f(at, 1.0f);
         if (clip.w <= 1.0e-4f || clip.z / clip.w < 0.0f || clip.z / clip.w > 1.0f)
             return;
         const ImVec2 ts = ImGui::CalcTextSize(text);
@@ -750,7 +750,7 @@ void SandboxHud::drawGuardAwareness()
     const ImVec2              mid{ vp.x + vw * 0.5f, vp.y + vh * 0.5f };
 
     auto project = [&](const Vector3f& p, ImVec2& out) {
-        const Vector4f clip = app().m_viewCamera.GetViewProj() * Vector4f(p, 1.0f);
+        const Vector4f clip = app().m_sceneWorld.camera.GetViewProj() * Vector4f(p, 1.0f);
         if (clip.w <= 1.0e-4f)
             return false;
         const float invW = 1.0f / clip.w;
@@ -926,10 +926,10 @@ void SandboxHud::drawGuardAwareness()
         });
     }
     if (inGoal)
-        app().m_goalShown = 4.0f;
-    if (app().m_goalShown > 0.0f)
+        app().m_hud.goalShown() = 4.0f;
+    if (app().m_hud.goalShown() > 0.0f)
     {
-        app().m_goalShown -= app().m_frameDt;
+        app().m_hud.goalShown() -= app().m_frameDt;
         const char*  text    = "OBJECTIVE COMPLETE";
         ImFont*      banner  = m_imgui.fonts().display ? m_imgui.fonts().display : font;
         const float  size    = banner->FontSize;
@@ -969,7 +969,7 @@ void SandboxHud::drawTargetMarker()
         return;
     WeaponFireRequest req{};
     req.ownerPos               = pxf->position;
-    req.direction              = app().m_viewCamera.GetLook();
+    req.direction              = app().m_sceneWorld.camera.GetLook();
     const WeaponWorldQuery q   = app().makeWeaponQuery();
     const int              hit = w->melee().pickTarget(req, q);
     if (hit < 0 || !q.targetEntityAt)
@@ -982,7 +982,7 @@ void SandboxHud::drawTargetMarker()
     if (!xf || !dl || vw < 1.0f || vh < 1.0f)
         return;
 
-    const Vector4f clip = app().m_viewCamera.GetViewProj() * Vector4f(Vector3f(xf->position.x, xf->position.y + 1.1f, xf->position.z), 1.0f);
+    const Vector4f clip = app().m_sceneWorld.camera.GetViewProj() * Vector4f(Vector3f(xf->position.x, xf->position.y + 1.1f, xf->position.z), 1.0f);
     if (clip.w <= 1.0e-4f)
         return;
     const float invW = 1.0f / clip.w;
@@ -1037,14 +1037,14 @@ void SandboxHud::drawLoot()
     }
     Dark::EndGameCard();
 
-    settleLootTarget(app().world(), app().pins(), app().m_physics, m_lootTarget, open);
+    settleLootTarget(app().world(), app().pins(), app().m_sceneWorld.physics, m_lootTarget, open);
 }
 
 void SandboxHud::drawNpcInfoOverlay()
 {
-    if (!app().m_npcInfo.enabled || !m_imgui.isReady())
+    if (!app().m_hud.npcInfo().enabled || !m_imgui.isReady())
         return;
-    if (!app().m_npcInfo.showState && !app().m_npcInfo.showHealth && !app().m_npcInfo.showTarget)
+    if (!app().m_hud.npcInfo().showState && !app().m_hud.npcInfo().showHealth && !app().m_hud.npcInfo().showTarget)
         return;
 
     ImDrawList* dl = ImGui::GetBackgroundDrawList(ImGui::GetMainViewport());
@@ -1080,14 +1080,14 @@ void SandboxHud::drawNpcInfoOverlay()
             sample.hasTarget = chasing;
 
         char text[192];
-        if (formatNpcInfoBox(app().m_npcInfo, sample, text, static_cast<int>(sizeof(text))) <= 0)
+        if (formatNpcInfoBox(app().m_hud.npcInfo(), sample, text, static_cast<int>(sizeof(text))) <= 0)
             return;
 
         float head = 1.85f;
         if (const HittableComponent* ht = app().world().get<HittableComponent>(e))
             head = ht->halfExtents.y * 2.0f * xf->scale.y + 0.45f;
         const Vector3f worldPos(xf->position.x, xf->position.y + head, xf->position.z);
-        const Vector4f clip = app().m_viewCamera.GetViewProj() * Vector4f(worldPos, 1.0f);
+        const Vector4f clip = app().m_sceneWorld.camera.GetViewProj() * Vector4f(worldPos, 1.0f);
         if (clip.w <= 1.0e-4f)
             return;
         const float invW = 1.0f / clip.w;
@@ -1260,7 +1260,7 @@ void SandboxHud::drawDevTools()
     ImGui::Separator();
 
     DebugRenderState& dbg = app().renderer().debugState();
-    const float elevDeg   = app().m_env.sunElevation() * 57.2957795f;
+    const float elevDeg   = app().m_sceneWorld.env.sunElevation() * 57.2957795f;
 
     ImGui::TextUnformatted(app().renderer().scenePath() == ScenePath::HybridDeferred ? "Path: hybrid deferred" : "Path: forward");
     ImGui::SameLine(0.0f, 16.0f);
@@ -1349,8 +1349,8 @@ void SandboxHud::drawDevTools()
         if (Dark::PropCheckbox("Legacy UNORM albedo", &dbg.legacyUnormAlbedo))
         {
             app().renderer().gpuResources().setAlbedoSamplingRaw(dbg.legacyUnormAlbedo);
-            if (app().m_terrainMaterial.isValid())
-                app().m_terrainMaterial.setLayerSamplingRaw(app().renderer().device(), dbg.legacyUnormAlbedo);
+            if (app().m_frame.terrainMaterial().isValid())
+                app().m_frame.terrainMaterial().setLayerSamplingRaw(app().renderer().device(), dbg.legacyUnormAlbedo);
             DE_LOG_INFO("Sandbox: legacy UNORM albedo = {}", dbg.legacyUnormAlbedo);
         }
         if (app().renderer().hasGBuffer())
@@ -1389,8 +1389,8 @@ void SandboxHud::drawDevTools()
         }
         if (ImGui::Button("Drop burn"))
         {
-            const Vector3f cam = app().m_viewCamera.GetPosition();
-            Vector3f look = app().m_viewCamera.GetLook();
+            const Vector3f cam = app().m_sceneWorld.camera.GetPosition();
+            Vector3f look = app().m_sceneWorld.camera.GetLook();
             look.y = 0.0f;
             if (look.MagnitudeSqrd() < 1.0e-8f)
                 look = Vector3f(0.0f, 0.0f, 1.0f);
@@ -1420,10 +1420,10 @@ void SandboxHud::drawDevTools()
         DebugRenderState& iblDbg = app().renderer().debugState();
         if (Dark::PropCheckbox("Enabled", &iblDbg.iblEnabled))
             DE_LOG_INFO(LogCategory::Render, "Ibl: enabled={} debug={}", iblDbg.iblEnabled, iblDbg.iblDebug);
-        Dark::PropSlider("Intensity", &app().m_ibl.intensity, 0.0f, 4.0f, "%.2f");
-        float rotDeg = app().m_ibl.rotationRadY * RadToDeg;
+        Dark::PropSlider("Intensity", &app().m_sceneWorld.ibl.intensity, 0.0f, 4.0f, "%.2f");
+        float rotDeg = app().m_sceneWorld.ibl.rotationRadY * RadToDeg;
         if (Dark::PropSlider("Rotation", &rotDeg, -180.0f, 180.0f, "%.1f deg"))
-            app().m_ibl.rotationRadY = rotDeg * DegToRad;
+            app().m_sceneWorld.ibl.rotationRadY = rotDeg * DegToRad;
         const char* debugViews[] = { "Off", "Irradiance", "Prefilter lod0", "LUT" };
         if (Dark::PropCombo("Debug view", &iblDbg.iblDebug, debugViews, 4))
         {
@@ -1433,8 +1433,8 @@ void SandboxHud::drawDevTools()
                 iblDbg.iblDebug = 3;
             DE_LOG_INFO(LogCategory::Render, "Ibl: enabled={} debug={}", iblDbg.iblEnabled, iblDbg.iblDebug);
         }
-        ImGui::TextUnformatted(app().m_ibl.virtualPath.empty() ? "(off)" : app().m_ibl.virtualPath.c_str());
-        ImGui::TextDisabled("Bake %s", app().m_ibl.enabled ? "ready" : "off / failed");
+        ImGui::TextUnformatted(app().m_sceneWorld.ibl.virtualPath.empty() ? "(off)" : app().m_sceneWorld.ibl.virtualPath.c_str());
+        ImGui::TextDisabled("Bake %s", app().m_sceneWorld.ibl.enabled ? "ready" : "off / failed");
     }
 
     if (app().renderer().hasGBuffer() && ImGui::CollapsingHeader("SSAO", ImGuiTreeNodeFlags_DefaultOpen))
@@ -1443,12 +1443,12 @@ void SandboxHud::drawDevTools()
         DebugRenderState& ssaoDbg = app().renderer().debugState();
         if (Dark::PropCheckbox("Enabled", &ssaoDbg.ssaoEnabled))
         {
-            app().m_ssao.enabled = ssaoDbg.ssaoEnabled;
+            app().m_sceneWorld.ssao.enabled = ssaoDbg.ssaoEnabled;
             DE_LOG_INFO(LogCategory::Render, "Ssao: enabled={} debug={}", ssaoDbg.ssaoEnabled, ssaoDbg.ssaoDebug);
         }
-        Dark::PropSlider("Intensity", &app().m_ssao.intensity, 0.0f, 1.0f, "%.2f");
-        Dark::PropSlider("Radius", &app().m_ssao.radius, 0.05f, 2.0f, "%.2f");
-        Dark::PropSlider("Power", &app().m_ssao.power, 0.5f, 4.0f, "%.2f");
+        Dark::PropSlider("Intensity", &app().m_sceneWorld.ssao.intensity, 0.0f, 1.0f, "%.2f");
+        Dark::PropSlider("Radius", &app().m_sceneWorld.ssao.radius, 0.05f, 2.0f, "%.2f");
+        Dark::PropSlider("Power", &app().m_sceneWorld.ssao.power, 0.5f, 4.0f, "%.2f");
         const char* ssaoDebugViews[] = { "Off", "SSAO factor" };
         if (Dark::PropCombo("Debug view", &ssaoDbg.ssaoDebug, ssaoDebugViews, 2))
         {
@@ -1473,13 +1473,13 @@ void SandboxHud::drawDevTools()
             DebugRenderState& ssrDbg = app().renderer().debugState();
             if (Dark::PropCheckbox("Enabled", &ssrDbg.ssrEnabled))
             {
-                app().m_ssr.enabled = ssrDbg.ssrEnabled;
+                app().m_sceneWorld.ssr.enabled = ssrDbg.ssrEnabled;
                 DE_LOG_INFO(LogCategory::Render, "Ssr: enabled={} debug={}", ssrDbg.ssrEnabled, ssrDbg.ssrDebug);
             }
-            Dark::PropSlider("Max roughness", &app().m_ssr.maxRoughness, 0.05f, 1.0f, "%.2f");
-            Dark::PropSlider("Thickness", &app().m_ssr.thickness, 0.02f, 2.0f, "%.2f m");
-            Dark::PropSlider("Stride", &app().m_ssr.stride, 1.0f, 8.0f, "%.1f px");
-            Dark::PropSlider("Edge fade", &app().m_ssr.edgeFade, 0.0f, 0.25f, "%.2f");
+            Dark::PropSlider("Max roughness", &app().m_sceneWorld.ssr.maxRoughness, 0.05f, 1.0f, "%.2f");
+            Dark::PropSlider("Thickness", &app().m_sceneWorld.ssr.thickness, 0.02f, 2.0f, "%.2f m");
+            Dark::PropSlider("Stride", &app().m_sceneWorld.ssr.stride, 1.0f, 8.0f, "%.1f px");
+            Dark::PropSlider("Edge fade", &app().m_sceneWorld.ssr.edgeFade, 0.0f, 0.25f, "%.2f");
             const char* ssrDebugViews[] = { "Off", "Radiance", "Confidence" };
             if (Dark::PropCombo("Debug view", &ssrDbg.ssrDebug, ssrDebugViews, 3))
             {
@@ -1495,23 +1495,23 @@ void SandboxHud::drawDevTools()
 
     if (ImGui::CollapsingHeader("Sky", ImGuiTreeNodeFlags_DefaultOpen))
     {
-        const Vector3f lc = app().m_env.lightColor();
+        const Vector3f lc = app().m_sceneWorld.env.lightColor();
         ImGui::ColorButton("##light", ImVec4(lc.x, lc.y, lc.z, 1.0f), ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoDragDrop, ImVec2(18.0f, 18.0f));
         ImGui::SameLine();
-        ImGui::Text("Light  ambient (%.2f, %.2f, %.2f)", static_cast<double>(app().m_env.ambientColor().x), static_cast<double>(app().m_env.ambientColor().y),
-                    static_cast<double>(app().m_env.ambientColor().z));
+        ImGui::Text("Light  ambient (%.2f, %.2f, %.2f)", static_cast<double>(app().m_sceneWorld.env.ambientColor().x), static_cast<double>(app().m_sceneWorld.env.ambientColor().y),
+                    static_cast<double>(app().m_sceneWorld.env.ambientColor().z));
 
-        float tod = app().m_env.timeOfDay;
+        float tod = app().m_sceneWorld.env.timeOfDay;
         if (Dark::PropSlider("Time of day", &tod, 0.0f, 23.99f, "%.2f h"))
         {
-            app().m_env.timeOfDay = tod;
-            app().m_env.evaluate();
+            app().m_sceneWorld.env.timeOfDay = tod;
+            app().m_sceneWorld.env.evaluate();
         }
-        bool animate = app().m_env.timeScale > 0.0f;
+        bool animate = app().m_sceneWorld.env.timeScale > 0.0f;
         if (Dark::PropCheckbox("Animate time", &animate))
         {
-            app().m_env.timeScale = animate ? 0.35f : 0.0f;
-            DE_LOG_INFO("Sky: time scale = {:.2f} h/s", app().m_env.timeScale);
+            app().m_sceneWorld.env.timeScale = animate ? 0.35f : 0.0f;
+            DE_LOG_INFO("Sky: time scale = {:.2f} h/s", app().m_sceneWorld.env.timeScale);
         }
 
         auto weatherBtn = [&](const char* label, const Sky::WeatherState& w, const ImVec4& col) {
@@ -1519,9 +1519,9 @@ void SandboxHud::drawDevTools()
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(col.x + 0.12f, col.y + 0.12f, col.z + 0.12f, 1.0f));
             if (ImGui::Button(label, ImVec2(92.0f, 28.0f)))
             {
-                app().m_env.weather = w;
-                app().m_env.cloudLayer.windSpeedMps = Sky::cloudWindSpeedMpsFor(w);
-                app().m_env.evaluate();
+                app().m_sceneWorld.env.weather = w;
+                app().m_sceneWorld.env.cloudLayer.windSpeedMps = Sky::cloudWindSpeedMpsFor(w);
+                app().m_sceneWorld.env.evaluate();
                 DE_LOG_INFO("Sky: weather {}", label);
             }
             ImGui::PopStyleColor(2);
@@ -1533,32 +1533,32 @@ void SandboxHud::drawDevTools()
         weatherBtn("Overcast", Sky::WeatherState::Overcast(), ImVec4(0.38f, 0.40f, 0.42f, 1.0f));
         ImGui::SameLine();
         weatherBtn("Storm", Sky::WeatherState::Storm(), ImVec4(0.28f, 0.22f, 0.40f, 1.0f));
-        ImGui::Text("Cover %.0f%%  exposure %.2f", static_cast<double>(app().m_env.weather.cloudCoverage * 100.0f), static_cast<double>(app().m_env.exposure()));
+        ImGui::Text("Cover %.0f%%  exposure %.2f", static_cast<double>(app().m_sceneWorld.env.weather.cloudCoverage * 100.0f), static_cast<double>(app().m_sceneWorld.env.exposure()));
     }
 
     if (app().renderer().hasGBuffer() && ImGui::CollapsingHeader("Exposure", ImGuiTreeNodeFlags_DefaultOpen))
     {
         ImGui::PushID("Exposure");
-        bool autoOn = app().m_autoExposure.mode == ExposureMode::Auto;
+        bool autoOn = app().m_frame.autoExposure().mode == ExposureMode::Auto;
         if (Dark::PropCheckbox("Auto", &autoOn))
         {
             const ExposureMode next = autoOn ? ExposureMode::Auto : ExposureMode::Manual;
-            if (next == ExposureMode::Auto && app().m_autoExposure.mode != ExposureMode::Auto)
+            if (next == ExposureMode::Auto && app().m_frame.autoExposure().mode != ExposureMode::Auto)
             {
-                resetAutoExposure(app().m_autoExposureState);
+                resetAutoExposure(app().m_frame.autoExposureState());
                 app().m_frame.scene().autoExposure().invalidateReadback();
             }
-            app().m_autoExposure.mode = next;
+            app().m_frame.autoExposure().mode = next;
             DE_LOG_INFO(LogCategory::Render, "Exposure: auto={}", autoOn);
         }
         ImGui::BeginDisabled(!autoOn);
-        Dark::PropSlider("EV bias", &app().m_autoExposure.evBias, -2.0f, 2.0f, "%.2f");
-        Dark::PropSlider("Max EV", &app().m_autoExposure.maxEv, 0.0f, 3.0f, "%.2f");
-        Dark::PropSlider("Bright speed", &app().m_autoExposure.adaptBright, 0.0f, 20.0f, "%.2f /s");
-        Dark::PropSlider("Dark speed", &app().m_autoExposure.adaptDark, 0.0f, 20.0f, "%.2f /s");
+        Dark::PropSlider("EV bias", &app().m_frame.autoExposure().evBias, -2.0f, 2.0f, "%.2f");
+        Dark::PropSlider("Max EV", &app().m_frame.autoExposure().maxEv, 0.0f, 3.0f, "%.2f");
+        Dark::PropSlider("Bright speed", &app().m_frame.autoExposure().adaptBright, 0.0f, 20.0f, "%.2f /s");
+        Dark::PropSlider("Dark speed", &app().m_frame.autoExposure().adaptDark, 0.0f, 20.0f, "%.2f /s");
         ImGui::EndDisabled();
-        ImGui::Text("measured %.3f   EV %+.2f", static_cast<double>(app().m_autoExposureResult.measuredLuma), static_cast<double>(app().m_autoExposureResult.evCorrection));
-        ImGui::Text("artistic %.2f   final %.2f", static_cast<double>(app().m_env.exposure()), static_cast<double>(app().m_autoExposureResult.finalExposure));
+        ImGui::Text("measured %.3f   EV %+.2f", static_cast<double>(app().m_frame.autoExposureResult().measuredLuma), static_cast<double>(app().m_frame.autoExposureResult().evCorrection));
+        ImGui::Text("artistic %.2f   final %.2f", static_cast<double>(app().m_sceneWorld.env.exposure()), static_cast<double>(app().m_frame.autoExposureResult().finalExposure));
         ImGui::TextDisabled("Auto adds a small correction on the artistic exposure. Bright views fall faster than dark views rise.");
         ImGui::PopID();
     }
@@ -1566,7 +1566,7 @@ void SandboxHud::drawDevTools()
     if (app().renderer().hasGBuffer() && ImGui::CollapsingHeader("Cloud LOD", ImGuiTreeNodeFlags_DefaultOpen))
     {
         ImGui::PushID("CloudLOD");
-        CloudLodSettings& lod = app().m_cloudLod;
+        CloudLodSettings& lod = app().m_frame.cloudLod();
         if (Dark::PropCheckbox("Enabled", &lod.enabled))
             DE_LOG_INFO(LogCategory::Render, "Cloud LOD: enabled={}", lod.enabled);
         ImGui::BeginDisabled(!lod.enabled);
@@ -1588,62 +1588,62 @@ void SandboxHud::drawDevTools()
 
     if (ImGui::CollapsingHeader("Fog", ImGuiTreeNodeFlags_DefaultOpen))
     {
-        const Vector3f fc = app().m_env.fogColor();
+        const Vector3f fc = app().m_sceneWorld.env.fogColor();
         ImGui::ColorButton("##fogSwatch", ImVec4(fc.x, fc.y, fc.z, 1.0f), ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoDragDrop, ImVec2(18.0f, 18.0f));
         ImGui::SameLine();
-        ImGui::Text("dist %.3f  height %.3f  valley %.3f", static_cast<double>(app().m_env.fogDensity()), static_cast<double>(app().m_env.heightFogDensity()),
-                    static_cast<double>(app().m_env.volumetricFogDensity()));
+        ImGui::Text("dist %.3f  height %.3f  valley %.3f", static_cast<double>(app().m_sceneWorld.env.fogDensity()), static_cast<double>(app().m_sceneWorld.env.heightFogDensity()),
+                    static_cast<double>(app().m_sceneWorld.env.volumetricFogDensity()));
 
-        bool autoFog = app().m_env.fogAuto;
+        bool autoFog = app().m_sceneWorld.env.fogAuto;
         if (Dark::PropCheckbox("Auto from weather / time", &autoFog))
         {
-            app().m_env.fogAuto = autoFog;
+            app().m_sceneWorld.env.fogAuto = autoFog;
             if (autoFog)
-                app().m_env.evaluate();
+                app().m_sceneWorld.env.evaluate();
         }
 
-        if (app().m_env.fogAuto)
+        if (app().m_sceneWorld.env.fogAuto)
         {
-            if (Dark::PropSlider("Distance scale", &app().m_env.fogDistanceScale, 0.0f, 6.0f, "%.2f"))
-                app().m_env.evaluate();
-            if (Dark::PropSlider("Height scale", &app().m_env.heightFogScale, 0.0f, 6.0f, "%.2f"))
-                app().m_env.evaluate();
-            if (Dark::PropSlider("Valley scale", &app().m_env.volumetricFogScale, 0.0f, 6.0f, "%.2f"))
-                app().m_env.evaluate();
+            if (Dark::PropSlider("Distance scale", &app().m_sceneWorld.env.fogDistanceScale, 0.0f, 6.0f, "%.2f"))
+                app().m_sceneWorld.env.evaluate();
+            if (Dark::PropSlider("Height scale", &app().m_sceneWorld.env.heightFogScale, 0.0f, 6.0f, "%.2f"))
+                app().m_sceneWorld.env.evaluate();
+            if (Dark::PropSlider("Valley scale", &app().m_sceneWorld.env.volumetricFogScale, 0.0f, 6.0f, "%.2f"))
+                app().m_sceneWorld.env.evaluate();
         }
         else
         {
-            float dist = app().m_env.fogDensity();
+            float dist = app().m_sceneWorld.env.fogDensity();
             if (Dark::PropSlider("Distance density", &dist, 0.0f, 0.08f, "%.4f"))
-                app().m_env.setFogDensity(dist);
-            float height = app().m_env.heightFogDensity();
+                app().m_sceneWorld.env.setFogDensity(dist);
+            float height = app().m_sceneWorld.env.heightFogDensity();
             if (Dark::PropSlider("Height density", &height, 0.0f, 0.12f, "%.4f"))
-                app().m_env.setHeightFogDensity(height);
-            float valley = app().m_env.volumetricFogDensity();
+                app().m_sceneWorld.env.setHeightFogDensity(height);
+            float valley = app().m_sceneWorld.env.volumetricFogDensity();
             if (Dark::PropSlider("Valley density", &valley, 0.0f, 0.12f, "%.4f"))
-                app().m_env.setVolumetricFogDensity(valley);
+                app().m_sceneWorld.env.setVolumetricFogDensity(valley);
             float col[3] = { fc.x, fc.y, fc.z };
             if (Dark::PropColor3("Fog color", col, ImGuiColorEditFlags_Float))
-                app().m_env.setFogColor(Vector3f(col[0], col[1], col[2]));
+                app().m_sceneWorld.env.setFogColor(Vector3f(col[0], col[1], col[2]));
         }
 
-        float falloff = app().m_env.heightFogFalloff();
+        float falloff = app().m_sceneWorld.env.heightFogFalloff();
         if (Dark::PropSlider("Height falloff", &falloff, 0.01f, 0.25f, "%.3f"))
-            app().m_env.setHeightFogFalloff(falloff);
-        float slab = app().m_env.volumetricFogHeight();
+            app().m_sceneWorld.env.setHeightFogFalloff(falloff);
+        float slab = app().m_sceneWorld.env.volumetricFogHeight();
         if (Dark::PropSlider("Valley height (m)", &slab, 2.0f, 40.0f, "%.1f"))
-            app().m_env.setVolumetricFogHeight(slab);
+            app().m_sceneWorld.env.setVolumetricFogHeight(slab);
 
         if (ImGui::Button("Reset fog"))
         {
-            app().m_env.resetFogTune();
+            app().m_sceneWorld.env.resetFogTune();
             DE_LOG_INFO("Sky: fog tune reset");
         }
     }
 
     if (ImGui::CollapsingHeader("Water", ImGuiTreeNodeFlags_DefaultOpen))
     {
-        WaterParams& wp = app().m_water.params();
+        WaterParams& wp = app().m_sceneWorld.water.params();
         float baseAmp = 0.0f;
         for (int i = 0; i < kWaterWaveCount; ++i)
             baseAmp += wp.waves[i].amplitude;
@@ -1682,11 +1682,11 @@ void SandboxHud::drawDevTools()
 
     if (ImGui::CollapsingHeader("Procedural grass"))
     {
-        Terrain::GrassParams grass = app().m_grassField.params();
-        if (!app().m_grassPipeline.isValid())
+        Terrain::GrassParams grass = app().m_sceneWorld.grassField.params();
+        if (!app().m_frame.grassPipeline().isValid())
             grass.enabled = false;
         bool edited = false;
-        ImGui::BeginDisabled(!app().m_grassPipeline.isValid());
+        ImGui::BeginDisabled(!app().m_frame.grassPipeline().isValid());
         edited |= Dark::PropCheckbox("Enable", &grass.enabled);
         ImGui::EndDisabled();
         edited |= Dark::PropSlider("Height", &grass.heightMetres, 0.05f, 1.50f, "%.2f");
@@ -1701,18 +1701,18 @@ void SandboxHud::drawDevTools()
         ImGui::SetItemTooltip("How far the tip leans toward the camera when you look down, as a fraction of blade height.");
         edited |= Dark::PropSlider("Steep start", &grass.faceSteep, 0.0f, 0.95f, "%.2f");
         ImGui::SetItemTooltip("How overhead the camera must be before the tip leans. 0 starts at the horizon. Saved values come from the scene file.");
-        if (!app().m_grassPipeline.isValid())
+        if (!app().m_frame.grassPipeline().isValid())
             grass.enabled = false;
         if (edited)
-            app().m_grassField.setParams(grass);
+            app().m_sceneWorld.grassField.setParams(grass);
         uint32_t bladeCount = 0;
         for (int lod = 0; lod < Terrain::kGrassLodCount; ++lod)
-            bladeCount += app().m_grassField.blades(lod).count;
-        ImGui::Text("Blades %u   tiles %u", bladeCount, app().m_grassField.residentTileCount());
+            bladeCount += app().m_sceneWorld.grassField.blades(lod).count;
+        ImGui::Text("Blades %u   tiles %u", bladeCount, app().m_sceneWorld.grassField.residentTileCount());
     }
 
     if (ImGui::CollapsingHeader("Falling leaves"))
-        Dark::PropSlider("Shed scale", &app().m_leafShedScale, 0.0f, 1.0f, "%.2f");
+        Dark::PropSlider("Shed scale", &app().m_sceneWorld.leafShedScale, 0.0f, 1.0f, "%.2f");
 
             ImGui::EndTabItem();
         }
@@ -1720,28 +1720,28 @@ void SandboxHud::drawDevTools()
         {
     if (ImGui::CollapsingHeader("NPC info", ImGuiTreeNodeFlags_DefaultOpen))
     {
-        if (Dark::PropCheckbox("Show overlay", &app().m_npcInfo.enabled))
-            DE_LOG_INFO("Sandbox: NPC info overlay = {}", app().m_npcInfo.enabled);
-        ImGui::BeginDisabled(!app().m_npcInfo.enabled);
-        if (Dark::PropCheckbox("AI state", &app().m_npcInfo.showState))
-            DE_LOG_INFO("Sandbox: NPC info state = {}", app().m_npcInfo.showState);
-        if (Dark::PropCheckbox("Health", &app().m_npcInfo.showHealth))
-            DE_LOG_INFO("Sandbox: NPC info health = {}", app().m_npcInfo.showHealth);
-        if (Dark::PropCheckbox("Has target", &app().m_npcInfo.showTarget))
-            DE_LOG_INFO("Sandbox: NPC info target = {}", app().m_npcInfo.showTarget);
+        if (Dark::PropCheckbox("Show overlay", &app().m_hud.npcInfo().enabled))
+            DE_LOG_INFO("Sandbox: NPC info overlay = {}", app().m_hud.npcInfo().enabled);
+        ImGui::BeginDisabled(!app().m_hud.npcInfo().enabled);
+        if (Dark::PropCheckbox("AI state", &app().m_hud.npcInfo().showState))
+            DE_LOG_INFO("Sandbox: NPC info state = {}", app().m_hud.npcInfo().showState);
+        if (Dark::PropCheckbox("Health", &app().m_hud.npcInfo().showHealth))
+            DE_LOG_INFO("Sandbox: NPC info health = {}", app().m_hud.npcInfo().showHealth);
+        if (Dark::PropCheckbox("Has target", &app().m_hud.npcInfo().showTarget))
+            DE_LOG_INFO("Sandbox: NPC info target = {}", app().m_hud.npcInfo().showTarget);
         ImGui::EndDisabled();
         ImGui::TextDisabled("World-space box above hunters and wolves.");
     }
 
     if (ImGui::CollapsingHeader("Camera"))
     {
-        float nearZ = app().m_viewCamera.GetNearZ();
-        float farZ  = app().m_viewCamera.GetFarZ();
+        float nearZ = app().m_sceneWorld.camera.GetNearZ();
+        float farZ  = app().m_sceneWorld.camera.GetFarZ();
         bool  ch    = false;
         ch |= Dark::PropSlider("Near", &nearZ, 0.01f, 1.0f, "%.3f");
         ch |= Dark::PropSlider("Far", &farZ, 100.0f, 1.0e6f, "%.0f", ImGuiSliderFlags_Logarithmic);
         if (ch)
-            app().m_viewCamera.SetLens(app().m_viewCamera.GetFovY(), app().m_viewCamera.GetAspect(), nearZ, farZ);
+            app().m_sceneWorld.camera.SetLens(app().m_sceneWorld.camera.GetFovY(), app().m_sceneWorld.camera.GetAspect(), nearZ, farZ);
     }
 
     if (ImGui::CollapsingHeader("Jump attack"))

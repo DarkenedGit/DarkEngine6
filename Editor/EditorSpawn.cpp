@@ -456,7 +456,7 @@ ArchetypeSpawnHost EditorApp::archetypeHost()
     services.pins                 = &pins();
     services.renderer             = &renderer();
     services.audio                = &audio();
-    services.ground               = &m_ground;
+    services.ground               = &m_sceneWorld.ground;
     services.ai                   = &m_ai;
     services.ensureMesh           = &EditorApp::ensureArchetypeMesh;
     services.ensurePrimitive      = &EditorApp::ensureArchetypePrimitive;
@@ -464,8 +464,8 @@ ArchetypeSpawnHost EditorApp::archetypeHost()
     services.onWeaponHit          = &EditorApp::onPlayWeaponHitThunk;
     services.weaponHitUser        = this;
     services.user                 = this;
-    services.crows                = &m_crowModels;
-    services.crowTerrain          = &m_terrain;
+    services.crows                = &m_play.crows();
+    services.crowTerrain          = &m_sceneWorld.terrain;
     return makeSpawnHost(services);
 }
 
@@ -673,14 +673,14 @@ void EditorApp::applySkyToLights()
     if (m_sceneMode != SceneMode::Scene3D)
         return;
 
-    Vector3f dir = m_env.lightDir();
+    Vector3f dir = m_sceneWorld.env.lightDir();
     if (dir.MagnitudeSqrd() <= 1.0e-8f)
         dir = Vector3f(0.35f, 0.85f, -0.35f);
     dir.Normalize();
     const Vector3f up = (fabsf(dir.y) > 0.92f) ? Vector3f(0.0f, 0.0f, 1.0f) : Vector3f(0.0f, 1.0f, 0.0f);
     const Quaternion rot = Quaternion::FromLookRotation(dir, up);
-    const Vector3f sunCol = m_env.lightColor();
-    const Vector3f ambCol = m_env.ambientColor();
+    const Vector3f sunCol = m_sceneWorld.env.lightColor();
+    const Vector3f ambCol = m_sceneWorld.env.ambientColor();
 
     world().each<DirectionalLightComponent>([&](Entity e, DirectionalLightComponent& d) {
         d.color = sunCol;
@@ -863,13 +863,13 @@ void EditorApp::clearScene()
         }
     }
     m_selected = {};
-    m_sceneQuest.clear();
+    m_play.sceneQuest().clear();
     m_sceneBuildings.clear();
-    m_buildingContainers.clear();
-    m_buildingHides.clear();
-    m_buildingDoors.clear();
-    m_buildingCameras.clear();
-    m_buildingLabels.clear();
+    m_play.buildingContainers().clear();
+    m_play.buildingHides().clear();
+    m_play.buildingDoors().clear();
+    m_play.buildingCameras().clear();
+    m_play.buildingLabels().clear();
     m_play.clearFacility();
     m_dragging = false;
     if (m_playMode)

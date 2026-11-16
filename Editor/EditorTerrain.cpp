@@ -14,6 +14,7 @@
 #include "Terrain/TrailPath.h"
 #include "Terrain/TerrainTileFile.h"
 #include "Terrain/WorldEngineMap.h"
+#include "Water/WaterStream.h"
 #include "Water/WaterWaves.h"
 #include "Render/WaterPipeline.h"
 #include "Terrain/HeightMap.h"
@@ -216,14 +217,14 @@ constexpr int kGenTileCounts[] = { 1, 2, 4, 8 };
 
 void EditorApp::removeEditorTerrain()
 {
-    Physics::destroyFoliageCollision(m_physics, m_foliageCollision);
+    Physics::destroyFoliageCollision(m_sceneWorld.physics, m_sceneWorld.foliageCollision);
     cancelFoliageSpawn();
     clearFoliageInstances("remove terrain");
     m_terrainSource.clear();
     if (!m_haveTerrain && !m_terrainMaterial.isValid())
     {
-        m_terrain.clear();
-        m_grassField.reset();
+        m_sceneWorld.terrain.clear();
+        m_sceneWorld.grassField.reset();
         m_terrainMaterial    = {};
         m_splat              = {};
         m_terrainSurface     = {};
@@ -235,19 +236,19 @@ void EditorApp::removeEditorTerrain()
 
     renderer().waitForGpu();
     {
-        const WaterParams kept = m_water.params();
-        m_water = WaterWorld{};
-        m_water.params() = defaultWaterParams(0.0f);
-        m_water.params().amplitudeScale = kept.amplitudeScale;
-        m_water.params().speedScale     = kept.speedScale;
-        m_water.params().foam           = kept.foam;
-        m_water.params().flowSpeed      = kept.flowSpeed;
-        m_water.params().foamWidthScale = kept.foamWidthScale;
-        m_water.params().detailAmount   = kept.detailAmount;
+        const WaterParams kept = m_sceneWorld.water.params();
+        m_sceneWorld.water = WaterWorld{};
+        m_sceneWorld.water.params() = defaultWaterParams(0.0f);
+        m_sceneWorld.water.params().amplitudeScale = kept.amplitudeScale;
+        m_sceneWorld.water.params().speedScale     = kept.speedScale;
+        m_sceneWorld.water.params().foam           = kept.foam;
+        m_sceneWorld.water.params().flowSpeed      = kept.flowSpeed;
+        m_sceneWorld.water.params().foamWidthScale = kept.foamWidthScale;
+        m_sceneWorld.water.params().detailAmount   = kept.detailAmount;
     }
     m_placedWaterForce = true;
-    m_terrain.clear();
-    m_grassField.reset();
+    m_sceneWorld.terrain.clear();
+    m_sceneWorld.grassField.reset();
     m_terrainMaterial    = {};
     m_splat              = {};
     m_terrainSurface     = {};
@@ -272,41 +273,41 @@ bool EditorApp::terrainBrushesLocked() const
 
 void EditorApp::bindTerrainHeightSrv()
 {
-    if (m_terrain.heightTexture().valid())
+    if (m_sceneWorld.terrain.heightTexture().valid())
     {
-        renderer().setHeightSrv(m_terrain.heightTexture().cpuHandle());
-        m_scene.waterPipeline().setHeightSrv(renderer().device(), m_terrain.heightTexture().cpuHandle());
+        renderer().setHeightSrv(m_sceneWorld.terrain.heightTexture().cpuHandle());
+        m_scene.waterPipeline().setHeightSrv(renderer().device(), m_sceneWorld.terrain.heightTexture().cpuHandle());
     }
 }
 
 bool EditorApp::rebuildEditorWater()
 {
-    const WaterParams kept = m_water.params();
+    const WaterParams kept = m_sceneWorld.water.params();
     // The assignment destroys m_gpuRetire with the world.
-    m_water.retireGpu(m_placedWaterRetire);
-    m_water = WaterWorld{};
-    m_water.params() = defaultWaterParams(m_terrainSeaLevel);
-    m_water.params().amplitudeScale = kept.amplitudeScale;
-    m_water.params().speedScale     = kept.speedScale;
-    m_water.params().foam           = kept.foam;
-    m_water.params().flowSpeed      = kept.flowSpeed;
-    m_water.params().foamWidthScale = kept.foamWidthScale;
-    m_water.params().detailAmount   = kept.detailAmount;
+    m_sceneWorld.water.retireGpu(m_placedWaterRetire);
+    m_sceneWorld.water = WaterWorld{};
+    m_sceneWorld.water.params() = defaultWaterParams(m_sceneWorld.terrainSeaLevel);
+    m_sceneWorld.water.params().amplitudeScale = kept.amplitudeScale;
+    m_sceneWorld.water.params().speedScale     = kept.speedScale;
+    m_sceneWorld.water.params().foam           = kept.foam;
+    m_sceneWorld.water.params().flowSpeed      = kept.flowSpeed;
+    m_sceneWorld.water.params().foamWidthScale = kept.foamWidthScale;
+    m_sceneWorld.water.params().detailAmount   = kept.detailAmount;
     m_placedWaterForce = true;
     return true;
 }
 
 bool EditorApp::createEditorWaterSheet()
 {
-    if (!m_authoredWater.present || !m_haveTerrain || !m_terrain.valid() || !m_terrain.coarse().valid())
+    if (!m_authoredWater.present || !m_haveTerrain || !m_sceneWorld.terrain.valid() || !m_sceneWorld.terrain.coarse().valid())
         return false;
 
-    const AABox3f terrainBox = m_terrain.bounds();
+    const AABox3f terrainBox = m_sceneWorld.terrain.bounds();
     const float level = m_authoredWater.hasLevel
         ? m_authoredWater.level
         : Lerp(terrainBox.Min.y, terrainBox.Max.y, m_authoredWater.levelFraction);
 
-    WaterParams params = m_water.params();
+    WaterParams params = m_sceneWorld.water.params();
     params.waterLevel = level;
 
     WaterDesc desc;
@@ -320,30 +321,30 @@ bool EditorApp::createEditorWaterSheet()
         desc.lodDistances[i] = m_authoredWater.lodDistances[i];
     desc.params = params;
 
-    const float time = m_water.time();
+    const float time = m_sceneWorld.water.time();
     // The water panel runs after the sheet draw and before endFrame submits.
     // updateLod ticks m_gpuRetire in this call, so parking there would free
     // the VB/IB one frame before beginFrame waits on that submission.
-    m_water.retireGpu(m_placedWaterRetire);
-    if (!m_water.create(m_terrain.coarse(), desc))
+    m_sceneWorld.water.retireGpu(m_placedWaterRetire);
+    if (!m_sceneWorld.water.create(m_sceneWorld.terrain.coarse(), desc))
     {
         DE_LOG_ERROR(LogCategory::Render, "Editor: water sheet create failed");
-        m_water.retireGpu(m_placedWaterRetire);
-        m_water = WaterWorld{};
-        m_water.params() = params;
-        m_water.setTime(time);
+        m_sceneWorld.water.retireGpu(m_placedWaterRetire);
+        m_sceneWorld.water = WaterWorld{};
+        m_sceneWorld.water.params() = params;
+        m_sceneWorld.water.setTime(time);
         m_placedWaterForce = true;
         return false;
     }
-    m_water.setTime(time);
-    m_water.updateLod(m_camera.GetPosition());
-    if (!m_water.createGpu(renderer()))
+    m_sceneWorld.water.setTime(time);
+    m_sceneWorld.water.updateLod(m_camera.GetPosition());
+    if (!m_sceneWorld.water.createGpu(renderer()))
     {
         DE_LOG_ERROR(LogCategory::Render, "Editor: water sheet GPU upload failed");
-        m_water.retireGpu(m_placedWaterRetire);
-        m_water = WaterWorld{};
-        m_water.params() = params;
-        m_water.setTime(time);
+        m_sceneWorld.water.retireGpu(m_placedWaterRetire);
+        m_sceneWorld.water = WaterWorld{};
+        m_sceneWorld.water.params() = params;
+        m_sceneWorld.water.setTime(time);
         m_placedWaterForce = true;
         return false;
     }
@@ -354,8 +355,8 @@ bool EditorApp::createEditorWaterSheet()
 void EditorApp::syncPlacedWater(bool terrainChanged)
 {
     m_placedWaterRetire.tick();
-    const bool haveTerrain = m_haveTerrain && m_terrain.valid() && m_terrain.coarse().valid();
-    const Terrain::HeightMap* heightMap = haveTerrain ? &m_terrain.coarse() : nullptr;
+    const bool haveTerrain = m_haveTerrain && m_sceneWorld.terrain.valid() && m_sceneWorld.terrain.coarse().valid();
+    const Terrain::HeightMap* heightMap = haveTerrain ? &m_sceneWorld.terrain.coarse() : nullptr;
     const bool force = terrainChanged || m_placedWaterForce;
     m_placedWaterForce = false;
 
@@ -392,7 +393,7 @@ void EditorApp::syncPlacedWater(bool terrainChanged)
         if (rebuild)
         {
             slot->body.retireGpu(m_placedWaterRetire);
-            WaterParams params = m_water.params();
+            WaterParams params = m_sceneWorld.water.params();
             params.waterLevel = desc.center.y;
             if (!slot->body.build(heightMap, desc, params) || !slot->body.upload(renderer()))
                 DE_LOG_ERROR(LogCategory::Render, "Editor: water body upload failed");
@@ -409,7 +410,7 @@ void EditorApp::syncPlacedWater(bool terrainChanged)
         }
         else
         {
-            slot->body.applySharedParams(m_water.params());
+            slot->body.applySharedParams(m_sceneWorld.water.params());
             slot->body.updateLod(m_camera.GetPosition());
             if (slot->body.needsRebuild())
             {
@@ -442,7 +443,7 @@ void EditorApp::syncPlacedWater(bool terrainChanged)
         m_placedWater.pop_back();
     }
 
-    const float lakeLevel = m_water.chunksX() > 0 ? m_water.params().waterLevel : m_terrainSeaLevel;
+    const float lakeLevel = m_sceneWorld.water.chunksX() > 0 ? m_sceneWorld.water.params().waterLevel : m_sceneWorld.terrainSeaLevel;
     std::vector<EntityID> liveStreams;
     world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
         if (!sceneHasComponent(so.source, "Stream"))
@@ -565,10 +566,10 @@ void EditorApp::drawPlacedWater(
     D3D12_CPU_DESCRIPTOR_HANDLE depthCpu,
     const SsrSettings* ssr)
 {
-    const bool sheet = m_water.wetChunkCount() > 0;
+    const bool sheet = m_sceneWorld.water.wetChunkCount() > 0;
     if (!cmd || !m_scene.waterPipeline().isValid() || (!sheet && m_placedWater.empty() && m_editorStreams.empty()))
         return;
-    const Terrain::HeightMap* heightMap = (m_haveTerrain && m_terrain.valid() && m_terrain.coarse().valid()) ? &m_terrain.coarse() : nullptr;
+    const Terrain::HeightMap* heightMap = (m_haveTerrain && m_sceneWorld.terrain.valid() && m_sceneWorld.terrain.coarse().valid()) ? &m_sceneWorld.terrain.coarse() : nullptr;
     uint32_t drawIndex = 0;
     auto pastCap = [&]() {
         if (drawIndex < WaterPipeline::kMaxWaterDrawsPerFrame)
@@ -578,12 +579,12 @@ void EditorApp::drawPlacedWater(
     };
     if (sheet)
     {
-        m_water.draw(
+        m_sceneWorld.water.draw(
             cmd,
             m_scene.waterPipeline(),
             m_camera,
             &frustum,
-            &m_env,
+            &m_sceneWorld.env,
             &renderer().debugState(),
             0,
             0,
@@ -608,7 +609,7 @@ void EditorApp::drawPlacedWater(
                 m_camera,
                 &frustum,
                 &renderer().debugState(),
-                m_water.time(),
+                m_sceneWorld.water.time(),
                 renderer().frameIndex(),
                 drawIndex,
                 heightHeap,
@@ -618,7 +619,7 @@ void EditorApp::drawPlacedWater(
                 depthCpu,
                 ssr,
                 heightMap,
-                &m_env))
+                &m_sceneWorld.env))
             ++drawIndex;
     }
     for (const EditorStreamSlot& slot : m_editorStreams)
@@ -628,7 +629,7 @@ void EditorApp::drawPlacedWater(
         float flowSpeed = 1.6f;
         if (const StreamComponent* stream = world().get<StreamComponent>(Entity(slot.entityId)))
             flowSpeed = stream->flowSpeed;
-        WaterParams params = m_water.params();
+        WaterParams params = m_sceneWorld.water.params();
         params.flowSpeed = flowSpeed;
         if (drawStreamRibbon(
                 cmd,
@@ -639,7 +640,7 @@ void EditorApp::drawPlacedWater(
                 m_camera,
                 &frustum,
                 &renderer().debugState(),
-                m_water.time(),
+                m_sceneWorld.water.time(),
                 renderer().frameIndex(),
                 drawIndex,
                 heightHeap,
@@ -649,17 +650,17 @@ void EditorApp::drawPlacedWater(
                 depthCpu,
                 ssr,
                 heightMap,
-                &m_env))
+                &m_sceneWorld.env))
             ++drawIndex;
     }
 }
 
 bool EditorApp::applyEditorGridGpu()
 {
-    if (!m_haveTerrain || !m_terrain.valid())
+    if (!m_haveTerrain || !m_sceneWorld.terrain.valid())
         return false;
-    m_terrain.updateStreaming(m_camera.GetPosition(), &renderer(), &m_terrainMaterial);
-    if (!m_terrain.uploadCoarseHeightTexture(renderer()))
+    m_sceneWorld.terrain.updateStreaming(m_camera.GetPosition(), &renderer(), &m_terrainMaterial);
+    if (!m_sceneWorld.terrain.uploadCoarseHeightTexture(renderer()))
     {
         DE_LOG_ERROR(LogCategory::Render, "Editor: coarse height texture upload failed");
         return false;
@@ -672,14 +673,14 @@ bool EditorApp::applyEditorGridGpu()
 
 bool EditorApp::uploadTerrainSplatGpu()
 {
-    if (!m_haveTerrain || !m_terrain.valid())
+    if (!m_haveTerrain || !m_sceneWorld.terrain.valid())
         return false;
-    HeightMap* working = m_terrain.editableWorking();
-    SplatMap*  splat   = m_terrain.editableWorkingSplat();
+    HeightMap* working = m_sceneWorld.terrain.editableWorking();
+    SplatMap*  splat   = m_sceneWorld.terrain.editableWorkingSplat();
     if (!working || !working->valid() || !splat || !splat->valid())
         return false;
-    m_terrain.applyWorkingRect(0, 0, static_cast<int>(working->width()) - 1, static_cast<int>(working->height()) - 1, false, true);
-    m_terrain.rebindResidentHeaps(renderer(), m_terrainMaterial);
+    m_sceneWorld.terrain.applyWorkingRect(0, 0, static_cast<int>(working->width()) - 1, static_cast<int>(working->height()) - 1, false, true);
+    m_sceneWorld.terrain.rebindResidentHeaps(renderer(), m_terrainMaterial);
     m_terrainMaterial.setLayerSamplingRaw(renderer().device(), renderer().debugState().legacyUnormAlbedo);
     m_terrainSplatDirty = false;
     return true;
@@ -695,18 +696,18 @@ bool EditorApp::rebuildTerrainGpuFromSurface()
         return false;
     }
     m_terrainMaterial.setLayerSamplingRaw(renderer().device(), renderer().debugState().legacyUnormAlbedo);
-    m_terrain.rebindResidentHeaps(renderer(), m_terrainMaterial);
+    m_sceneWorld.terrain.rebindResidentHeaps(renderer(), m_terrainMaterial);
     return true;
 }
 
 void EditorApp::applyAuthoredGrass()
 {
     // One field drives both. The authored tip stays put; grassFollowsStrength scales only the live copy.
-    m_authoredGrass.windBaseYaw      = m_wind.headingRad;
-    m_authoredGrass.windDeflection   = m_wind.deflection;
-    m_authoredGrass.windSpatialFreq  = m_wind.spatialFreq;
-    m_authoredGrass.windTemporalFreq = m_wind.temporalFreq;
-    m_authoredGrass.seed             = m_wind.seed;
+    m_authoredGrass.windBaseYaw      = m_sceneWorld.wind.headingRad;
+    m_authoredGrass.windDeflection   = m_sceneWorld.wind.deflection;
+    m_authoredGrass.windSpatialFreq  = m_sceneWorld.wind.spatialFreq;
+    m_authoredGrass.windTemporalFreq = m_sceneWorld.wind.temporalFreq;
+    m_authoredGrass.seed             = m_sceneWorld.wind.seed;
 
     GrassParams params;
     params.enabled          = m_authoredGrass.enabled;
@@ -718,19 +719,18 @@ void EditorApp::applyAuthoredGrass()
     params.faceYaw          = m_authoredGrass.faceYaw;
     params.faceLean         = m_authoredGrass.faceLean;
     params.faceSteep        = m_authoredGrass.faceSteep;
-    Terrain::applyWindToGrass(m_wind, params);
+    Terrain::applyWindToGrass(m_sceneWorld.wind, params);
     if (!m_grassPipeline.isValid())
         params.enabled = false;
-    m_grassField.setParams(params);
+    m_sceneWorld.grassField.setParams(params);
     if (!params.enabled)
-        m_grassField.reset();
+        m_sceneWorld.grassField.reset();
 }
 
 void EditorApp::updateEditorGrass(float dt)
 {
     // Trees read this clock from the foliage pass. It still advances when grass failed to create.
-    m_windClock.tick(dt);
-    m_grassWindSeconds = m_windClock.time;
+    m_sceneWorld.windClock.tick(dt);
     if (!m_grassPipeline.isValid())
     {
         tickLeaves(dt);
@@ -743,7 +743,7 @@ void EditorApp::updateEditorGrass(float dt)
     GrassPlayerSample sample;
     if (m_playMode && m_playPlayer.valid())
         fillGrassPlayerSample(world(), m_playPlayer, x, z, sample);
-    m_grassField.update(m_terrain, x, z, m_grassWindSeconds, m_water.params().waterLevel, sample);
+    m_sceneWorld.grassField.update(m_sceneWorld.terrain, x, z, m_sceneWorld.windClock.time, m_sceneWorld.water.params().waterLevel, sample);
     tickLeaves(dt);
 }
 
@@ -766,18 +766,18 @@ void EditorApp::tickLeaves(float dt)
 
     const AssetRef<Model>& treeModel = m_foliagePrototypes.model(Terrain::FoliageKind::Tree);
     FallingLeafTick        tick;
-    tick.field      = &m_leafField;
-    tick.rustle     = &m_leafRustle;
-    tick.terrain    = &m_terrain;
-    tick.foliage    = &m_foliage;
+    tick.field      = &m_sceneWorld.leafField;
+    tick.rustle     = &m_sceneWorld.leafRustle;
+    tick.terrain    = &m_sceneWorld.terrain;
+    tick.foliage    = &m_sceneWorld.foliage;
     tick.treeModel  = treeModel ? treeModel.get() : nullptr;
     tick.audio      = &audio();
     tick.assets     = &assets();
     tick.camera     = &m_camera;
-    tick.simSeconds = &m_leafSimSeconds;
-    tick.shedScale  = m_leafShedScale;
-    tick.lake       = m_water.chunksX() > 0;
-    tick.lakeLevel  = m_water.params().waterLevel;
+    tick.simSeconds = &m_sceneWorld.leafSimSeconds;
+    tick.shedScale  = m_sceneWorld.leafShedScale;
+    tick.lake       = m_sceneWorld.water.chunksX() > 0;
+    tick.lakeLevel  = m_sceneWorld.water.params().waterLevel;
     tick.ponds      = ponds;
     tick.pondCount  = pondCount;
     stepFallingLeaves(tick, dt);
@@ -788,15 +788,15 @@ void EditorApp::syncTerrainLod()
     pollFoliageSpawn();
     if (m_trailMeshDirty)
         rebuildTrailMesh();
-    if (!m_haveTerrain || !m_terrain.valid())
+    if (!m_haveTerrain || !m_sceneWorld.terrain.valid())
         return;
 
     const bool followPlayer = m_playMode && m_playPlayer.valid();
     const TransformComponent* anchor = followPlayer ? world().get<TransformComponent>(m_playPlayer) : nullptr;
-    Dark::updatePinnedTerrainStream(m_terrain, m_camera.GetPosition(), renderer(), m_terrainMaterial, !followPlayer, anchor);
+    Dark::updatePinnedTerrainStream(m_sceneWorld.terrain, m_camera.GetPosition(), renderer(), m_terrainMaterial, !followPlayer, anchor);
     if (m_terrainHeightDirty)
     {
-        if (!m_terrain.uploadCoarseHeightTexture(renderer()))
+        if (!m_sceneWorld.terrain.uploadCoarseHeightTexture(renderer()))
             DE_LOG_ERROR(LogCategory::Render, "Editor: coarse height texture upload failed");
         else
             bindTerrainHeightSrv();
@@ -805,10 +805,10 @@ void EditorApp::syncTerrainLod()
     if (m_terrainSplatDirty)
         m_terrainSplatDirty = false;
 
-    if (m_water.chunksX() > 0)
+    if (m_sceneWorld.water.chunksX() > 0)
     {
-        m_water.updateLod(m_camera.GetPosition());
-        if (!Dark::flushDirtyWater(m_water, renderer()))
+        m_sceneWorld.water.updateLod(m_camera.GetPosition());
+        if (!Dark::flushDirtyWater(m_sceneWorld.water, renderer()))
             DE_LOG_ERROR(LogCategory::Render, "Editor: water sheet upload failed");
     }
 }
@@ -816,12 +816,12 @@ void EditorApp::syncTerrainLod()
 void EditorApp::fillTerrainSceneDesc(SceneFileData& data) const
 {
     data.hasTerrain = false;
-    if (!m_haveTerrain || !m_terrain.valid() || data.mode == SceneMode::Scene2D)
+    if (!m_haveTerrain || !m_sceneWorld.terrain.valid() || data.mode == SceneMode::Scene2D)
         return;
 
     TerrainSceneDesc desc{};
     desc.bindLayout     = TerrainSceneDesc::kBindLayoutV1;
-    desc.chunkCells     = m_terrain.chunkCells() > 0 ? m_terrain.chunkCells() : 16;
+    desc.chunkCells     = m_sceneWorld.terrain.chunkCells() > 0 ? m_sceneWorld.terrain.chunkCells() : 16;
     if (!m_terrainSource.empty())
     {
         desc.source         = m_terrainSource;
@@ -832,38 +832,38 @@ void EditorApp::fillTerrainSceneDesc(SceneFileData& data) const
         desc.triplanarSlope = m_terrainMaterial.params().triplanarSlope;
         desc.hasGrid        = false;
         desc.foliage.present           = true;
-        desc.foliage.seed              = m_foliageDensity.seed;
-        desc.foliage.dirtTreesPerM2    = m_foliageDensity.dirtTreesPerM2;
-        desc.foliage.dirtFlowersPerM2  = m_foliageDensity.dirtFlowersPerM2;
-        desc.foliage.grassTreesPerM2   = m_foliageDensity.grassTreesPerM2;
-        desc.foliage.grassFlowersPerM2 = m_foliageDensity.grassFlowersPerM2;
-        desc.foliage.rockPerM2         = m_foliageDensity.rockPerM2;
-        desc.foliage.grassPerM2        = m_foliageDensity.grassPerM2;
-        desc.foliage.treeMinNormalY    = m_foliageDensity.treeMinNormalY;
-        desc.foliage.flowerMinNormalY  = m_foliageDensity.flowerMinNormalY;
-        desc.foliage.tuftMinNormalY    = m_foliageDensity.tuftMinNormalY;
-        desc.foliage.rockMinNormalY    = m_foliageDensity.rockMinNormalY;
-        desc.foliage.treeMaxLeanDeg    = m_foliageDensity.treeMaxLeanDeg;
-        desc.foliage.rockMaxPitchDeg   = m_foliageDensity.rockMaxPitchDeg;
-        desc.foliage.treeSpacingM      = m_foliageDensity.treeSpacingM;
-        desc.foliage.rockSpacingM      = m_foliageDensity.rockSpacingM;
-        desc.foliage.patchStrength     = m_foliageDensity.patchStrength;
-        desc.foliage.patchLargeM       = m_foliageDensity.patchLargeM;
-        desc.foliage.patchMediumM      = m_foliageDensity.patchMediumM;
-        desc.foliage.patchFineM        = m_foliageDensity.patchFineM;
+        desc.foliage.seed              = m_sceneWorld.foliageDensity.seed;
+        desc.foliage.dirtTreesPerM2    = m_sceneWorld.foliageDensity.dirtTreesPerM2;
+        desc.foliage.dirtFlowersPerM2  = m_sceneWorld.foliageDensity.dirtFlowersPerM2;
+        desc.foliage.grassTreesPerM2   = m_sceneWorld.foliageDensity.grassTreesPerM2;
+        desc.foliage.grassFlowersPerM2 = m_sceneWorld.foliageDensity.grassFlowersPerM2;
+        desc.foliage.rockPerM2         = m_sceneWorld.foliageDensity.rockPerM2;
+        desc.foliage.grassPerM2        = m_sceneWorld.foliageDensity.grassPerM2;
+        desc.foliage.treeMinNormalY    = m_sceneWorld.foliageDensity.treeMinNormalY;
+        desc.foliage.flowerMinNormalY  = m_sceneWorld.foliageDensity.flowerMinNormalY;
+        desc.foliage.tuftMinNormalY    = m_sceneWorld.foliageDensity.tuftMinNormalY;
+        desc.foliage.rockMinNormalY    = m_sceneWorld.foliageDensity.rockMinNormalY;
+        desc.foliage.treeMaxLeanDeg    = m_sceneWorld.foliageDensity.treeMaxLeanDeg;
+        desc.foliage.rockMaxPitchDeg   = m_sceneWorld.foliageDensity.rockMaxPitchDeg;
+        desc.foliage.treeSpacingM      = m_sceneWorld.foliageDensity.treeSpacingM;
+        desc.foliage.rockSpacingM      = m_sceneWorld.foliageDensity.rockSpacingM;
+        desc.foliage.patchStrength     = m_sceneWorld.foliageDensity.patchStrength;
+        desc.foliage.patchLargeM       = m_sceneWorld.foliageDensity.patchLargeM;
+        desc.foliage.patchMediumM      = m_sceneWorld.foliageDensity.patchMediumM;
+        desc.foliage.patchFineM        = m_sceneWorld.foliageDensity.patchFineM;
         desc.foliage.stale             = m_foliageStale;
-        desc.foliage.shedScale         = m_leafShedScale;
-        desc.foliage.treeModel         = m_foliageDensity.treeModel;
-        desc.foliage.flowerModel       = m_foliageDensity.flowerModel;
-        desc.foliage.rockModel         = m_foliageDensity.rockModel;
-        desc.foliage.grassModel        = m_foliageDensity.grassModel;
-        desc.foliage.trees             = m_foliageDensity.trees;
-        desc.foliage.flowers           = m_foliageDensity.flowers;
-        desc.foliage.rocks             = m_foliageDensity.rocks;
-        desc.foliage.tufts             = m_foliageDensity.tufts;
+        desc.foliage.shedScale         = m_sceneWorld.leafShedScale;
+        desc.foliage.treeModel         = m_sceneWorld.foliageDensity.treeModel;
+        desc.foliage.flowerModel       = m_sceneWorld.foliageDensity.flowerModel;
+        desc.foliage.rockModel         = m_sceneWorld.foliageDensity.rockModel;
+        desc.foliage.grassModel        = m_sceneWorld.foliageDensity.grassModel;
+        desc.foliage.trees             = m_sceneWorld.foliageDensity.trees;
+        desc.foliage.flowers           = m_sceneWorld.foliageDensity.flowers;
+        desc.foliage.rocks             = m_sceneWorld.foliageDensity.rocks;
+        desc.foliage.tufts             = m_sceneWorld.foliageDensity.tufts;
         desc.grass                     = m_authoredGrass;
         desc.wind.present              = true;
-        desc.wind.settings             = m_wind;
+        desc.wind.settings             = m_sceneWorld.wind;
         desc.trails                    = m_trails;
         data.hasTerrain = true;
         data.terrain    = std::move(desc);
@@ -875,19 +875,19 @@ void EditorApp::fillTerrainSceneDesc(SceneFileData& data) const
     desc.heightFile     = m_terrainHeightFile;
     desc.splatFile      = m_terrainSplatFile;
     defaultGridSidecarNames(data.name, desc.grid.coarseFile, desc.grid.tileDir, desc.heightFile, desc.splatFile);
-    const uint64_t tileCount = static_cast<uint64_t>(m_terrain.tilesX()) * m_terrain.tilesZ();
+    const uint64_t tileCount = static_cast<uint64_t>(m_sceneWorld.terrain.tilesX()) * m_sceneWorld.terrain.tilesZ();
     desc.hasGrid            = true;
-    desc.grid.tilesX        = m_terrain.tilesX();
-    desc.grid.tilesZ        = m_terrain.tilesZ();
-    desc.grid.tileCells     = static_cast<uint32_t>(m_terrain.tileCells());
-    desc.grid.cellSize      = m_terrain.cellSize();
-    desc.grid.origin        = m_terrain.origin();
-    desc.grid.heightScale   = m_terrain.heightScale();
+    desc.grid.tilesX        = m_sceneWorld.terrain.tilesX();
+    desc.grid.tilesZ        = m_sceneWorld.terrain.tilesZ();
+    desc.grid.tileCells     = static_cast<uint32_t>(m_sceneWorld.terrain.tileCells());
+    desc.grid.cellSize      = m_sceneWorld.terrain.cellSize();
+    desc.grid.origin        = m_sceneWorld.terrain.origin();
+    desc.grid.heightScale   = m_sceneWorld.terrain.heightScale();
     desc.grid.seed          = m_terrainSeed;
     desc.grid.coarseFile    = m_terrainCoarseFile.empty() ? desc.grid.coarseFile : m_terrainCoarseFile;
     desc.grid.tileDir       = m_terrainTileDir.empty() ? desc.grid.tileDir : m_terrainTileDir;
-    desc.grid.seaLevel      = m_terrainSeaLevel;
-    desc.grid.residentRing  = m_terrain.residentRing();
+    desc.grid.seaLevel      = m_sceneWorld.terrainSeaLevel;
+    desc.grid.residentRing  = m_sceneWorld.terrain.residentRing();
     if (tileCount > 1ull)
     {
         desc.heightFile.clear();
@@ -903,38 +903,38 @@ void EditorApp::fillTerrainSceneDesc(SceneFileData& data) const
         std::memcpy(desc.layers[i].tint, m_terrainMaterial.layer(i).tint, sizeof(desc.layers[i].tint));
     }
     desc.foliage.present           = true;
-    desc.foliage.seed              = m_foliageDensity.seed;
-    desc.foliage.dirtTreesPerM2    = m_foliageDensity.dirtTreesPerM2;
-    desc.foliage.dirtFlowersPerM2  = m_foliageDensity.dirtFlowersPerM2;
-    desc.foliage.grassTreesPerM2   = m_foliageDensity.grassTreesPerM2;
-    desc.foliage.grassFlowersPerM2 = m_foliageDensity.grassFlowersPerM2;
-    desc.foliage.rockPerM2         = m_foliageDensity.rockPerM2;
-    desc.foliage.grassPerM2        = m_foliageDensity.grassPerM2;
-    desc.foliage.treeMinNormalY    = m_foliageDensity.treeMinNormalY;
-    desc.foliage.flowerMinNormalY  = m_foliageDensity.flowerMinNormalY;
-    desc.foliage.tuftMinNormalY    = m_foliageDensity.tuftMinNormalY;
-    desc.foliage.rockMinNormalY    = m_foliageDensity.rockMinNormalY;
-    desc.foliage.treeMaxLeanDeg    = m_foliageDensity.treeMaxLeanDeg;
-    desc.foliage.rockMaxPitchDeg   = m_foliageDensity.rockMaxPitchDeg;
-    desc.foliage.treeSpacingM      = m_foliageDensity.treeSpacingM;
-    desc.foliage.rockSpacingM      = m_foliageDensity.rockSpacingM;
-    desc.foliage.patchStrength     = m_foliageDensity.patchStrength;
-    desc.foliage.patchLargeM       = m_foliageDensity.patchLargeM;
-    desc.foliage.patchMediumM      = m_foliageDensity.patchMediumM;
-    desc.foliage.patchFineM        = m_foliageDensity.patchFineM;
+    desc.foliage.seed              = m_sceneWorld.foliageDensity.seed;
+    desc.foliage.dirtTreesPerM2    = m_sceneWorld.foliageDensity.dirtTreesPerM2;
+    desc.foliage.dirtFlowersPerM2  = m_sceneWorld.foliageDensity.dirtFlowersPerM2;
+    desc.foliage.grassTreesPerM2   = m_sceneWorld.foliageDensity.grassTreesPerM2;
+    desc.foliage.grassFlowersPerM2 = m_sceneWorld.foliageDensity.grassFlowersPerM2;
+    desc.foliage.rockPerM2         = m_sceneWorld.foliageDensity.rockPerM2;
+    desc.foliage.grassPerM2        = m_sceneWorld.foliageDensity.grassPerM2;
+    desc.foliage.treeMinNormalY    = m_sceneWorld.foliageDensity.treeMinNormalY;
+    desc.foliage.flowerMinNormalY  = m_sceneWorld.foliageDensity.flowerMinNormalY;
+    desc.foliage.tuftMinNormalY    = m_sceneWorld.foliageDensity.tuftMinNormalY;
+    desc.foliage.rockMinNormalY    = m_sceneWorld.foliageDensity.rockMinNormalY;
+    desc.foliage.treeMaxLeanDeg    = m_sceneWorld.foliageDensity.treeMaxLeanDeg;
+    desc.foliage.rockMaxPitchDeg   = m_sceneWorld.foliageDensity.rockMaxPitchDeg;
+    desc.foliage.treeSpacingM      = m_sceneWorld.foliageDensity.treeSpacingM;
+    desc.foliage.rockSpacingM      = m_sceneWorld.foliageDensity.rockSpacingM;
+    desc.foliage.patchStrength     = m_sceneWorld.foliageDensity.patchStrength;
+    desc.foliage.patchLargeM       = m_sceneWorld.foliageDensity.patchLargeM;
+    desc.foliage.patchMediumM      = m_sceneWorld.foliageDensity.patchMediumM;
+    desc.foliage.patchFineM        = m_sceneWorld.foliageDensity.patchFineM;
     desc.foliage.stale             = m_foliageStale;
-    desc.foliage.shedScale         = m_leafShedScale;
-    desc.foliage.treeModel         = m_foliageDensity.treeModel;
-    desc.foliage.flowerModel       = m_foliageDensity.flowerModel;
-    desc.foliage.rockModel         = m_foliageDensity.rockModel;
-    desc.foliage.grassModel        = m_foliageDensity.grassModel;
-    desc.foliage.trees             = m_foliageDensity.trees;
-    desc.foliage.flowers           = m_foliageDensity.flowers;
-    desc.foliage.rocks             = m_foliageDensity.rocks;
-    desc.foliage.tufts             = m_foliageDensity.tufts;
+    desc.foliage.shedScale         = m_sceneWorld.leafShedScale;
+    desc.foliage.treeModel         = m_sceneWorld.foliageDensity.treeModel;
+    desc.foliage.flowerModel       = m_sceneWorld.foliageDensity.flowerModel;
+    desc.foliage.rockModel         = m_sceneWorld.foliageDensity.rockModel;
+    desc.foliage.grassModel        = m_sceneWorld.foliageDensity.grassModel;
+    desc.foliage.trees             = m_sceneWorld.foliageDensity.trees;
+    desc.foliage.flowers           = m_sceneWorld.foliageDensity.flowers;
+    desc.foliage.rocks             = m_sceneWorld.foliageDensity.rocks;
+    desc.foliage.tufts             = m_sceneWorld.foliageDensity.tufts;
     desc.grass                     = m_authoredGrass;
     desc.wind.present              = true;
-    desc.wind.settings             = m_wind;
+    desc.wind.settings             = m_sceneWorld.wind;
     desc.trails                    = m_trails;
     data.hasTerrain = true;
     data.terrain    = std::move(desc);
@@ -944,7 +944,7 @@ bool EditorApp::saveTerrainSidecars(const std::filesystem::path& scenePath) cons
 {
     if (!m_terrainSource.empty())
         return true;
-    if (!m_haveTerrain || !m_terrain.valid())
+    if (!m_haveTerrain || !m_sceneWorld.terrain.valid())
         return true;
 
     std::string coarseFile = m_terrainCoarseFile;
@@ -953,8 +953,8 @@ bool EditorApp::saveTerrainSidecars(const std::filesystem::path& scenePath) cons
     std::string splatFile  = m_terrainSplatFile;
     defaultGridSidecarNames(m_sceneName, coarseFile, tileDir, heightFile, splatFile);
 
-    const HeightMap* working = m_terrain.editableWorking();
-    const SplatMap*  splat   = m_terrain.editableWorkingSplat();
+    const HeightMap* working = m_sceneWorld.terrain.editableWorking();
+    const SplatMap*  splat   = m_sceneWorld.terrain.editableWorkingSplat();
     if (!working || !working->valid())
     {
         DE_LOG_ERROR(LogCategory::Render, "Editor: no working heightfield to save");
@@ -966,15 +966,15 @@ bool EditorApp::saveTerrainSidecars(const std::filesystem::path& scenePath) cons
     int tilesZ = 0;
     if (m_foliageAuthored)
     {
-        tilesX = static_cast<int>(m_terrain.tilesX());
-        tilesZ = static_cast<int>(m_terrain.tilesZ());
-        const int      tileCells = m_terrain.tileCells();
-        const float    tileWorld = static_cast<float>(tileCells) * m_terrain.cellSize();
-        const Vector3f origin    = m_terrain.origin();
+        tilesX = static_cast<int>(m_sceneWorld.terrain.tilesX());
+        tilesZ = static_cast<int>(m_sceneWorld.terrain.tilesZ());
+        const int      tileCells = m_sceneWorld.terrain.tileCells();
+        const float    tileWorld = static_cast<float>(tileCells) * m_sceneWorld.terrain.cellSize();
+        const Vector3f origin    = m_sceneWorld.terrain.origin();
         bins.resize(static_cast<size_t>(tilesX) * static_cast<size_t>(tilesZ));
-        for (size_t i = 0; i < m_foliage.size(); ++i)
+        for (size_t i = 0; i < m_sceneWorld.foliage.size(); ++i)
         {
-            const FoliageRecord& rec = m_foliage[i];
+            const FoliageRecord& rec = m_sceneWorld.foliage[i];
             int tx = static_cast<int>(floorf((rec.x - origin.x) / tileWorld));
             int tz = static_cast<int>(floorf((rec.z - origin.z) / tileWorld));
             if (tx < 0)
@@ -1002,7 +1002,7 @@ bool EditorApp::saveTerrainSidecars(const std::filesystem::path& scenePath) cons
     }
 
     const std::filesystem::path coarsePath = sidecarPath(scenePath, coarseFile);
-    if (!m_terrain.coarse().saveBinary(coarsePath))
+    if (!m_sceneWorld.terrain.coarse().saveBinary(coarsePath))
         return false;
 
     const std::filesystem::path tileDirPath = sidecarPath(scenePath, tileDir);
@@ -1014,11 +1014,11 @@ bool EditorApp::saveTerrainSidecars(const std::filesystem::path& scenePath) cons
         return false;
     }
 
-    const int tileCells = m_terrain.tileCells();
+    const int tileCells = m_sceneWorld.terrain.tileCells();
     const int samples   = tileCells + 1;
-    for (int tz = 0; tz < static_cast<int>(m_terrain.tilesZ()); ++tz)
+    for (int tz = 0; tz < static_cast<int>(m_sceneWorld.terrain.tilesZ()); ++tz)
     {
-        for (int tx = 0; tx < static_cast<int>(m_terrain.tilesX()); ++tx)
+        for (int tx = 0; tx < static_cast<int>(m_sceneWorld.terrain.tilesX()); ++tx)
         {
             HeightMap tile;
             if (!tile.create(static_cast<uint32_t>(samples), static_cast<uint32_t>(samples), working->cellSize(), working->heightScale()))
@@ -1073,7 +1073,7 @@ bool EditorApp::saveTerrainSidecars(const std::filesystem::path& scenePath) cons
                 tileRecs.clear();
                 tileRecs.reserve(ids.size());
                 for (size_t id : ids)
-                    tileRecs.push_back(m_foliage[id]);
+                    tileRecs.push_back(m_sceneWorld.foliage[id]);
                 const uint32_t count = static_cast<uint32_t>(tileRecs.size());
                 if (!saveFoliageTile(tileDirPath / tileFoliageFileName(tx, tz), tx, tz, count > 0 ? tileRecs.data() : nullptr, count))
                     return false;
@@ -1081,7 +1081,7 @@ bool EditorApp::saveTerrainSidecars(const std::filesystem::path& scenePath) cons
         }
     }
 
-    const FoliageCover* cover = m_terrain.editableWorkingCover();
+    const FoliageCover* cover = m_sceneWorld.terrain.editableWorkingCover();
     if (cover != nullptr && cover->valid())
     {
         for (int tz = 0; tz < cover->tilesZ(); ++tz)
@@ -1094,7 +1094,7 @@ bool EditorApp::saveTerrainSidecars(const std::filesystem::path& scenePath) cons
         }
     }
 
-    const uint64_t tileCount = static_cast<uint64_t>(m_terrain.tilesX()) * m_terrain.tilesZ();
+    const uint64_t tileCount = static_cast<uint64_t>(m_sceneWorld.terrain.tilesX()) * m_sceneWorld.terrain.tilesZ();
     if (tileCount <= 1ull)
     {
         const std::filesystem::path heightPath = sidecarPath(scenePath, heightFile);
@@ -1131,8 +1131,8 @@ bool EditorApp::loadTerrainFromScene(const SceneFileData& data, const std::files
     m_trailDragging = false;
     m_trailMoved = false;
     m_trailMeshDirty = true;
-    m_wind          = desc.wind.settings;
-    Terrain::clampWindSettings(m_wind);
+    m_sceneWorld.wind          = desc.wind.settings;
+    Terrain::clampWindSettings(m_sceneWorld.wind);
     applyAuthoredGrass();
     if (!desc.source.empty())
     {
@@ -1148,35 +1148,35 @@ bool EditorApp::loadTerrainFromScene(const SceneFileData& data, const std::files
         std::snprintf(m_worldEnginePath, sizeof(m_worldEnginePath), "%s", desc.source.c_str());
         m_worldEngineSize   = worldSize;
         m_worldEngineHeight = relief;
-        m_foliageDensity.dirtTreesPerM2    = desc.foliage.dirtTreesPerM2;
-        m_foliageDensity.dirtFlowersPerM2  = desc.foliage.dirtFlowersPerM2;
-        m_foliageDensity.grassTreesPerM2   = desc.foliage.grassTreesPerM2;
-        m_foliageDensity.grassFlowersPerM2 = desc.foliage.grassFlowersPerM2;
-        m_foliageDensity.rockPerM2         = desc.foliage.rockPerM2;
-        m_foliageDensity.grassPerM2        = desc.foliage.grassPerM2;
-        m_foliageDensity.treeMinNormalY    = desc.foliage.treeMinNormalY;
-        m_foliageDensity.flowerMinNormalY  = desc.foliage.flowerMinNormalY;
-        m_foliageDensity.tuftMinNormalY    = desc.foliage.tuftMinNormalY;
-        m_foliageDensity.rockMinNormalY    = desc.foliage.rockMinNormalY;
-        m_foliageDensity.treeMaxLeanDeg    = desc.foliage.treeMaxLeanDeg;
-        m_foliageDensity.rockMaxPitchDeg   = desc.foliage.rockMaxPitchDeg;
-        m_foliageDensity.treeSpacingM      = desc.foliage.treeSpacingM;
-        m_foliageDensity.rockSpacingM      = desc.foliage.rockSpacingM;
-        m_foliageDensity.patchStrength     = desc.foliage.patchStrength;
-        m_foliageDensity.patchLargeM       = desc.foliage.patchLargeM;
-        m_foliageDensity.patchMediumM      = desc.foliage.patchMediumM;
-        m_foliageDensity.patchFineM        = desc.foliage.patchFineM;
-        m_foliageDensity.seed              = desc.foliage.seed;
-        m_foliageDensity.treeModel         = desc.foliage.treeModel;
-        m_foliageDensity.flowerModel       = desc.foliage.flowerModel;
-        m_foliageDensity.rockModel         = desc.foliage.rockModel;
-        m_foliageDensity.grassModel        = desc.foliage.grassModel;
-        m_foliageDensity.trees             = desc.foliage.trees;
-        m_foliageDensity.flowers           = desc.foliage.flowers;
-        m_foliageDensity.rocks             = desc.foliage.rocks;
-        m_foliageDensity.tufts             = desc.foliage.tufts;
+        m_sceneWorld.foliageDensity.dirtTreesPerM2    = desc.foliage.dirtTreesPerM2;
+        m_sceneWorld.foliageDensity.dirtFlowersPerM2  = desc.foliage.dirtFlowersPerM2;
+        m_sceneWorld.foliageDensity.grassTreesPerM2   = desc.foliage.grassTreesPerM2;
+        m_sceneWorld.foliageDensity.grassFlowersPerM2 = desc.foliage.grassFlowersPerM2;
+        m_sceneWorld.foliageDensity.rockPerM2         = desc.foliage.rockPerM2;
+        m_sceneWorld.foliageDensity.grassPerM2        = desc.foliage.grassPerM2;
+        m_sceneWorld.foliageDensity.treeMinNormalY    = desc.foliage.treeMinNormalY;
+        m_sceneWorld.foliageDensity.flowerMinNormalY  = desc.foliage.flowerMinNormalY;
+        m_sceneWorld.foliageDensity.tuftMinNormalY    = desc.foliage.tuftMinNormalY;
+        m_sceneWorld.foliageDensity.rockMinNormalY    = desc.foliage.rockMinNormalY;
+        m_sceneWorld.foliageDensity.treeMaxLeanDeg    = desc.foliage.treeMaxLeanDeg;
+        m_sceneWorld.foliageDensity.rockMaxPitchDeg   = desc.foliage.rockMaxPitchDeg;
+        m_sceneWorld.foliageDensity.treeSpacingM      = desc.foliage.treeSpacingM;
+        m_sceneWorld.foliageDensity.rockSpacingM      = desc.foliage.rockSpacingM;
+        m_sceneWorld.foliageDensity.patchStrength     = desc.foliage.patchStrength;
+        m_sceneWorld.foliageDensity.patchLargeM       = desc.foliage.patchLargeM;
+        m_sceneWorld.foliageDensity.patchMediumM      = desc.foliage.patchMediumM;
+        m_sceneWorld.foliageDensity.patchFineM        = desc.foliage.patchFineM;
+        m_sceneWorld.foliageDensity.seed              = desc.foliage.seed;
+        m_sceneWorld.foliageDensity.treeModel         = desc.foliage.treeModel;
+        m_sceneWorld.foliageDensity.flowerModel       = desc.foliage.flowerModel;
+        m_sceneWorld.foliageDensity.rockModel         = desc.foliage.rockModel;
+        m_sceneWorld.foliageDensity.grassModel        = desc.foliage.grassModel;
+        m_sceneWorld.foliageDensity.trees             = desc.foliage.trees;
+        m_sceneWorld.foliageDensity.flowers           = desc.foliage.flowers;
+        m_sceneWorld.foliageDensity.rocks             = desc.foliage.rocks;
+        m_sceneWorld.foliageDensity.tufts             = desc.foliage.tufts;
         m_foliageStale                     = desc.foliage.stale;
-        m_leafShedScale                    = desc.foliage.shedScale;
+        m_sceneWorld.leafShedScale                    = desc.foliage.shedScale;
         if (!loadWorldEngineTerrain(dir, worldSize, relief))
         {
             resetFoliageAuthoring();
@@ -1203,13 +1203,13 @@ bool EditorApp::loadTerrainFromScene(const SceneFileData& data, const std::files
         gridDesc.coarseFile   = sidecarPath(scenePath, coarseFile);
         gridDesc.tileDir      = sidecarPath(scenePath, tileDir);
         gridDesc.residentRing = desc.grid.residentRing;
-        if (!m_terrain.create(gridDesc))
+        if (!m_sceneWorld.terrain.create(gridDesc))
         {
             DE_LOG_ERROR(LogCategory::Render, "Editor: terrain grid create failed");
             resetFoliageAuthoring();
             return false;
         }
-        if (!m_terrain.assembleWorking())
+        if (!m_sceneWorld.terrain.assembleWorking())
         {
             DE_LOG_ERROR(LogCategory::Render, "Editor: working assemble failed");
             removeEditorTerrain();
@@ -1217,7 +1217,7 @@ bool EditorApp::loadTerrainFromScene(const SceneFileData& data, const std::files
             return false;
         }
         m_terrainSeed     = desc.grid.seed;
-        m_terrainSeaLevel = desc.grid.seaLevel;
+        m_sceneWorld.terrainSeaLevel = desc.grid.seaLevel;
         m_terrainCoarseFile = coarseFile;
         m_terrainTileDir    = tileDir;
     }
@@ -1232,7 +1232,7 @@ bool EditorApp::loadTerrainFromScene(const SceneFileData& data, const std::files
             return false;
         }
         const int chunkCells = desc.chunkCells > 0 ? desc.chunkCells : 16;
-        if (!m_terrain.createFromHeightMap(std::move(height), chunkCells))
+        if (!m_sceneWorld.terrain.createFromHeightMap(std::move(height), chunkCells))
         {
             DE_LOG_ERROR(LogCategory::Render, "Editor: terrain create from scene failed");
             removeEditorTerrain();
@@ -1242,7 +1242,7 @@ bool EditorApp::loadTerrainFromScene(const SceneFileData& data, const std::files
         const std::filesystem::path splatPath = sidecarPath(scenePath, splatFile);
         std::error_code ec;
         SplatMap splat;
-        HeightMap* working = m_terrain.editableWorking();
+        HeightMap* working = m_sceneWorld.terrain.editableWorking();
         if (std::filesystem::exists(splatPath, ec) && !ec)
         {
             Image splatImg;
@@ -1267,40 +1267,40 @@ bool EditorApp::loadTerrainFromScene(const SceneFileData& data, const std::files
             resetFoliageAuthoring();
             return false;
         }
-        m_terrain.setWorkingSplat(std::move(splat));
+        m_sceneWorld.terrain.setWorkingSplat(std::move(splat));
         m_terrainCoarseFile = coarseFile;
         m_terrainTileDir    = tileDir;
     }
 
-    m_foliageDensity.dirtTreesPerM2    = desc.foliage.dirtTreesPerM2;
-    m_foliageDensity.dirtFlowersPerM2  = desc.foliage.dirtFlowersPerM2;
-    m_foliageDensity.grassTreesPerM2   = desc.foliage.grassTreesPerM2;
-    m_foliageDensity.grassFlowersPerM2 = desc.foliage.grassFlowersPerM2;
-    m_foliageDensity.rockPerM2         = desc.foliage.rockPerM2;
-    m_foliageDensity.grassPerM2        = desc.foliage.grassPerM2;
-    m_foliageDensity.treeMinNormalY    = desc.foliage.treeMinNormalY;
-    m_foliageDensity.flowerMinNormalY  = desc.foliage.flowerMinNormalY;
-    m_foliageDensity.tuftMinNormalY    = desc.foliage.tuftMinNormalY;
-    m_foliageDensity.rockMinNormalY    = desc.foliage.rockMinNormalY;
-    m_foliageDensity.treeMaxLeanDeg    = desc.foliage.treeMaxLeanDeg;
-    m_foliageDensity.rockMaxPitchDeg   = desc.foliage.rockMaxPitchDeg;
-    m_foliageDensity.treeSpacingM      = desc.foliage.treeSpacingM;
-    m_foliageDensity.rockSpacingM      = desc.foliage.rockSpacingM;
-    m_foliageDensity.patchStrength     = desc.foliage.patchStrength;
-    m_foliageDensity.patchLargeM       = desc.foliage.patchLargeM;
-    m_foliageDensity.patchMediumM      = desc.foliage.patchMediumM;
-    m_foliageDensity.patchFineM        = desc.foliage.patchFineM;
-    m_foliageDensity.seed              = desc.foliage.seed;
-    m_foliageDensity.treeModel         = desc.foliage.treeModel;
-    m_foliageDensity.flowerModel       = desc.foliage.flowerModel;
-    m_foliageDensity.rockModel         = desc.foliage.rockModel;
-    m_foliageDensity.grassModel        = desc.foliage.grassModel;
-    m_foliageDensity.trees             = desc.foliage.trees;
-    m_foliageDensity.flowers           = desc.foliage.flowers;
-    m_foliageDensity.rocks             = desc.foliage.rocks;
-    m_foliageDensity.tufts             = desc.foliage.tufts;
+    m_sceneWorld.foliageDensity.dirtTreesPerM2    = desc.foliage.dirtTreesPerM2;
+    m_sceneWorld.foliageDensity.dirtFlowersPerM2  = desc.foliage.dirtFlowersPerM2;
+    m_sceneWorld.foliageDensity.grassTreesPerM2   = desc.foliage.grassTreesPerM2;
+    m_sceneWorld.foliageDensity.grassFlowersPerM2 = desc.foliage.grassFlowersPerM2;
+    m_sceneWorld.foliageDensity.rockPerM2         = desc.foliage.rockPerM2;
+    m_sceneWorld.foliageDensity.grassPerM2        = desc.foliage.grassPerM2;
+    m_sceneWorld.foliageDensity.treeMinNormalY    = desc.foliage.treeMinNormalY;
+    m_sceneWorld.foliageDensity.flowerMinNormalY  = desc.foliage.flowerMinNormalY;
+    m_sceneWorld.foliageDensity.tuftMinNormalY    = desc.foliage.tuftMinNormalY;
+    m_sceneWorld.foliageDensity.rockMinNormalY    = desc.foliage.rockMinNormalY;
+    m_sceneWorld.foliageDensity.treeMaxLeanDeg    = desc.foliage.treeMaxLeanDeg;
+    m_sceneWorld.foliageDensity.rockMaxPitchDeg   = desc.foliage.rockMaxPitchDeg;
+    m_sceneWorld.foliageDensity.treeSpacingM      = desc.foliage.treeSpacingM;
+    m_sceneWorld.foliageDensity.rockSpacingM      = desc.foliage.rockSpacingM;
+    m_sceneWorld.foliageDensity.patchStrength     = desc.foliage.patchStrength;
+    m_sceneWorld.foliageDensity.patchLargeM       = desc.foliage.patchLargeM;
+    m_sceneWorld.foliageDensity.patchMediumM      = desc.foliage.patchMediumM;
+    m_sceneWorld.foliageDensity.patchFineM        = desc.foliage.patchFineM;
+    m_sceneWorld.foliageDensity.seed              = desc.foliage.seed;
+    m_sceneWorld.foliageDensity.treeModel         = desc.foliage.treeModel;
+    m_sceneWorld.foliageDensity.flowerModel       = desc.foliage.flowerModel;
+    m_sceneWorld.foliageDensity.rockModel         = desc.foliage.rockModel;
+    m_sceneWorld.foliageDensity.grassModel        = desc.foliage.grassModel;
+    m_sceneWorld.foliageDensity.trees             = desc.foliage.trees;
+    m_sceneWorld.foliageDensity.flowers           = desc.foliage.flowers;
+    m_sceneWorld.foliageDensity.rocks             = desc.foliage.rocks;
+    m_sceneWorld.foliageDensity.tufts             = desc.foliage.tufts;
     m_foliageStale                     = desc.foliage.stale;
-    m_leafShedScale                    = desc.foliage.shedScale;
+    m_sceneWorld.leafShedScale                    = desc.foliage.shedScale;
 
     m_terrainSurface = {};
     m_terrainSurface.params.heightBlendK   = desc.heightBlendK;
@@ -1338,7 +1338,7 @@ bool EditorApp::loadTerrainFromScene(const SceneFileData& data, const std::files
     }
 
     SplatMap matSplat;
-    const SplatMap* workingSplat = m_terrain.editableWorkingSplat();
+    const SplatMap* workingSplat = m_sceneWorld.terrain.editableWorkingSplat();
     if (workingSplat && workingSplat->valid() && workingSplat->width() <= Terrain::kMaxSplatMapSize
         && workingSplat->height() <= Terrain::kMaxSplatMapSize)
         matSplat = *workingSplat;
@@ -1392,8 +1392,8 @@ bool EditorApp::loadTerrainFromScene(const SceneFileData& data, const std::files
 
     bool anyFoliageFile = false;
     std::vector<FoliageRecord> gathered;
-    const int foliageTilesX = static_cast<int>(m_terrain.tilesX());
-    const int foliageTilesZ = static_cast<int>(m_terrain.tilesZ());
+    const int foliageTilesX = static_cast<int>(m_sceneWorld.terrain.tilesX());
+    const int foliageTilesZ = static_cast<int>(m_sceneWorld.terrain.tilesZ());
     const std::filesystem::path foliageDir = sidecarPath(scenePath, tileDir);
     for (int tz = 0; tz < foliageTilesZ; ++tz)
     {
@@ -1423,9 +1423,9 @@ bool EditorApp::loadTerrainFromScene(const SceneFileData& data, const std::files
                 gathered.insert(gathered.end(), loaded.begin(), loaded.end());
         }
     }
-    m_foliage.swap(gathered);
+    m_sceneWorld.foliage.swap(gathered);
     m_foliageAuthored = anyFoliageFile;
-    m_terrain.loadWorkingCoverFiles(foliageDir);
+    m_sceneWorld.terrain.loadWorkingCoverFiles(foliageDir);
 
     rebuildEditorWater();
     return true;
@@ -1433,7 +1433,7 @@ bool EditorApp::loadTerrainFromScene(const SceneFileData& data, const std::files
 
 void EditorApp::clearFoliageInstances(const char* reason)
 {
-    std::vector<Terrain::FoliageRecord>().swap(m_foliage);
+    std::vector<Terrain::FoliageRecord>().swap(m_sceneWorld.foliage);
     m_foliageStale = false;
     DE_LOG_INFO(LogCategory::Render, "Editor: cleared foliage instances ({})", reason != nullptr ? reason : "");
 }
@@ -1442,8 +1442,8 @@ void EditorApp::resetFoliageAuthoring()
 {
     m_foliageAuthored = false;
     m_foliageStale = false;
-    m_foliageDensity = {};
-    m_leafShedScale = 1.0f;
+    m_sceneWorld.foliageDensity = {};
+    m_sceneWorld.leafShedScale = 1.0f;
     clearTrailAuthoring();
 }
 
@@ -1493,8 +1493,8 @@ void EditorApp::cancelFoliageSpawn()
 
 bool EditorApp::fillFoliageSpawnIn(FoliageSpawnIn& in)
 {
-    const HeightMap* height = m_terrain.editableWorking();
-    const SplatMap*  splat  = m_terrain.editableWorkingSplat();
+    const HeightMap* height = m_sceneWorld.terrain.editableWorking();
+    const SplatMap*  splat  = m_sceneWorld.terrain.editableWorkingSplat();
     if (height == nullptr)
         DE_LOG_ERROR(LogCategory::Render, "Editor: foliage spawn refused — editableWorking() is null");
     else if (!height->valid())
@@ -1509,21 +1509,21 @@ bool EditorApp::fillFoliageSpawnIn(FoliageSpawnIn& in)
     in = FoliageSpawnIn{};
     in.height    = height;
     in.splat     = splat;
-    in.density   = m_foliageDensity;
-    in.tilesX    = m_terrain.tilesX();
-    in.tilesZ    = m_terrain.tilesZ();
-    const int cells = m_terrain.tileCells();
+    in.density   = m_sceneWorld.foliageDensity;
+    in.tilesX    = m_sceneWorld.terrain.tilesX();
+    in.tilesZ    = m_sceneWorld.terrain.tilesZ();
+    const int cells = m_sceneWorld.terrain.tileCells();
     in.tileCells = cells > 0 ? static_cast<uint32_t>(cells) : 0u;
-    in.cellSize  = m_terrain.cellSize();
-    in.origin    = m_terrain.origin();
+    in.cellSize  = m_sceneWorld.terrain.cellSize();
+    in.origin    = m_sceneWorld.terrain.origin();
     // Imported valleys sit at the height origin. The old sea level would skip the forest floor.
-    in.seaLevel  = m_terrainSource.empty() ? m_terrainSeaLevel : m_terrain.origin().y;
+    in.seaLevel  = m_terrainSource.empty() ? m_sceneWorld.terrainSeaLevel : m_sceneWorld.terrain.origin().y;
     in.trails    = m_trails.paths;
-    if (m_water.chunksX() > 0)
+    if (m_sceneWorld.water.chunksX() > 0)
     {
         FoliageWaterVolume sheet;
         sheet.entireMap = true;
-        sheet.surfaceY  = m_water.params().waterLevel;
+        sheet.surfaceY  = m_sceneWorld.water.params().waterLevel;
         in.water.push_back(sheet);
     }
     world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
@@ -1677,7 +1677,7 @@ void EditorApp::pollFoliageSpawn()
         DE_LOG_INFO(LogCategory::Render, "Editor: foliage spawn cancelled - previous set kept");
     else if (ok && splatJob)
     {
-        if (!m_terrain.setWorkingSplat(std::move(m_foliagePendingSplat)))
+        if (!m_sceneWorld.terrain.setWorkingSplat(std::move(m_foliagePendingSplat)))
             DE_LOG_ERROR(LogCategory::Render, "Editor: trail splat was not applied");
         else if (!uploadTerrainSplatGpu())
             DE_LOG_ERROR(LogCategory::Render, "Editor: trail splat upload failed");
@@ -1696,8 +1696,8 @@ void EditorApp::pollFoliageSpawn()
                 m_trailSelected = -1;
                 m_trailPoint = -1;
             }
-            m_terrain.setWorkingCover(std::move(m_foliagePendingCover));
-            m_grassField.markAllDirty();
+            m_sceneWorld.terrain.setWorkingCover(std::move(m_foliagePendingCover));
+            m_sceneWorld.grassField.markAllDirty();
         }
         else
         {
@@ -1708,17 +1708,17 @@ void EditorApp::pollFoliageSpawn()
                 m_trailSelected = -1;
                 m_trailPoint = -1;
             }
-            m_foliage.swap(m_foliagePending);
+            m_sceneWorld.foliage.swap(m_foliagePending);
             m_foliageAuthored = true;
             m_foliageStale = false;
-            m_terrain.setWorkingCover(std::move(m_foliagePendingCover));
-            m_grassField.markAllDirty();
+            m_sceneWorld.terrain.setWorkingCover(std::move(m_foliagePendingCover));
+            m_sceneWorld.grassField.markAllDirty();
         }
     }
     else if (ok && !coverOnly && !splatJob)
     {
         // Trails changed after this job copied them. Keep the trees and leave the forest stale.
-        m_foliage.swap(m_foliagePending);
+        m_sceneWorld.foliage.swap(m_foliagePending);
         m_foliageAuthored = true;
     }
     std::vector<Terrain::FoliageRecord>().swap(m_foliagePending);
@@ -1751,7 +1751,7 @@ void EditorApp::drawWaterTools()
         return;
     }
 
-    WaterParams& wp = m_water.params();
+    WaterParams& wp = m_sceneWorld.water.params();
     bool edited = false;
 
     auto syncAuthored = [&]() {
@@ -1779,13 +1779,13 @@ void EditorApp::drawWaterTools()
 
     ImGui::TextDisabled("The lake and every placed water body use these settings. A lake saves them with the scene.");
 
-    const bool terrainOk = m_haveTerrain && m_terrain.valid();
+    const bool terrainOk = m_haveTerrain && m_sceneWorld.terrain.valid();
     if (!m_authoredWater.present)
     {
         ImGui::TextDisabled("This scene has no valley lake.");
         if (terrainOk && ImGui::Button("Add lake"))
         {
-            const AABox3f box = m_terrain.bounds();
+            const AABox3f box = m_sceneWorld.terrain.bounds();
             m_authoredWater.present = true;
             m_authoredWater.hasLevel = true;
             m_authoredWater.level = Lerp(box.Min.y, box.Max.y, m_authoredWater.levelFraction);
@@ -1800,7 +1800,7 @@ void EditorApp::drawWaterTools()
     else
     {
         float level = m_authoredWater.hasLevel ? m_authoredWater.level : wp.waterLevel;
-        const AABox3f box = m_terrain.bounds();
+        const AABox3f box = m_sceneWorld.terrain.bounds();
         float lo = box.Min.y;
         float hi = box.Max.y;
         if (level < lo)
@@ -1929,7 +1929,7 @@ bool EditorApp::loadWorldEngineTerrain(const std::filesystem::path& directory, f
     removeEditorTerrain();
 
     SplatMap splatCopy = maps.splat;
-    if (!m_terrain.createFromHeightMap(std::move(maps.height), 64) || !m_terrain.setWorkingSplat(std::move(maps.splat)))
+    if (!m_sceneWorld.terrain.createFromHeightMap(std::move(maps.height), 64) || !m_sceneWorld.terrain.setWorkingSplat(std::move(maps.splat)))
     {
         DE_LOG_ERROR(LogCategory::Render, "Editor: World Engine heightfield rejected");
         removeEditorTerrain();
@@ -1953,11 +1953,11 @@ bool EditorApp::loadWorldEngineTerrain(const std::filesystem::path& directory, f
         removeEditorTerrain();
         return false;
     }
-    const WaterParams session = m_water.params();
+    const WaterParams session = m_sceneWorld.water.params();
     rebuildEditorWater();
     if (m_authoredWater.present)
     {
-        const AABox3f terrainBox = m_terrain.bounds();
+        const AABox3f terrainBox = m_sceneWorld.terrain.bounds();
         const float level = m_authoredWater.hasLevel
             ? m_authoredWater.level
             : Lerp(terrainBox.Min.y, terrainBox.Max.y, m_authoredWater.levelFraction);
@@ -1968,7 +1968,7 @@ bool EditorApp::loadWorldEngineTerrain(const std::filesystem::path& directory, f
         params.flowSpeed      = session.flowSpeed;
         params.foamWidthScale = session.foamWidthScale;
         params.detailAmount   = session.detailAmount;
-        m_water.params() = params;
+        m_sceneWorld.water.params() = params;
         createEditorWaterSheet();
     }
     startFoliageSpawn();
@@ -2022,7 +2022,7 @@ void EditorApp::drawTerrainPanel()
         }
     }
 
-    if (m_haveTerrain && m_terrain.valid())
+    if (m_haveTerrain && m_sceneWorld.terrain.valid())
     {
         ImGui::SameLine();
         if (ImGui::Button("Frame"))
@@ -2031,9 +2031,9 @@ void EditorApp::drawTerrainPanel()
         if (ImGui::Button("Remove"))
             removeEditorTerrain();
 
-        const HeightMap* hm = m_terrain.editableWorking();
+        const HeightMap* hm = m_sceneWorld.terrain.editableWorking();
         if (!hm || !hm->valid())
-            hm = &m_terrain.coarse();
+            hm = &m_sceneWorld.terrain.coarse();
         ImGui::Text("Heightfield %ux%u    cell %.2f m    relief %.0f m", hm->width(), hm->height(), hm->cellSize(), m_worldEngineHeight);
         if (!m_terrainSource.empty())
             ImGui::TextDisabled("%s", m_terrainSource.c_str());
@@ -2048,7 +2048,7 @@ void EditorApp::drawTerrainPanel()
         {
             uint32_t trees = 0;
             uint32_t grass = 0;
-            for (const FoliageRecord& rec : m_foliage)
+            for (const FoliageRecord& rec : m_sceneWorld.foliage)
             {
                 if (rec.kind == static_cast<uint8_t>(FoliageKind::Tree))
                     ++trees;
@@ -2060,16 +2060,16 @@ void EditorApp::drawTerrainPanel()
         // A drag during place would be cleared as fresh against the densities captured at start.
         ImGui::BeginDisabled(m_foliageRunning.load());
         bool slopeEdited = false;
-        slopeEdited |= ImGui::SliderFloat("Tree min normal Y", &m_foliageDensity.treeMinNormalY, 0.0f, 1.0f, "%.2f");
-        slopeEdited |= ImGui::SliderFloat("Flower min normal Y", &m_foliageDensity.flowerMinNormalY, 0.0f, 1.0f, "%.2f");
-        slopeEdited |= ImGui::SliderFloat("Tuft min normal Y", &m_foliageDensity.tuftMinNormalY, 0.0f, 1.0f, "%.2f");
-        slopeEdited |= ImGui::SliderFloat("Rock min normal Y", &m_foliageDensity.rockMinNormalY, 0.0f, 1.0f, "%.2f");
-        slopeEdited |= ImGui::SliderFloat("Tree max lean (deg)", &m_foliageDensity.treeMaxLeanDeg, 0.0f, 15.0f, "%.0f");
+        slopeEdited |= ImGui::SliderFloat("Tree min normal Y", &m_sceneWorld.foliageDensity.treeMinNormalY, 0.0f, 1.0f, "%.2f");
+        slopeEdited |= ImGui::SliderFloat("Flower min normal Y", &m_sceneWorld.foliageDensity.flowerMinNormalY, 0.0f, 1.0f, "%.2f");
+        slopeEdited |= ImGui::SliderFloat("Tuft min normal Y", &m_sceneWorld.foliageDensity.tuftMinNormalY, 0.0f, 1.0f, "%.2f");
+        slopeEdited |= ImGui::SliderFloat("Rock min normal Y", &m_sceneWorld.foliageDensity.rockMinNormalY, 0.0f, 1.0f, "%.2f");
+        slopeEdited |= ImGui::SliderFloat("Tree max lean (deg)", &m_sceneWorld.foliageDensity.treeMaxLeanDeg, 0.0f, 15.0f, "%.0f");
         ImGui::SetItemTooltip("Caps how far a tree tilts with the slope. 0 stays upright.");
-        slopeEdited |= ImGui::SliderFloat("Rock max pitch (deg)", &m_foliageDensity.rockMaxPitchDeg, 0.0f, 89.0f, "%.0f");
-        slopeEdited |= ImGui::SliderFloat("Tree spacing (m)", &m_foliageDensity.treeSpacingM, 0.0f, 16.0f, "%.1f");
-        slopeEdited |= ImGui::SliderFloat("Rock spacing (m)", &m_foliageDensity.rockSpacingM, 0.0f, 16.0f, "%.1f");
-        slopeEdited |= ImGui::SliderFloat("Patch strength", &m_foliageDensity.patchStrength, 0.0f, 1.0f, "%.2f");
+        slopeEdited |= ImGui::SliderFloat("Rock max pitch (deg)", &m_sceneWorld.foliageDensity.rockMaxPitchDeg, 0.0f, 89.0f, "%.0f");
+        slopeEdited |= ImGui::SliderFloat("Tree spacing (m)", &m_sceneWorld.foliageDensity.treeSpacingM, 0.0f, 16.0f, "%.1f");
+        slopeEdited |= ImGui::SliderFloat("Rock spacing (m)", &m_sceneWorld.foliageDensity.rockSpacingM, 0.0f, 16.0f, "%.1f");
+        slopeEdited |= ImGui::SliderFloat("Patch strength", &m_sceneWorld.foliageDensity.patchStrength, 0.0f, 1.0f, "%.2f");
         ImGui::SetItemTooltip("0 keeps the even forest. Grove wavelengths stay in the scene file.");
         if (slopeEdited)
             m_foliageStale = true;
@@ -2090,7 +2090,7 @@ void EditorApp::drawTerrainPanel()
         ImGui::SetItemTooltip("How overhead the camera must be before the tip leans. 0 starts at the horizon.");
         if (grassEdited)
             applyAuthoredGrass();
-        ImGui::SliderFloat("Leaf shed", &m_leafShedScale, 0.0f, 1.0f, "%.2f");
+        ImGui::SliderFloat("Leaf shed", &m_sceneWorld.leafShedScale, 0.0f, 1.0f, "%.2f");
         ImGui::SetItemTooltip("Share of the designed leaf rate. 0 sheds nothing. 1 is the full rate, still capped by the leaf pool.");
     }
     else
@@ -2123,35 +2123,35 @@ void EditorApp::drawWindPanel()
     bool edited = false;
 
     ImGui::SeparatorText("Field");
-    edited |= ImGui::SliderFloat("Strength", &m_wind.strength, 0.0f, 3.0f);
+    edited |= ImGui::SliderFloat("Strength", &m_sceneWorld.wind.strength, 0.0f, 3.0f);
     ImGui::SetItemTooltip("Scales the bend and the gust. Grass tip length stays as authored unless Grass follows strength is on.");
 
-    float headingDeg = m_wind.headingRad * 180.0f / Math::Pi;
+    float headingDeg = m_sceneWorld.wind.headingRad * 180.0f / Math::Pi;
     if (ImGui::SliderFloat("Heading (deg)", &headingDeg, -180.0f, 180.0f))
     {
-        m_wind.headingRad = headingDeg * Math::Pi / 180.0f;
+        m_sceneWorld.wind.headingRad = headingDeg * Math::Pi / 180.0f;
         edited = true;
     }
 
-    edited |= ImGui::SliderFloat("Deflection", &m_wind.deflection, 0.0f, 1.2f);
-    edited |= ImGui::SliderFloat("Spatial freq", &m_wind.spatialFreq, 0.0005f, 0.02f, "%.4f");
-    edited |= ImGui::SliderFloat("Temporal freq", &m_wind.temporalFreq, 0.0f, 1.0f, "%.4f");
-    edited |= ImGui::SliderFloat("Gust strength", &m_wind.gustStrength, 0.0f, 1.0f);
-    edited |= ImGui::SliderFloat("Gust freq", &m_wind.gustFreq, 0.0f, 2.0f);
-    edited |= ImGui::Checkbox("Grass follows strength", &m_wind.grassFollowsStrength);
+    edited |= ImGui::SliderFloat("Deflection", &m_sceneWorld.wind.deflection, 0.0f, 1.2f);
+    edited |= ImGui::SliderFloat("Spatial freq", &m_sceneWorld.wind.spatialFreq, 0.0005f, 0.02f, "%.4f");
+    edited |= ImGui::SliderFloat("Temporal freq", &m_sceneWorld.wind.temporalFreq, 0.0f, 1.0f, "%.4f");
+    edited |= ImGui::SliderFloat("Gust strength", &m_sceneWorld.wind.gustStrength, 0.0f, 1.0f);
+    edited |= ImGui::SliderFloat("Gust freq", &m_sceneWorld.wind.gustFreq, 0.0f, 2.0f);
+    edited |= ImGui::Checkbox("Grass follows strength", &m_sceneWorld.wind.grassFollowsStrength);
     ImGui::SetItemTooltip("Multiplies the authored grass tip by strength when the field is applied. Dragging does not stack.");
 
-    int seedInt = static_cast<int>(m_wind.seed);
+    int seedInt = static_cast<int>(m_sceneWorld.wind.seed);
     if (ImGui::InputInt("Seed", &seedInt))
     {
-        m_wind.seed = static_cast<uint32_t>(seedInt >= 0 ? seedInt : 0);
+        m_sceneWorld.wind.seed = static_cast<uint32_t>(seedInt >= 0 ? seedInt : 0);
         edited = true;
     }
 
     ImGui::Separator();
     if (ImGui::Button("Reset to defaults"))
     {
-        m_wind = Terrain::defaultWindSettings();
+        m_sceneWorld.wind = Terrain::defaultWindSettings();
         edited = true;
     }
 
@@ -2161,7 +2161,7 @@ void EditorApp::drawWindPanel()
         if (!ImGui::CollapsingHeader(kindNames[k]))
             continue;
 
-        Terrain::TreeWindParams& kind = m_wind.kind[k];
+        Terrain::TreeWindParams& kind = m_sceneWorld.wind.kind[k];
         ImGui::PushID(k);
         ImGui::Indent();
         edited |= ImGui::SliderFloat("Influence", &kind.influence, 0.0f, 3.0f);
@@ -2181,7 +2181,7 @@ void EditorApp::drawWindPanel()
 
     if (edited)
     {
-        Terrain::clampWindSettings(m_wind);
+        Terrain::clampWindSettings(m_sceneWorld.wind);
         applyAuthoredGrass();
     }
 

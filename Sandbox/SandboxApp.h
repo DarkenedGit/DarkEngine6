@@ -1,47 +1,21 @@
 #pragma once
 #include <cstdint>
-#include <deque>
 #include <filesystem>
 #include <string>
-#include <vector>
 
 #include "Core/Application.h"
 #include "Network/Replication.h"
-#include "Assets/AssetHandle.h"
-#include "Render/Mesh.h"
-#include "Render/FoliagePipeline.h"
-#include "Render/GrassPipeline.h"
-#include "Render/FoliagePrototypes.h"
 #include "Render/EchoChirpFile.h"
-#include "Render/Camera3D.h"
-#include "Render/DeferredLightingPipeline.h"
-#include "Render/GtaoPipeline.h"
-#include "Render/AutoExposure.h"
 #include "Render/TonemapPipeline.h"
-#include "Render/CloudVolumePipeline.h"
-#include "Sky/Environment.h"
 #include "Gameplay/Inventory.h"
 #include "Gameplay/Quest.h"
 #include "Scene/Building.h"
 #include "Scene/SceneTypes.h"
-#include "Physics/PhysicsWorld.h"
-#include "Physics/FoliageCollision.h"
-#include "Terrain/GrassField.h"
-#include "Terrain/WindField.h"
-#include "Terrain/TerrainGrid.h"
-#include "Terrain/TerrainMaterial.h"
+#include "Scene/SceneWorld.h"
 #include "Terrain/TerrainGround.h"
-#include "Terrain/LeafField.h"
-#include "Terrain/LeafRustle.h"
-#include "Water/Water.h"
 #include "Character/HealthComponent.h"
 #include "Character/PlayerMotorComponent.h"
 #include "Character/PlayerStealth.h"
-#include "Particles/ParticleEmitter.h"
-#include "Particles/ParticleRenderer.h"
-#include "Particles/GpuParticleSystem.h"
-#include "Particles/LeafRenderer.h"
-#include "Particles/BloodSplatPool.h"
 #include "Weapons/Weapon.h"
 #include "Weapons/WeaponLoadoutComponent.h"
 #include "PathChase.h"
@@ -50,13 +24,9 @@
 #include "SandboxHud.h"
 #include "Media/MoviePlayer.h"
 #include "Play/DialogueController.h"
-#include "Play/GuardVoice.h"
 #include "Play/ImpactFx.h"
-#include "Play/PlayFeedback.h"
 #include "Play/PlaySession.h"
 #include "Play/Spawner.h"
-#include "Play/Crow.h"
-#include "Ui/NpcInfoOverlay.h"
 #include "Save/SaveSystem.h"
 
 namespace Dark::Combat
@@ -209,87 +179,24 @@ private:
     static void onNetDespawn(Dark::World& world, Dark::Entity e, Dark::NetId id, void* user);
     static void onNetPeer(const Dark::NetPeerInfo& info, Dark::NetPeerEvent event, void* user);
 
-    Dark::Entity m_camera;
-
     SandboxDemo  m_demo;
     SandboxFrame m_frame;
-    Dark::Entity                        m_shield;
     Dark::PlaySession                   m_play;
-    Dark::Entity                        m_muzzle;
-    float                               m_muzzleTimer = 0.0f;
-    Dark::PlayFeedback                  m_playFeedback{};
-    bool                            m_demoScene    = true;
     bool                            m_sceneStarted = false;
     std::filesystem::path           m_loadedScenePath;
-    Dark::StealthSceneDesc          m_sceneStealth{};
-    Dark::GuardVoice                m_guardVoice;
     Dark::DialogueController        m_dialogue;
     Dark::MoviePlayer               m_movie;
-    bool                            m_movieWasBlocking = false;
-    std::string                     m_sceneQuest;
     void         expandSceneBuildings(Dark::SceneFileData& scene);
     // False when the boot budget is spent and fixtures remain.
     bool         spawnBuildingExtras(Dark::BuildingFixtureSpawn& spawn);
-    std::vector<Dark::BuildingContainer> m_buildingContainers;
-    std::vector<Dark::BuildingHideSpot>  m_buildingHides;
-    std::vector<Dark::BuildingDoor>      m_buildingDoors;
-    std::vector<Dark::BuildingCamera>    m_buildingCameras;
-    std::deque<std::string>              m_buildingLabels;
-    float                           m_goalShown    = 0.0f;
-    Dark::Camera3D          m_viewCamera;
-    Dark::Sky::Environment  m_env;
-    Dark::IblSettings       m_ibl;
-    Dark::GtaoSettings      m_ssao;
-    Dark::SsrSettings       m_ssr;
-    Dark::CloudLodSettings     m_cloudLod{};
-    Dark::AutoExposureSettings m_autoExposure{};
-    Dark::AutoExposureState    m_autoExposureState{};
-    Dark::AutoExposureResult   m_autoExposureResult{};
     float                      m_frameDt = 0.0f;
-    Dark::AssetID           m_iblImageId = Dark::NULL_ASSET;
+
+    Dark::SceneWorld               m_sceneWorld;
 
     Dark::PathChase                m_chase;
     bool                           m_chaseOk = false;
-    Dark::CrowModels               m_crowModels{};
 
-    Dark::Terrain::TerrainGrid m_terrain;
-    Dark::FoliagePrototypes                   m_foliagePrototypes;
-    Dark::FoliagePipeline                     m_foliagePipeline;
-    Dark::GrassPipeline                       m_grassPipeline;
-    Dark::Terrain::GrassField                 m_grassField;
-    double                                    m_grassWindSeconds = 0.0;
-    Dark::Terrain::WindSettings               m_wind = Dark::Terrain::defaultWindSettings();
-    Dark::Terrain::WindClock                  m_windClock;
-    Dark::Terrain::LeafField                  m_leafField;
-    Dark::Terrain::LeafRustleVoices           m_leafRustle;
-    Dark::LeafRenderer                        m_leafRenderer;
-    float                                     m_leafShedScale  = 1.0f;
-    double                                    m_leafSimSeconds = 0.0;
-    bool                                      m_loggedForwardGrassSkip = false;
-    Dark::Terrain::FoliageDensity             m_foliageDensity{};
-    std::vector<Dark::Terrain::FoliageRecord> m_foliage;
-
-    Dark::Physics::PhysicsWorld  m_physics;
-    Dark::Physics::PhysicsBodyId m_physicsGround = Dark::Physics::kNullPhysicsBody;
-    Dark::Physics::FoliageCollisionSet m_foliageCollision;
-    Dark::Physics::PhysicsBodyId m_groundIgnore  = Dark::Physics::kNullPhysicsBody;
-
-    Dark::Terrain::TerrainGround m_ground;
     Dark::Terrain::GroundContact groundContactAt(float x, float z) const;
-    float                     m_terrainSeaLevel = 0.0f;
-    bool                      m_haveTerrainSea  = false;
-    // A scene with no terrain block still needs a height field for walking.
-    // The mesh stays hidden so the scene's floor is the visible ground.
-    bool                      m_showTerrain     = true;
-    Dark::TerrainMaterial       m_terrainMaterial;
-    Dark::WaterWorld            m_water;
-    struct SandboxStream
-    {
-        Dark::Mesh            mesh;
-        float                 flowSpeed = 1.6f;
-        Dark::Math::AABox3f   bounds;
-    };
-    std::vector<SandboxStream> m_streams;
 
     Dark::NetRole m_netRole        = Dark::NetRole::Idle;
     uint32_t      m_browseLogCount = ~0u;
@@ -299,8 +206,6 @@ private:
     bool          m_reaperMode     = false;
     bool          m_stepGameplay   = false;
     float         m_flySpeed       = 18.0f;
-    float         m_spinSpeed      = 0.8f;
-    float         m_cloudTime      = 0.0f;
     bool          m_showShadowMaps = false;
     bool          m_showDepth      = false;
     bool          m_showGBuffer    = false;
@@ -309,7 +214,6 @@ private:
     bool          m_showDevTools   = false;
     bool          m_showInventory  = false;
     bool          m_showProfiler   = false;
-    Dark::NpcInfoOverlaySettings m_npcInfo{};
     struct SandboxVision
     {
         bool                    camouflage    = false;
@@ -331,15 +235,8 @@ private:
     SandboxVision m_vision;
     SandboxHud    m_hud;
     char          m_joinHost[64]   = "127.0.0.1";
-    Dark::ParticleEmitter            m_blood;
-    Dark::ParticleRenderer           m_particles;
-    Dark::GpuParticleSystem          m_gpuParticles;
-    Dark::BloodSplatPool             m_bloodSplats;
-
-    Dark::Mesh             m_crossMesh;
 
     Dark::Save::SaveSystem m_save;
-    Dark::Entity           m_session{};
 
     struct SandboxBootLoad;
     // Raw pointer: the type is complete only in SandboxBoot.cpp, and the constructor lives here.

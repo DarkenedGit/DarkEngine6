@@ -5,6 +5,7 @@
 #include "Render/Texture2D.h"
 #include "Ui/ImGuiHost.h"
 #include "Ui/MainMenu.h"
+#include "Ui/NpcInfoOverlay.h"
 
 #include <cstdint>
 #include <vector>
@@ -41,7 +42,12 @@ public:
     void drawMainMenu();
     void loadMenuBackground();
 
+    float&                         goalShown() { return m_goalShown; }
+    Dark::NpcInfoOverlaySettings&  npcInfo() { return m_npcInfo; }
+
     std::vector<Dark::QuestBanner> m_questBanners;
+    float                          m_goalShown = 0.0f;
+    Dark::NpcInfoOverlaySettings   m_npcInfo{};
     bool                           m_showJournal      = false;
     bool                           m_showUpgrades     = false;
     const char*                    m_defenseText      = "";

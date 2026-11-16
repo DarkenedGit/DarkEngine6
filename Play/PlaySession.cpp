@@ -196,6 +196,14 @@ namespace Dark
         m_host = {};
         if (m_fill)
             m_fill(m_user, m_host);
+        m_host.guardVoice    = &m_guardVoice;
+        m_host.crows         = &m_crowModels;
+        m_host.shield        = m_shield;
+        m_host.muzzle        = m_muzzle;
+        m_host.cameraEntity  = m_camera;
+        m_host.session       = m_session;
+        m_feedback.muzzle    = &m_muzzle;
+        installPlayFeedback(m_host, &m_feedback);
     }
 
     void PlaySession::resetPawn()

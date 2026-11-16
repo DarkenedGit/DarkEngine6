@@ -49,13 +49,13 @@ namespace
 
 void EditorApp::ensurePhysicsWorld()
 {
-    if (m_physics.valid())
+    if (m_sceneWorld.physics.valid())
         return;
 
     Physics::PhysicsWorldDesc desc;
     desc.enabled = true;
     desc.gravity = 24.0f;
-    if (!m_physics.create(desc))
+    if (!m_sceneWorld.physics.create(desc))
     {
         DE_LOG_ERROR(LogCategory::Collision, "Editor: physics world create failed");
         return;
@@ -69,20 +69,20 @@ void EditorApp::ensurePhysicsWorld()
 // Called when the world is created and again on Play, so a loaded heightfield is picked up.
 void EditorApp::rebuildPhysicsGround()
 {
-    if (!m_physics.valid())
+    if (!m_sceneWorld.physics.valid())
         return;
 
-    if (m_physicsGround != Physics::kNullPhysicsBody)
+    if (m_sceneWorld.physicsGround != Physics::kNullPhysicsBody)
     {
-        m_physics.destroyBody(m_physicsGround);
-        m_physicsGround = Physics::kNullPhysicsBody;
+        m_sceneWorld.physics.destroyBody(m_sceneWorld.physicsGround);
+        m_sceneWorld.physicsGround = Physics::kNullPhysicsBody;
     }
 
-    const Terrain::HeightMap& coarse = m_terrain.coarse();
+    const Terrain::HeightMap& coarse = m_sceneWorld.terrain.coarse();
     if (m_haveTerrain && coarse.valid())
     {
-        m_physicsGround = Dark::bindHeightFieldGround(m_physics, coarse, "Editor");
-        if (m_physicsGround != Physics::kNullPhysicsBody)
+        m_sceneWorld.physicsGround = Dark::bindHeightFieldGround(m_sceneWorld.physics, coarse, "Editor");
+        if (m_sceneWorld.physicsGround != Physics::kNullPhysicsBody)
             return;
         DE_LOG_WARN(LogCategory::Collision, "Editor: terrain height field failed; using flat ground");
     }
@@ -92,14 +92,14 @@ void EditorApp::rebuildPhysicsGround()
     ground.halfExtents = Vector3f(2000.0f, 1.0f, 2000.0f);
     ground.dynamic     = false;
     ground.friction    = 0.8f;
-    m_physicsGround    = m_physics.createBox(ground);
-    if (m_physicsGround == Physics::kNullPhysicsBody)
+    m_sceneWorld.physicsGround    = m_sceneWorld.physics.createBox(ground);
+    if (m_sceneWorld.physicsGround == Physics::kNullPhysicsBody)
         DE_LOG_WARN(LogCategory::Collision, "Editor: physics ground plane failed");
 }
 
 float EditorApp::playGroundHeight(float x, float z) const
 {
-    return Dark::raisedGroundY(m_physics, m_playGroundIgnore, m_physicsGround, m_terrain.heightAtWorld(x, z), x, z, m_playGroundProbeY);
+    return Dark::raisedGroundY(m_sceneWorld.physics, m_sceneWorld.groundIgnore, m_sceneWorld.physicsGround, m_sceneWorld.terrain.heightAtWorld(x, z), x, z, m_playGroundProbeY);
 }
 
 void EditorApp::ensurePlayPhysicsVolumes()
@@ -107,7 +107,7 @@ void EditorApp::ensurePlayPhysicsVolumes()
     if (!m_playMode || !m_playPlayer.valid())
         return;
     ensurePhysicsWorld();
-    if (!m_physics.valid())
+    if (!m_sceneWorld.physics.valid())
         return;
 
     world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
@@ -118,7 +118,7 @@ void EditorApp::ensurePlayPhysicsVolumes()
             return;
         if (const PhysicsComponent* existing = world().get<PhysicsComponent>(e))
         {
-            if (existing->enabled && !m_physics.isBound(e))
+            if (existing->enabled && !m_sceneWorld.physics.isBound(e))
                 rebuildPhysicsBody(e);
             return;
         }
@@ -151,8 +151,8 @@ void EditorApp::ensurePlayPhysicsVolumes()
 
 void EditorApp::releasePhysicsBody(Entity e)
 {
-    if (m_physics.valid())
-        m_physics.destroyBody(world(), e);
+    if (m_sceneWorld.physics.valid())
+        m_sceneWorld.physics.destroyBody(world(), e);
 }
 
 const Model* EditorApp::modelForPhysics(Entity e, AssetRef<Model>& held)
@@ -168,11 +168,11 @@ const Model* EditorApp::modelForPhysics(Entity e, AssetRef<Model>& held)
 void EditorApp::rebuildPhysicsBody(Entity e)
 {
     ensurePhysicsWorld();
-    if (!m_physics.valid() || !world().alive(e))
+    if (!m_sceneWorld.physics.valid() || !world().alive(e))
         return;
     AssetRef<Model> held;
     const Model*    model = modelForPhysics(e, held);
-    if (!Physics::bindPhysicsEntity(m_physics, world(), e, model, &m_surfaces))
+    if (!Physics::bindPhysicsEntity(m_sceneWorld.physics, world(), e, model, &m_surfaces))
         DE_LOG_WARN(LogCategory::Collision, "Editor: physics bind failed for #{}", e.id());
 }
 
@@ -333,40 +333,40 @@ PhysicsComponent EditorApp::defaultPhysicsFor(Entity e)
 
 void EditorApp::syncEditPhysics()
 {
-    if (!m_physics.valid() || m_playMode)
+    if (!m_sceneWorld.physics.valid() || m_playMode)
         return;
-    m_physics.step(0.0f, world());
+    m_sceneWorld.physics.step(0.0f, world());
     world().each<PhysicsComponent>([&](Entity e, PhysicsComponent& phys) {
         if (!phys.enabled)
         {
-            if (m_physics.isBound(e))
-                m_physics.destroyBody(world(), e);
+            if (m_sceneWorld.physics.isBound(e))
+                m_sceneWorld.physics.destroyBody(world(), e);
             return;
         }
         const TransformComponent*   xf   = world().get<TransformComponent>(e);
         const PhysicsBodyComponent* body = world().get<PhysicsBodyComponent>(e);
         const bool                  scaleChanged = xf && body && body->valid && !scaleNear(body->bakedScale, xf->scale);
-        if (!m_physics.isBound(e) || !body || !body->valid || scaleChanged)
+        if (!m_sceneWorld.physics.isBound(e) || !body || !body->valid || scaleChanged)
             rebuildPhysicsBody(e);
     });
-    m_physics.pushPoses(world(), true);
+    m_sceneWorld.physics.pushPoses(world(), true);
 }
 
 void EditorApp::simulatePhysics(float dt)
 {
-    if (!m_physics.valid())
+    if (!m_sceneWorld.physics.valid())
         return;
 
     // Play teleports the possessed body to the motor pose. Edit mode has no player to hold.
     const bool holdPlayer = m_playMode && m_playPlayer.valid() && world().get<TransformComponent>(m_playPlayer) != nullptr;
     if (holdPlayer)
     {
-        stepPossessedBody(m_physics, world(), m_playPlayer, dt);
+        stepPossessedBody(m_sceneWorld.physics, world(), m_playPlayer, dt);
         return;
     }
-    m_physics.pushPoses(world(), false);
-    m_physics.step(dt, world());
-    m_physics.writeDynamicPoses(world());
+    m_sceneWorld.physics.pushPoses(world(), false);
+    m_sceneWorld.physics.step(dt, world());
+    m_sceneWorld.physics.writeDynamicPoses(world());
 }
 
 void EditorApp::drawPhysicsInspector(Entity e)
@@ -492,7 +492,7 @@ void EditorApp::drawPhysicsInspector(Entity e)
     if (phys->sensor)
         ImGui::TextDisabled("Sensors overlap without blocking or falling.");
 
-    if (m_physics.isBound(e))
+    if (m_sceneWorld.physics.isBound(e))
         ImGui::TextDisabled(m_playMode ? "Simulating" : "Bound. Falls while Play is on.");
     else
         ImGui::TextDisabled("Not in the physics world.");

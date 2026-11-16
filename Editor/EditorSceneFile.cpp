@@ -8,6 +8,7 @@
 #include "Scene/Building.h"
 #include "Media/MovieCue.h"
 #include "Scene/SceneFile.h"
+#include "Water/WaterStream.h"
 #include "Scene/SceneSpawn.h"
 #include "Gameplay/PowerComponents.h"
 #include "Editor/EditorFileDialog.h"
@@ -98,9 +99,9 @@ bool EditorApp::saveScene()
     data.mode            = m_sceneMode;
     data.worldMin        = m_worldMin;
     data.worldMax        = m_worldMax;
-    data.environment     = m_ibl.virtualPath;
-    data.iblIntensity    = m_ibl.intensity;
-    data.iblRotationRadY = m_ibl.rotationRadY;
+    data.environment     = m_sceneWorld.ibl.virtualPath;
+    data.iblIntensity    = m_sceneWorld.ibl.intensity;
+    data.iblRotationRadY = m_sceneWorld.ibl.rotationRadY;
 
     std::vector<Entity> saved;
     world().each<EditorObjectComponent>([&](Entity e, EditorObjectComponent& so) {
@@ -212,11 +213,11 @@ bool EditorApp::saveScene()
     fillTerrainSceneDesc(data);
     if (data.mode != SceneMode::Scene2D)
     {
-        captureSceneAtmosphere(m_env, data);
+        captureSceneAtmosphere(m_sceneWorld.env, data);
         if (m_authoredWater.present)
         {
             data.water = m_authoredWater;
-            const WaterParams& wp = m_water.params();
+            const WaterParams& wp = m_sceneWorld.water.params();
             data.water.amplitudeScale = wp.amplitudeScale;
             data.water.speedScale     = wp.speedScale;
             data.water.flowSpeed      = wp.flowSpeed;
@@ -238,8 +239,8 @@ bool EditorApp::saveScene()
         }
         if (m_authoredExposure.present)
             data.exposure = m_authoredExposure;
-        if (m_authoredStealth.present)
-            data.stealth = m_authoredStealth;
+        if (m_sceneWorld.stealth.present)
+            data.stealth = m_sceneWorld.stealth;
     }
     if (data.hasTerrain)
     {
@@ -255,7 +256,7 @@ bool EditorApp::saveScene()
             m_terrainCoarseFile = data.terrain.grid.coarseFile;
             m_terrainTileDir    = data.terrain.grid.tileDir;
             m_terrainSeed       = data.terrain.grid.seed;
-            m_terrainSeaLevel   = data.terrain.grid.seaLevel;
+            m_sceneWorld.terrainSeaLevel   = data.terrain.grid.seaLevel;
         }
     }
     for (size_t i = 0; i < data.objects.size(); ++i)
@@ -273,7 +274,7 @@ bool EditorApp::saveScene()
         }
     }
 
-    data.quest     = m_sceneQuest;
+    data.quest     = m_play.sceneQuest();
     data.buildings = m_sceneBuildings;
     std::string err;
     if (!saveSceneToJson(m_scenePath, data, &err))
@@ -378,38 +379,38 @@ bool EditorApp::applyLoadedScene(SceneFileData& data)
         m_save.setWorldIdentity(m_scenePath.generic_string(), "", "");
     }
     clearScene();
-    m_sceneQuest      = data.quest;
+    m_play.sceneQuest()      = data.quest;
     m_sceneBuildings  = data.buildings;
-    m_buildingLabels.clear();
+    m_play.buildingLabels().clear();
     const size_t authoredCount = data.objects.size();
     if (data.mode != SceneMode::Scene2D)
-        expandSceneBuildings(data, m_buildingContainers, m_buildingHides, &m_buildingDoors, &m_buildingCameras);
+        expandSceneBuildings(data, m_play.buildingContainers(), m_play.buildingHides(), &m_play.buildingDoors(), &m_play.buildingCameras());
     removeEditorTerrain();
     releaseUnreferencedAssets();
     m_authoredWater = {};
     m_authoredExposure = {};
-    m_authoredStealth = {};
+    m_sceneWorld.stealth = {};
     m_authoredGrass = {};
-    m_wind          = Terrain::defaultWindSettings();
+    m_sceneWorld.wind          = Terrain::defaultWindSettings();
     applyAuthoredGrass();
     if (data.mode != SceneMode::Scene2D)
     {
-        applySceneAtmosphere(m_env, data);
+        applySceneAtmosphere(m_sceneWorld.env, data);
         if (data.water.present)
             m_authoredWater = data.water;
         if (data.exposure.present)
             m_authoredExposure = data.exposure;
         if (data.stealth.present)
-            m_authoredStealth = data.stealth;
+            m_sceneWorld.stealth = data.stealth;
     }
     applyAuthoredStealth();
     m_worldMin  = data.worldMin;
     m_worldMax  = data.worldMax;
     if (data.mode == SceneMode::Scene3D)
     {
-        m_ibl.virtualPath  = data.environment;
-        m_ibl.intensity    = data.iblIntensity;
-        m_ibl.rotationRadY = data.iblRotationRadY;
+        m_sceneWorld.ibl.virtualPath  = data.environment;
+        m_sceneWorld.ibl.intensity    = data.iblIntensity;
+        m_sceneWorld.ibl.rotationRadY = data.iblRotationRadY;
     }
     applySceneMode(data.mode);
     m_sceneName = data.name.empty() ? (data.mode == SceneMode::Scene2D ? "level2d" : "level") : data.name;
@@ -452,7 +453,7 @@ bool EditorApp::applyLoadedScene(SceneFileData& data)
     {
         SceneSpawnHost host{};
         host.world       = &world();
-        host.physics     = m_physics.valid() ? &m_physics : nullptr;
+        host.physics     = m_sceneWorld.physics.valid() ? &m_sceneWorld.physics : nullptr;
         host.pins        = &pins();
         host.assets      = &assets();
         host.renderer    = &renderer();
@@ -466,9 +467,9 @@ bool EditorApp::applyLoadedScene(SceneFileData& data)
         fixtures.assets   = &assets();
         fixtures.pins     = &pins();
         fixtures.ai       = &m_ai;
-        fixtures.labels   = &m_buildingLabels;
+        fixtures.labels   = &m_play.buildingLabels();
         fixtures.stampPrefix = "editor/scene";
-        spawnBuildingFixtures(fixtures, m_buildingContainers, m_buildingHides, m_buildingDoors, m_buildingCameras);
+        spawnBuildingFixtures(fixtures, m_play.buildingContainers(), m_play.buildingHides(), m_play.buildingDoors(), m_play.buildingCameras());
     }
     for (size_t i = 0; i < data.objects.size() && i < spawned.size(); ++i)
     {
@@ -493,12 +494,12 @@ bool EditorApp::applyLoadedScene(SceneFileData& data)
     if (m_authoredWater.present)
     {
         float level = m_authoredWater.level;
-        if (!m_authoredWater.hasLevel && m_haveTerrain && m_terrain.valid())
+        if (!m_authoredWater.hasLevel && m_haveTerrain && m_sceneWorld.terrain.valid())
         {
-            const AABox3f terrainBox = m_terrain.bounds();
+            const AABox3f terrainBox = m_sceneWorld.terrain.bounds();
             level = Lerp(terrainBox.Min.y, terrainBox.Max.y, m_authoredWater.levelFraction);
         }
-        m_water.params() = sceneWaterParams(m_authoredWater, level);
+        m_sceneWorld.water.params() = sceneWaterParams(m_authoredWater, level);
         createEditorWaterSheet();
     }
     // Same actor load as Sandbox, without baking terrain height into the saved transform.
@@ -515,9 +516,9 @@ bool EditorApp::applyLoadedScene(SceneFileData& data)
 float EditorApp::sceneGroundY(void* user, float x, float z)
 {
     const EditorApp* app = static_cast<const EditorApp*>(user);
-    if (!app || !app->m_haveTerrain || !app->m_terrain.valid())
+    if (!app || !app->m_haveTerrain || !app->m_sceneWorld.terrain.valid())
         return 0.0f;
-    return app->m_terrain.heightAtWorld(x, z);
+    return app->m_sceneWorld.terrain.heightAtWorld(x, z);
 }
 
 void EditorApp::handleEditorCommands(float dt)

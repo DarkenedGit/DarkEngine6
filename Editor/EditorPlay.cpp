@@ -110,7 +110,7 @@ bool EditorApp::attachEditorModel(Entity e, const char* gltfPath)
     if (world().has<ModelComponent>(e) && world().get<ModelComponent>(e)->modelAssetID != NULL_ASSET)
         return true;
 
-    const CharacterHost host{ world(), renderer(), assets(), pins(), audio(), m_ground };
+    const CharacterHost host{ world(), renderer(), assets(), pins(), audio(), m_sceneWorld.ground };
     const ContentModelResult result = attachContentModel(host, e, gltfPath, ModelAttach::AllowStatic);
     if (!result.attached)
         return false;
@@ -126,7 +126,7 @@ bool EditorApp::attachEditorPlayer(Entity e)
         return false;
 
     ensureHumanoidBody(world(), e, archetypeHealthSettings("core:player"), Vector3f{ 0.35f, 0.7f, 0.35f });
-    const CharacterHost host{ world(), renderer(), assets(), pins(), audio(), m_ground };
+    const CharacterHost host{ world(), renderer(), assets(), pins(), audio(), m_sceneWorld.ground };
     ensureLocalPlayerRig(host, e, &EditorApp::onPlayWeaponHitThunk, this);
 
     const std::string playerGltf = archetypeModelPath("core:player");
@@ -144,7 +144,7 @@ bool EditorApp::attachEditorNpc(Entity e, NpcKind kind, const char* proxyWarn)
     if (!m_ai.attachHunter(world(), e, pins(), assets()))
         return false;
     ensureHumanoidBody(world(), e, archetypeHealthSettings(archetypeId), Vector3f{ 0.35f, 0.7f, 0.35f });
-    const CharacterHost host{ world(), renderer(), assets(), pins(), audio(), m_ground };
+    const CharacterHost host{ world(), renderer(), assets(), pins(), audio(), m_sceneWorld.ground };
     const bool haveModel = world().has<ModelComponent>(e) && world().get<ModelComponent>(e)->modelAssetID != NULL_ASSET;
     if (haveModel)
     {
@@ -305,8 +305,8 @@ void EditorApp::bakePlayWalkability()
         }
     });
     const Terrain::HeightMap* height = nullptr;
-    if (m_haveTerrain && m_terrain.valid() && m_terrain.coarse().valid())
-        height = &m_terrain.coarse();
+    if (m_haveTerrain && m_sceneWorld.terrain.valid() && m_sceneWorld.terrain.coarse().valid())
+        height = &m_sceneWorld.terrain.coarse();
     else
     {
         // The default editor ground is the Y=0 grid from -20 to 20. Bake that as a flat walk map.
@@ -346,10 +346,10 @@ void EditorApp::fillDialogueHost(void* user, DialogueHost& host)
     host.world      = &app->world();
     host.assets     = &app->assets();
     host.audio      = &app->audio();
-    host.guardVoice = &app->m_guardVoice;
+    host.guardVoice = &app->m_play.guardVoice();
     host.quest      = &app->m_play.quest();
     host.player     = app->m_playPlayer;
-    host.session    = app->m_session;
+    host.session    = app->m_play.session();
     host.look       = app->m_camera.GetLook();
     host.cameraPos  = app->m_camera.GetPosition();
     host.enabled    = app->m_playMode;
@@ -367,29 +367,29 @@ void EditorApp::fillPlayHost(void* user, PlayHost& host)
     host.assets   = &app->assets();
     host.pins     = &app->pins();
     host.audio    = &app->audio();
-    host.physics  = app->m_physics.valid() ? &app->m_physics : nullptr;
+    host.physics  = app->m_sceneWorld.physics.valid() ? &app->m_sceneWorld.physics : nullptr;
     host.ai       = &app->m_ai;
     host.camera   = &app->m_camera;
     host.input    = &app->input();
-    host.terrain  = &app->m_terrain;
-    host.ground   = &app->m_ground;
-    host.groundBody = app->m_physicsGround;
-    host.guardVoice = &app->m_guardVoice;
-    host.crows    = &app->m_crowModels;
-    host.foliageCollision = &app->m_foliageCollision;
-    host.foliage  = app->m_foliage.empty() ? nullptr : &app->m_foliage;
+    host.terrain  = &app->m_sceneWorld.terrain;
+    host.ground   = &app->m_sceneWorld.ground;
+    host.groundBody = app->m_sceneWorld.physicsGround;
+    host.guardVoice = &app->m_play.guardVoice();
+    host.crows    = &app->m_play.crows();
+    host.foliageCollision = &app->m_sceneWorld.foliageCollision;
+    host.foliage  = app->m_sceneWorld.foliage.empty() ? nullptr : &app->m_sceneWorld.foliage;
 
     host.player  = app->m_playPlayer;
-    host.shield  = app->m_playShield;
-    host.session = app->m_session;
+    host.shield  = app->m_play.shield();
+    host.session = app->m_play.session();
 
-    host.waterLevel   = app->m_water.chunksX() > 0 ? app->m_water.params().waterLevel : -1.0e9f;
-    host.sunElevation = app->m_env.sunElevation();
-    host.sunDir       = app->m_env.sunDir();
-    host.cloudTime    = app->m_cloudTime;
+    host.waterLevel   = app->m_sceneWorld.water.chunksX() > 0 ? app->m_sceneWorld.water.params().waterLevel : -1.0e9f;
+    host.sunElevation = app->m_sceneWorld.env.sunElevation();
+    host.sunDir       = app->m_sceneWorld.env.sunDir();
+    host.cloudTime    = app->m_sceneWorld.cloudTime;
 
     host.groundProbeY = &app->m_playGroundProbeY;
-    host.groundIgnore = &app->m_playGroundIgnore;
+    host.groundIgnore = &app->m_sceneWorld.groundIgnore;
     host.camouflage   = false;
 
     const bool playUi      = app->m_lootTarget.valid() || app->m_showUpgrades;
@@ -419,25 +419,22 @@ void EditorApp::fillPlayHost(void* user, PlayHost& host)
     host.groundContact = &EditorApp::onPlayGroundContact;
     host.user          = app;
     app->bindPlayFeedback();
-    installPlayFeedback(host, &app->m_playFeedback);
+    installPlayFeedback(host, &app->m_play.feedback());
 }
 
 void EditorApp::bindPlayFeedback()
 {
-    m_playFeedback.world       = &world();
-    m_playFeedback.camera      = &m_camera;
-    m_playFeedback.muzzle      = &m_playMuzzle;
-    m_playFeedback.muzzleTimer = &m_playMuzzleTimer;
-    m_playFeedback.blood       = &m_blood;
-    m_playFeedback.splats      = &m_bloodSplats;
+    m_play.feedback().world       = &world();
+    m_play.feedback().camera      = &m_camera;
+    m_play.feedback().muzzle = &m_play.muzzle();
     const Terrain::HeightMap* height = nullptr;
-    if (m_haveTerrain && m_terrain.valid() && m_terrain.coarse().valid())
-        height = &m_terrain.coarse();
+    if (m_haveTerrain && m_sceneWorld.terrain.valid() && m_sceneWorld.terrain.coarse().valid())
+        height = &m_sceneWorld.terrain.coarse();
     else if (m_playGrid.valid())
         height = &m_playGrid;
-    m_playFeedback.height      = height;
-    m_playFeedback.afterRespawn = nullptr;
-    m_playFeedback.afterUser   = nullptr;
+    m_play.feedback().height      = height;
+    m_play.feedback().afterRespawn = nullptr;
+    m_play.feedback().afterUser   = nullptr;
 }
 
 void EditorApp::onPlayQuestNote(void* user, const QuestNoteEvent& note)
@@ -547,13 +544,13 @@ void EditorApp::setPlayMode(bool play)
         resetPlayCombat();
         m_questBanners.clear();
         m_play.quest().clear();
-        if (!m_sceneQuest.empty())
-            m_play.startQuest(m_sceneQuest);
+        if (!m_play.sceneQuest().empty())
+            m_play.startQuest(m_play.sceneQuest());
         {
             GuardBarks  barks;
             std::string barkError;
             if (loadGuardBarks(resolveContentFile("ai/barks.json"), barks, &barkError))
-                m_guardVoice.start(std::move(barks));
+                m_play.guardVoice().start(std::move(barks));
             else
                 DE_LOG_WARN(LogCategory::AI, "Guard barks: {}", barkError);
         }
@@ -563,15 +560,15 @@ void EditorApp::setPlayMode(bool play)
         m_gizmoDragAxis    = EditorDetail::TranslateGizmoAxis::None;
         m_dragging         = false;
         if (renderer().scenePath() == ScenePath::HybridDeferred)
-            ensurePlayMuzzle(world(), m_playMuzzle, m_playMuzzleTimer);
+            ensurePlayMuzzle(world(), m_play.muzzle(), m_play.feedback().muzzleTimer);
         bindPlayFeedback();
         m_playMode = true;
         ensurePhysicsWorld();
         rebuildPhysicsGround(); // pick up a terrain loaded since the last Play
-        if (m_physics.valid())
-            m_physics.pushPoses(world(), true);
+        if (m_sceneWorld.physics.valid())
+            m_sceneWorld.physics.pushPoses(world(), true);
         spawnPlayPickups();
-        respawnThrowablePickups(world(), pins(), assets(), renderer(), m_physics, authoredThrowables);
+        respawnThrowablePickups(world(), pins(), assets(), renderer(), m_sceneWorld.physics, authoredThrowables);
         if (const TransformComponent* start = world().get<TransformComponent>(m_playPlayer))
         {
             bool haveRock   = false;
@@ -588,7 +585,7 @@ void EditorApp::setPlayMode(bool play)
             const int                     bottleOnBelt = belt ? belt->belt.count("bottle") : 0;
             haveRock   = throwableAlreadyAccounted(haveRock, rockOnBelt, throwableIdInFlightOrLanding(m_play.throws(), "rock"));
             haveBottle = throwableAlreadyAccounted(haveBottle, bottleOnBelt, throwableIdInFlightOrLanding(m_play.throws(), "bottle"));
-            stockMissingThrowablePickups(world(), pins(), assets(), renderer(), m_physics, start->position, haveRock, haveBottle);
+            stockMissingThrowablePickups(world(), pins(), assets(), renderer(), m_sceneWorld.physics, start->position, haveRock, haveBottle);
         }
         window().setCursorCaptured(window().isFocused());
         ensurePlaySession();
@@ -605,7 +602,7 @@ void EditorApp::setPlayMode(bool play)
     }
     else
     {
-        Physics::destroyFoliageCollision(m_physics, m_foliageCollision);
+        Physics::destroyFoliageCollision(m_sceneWorld.physics, m_sceneWorld.foliageCollision);
         if (JumpAttackComponent* jac = m_playPlayer.valid() ? world().get<JumpAttackComponent>(m_playPlayer) : nullptr)
             jac->jump.cancel(Combat::JumpAttackCancel::ForceIdle);
         destroySpawnedUnits({});
@@ -627,8 +624,8 @@ void EditorApp::setPlayMode(bool play)
         m_defenseText.clear();
         m_defenseTextLeft = 0.0f;
         m_defenseParry    = false;
-        destroyPlayMuzzle(world(), m_playMuzzle, m_playMuzzleTimer);
-        m_guardVoice.stop();
+        destroyPlayMuzzle(world(), m_play.muzzle(), m_play.feedback().muzzleTimer);
+        m_play.guardVoice().stop();
         // Interrupt stores a resume bookmark. This Play is over, so the next one starts at the greeting.
         m_dialogue.endPlay();
         m_movie.close();
@@ -639,13 +636,13 @@ void EditorApp::setPlayMode(bool play)
         m_showUpgrades = false;
         m_play.clearFacility();
         resetBuildingFixtures();
-        respawnThrowablePickups(world(), pins(), assets(), renderer(), m_physics, keptThrowables);
+        respawnThrowablePickups(world(), pins(), assets(), renderer(), m_sceneWorld.physics, keptThrowables);
         clearThrowablePlayVisuals(world(), pins());
         m_playMode   = false;
         m_playPlayer = {};
         world().bumpGeneration();
-        if (m_physics.valid())
-            m_physics.pushPoses(world(), true);
+        if (m_sceneWorld.physics.valid())
+            m_sceneWorld.physics.pushPoses(world(), true);
         window().setCursorCaptured(false);
         DE_LOG_INFO("Editor: play stopped — restored spawn poses");
     }
@@ -658,15 +655,15 @@ void EditorApp::togglePlayMode()
 
 void EditorApp::ensurePlayGear()
 {
-    if (!m_playShield.valid() || !world().alive(m_playShield))
-        m_playShield = spawnPlayerShield(world(), pins(), assets(), renderer());
+    if (!m_play.shield().valid() || !world().alive(m_play.shield()))
+        m_play.shield() = spawnPlayerShield(world(), pins(), assets(), renderer());
     m_play.stockPlayer(m_playPlayer);
     equipPlayArmor();
 }
 
 void EditorApp::destroyPlayGear()
 {
-    destroyPlayerShield(world(), pins(), m_playShield);
+    destroyPlayerShield(world(), pins(), m_play.shield());
     clearPlayerFlashlight(world(), m_playPlayer);
     clearPlayArmor();
 }
@@ -693,7 +690,7 @@ void EditorApp::clearPlayArmor()
     std::vector<Entity> owners;
     world().each<Combat::ArmorPiecesComponent>([&](Entity e, Combat::ArmorPiecesComponent&) { owners.push_back(e); });
     for (Entity owner : owners)
-        removeArmor(world(), pins(), m_physics, owner);
+        removeArmor(world(), pins(), m_sceneWorld.physics, owner);
 
     std::vector<Entity> keep;
     world().each<EditorObjectComponent>([&](Entity, EditorObjectComponent& so) {
@@ -714,13 +711,13 @@ void EditorApp::clearPlayArmor()
             }
         }
         if (!authored)
-            destroyPickup(world(), pins(), m_physics, pickup);
+            destroyPickup(world(), pins(), m_sceneWorld.physics, pickup);
     }
 }
 
 void EditorApp::spawnPlayPickups()
 {
-    if (!m_physics.valid())
+    if (!m_sceneWorld.physics.valid())
         return;
     world().each<EditorObjectComponent>([&](Entity marker, EditorObjectComponent& so) {
         if (so.pickup.empty() || so.playPickupSpent)
@@ -743,7 +740,7 @@ void EditorApp::spawnPlayPickups()
         if (!xf)
             return;
         const int count = so.pickupCount > 0 ? so.pickupCount : 1;
-        const Entity pickup = spawnItemPickup(world(), pins(), assets(), renderer(), m_physics, ItemStack{ def, count }, xf->position, Vector3f{});
+        const Entity pickup = spawnItemPickup(world(), pins(), assets(), renderer(), m_sceneWorld.physics, ItemStack{ def, count }, xf->position, Vector3f{});
         if (pickup.valid())
             so.playPickup = pickup;
     });
@@ -778,16 +775,16 @@ void EditorApp::destroyBuildingFixtures()
 void EditorApp::resetBuildingFixtures()
 {
     destroyBuildingFixtures();
-    m_buildingLabels.clear();
+    m_play.buildingLabels().clear();
     BuildingFixtureSpawn fixtures;
     fixtures.world    = &world();
     fixtures.renderer = &renderer();
     fixtures.assets   = &assets();
     fixtures.pins     = &pins();
     fixtures.ai       = &m_ai;
-    fixtures.labels   = &m_buildingLabels;
+    fixtures.labels   = &m_play.buildingLabels();
     fixtures.stampPrefix = "editor/scene";
-    spawnBuildingFixtures(fixtures, m_buildingContainers, m_buildingHides, m_buildingDoors, m_buildingCameras);
+    spawnBuildingFixtures(fixtures, m_play.buildingContainers(), m_play.buildingHides(), m_play.buildingDoors(), m_play.buildingCameras());
 }
 
 void EditorApp::ensureUpgradeCatalog()
@@ -867,7 +864,7 @@ void EditorApp::releasePlayPickups()
         if (!so)
             continue;
         if (so->playPickup.valid() && world().alive(so->playPickup))
-            destroyPickup(world(), pins(), m_physics, so->playPickup);
+            destroyPickup(world(), pins(), m_sceneWorld.physics, so->playPickup);
         so->playPickup      = {};
         so->playPickupSpent = false;
     }
@@ -891,9 +888,9 @@ ImpactFxHost EditorApp::impactHost()
     host.world       = &world();
     host.scene       = &m_scene;
     host.renderer    = &renderer();
-    host.terrain     = &m_terrain;
-    host.ground      = &m_ground;
-    host.contactGrid = (m_haveTerrain && m_terrain.valid()) ? &m_terrain : nullptr;
+    host.terrain     = &m_sceneWorld.terrain;
+    host.ground      = &m_sceneWorld.ground;
+    host.contactGrid = (m_haveTerrain && m_sceneWorld.terrain.valid()) ? &m_sceneWorld.terrain : nullptr;
     host.targets     = &m_play.targets();
     return host;
 }
@@ -939,8 +936,8 @@ void EditorApp::spawnDeathBloodDecal(const Vector3f& point, const Vector3f& hitN
 
 Terrain::GroundContact EditorApp::groundContactAt(float x, float z) const
 {
-    const Terrain::TerrainGrid* grid = (m_haveTerrain && m_terrain.valid()) ? &m_terrain : nullptr;
-    return Terrain::groundContactAt(m_ground, grid, x, z);
+    const Terrain::TerrainGrid* grid = (m_haveTerrain && m_sceneWorld.terrain.valid()) ? &m_sceneWorld.terrain : nullptr;
+    return Terrain::groundContactAt(m_sceneWorld.ground, grid, x, z);
 }
 
 void EditorApp::destroySpawnedUnits(Entity onlySpawner)
@@ -1000,10 +997,10 @@ Entity EditorApp::spawnSpawnerUnit(Entity spawner, const SpawnerRequest& req)
     host.assets           = &assets();
     host.pins             = &pins();
     host.audio            = &audio();
-    host.ground           = &m_ground;
+    host.ground           = &m_sceneWorld.ground;
     host.ai               = &m_ai;
-    host.crows            = &m_crowModels;
-    host.terrain          = (m_haveTerrain && m_terrain.valid()) ? &m_terrain : nullptr;
+    host.crows            = &m_play.crows();
+    host.terrain          = (m_haveTerrain && m_sceneWorld.terrain.valid()) ? &m_sceneWorld.terrain : nullptr;
     host.play             = &m_play;
     host.allowStaticModel = true;
     host.bindPhysics      = &EditorApp::bindListedPhysics;
@@ -1017,12 +1014,12 @@ void EditorApp::ensurePlayerStealth(Entity e)
     if (!e.valid() || !world().alive(e) || world().has<PlayerStealthComponent>(e))
         return;
     PlayerStealthComponent& stealth = world().emplace<PlayerStealthComponent>(e);
-    applyScenePrey(stealth.settings, m_authoredStealth);
+    applyScenePrey(stealth.settings, m_sceneWorld.stealth);
 }
 
 void EditorApp::applyAuthoredStealth()
 {
-    applySceneAwareness(m_ai, m_authoredStealth);
+    applySceneAwareness(m_ai, m_sceneWorld.stealth);
     const Entity player = (m_playPlayer.valid() && world().alive(m_playPlayer)) ? m_playPlayer : findPlayPlayer();
     if (!player.valid() || !world().alive(player))
         return;
@@ -1031,7 +1028,7 @@ void EditorApp::applyAuthoredStealth()
     PlayerStealthComponent* stealth = world().get<PlayerStealthComponent>(player);
     if (!stealth)
         return;
-    applyScenePrey(stealth->settings, m_authoredStealth);
+    applyScenePrey(stealth->settings, m_sceneWorld.stealth);
 }
 
 
@@ -1292,5 +1289,5 @@ void EditorApp::drawLoot()
     }
     Dark::EndGameCard();
 
-    settleLootTarget(world(), pins(), m_physics, m_lootTarget, open);
+    settleLootTarget(world(), pins(), m_sceneWorld.physics, m_lootTarget, open);
 }

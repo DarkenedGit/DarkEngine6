@@ -342,7 +342,7 @@ void SandboxFrame::render()
     // includes the generation, so a recycle misses, until that generation wraps.
     dropDeadPrevWorlds();
 
-    app().m_foliagePipeline.setWind(app().m_wind, app().m_windClock.time, app().m_windClock.prevTime);
+    app().m_frame.foliagePipeline().setWind(app().m_sceneWorld.wind, app().m_sceneWorld.windClock.time, app().m_sceneWorld.windClock.prevTime);
 
     Dark::setGameNavEnabled(app().m_hud.m_menu.visible() || app().m_gameplayPaused);
     if (app().m_hud.m_imgui.isReady())
@@ -362,13 +362,13 @@ void SandboxFrame::render()
             playedPasses[playedCount++] = id;
     };
 
-    const Frustum3f cameraCull(app().m_viewCamera.GetCullViewProj());
+    const Frustum3f cameraCull(app().m_sceneWorld.camera.GetCullViewProj());
     const bool selectLocalShadows = app().renderer().scenePath() == ScenePath::HybridDeferred
         && app().renderer().debugState().localLights
         && app().renderer().debugState().lightingActive();
-    m_scene.localShadows().update(app().world(), app().m_viewCamera, cameraCull, app().renderer().frameIndex(), selectLocalShadows);
+    m_scene.localShadows().update(app().world(), app().m_sceneWorld.camera, cameraCull, app().renderer().frameIndex(), selectLocalShadows);
 
-    AABox3f sceneBounds = app().m_terrain.shadowBounds(app().m_viewCamera);
+    AABox3f sceneBounds = app().m_sceneWorld.terrain.shadowBounds(app().m_sceneWorld.camera);
     app().world().each<MeshComponent>([&](Entity e, MeshComponent& mc) {
         if (mc.primitive == PrimitiveMesh::None)
             return;
@@ -389,11 +389,11 @@ void SandboxFrame::render()
     if (app().m_chaseOk)
         app().m_chase.expandBounds(sceneBounds);
     m_shadows.update(
-        app().m_viewCamera,
-        app().m_env.lightDir(),
+        app().m_sceneWorld.camera,
+        app().m_sceneWorld.env.lightDir(),
         sceneBounds,
-        app().m_env.sunElevation(),
-        app().m_env.weather.cloudCoverage,
+        app().m_sceneWorld.env.sunElevation(),
+        app().m_sceneWorld.env.weather.cloudCoverage,
         app().renderer().frameIndex());
 
     const bool instanceStatic = m_drawList.gpuReady() && app().renderer().debugState().instancedStatic && app().renderer().debugState().fill == DebugFill::Solid;
@@ -417,7 +417,7 @@ void SandboxFrame::render()
                 return;
             if (const HealthComponent* hp = app().world().get<HealthComponent>(e); hp && !hp->health.alive())
                 return;
-            const Mesh* gpuMesh = sandboxPrimitiveMesh(mc.primitive, app().m_demo.cubeMesh(), app().m_crossMesh);
+            const Mesh* gpuMesh = sandboxPrimitiveMesh(mc.primitive, app().m_demo.cubeMesh(), app().m_demo.crossMesh());
             if (!gpuMesh)
                 return;
             const TransformComponent* xf = app().world().get<TransformComponent>(e);
@@ -535,13 +535,13 @@ void SandboxFrame::render()
         }
         if (deferredEarly || m_drawList.forwardReady() || instanceSkinned)
         {
-            const Matrix4f camVp   = m_scene.beginCameraFrame(app().m_viewCamera, app().renderer());
+            const Matrix4f camVp   = m_scene.beginCameraFrame(app().m_sceneWorld.camera, app().renderer());
             const Matrix4f camPrev = m_scene.havePrevViewProj() ? m_scene.prevViewProj() : camVp;
             float drawVp[16];
             float drawPrev[16];
             copyMatrix(drawVp, camVp);
             copyMatrix(drawPrev, camPrev);
-            m_drawList.buildView(Frustum3f(app().m_viewCamera.GetCullViewProj()), drawVp, drawPrev, RenderPassKind::GBuffer, ViewId{ 0 });
+            m_drawList.buildView(Frustum3f(app().m_sceneWorld.camera.GetCullViewProj()), drawVp, drawPrev, RenderPassKind::GBuffer, ViewId{ 0 });
         }
     }
 
@@ -557,13 +557,13 @@ void SandboxFrame::render()
     shadowHost.skinned           = &m_skinnedInstances;
     shadowHost.skinnedShadow     = &m_skinnedShadowPipeline;
     shadowHost.skinRing          = &m_skinRing;
-    shadowHost.terrain           = &app().m_terrain;
-    shadowHost.foliage           = &app().m_foliagePipeline;
-    shadowHost.foliagePrototypes = &app().m_foliagePrototypes;
-    shadowHost.foliageRecords    = app().m_foliage.empty() ? nullptr : &app().m_foliage;
-    shadowHost.foliageDensity    = &app().m_foliageDensity;
-    shadowHost.camera            = &app().m_viewCamera;
-    shadowHost.drawTerrain       = app().m_showTerrain;
+    shadowHost.terrain           = &app().m_sceneWorld.terrain;
+    shadowHost.foliage           = &app().m_frame.foliagePipeline();
+    shadowHost.foliagePrototypes = &app().m_frame.foliagePrototypes();
+    shadowHost.foliageRecords    = app().m_sceneWorld.foliage.empty() ? nullptr : &app().m_sceneWorld.foliage;
+    shadowHost.foliageDensity    = &app().m_sceneWorld.foliageDensity;
+    shadowHost.camera            = &app().m_sceneWorld.camera;
+    shadowHost.drawTerrain       = app().m_sceneWorld.showTerrain;
     shadowHost.instanceStatic    = instanceStatic;
     shadowHost.instanceSkinned   = instanceSkinned;
     shadowHost.rejectTinyScale   = true;
@@ -615,7 +615,7 @@ void SandboxFrame::render()
     const float underDraw = (deferred && !visionPicture) ? Math::Clamp(app().m_play.runtime().underAmount, 0.0f, 1.0f) : 0.0f;
     const bool instanceColor = instanceStatic && deferred;
     const bool instanceForward = instanceStatic && !deferred && m_drawList.forwardReady();
-    const Matrix4f viewProjEarly = m_scene.beginCameraFrame(app().m_viewCamera, app().renderer());
+    const Matrix4f viewProjEarly = m_scene.beginCameraFrame(app().m_sceneWorld.camera, app().renderer());
     (void)viewProjEarly;
     if (deferred)
     {
@@ -627,15 +627,15 @@ void SandboxFrame::render()
         m_meshPipeline.setUltraviolet(uvDraw);
         m_skinnedPipeline.setUltraviolet(uvDraw);
         m_terrainPipeline.setUltraviolet(uvDraw);
-        app().m_foliagePipeline.setUltraviolet(uvDraw);
-        app().m_grassPipeline.setUltraviolet(uvDraw);
+        app().m_frame.foliagePipeline().setUltraviolet(uvDraw);
+        app().m_frame.grassPipeline().setUltraviolet(uvDraw);
         m_drawList.setUltraviolet(uvDraw);
         m_skinnedInstances.setUltraviolet(uvDraw);
         m_meshPipeline.setThermal(thermalDraw);
         m_skinnedPipeline.setThermal(thermalDraw);
         m_terrainPipeline.setThermal(thermalDraw);
-        app().m_foliagePipeline.setThermal(thermalDraw);
-        app().m_grassPipeline.setThermal(thermalDraw);
+        app().m_frame.foliagePipeline().setThermal(thermalDraw);
+        app().m_frame.grassPipeline().setThermal(thermalDraw);
         m_drawList.setThermal(thermalDraw);
         m_skinnedInstances.setThermal(thermalDraw);
     }
@@ -649,18 +649,18 @@ void SandboxFrame::render()
         app().renderer().bindSceneTargets();
     }
 
-    const Matrix4f  viewProj = app().m_viewCamera.GetViewProj();
+    const Matrix4f  viewProj = app().m_sceneWorld.camera.GetViewProj();
     const Matrix4f  prevViewProj = m_scene.havePrevViewProj() ? m_scene.prevViewProj() : viewProj;
-    const Frustum3f frustum(app().m_viewCamera.GetCullViewProj());
+    const Frustum3f frustum(app().m_sceneWorld.camera.GetCullViewProj());
     const DebugFill fill     = app().renderer().debugState().fill;
-    const Vector3f  camPos   = app().m_viewCamera.GetPosition();
+    const Vector3f  camPos   = app().m_sceneWorld.camera.GetPosition();
     uint32_t        meshDraws = 0;
 
-    const float skyExposure = deferred ? 1.0f : app().m_env.exposure();
+    const float skyExposure = deferred ? 1.0f : app().m_sceneWorld.env.exposure();
     const float fogScale    = (app().renderer().debugState().lightingActive() ? 1.0f : 0.0f) * (1.0f - underDraw);
     const float ultraviolet = (deferred && app().m_vision.ultraviolet > 0.0f) ? app().m_vision.ultraviolet : 0.0f;
     const float thermal     = (deferred && !(app().m_vision.ultraviolet > 0.0f)) ? app().m_vision.infrared : 0.0f;
-    m_skyPipeline.upload(app().renderer().frameIndex(), app().m_viewCamera, app().m_env, skyExposure, app().m_water.params().waterLevel, fogScale, thermal, ultraviolet);
+    m_skyPipeline.upload(app().renderer().frameIndex(), app().m_sceneWorld.camera, app().m_sceneWorld.env, skyExposure, app().m_sceneWorld.water.params().waterLevel, fogScale, thermal, ultraviolet);
     if (!deferred)
     {
         markPass(PassId::Sky);
@@ -686,47 +686,47 @@ void SandboxFrame::render()
     {
         {
             const GpuScope gbuffer(cmd, "GBuffer", ProfileColor::GBuffer);
-            if (app().m_showTerrain)
-                app().m_terrain.drawGBuffer(cmd, m_terrainPipeline, app().m_terrainMaterial, app().m_viewCamera, &frustum, &app().renderer().debugState(), &prevViewProj);
-            if (app().m_grassPipeline.isValid() && app().m_grassField.params().enabled)
+            if (app().m_sceneWorld.showTerrain)
+                app().m_sceneWorld.terrain.drawGBuffer(cmd, m_terrainPipeline, app().m_frame.terrainMaterial(), app().m_sceneWorld.camera, &frustum, &app().renderer().debugState(), &prevViewProj);
+            if (app().m_frame.grassPipeline().isValid() && app().m_sceneWorld.grassField.params().enabled)
             {
                 const GpuScope      grassScope(cmd, "Grass", ProfileColor::Grass);
                 GrassFrameConstants grassFrame{};
                 copyMatrix(grassFrame.viewProj, viewProj);
                 copyMatrix(grassFrame.prevViewProj, prevViewProj);
-                grassFrame.heightMetres = app().m_grassField.params().heightMetres;
-                grassFrame.flexibility  = app().m_grassField.params().flexibility;
-                grassFrame.faceEdge     = app().m_grassField.params().faceEdge;
-                grassFrame.faceYaw      = app().m_grassField.params().faceYaw;
-                grassFrame.faceLean     = app().m_grassField.params().faceLean;
-                grassFrame.faceSteep    = app().m_grassField.params().faceSteep;
+                grassFrame.heightMetres = app().m_sceneWorld.grassField.params().heightMetres;
+                grassFrame.flexibility  = app().m_sceneWorld.grassField.params().flexibility;
+                grassFrame.faceEdge     = app().m_sceneWorld.grassField.params().faceEdge;
+                grassFrame.faceYaw      = app().m_sceneWorld.grassField.params().faceYaw;
+                grassFrame.faceLean     = app().m_sceneWorld.grassField.params().faceLean;
+                grassFrame.faceSteep    = app().m_sceneWorld.grassField.params().faceSteep;
                 grassFrame.cameraPos[0]   = camPos.x;
                 grassFrame.cameraPos[1]   = camPos.y;
                 grassFrame.cameraPos[2]   = camPos.z;
-                grassFrame.cameraRight[0] = app().m_viewCamera.GetRight().x;
-                grassFrame.cameraRight[1] = app().m_viewCamera.GetRight().y;
-                grassFrame.cameraRight[2] = app().m_viewCamera.GetRight().z;
-                grassFrame.cameraLook[0]  = app().m_viewCamera.GetLook().x;
-                grassFrame.cameraLook[1]  = app().m_viewCamera.GetLook().y;
-                grassFrame.cameraLook[2]  = app().m_viewCamera.GetLook().z;
-                app().m_grassField.writeFrameInteraction(grassFrame);
+                grassFrame.cameraRight[0] = app().m_sceneWorld.camera.GetRight().x;
+                grassFrame.cameraRight[1] = app().m_sceneWorld.camera.GetRight().y;
+                grassFrame.cameraRight[2] = app().m_sceneWorld.camera.GetRight().z;
+                grassFrame.cameraLook[0]  = app().m_sceneWorld.camera.GetLook().x;
+                grassFrame.cameraLook[1]  = app().m_sceneWorld.camera.GetLook().y;
+                grassFrame.cameraLook[2]  = app().m_sceneWorld.camera.GetLook().z;
+                app().m_sceneWorld.grassField.writeFrameInteraction(grassFrame);
                 GrassLodSpan grassLods[kGrassLodCount]{};
                 for (int lod = 0; lod < kGrassLodCount; ++lod)
                 {
-                    const GrassField::BladeSpan span = app().m_grassField.blades(lod);
+                    const GrassField::BladeSpan span = app().m_sceneWorld.grassField.blades(lod);
                     grassLods[lod].blades            = span.data;
                     grassLods[lod].count             = span.count;
-                    grassLods[lod].staleMask         = app().m_grassField.lodStaleMask(lod);
+                    grassLods[lod].staleMask         = app().m_sceneWorld.grassField.lodStaleMask(lod);
                 }
                 const uint32_t residentTiles = grassRegionBudget().residentTiles;
                 std::vector<GrassTileDraw> grassTiles(residentTiles);
-                const uint32_t grassDraws = app().m_grassField.visibleTiles(frustum, grassTiles.data(), residentTiles);
+                const uint32_t grassDraws = app().m_sceneWorld.grassField.visibleTiles(frustum, grassTiles.data(), residentTiles);
                 // This slot has seen the CPU blades. Leave the other slot stale until its fence.
-                if (app().m_grassPipeline.draw(cmd, app().renderer(), grassLods, app().m_grassField.tileWind(), app().m_grassField.tileWindCount(), grassFrame, grassTiles.data(), grassDraws))
+                if (app().m_frame.grassPipeline().draw(cmd, app().renderer(), grassLods, app().m_sceneWorld.grassField.tileWind(), app().m_sceneWorld.grassField.tileWindCount(), grassFrame, grassTiles.data(), grassDraws))
                 {
                     const uint32_t slot = app().renderer().frameIndex() % kGrassFrameSlots;
                     for (int lod = 0; lod < kGrassLodCount; ++lod)
-                        app().m_grassField.clearLodStale(lod, slot);
+                        app().m_sceneWorld.grassField.clearLodStale(lod, slot);
                 }
             }
             if (instanceColor && !m_drawList.gpuCullActive())
@@ -759,7 +759,7 @@ void SandboxFrame::render()
                 return;
             if (const HealthComponent* hp = app().world().get<HealthComponent>(e); hp && !hp->health.alive())
                 return;
-            const Mesh* gpuMesh = sandboxPrimitiveMesh(mc.primitive, app().m_demo.cubeMesh(), app().m_crossMesh);
+            const Mesh* gpuMesh = sandboxPrimitiveMesh(mc.primitive, app().m_demo.cubeMesh(), app().m_demo.crossMesh());
             if (!gpuMesh)
                 return;
             const TransformComponent* xf = app().world().get<TransformComponent>(e);
@@ -838,22 +838,22 @@ void SandboxFrame::render()
                 drawModelOpaqueGBuffer(cmd, gpu, m_meshPipeline, *model, worldMat, viewProj, prevViewProj, fill);
         });
             }
-            if (app().m_terrain.valid())
-                app().m_foliagePipeline.drawGBuffer(cmd, app().renderer(), app().assets(), app().m_foliagePrototypes, app().m_terrain, app().m_foliage.empty() ? nullptr : &app().m_foliage, app().m_foliageDensity, app().m_viewCamera, viewProj, prevViewProj, frustum);
+            if (app().m_sceneWorld.terrain.valid())
+                app().m_frame.foliagePipeline().drawGBuffer(cmd, app().renderer(), app().assets(), app().m_frame.foliagePrototypes(), app().m_sceneWorld.terrain, app().m_sceneWorld.foliage.empty() ? nullptr : &app().m_sceneWorld.foliage, app().m_sceneWorld.foliageDensity, app().m_sceneWorld.camera, viewProj, prevViewProj, frustum);
         }
 
         m_meshPipeline.setUltraviolet(false);
         m_skinnedPipeline.setUltraviolet(false);
         m_terrainPipeline.setUltraviolet(false);
-        app().m_foliagePipeline.setUltraviolet(false);
-        app().m_grassPipeline.setUltraviolet(false);
+        app().m_frame.foliagePipeline().setUltraviolet(false);
+        app().m_frame.grassPipeline().setUltraviolet(false);
         m_drawList.setUltraviolet(false);
         m_skinnedInstances.setUltraviolet(false);
         m_meshPipeline.setThermal(false);
         m_skinnedPipeline.setThermal(false);
         m_terrainPipeline.setThermal(false);
-        app().m_foliagePipeline.setThermal(false);
-        app().m_grassPipeline.setThermal(false);
+        app().m_frame.foliagePipeline().setThermal(false);
+        app().m_frame.grassPipeline().setThermal(false);
         m_drawList.setThermal(false);
         m_skinnedInstances.setThermal(false);
 
@@ -862,34 +862,34 @@ void SandboxFrame::render()
         lc.cameraPos[0]     = camPos.x;
         lc.cameraPos[1]     = camPos.y;
         lc.cameraPos[2]     = camPos.z;
-        lc.lightDirWS[0]    = app().m_env.lightDir().x;
-        lc.lightDirWS[1]    = app().m_env.lightDir().y;
-        lc.lightDirWS[2]    = app().m_env.lightDir().z;
+        lc.lightDirWS[0]    = app().m_sceneWorld.env.lightDir().x;
+        lc.lightDirWS[1]    = app().m_sceneWorld.env.lightDir().y;
+        lc.lightDirWS[2]    = app().m_sceneWorld.env.lightDir().z;
         lc.lighting         = app().renderer().debugState().lightingActive() ? 1.0f : 0.0f;
-        lc.lightColor[0]    = app().m_env.lightColor().x;
-        lc.lightColor[1]    = app().m_env.lightColor().y;
-        lc.lightColor[2]    = app().m_env.lightColor().z;
+        lc.lightColor[0]    = app().m_sceneWorld.env.lightColor().x;
+        lc.lightColor[1]    = app().m_sceneWorld.env.lightColor().y;
+        lc.lightColor[2]    = app().m_sceneWorld.env.lightColor().z;
         {
-            const Vector3f pbrSun = pbrSunLightColor(app().m_env.lightColor());
+            const Vector3f pbrSun = pbrSunLightColor(app().m_sceneWorld.env.lightColor());
             lc.pbrLightColor[0]   = pbrSun.x;
             lc.pbrLightColor[1]   = pbrSun.y;
             lc.pbrLightColor[2]   = pbrSun.z;
         }
         lc.emissiveGain     = 4.0f;
-        lc.ambientColor[0]  = app().m_env.ambientColor().x;
-        lc.ambientColor[1]  = app().m_env.ambientColor().y;
-        lc.ambientColor[2]  = app().m_env.ambientColor().z;
-        FogGpu fog = makeFogGpu(&app().m_env, app().m_water.params().waterLevel, lc.lighting > 0.5f);
+        lc.ambientColor[0]  = app().m_sceneWorld.env.ambientColor().x;
+        lc.ambientColor[1]  = app().m_sceneWorld.env.ambientColor().y;
+        lc.ambientColor[2]  = app().m_sceneWorld.env.ambientColor().z;
+        FogGpu fog = makeFogGpu(&app().m_sceneWorld.env, app().m_sceneWorld.water.params().waterLevel, lc.lighting > 0.5f);
         const float air = 1.0f - underDraw;
         fog.fogDensity *= air;
         fog.heightFogDensity *= air;
         fog.volumetricFogDensity *= air;
-        fillFogHeightMap(fog, &app().m_terrain.coarse());
+        fillFogHeightMap(fog, &app().m_sceneWorld.terrain.coarse());
         applyFogToLighting(lc, fog);
-        fillIblLightingConstants(lc, app().m_ibl, app().renderer().debugState().iblEnabled, app().renderer().debugState().iblDebug, iblGpuReady(app().renderer().gpuResources(), app().m_iblImageId));
-        lc.iblNight = 1.0f - app().m_env.dayFactor();
+        fillIblLightingConstants(lc, app().m_sceneWorld.ibl, app().renderer().debugState().iblEnabled, app().renderer().debugState().iblDebug, iblGpuReady(app().renderer().gpuResources(), app().m_sceneWorld.iblImageId));
+        lc.iblNight = 1.0f - app().m_sceneWorld.env.dayFactor();
         lc.thermal  = app().m_vision.ultraviolet > 0.0f ? -app().m_vision.ultraviolet : app().m_vision.infrared;
-        fillSsrLightingConstants(lc, app().m_ssr, app().renderer().debugState().ssrEnabled, m_scene.ssr().isValid() && app().renderer().hasGBuffer());
+        fillSsrLightingConstants(lc, app().m_sceneWorld.ssr, app().renderer().debugState().ssrEnabled, m_scene.ssr().isValid() && app().renderer().hasGBuffer());
         // The pass list is an order check after the frame. These five run inside resolveDeferred in this order.
         markPass(PassId::Decals);
         markPass(PassId::Gtao);
@@ -899,15 +899,15 @@ void SandboxFrame::render()
         DeferredResolveInput resolve;
         resolve.viewProj     = &viewProj;
         resolve.prevViewProj = &prevViewProj;
-        resolve.gtao         = &app().m_ssao;
-        resolve.ssr          = &app().m_ssr;
-        resolve.ssrEnv       = &app().m_env;
+        resolve.gtao         = &app().m_sceneWorld.ssao;
+        resolve.ssr          = &app().m_sceneWorld.ssr;
+        resolve.ssrEnv       = &app().m_sceneWorld.env;
         resolve.lighting     = &lc;
         {
             const FacilityState& facility = app().m_play.facility();
             m_scene.setFogOccluders(facility.blocks, facility.blockCount);
         }
-        m_scene.resolveDeferred(cmd, app().renderer(), app().world(), app().m_viewCamera, resolve);
+        m_scene.resolveDeferred(cmd, app().renderer(), app().world(), app().m_sceneWorld.camera, resolve);
 
         app().renderer().bindHdr(true);
         markPass(PassId::Sky);
@@ -915,16 +915,17 @@ void SandboxFrame::render()
     }
     else
     {
-        if (!app().m_loggedForwardGrassSkip && app().m_grassPipeline.isValid() && app().m_grassField.params().enabled)
+        static bool loggedForwardGrassSkip = false;
+        if (!loggedForwardGrassSkip && m_grassPipeline.isValid() && app().m_sceneWorld.grassField.params().enabled)
         {
-            app().m_loggedForwardGrassSkip = true;
+            loggedForwardGrassSkip = true;
             DE_LOG_INFO(LogCategory::Render, "SandboxApp: forward frame skips grass");
         }
         const GpuScope forward(cmd, "Forward Opaque", ProfileColor::ForwardOpaque);
-        if (app().m_showTerrain)
+        if (app().m_sceneWorld.showTerrain)
         {
-            app().m_terrain.draw(
-                cmd, m_terrainPipeline, app().m_terrainMaterial, app().m_viewCamera, &frustum, &app().m_env, &m_shadows,
+            app().m_sceneWorld.terrain.draw(
+                cmd, m_terrainPipeline, app().m_frame.terrainMaterial(), app().m_sceneWorld.camera, &frustum, &app().m_sceneWorld.env, &m_shadows,
                 &app().renderer().debugState());
         }
 
@@ -943,12 +944,12 @@ void SandboxFrame::render()
             cb.color[2] = 1.0f;
             cb.color[3] = 1.0f;
         }
-        cb.lightDirWS[0] = app().m_env.lightDir().x;
-        cb.lightDirWS[1] = app().m_env.lightDir().y;
-        cb.lightDirWS[2] = app().m_env.lightDir().z;
+        cb.lightDirWS[0] = app().m_sceneWorld.env.lightDir().x;
+        cb.lightDirWS[1] = app().m_sceneWorld.env.lightDir().y;
+        cb.lightDirWS[2] = app().m_sceneWorld.env.lightDir().z;
         cb.ambientScale  = 0.22f;
         {
-            const Vector3f pbrSun = pbrSunLightColor(app().m_env.lightColor());
+            const Vector3f pbrSun = pbrSunLightColor(app().m_sceneWorld.env.lightColor());
             cb.lightColor[0]      = pbrSun.x;
             cb.lightColor[1]      = pbrSun.y;
             cb.lightColor[2]      = pbrSun.z;
@@ -984,7 +985,7 @@ void SandboxFrame::render()
                 return;
             if (const HealthComponent* hp = app().world().get<HealthComponent>(e); hp && !hp->health.alive())
                 return;
-            const Mesh* gpuMesh = sandboxPrimitiveMesh(mc.primitive, app().m_demo.cubeMesh(), app().m_crossMesh);
+            const Mesh* gpuMesh = sandboxPrimitiveMesh(mc.primitive, app().m_demo.cubeMesh(), app().m_demo.crossMesh());
             if (!gpuMesh)
                 return;
             const TransformComponent* xf = app().world().get<TransformComponent>(e);
@@ -1064,8 +1065,8 @@ void SandboxFrame::render()
         LocalLightCullInput in{};
         in.frustum    = &frustum;
         in.cameraPos  = camPos;
-        in.cameraLook = app().m_viewCamera.GetLook();
-        in.nearZ      = app().m_viewCamera.GetNearZ();
+        in.cameraLook = app().m_sceneWorld.camera.GetLook();
+        in.nearZ      = app().m_sceneWorld.camera.GetNearZ();
         in.viewportW  = app().renderer().width();
         in.viewportH  = app().renderer().height();
         in.viewProj      = &viewProj;
@@ -1084,10 +1085,10 @@ void SandboxFrame::render()
 
     ID3D12DescriptorHeap*         heightHeap = nullptr;
     D3D12_GPU_DESCRIPTOR_HANDLE   heightGpu{};
-    if (app().m_terrain.heightTexture().valid())
+    if (app().m_sceneWorld.terrain.heightTexture().valid())
     {
-        heightHeap = app().m_terrain.heightTexture().srvHeap();
-        heightGpu  = app().m_terrain.heightTexture().gpuHandle();
+        heightHeap = app().m_sceneWorld.terrain.heightTexture().srvHeap();
+        heightGpu  = app().m_sceneWorld.terrain.heightTexture().gpuHandle();
     }
     else if (app().renderer().lightingHeap())
     {
@@ -1106,22 +1107,22 @@ void SandboxFrame::render()
     {
         waterSceneColor = m_scene.ssr().sceneColorSrvCpu();
         waterDepth      = app().renderer().depthSrvCpu();
-        waterSsr        = &app().m_ssr;
+        waterSsr        = &app().m_sceneWorld.ssr;
     }
-    const bool waterSheet = app().m_water.wetChunkCount() > 0;
-    if (waterSheet || !app().m_streams.empty())
+    const bool waterSheet = app().m_sceneWorld.water.wetChunkCount() > 0;
+    if (waterSheet || !app().m_sceneWorld.water.ribbons().empty())
     {
         markPass(PassId::Water);
         const GpuScope waterScope(cmd, "Water", ProfileColor::Water);
         uint32_t drawIndex = 0;
         if (waterSheet)
         {
-            app().m_water.draw(
+            app().m_sceneWorld.water.draw(
                 cmd,
                 m_waterPipeline,
-                app().m_viewCamera,
+                app().m_sceneWorld.camera,
                 &frustum,
-                &app().m_env,
+                &app().m_sceneWorld.env,
                 &app().renderer().debugState(),
                 waterLightsVa,
                 waterLightCount,
@@ -1139,14 +1140,14 @@ void SandboxFrame::render()
                 underDraw);
             drawIndex = 1;
         }
-        for (const SandboxApp::SandboxStream& stream : app().m_streams)
+        for (const WaterWorld::WaterRibbon& stream : app().m_sceneWorld.water.ribbons())
         {
             if (drawIndex >= WaterPipeline::kMaxWaterDrawsPerFrame)
             {
                 DE_LOG_WARN(LogCategory::Render, "SandboxApp: water draw cap {} reached", WaterPipeline::kMaxWaterDrawsPerFrame);
                 break;
             }
-            WaterParams streamParams = app().m_water.params();
+            WaterParams streamParams = app().m_sceneWorld.water.params();
             streamParams.flowSpeed = stream.flowSpeed;
             if (drawStreamRibbon(
                     cmd,
@@ -1154,10 +1155,10 @@ void SandboxFrame::render()
                     stream.mesh,
                     stream.bounds,
                     streamParams,
-                    app().m_viewCamera,
+                    app().m_sceneWorld.camera,
                     &frustum,
                     &app().renderer().debugState(),
-                    app().m_water.time(),
+                    app().m_sceneWorld.water.time(),
                     app().renderer().frameIndex(),
                     drawIndex,
                     heightHeap,
@@ -1166,8 +1167,8 @@ void SandboxFrame::render()
                     waterSceneColor,
                     waterDepth,
                     waterSsr,
-                    &app().m_terrain.coarse(),
-                    &app().m_env,
+                    &app().m_sceneWorld.terrain.coarse(),
+                    &app().m_sceneWorld.env,
                     thermal,
                     ultraviolet))
                 ++drawIndex;
@@ -1179,12 +1180,12 @@ void SandboxFrame::render()
         markPass(PassId::Clouds);
         app().renderer().bindHdrDepthRead();
         CloudVolumeFrame cf{};
-        cf.sunDir       = app().m_env.lightDir();
-        cf.sunColor     = app().m_env.lightColor();
-        cf.ambientColor = app().m_env.ambientColor();
-        cf.time         = app().m_cloudTime;
-        cf.lod          = app().m_cloudLod;
-        m_scene.drawCloudVolumes(cmd, app().renderer(), app().world(), app().m_viewCamera, viewProj, cf);
+        cf.sunDir       = app().m_sceneWorld.env.lightDir();
+        cf.sunColor     = app().m_sceneWorld.env.lightColor();
+        cf.ambientColor = app().m_sceneWorld.env.ambientColor();
+        cf.time         = app().m_sceneWorld.cloudTime;
+        cf.lod          = app().m_frame.cloudLod();
+        m_scene.drawCloudVolumes(cmd, app().renderer(), app().world(), app().m_sceneWorld.camera, viewProj, cf);
     }
 
     bool lateDepthWrite = false;
@@ -1205,7 +1206,7 @@ void SandboxFrame::render()
                 ag->prevWorld      = worldMat;
                 ag->prevWorldValid = true;
             }
-            lateDepthWrite = m_scene.camouflage().drawModel(cmd, app().renderer(), gpu, m_skinRing, *model, pose, worldMat, viewProj, camPos, app().m_cloudTime, fill);
+            lateDepthWrite = m_scene.camouflage().drawModel(cmd, app().renderer(), gpu, m_skinRing, *model, pose, worldMat, viewProj, camPos, app().m_sceneWorld.cloudTime, fill);
         }
     }
 
@@ -1213,12 +1214,12 @@ void SandboxFrame::render()
         markPass(PassId::Translucent);
         const GpuScope translucent(cmd, "Translucent", ProfileColor::Translucent);
         MeshFrameConstants lit{};
-        lit.lightDirWS[0] = app().m_env.lightDir().x;
-        lit.lightDirWS[1] = app().m_env.lightDir().y;
-        lit.lightDirWS[2] = app().m_env.lightDir().z;
+        lit.lightDirWS[0] = app().m_sceneWorld.env.lightDir().x;
+        lit.lightDirWS[1] = app().m_sceneWorld.env.lightDir().y;
+        lit.lightDirWS[2] = app().m_sceneWorld.env.lightDir().z;
         lit.ambientScale  = 0.22f;
         {
-            const Vector3f pbrSun = pbrSunLightColor(app().m_env.lightColor());
+            const Vector3f pbrSun = pbrSunLightColor(app().m_sceneWorld.env.lightColor());
             lit.lightColor[0]     = pbrSun.x;
             lit.lightColor[1]     = pbrSun.y;
             lit.lightColor[2]     = pbrSun.z;
@@ -1245,7 +1246,7 @@ void SandboxFrame::render()
             translucentEntities.push_back(e);
             translucentOrder.push_back(draw);
         });
-        sortTranslucent(translucentOrder.data(), static_cast<uint32_t>(translucentOrder.size()), app().m_viewCamera.GetView());
+        sortTranslucent(translucentOrder.data(), static_cast<uint32_t>(translucentOrder.size()), app().m_sceneWorld.camera.GetView());
         for (const TranslucentDraw& draw : translucentOrder)
         {
             const Entity e = translucentEntities[draw.user];
@@ -1267,7 +1268,7 @@ void SandboxFrame::render()
         }
     }
 
-    if (app().m_chaseOk && (app().m_demoScene || app().m_showDevTools))
+    if (app().m_chaseOk && (app().m_demo.demoScene() || app().m_showDevTools))
     {
         const GpuScope paths(cmd, "Path Debug", ProfileColor::DebugOverlay);
         app().m_chase.drawPaths(cmd, app().renderer(), viewProj);
@@ -1278,10 +1279,10 @@ void SandboxFrame::render()
     {
         markPass(PassId::Particles);
         const GpuScope particles(cmd, "Particles", ProfileColor::Particles);
-        app().m_gpuParticles.simulateAndDraw(cmd, app().renderer(), app().m_viewCamera, app().world(), app().assets(), lateDepthWrite);
-        app().m_particles.beginFrame(app().renderer().frameIndex());
-    if (app().m_blood.aliveCount() > 0)
-        app().m_particles.draw(cmd, app().m_viewCamera, app().m_blood, false);
+        app().m_frame.gpuParticles().simulateAndDraw(cmd, app().renderer(), app().m_sceneWorld.camera, app().world(), app().assets(), lateDepthWrite);
+        app().m_frame.particles().beginFrame(app().renderer().frameIndex());
+    if (app().m_play.feedback().blood.aliveCount() > 0)
+        app().m_frame.particles().draw(cmd, app().m_sceneWorld.camera, app().m_play.feedback().blood, false);
     app().world().each<ParticleEmitterComponent>([&](Entity, ParticleEmitterComponent& pe) {
         if (!pe.runtime)
             return;
@@ -1291,15 +1292,15 @@ void SandboxFrame::render()
             gpu.retainMaterial(app().assets(), *mat);
             sprite = mat;
         }
-        app().m_particles.draw(cmd, app().m_viewCamera, *pe.runtime, pe.runtime->desc().additiveBlend, sprite);
+        app().m_frame.particles().draw(cmd, app().m_sceneWorld.camera, *pe.runtime, pe.runtime->desc().additiveBlend, sprite);
     });
     if (WeaponLoadout* wFx = app().localWeapons(); wFx && wFx->projectile().impactEmitter().aliveCount() > 0)
-        app().m_particles.draw(cmd, app().m_viewCamera, wFx->projectile().impactEmitter(), true);
-    app().m_leafRenderer.draw(cmd, app().m_viewCamera, app().m_leafField);
+        app().m_frame.particles().draw(cmd, app().m_sceneWorld.camera, wFx->projectile().impactEmitter(), true);
+    app().m_frame.leafRenderer().draw(cmd, app().m_sceneWorld.camera, app().m_sceneWorld.leafField);
     }
 
     if (!app().deferredDecals())
-        app().m_bloodSplats.draw(cmd, app().m_viewCamera);
+        app().m_play.feedback().splats.draw(cmd, app().m_sceneWorld.camera);
 
     if (underDraw > 0.0f && app().renderer().hasSceneBuffers() && m_scene.underwater().isValid())
     {
@@ -1309,16 +1310,16 @@ void SandboxFrame::render()
         under.cameraPos[0] = camPos.x;
         under.cameraPos[1] = camPos.y;
         under.cameraPos[2] = camPos.z;
-        under.waterLevel   = app().m_water.params().waterLevel;
+        under.waterLevel   = app().m_sceneWorld.water.params().waterLevel;
         under.amount       = underDraw;
         m_scene.underwater().draw(cmd, app().renderer(), under);
         app().renderer().bindHdr(true);
-        app().m_water.draw(
+        app().m_sceneWorld.water.draw(
             cmd,
             m_waterPipeline,
-            app().m_viewCamera,
+            app().m_sceneWorld.camera,
             &frustum,
-            &app().m_env,
+            &app().m_sceneWorld.env,
             &app().renderer().debugState(),
             waterLightsVa,
             waterLightCount,
@@ -1341,22 +1342,22 @@ void SandboxFrame::render()
         const bool aces = useAcesTonemap(app().renderer());
         TonemapSettings post = app().playerPostFx();
         post.mode            = aces ? 1.0f : 0.0f;
-        float exposure       = app().m_env.exposure();
-        app().m_autoExposureResult = {};
-        app().m_autoExposureResult.finalExposure = exposure;
+        float exposure       = app().m_sceneWorld.env.exposure();
+        app().m_frame.autoExposureResult() = {};
+        app().m_frame.autoExposureResult().finalExposure = exposure;
         const bool deferredMeter = app().renderer().scenePath() == ScenePath::HybridDeferred && m_scene.autoExposure().isValid();
         if (deferredMeter)
         {
             // Resize drops the 1×1. Zero the correction before this frame can apply a stale sample.
             if (m_scene.syncAutoExposureSize(app().renderer()))
-                resetAutoExposure(app().m_autoExposureState);
+                resetAutoExposure(app().m_frame.autoExposureState());
             // Infrared, ultraviolet, echolocation, and the underwater column swing the meter. Hold the correction while any is on.
             const bool holdExposure = app().m_vision.infrared > 0.0f || app().m_vision.ultraviolet > 0.0f || app().m_vision.echo > 0.0f || app().m_play.runtime().underAmount > 0.0f;
-            const float measured = (app().m_autoExposure.mode == ExposureMode::Auto && !holdExposure)
+            const float measured = (app().m_frame.autoExposure().mode == ExposureMode::Auto && !holdExposure)
                 ? m_scene.autoExposure().readMeasuredLuma(app().renderer().frameIndex())
                 : 0.0f;
-            app().m_autoExposureResult = adaptExposure(app().m_autoExposureState, measured, exposure, app().m_frameDt, app().m_autoExposure);
-            exposure             = app().m_autoExposureResult.finalExposure;
+            app().m_frame.autoExposureResult() = adaptExposure(app().m_frame.autoExposureState(), measured, exposure, app().m_frameDt, app().m_frame.autoExposure());
+            exposure             = app().m_frame.autoExposureResult().finalExposure;
         }
         post.exposure = exposure;
         markPass(PassId::Post);
@@ -1399,10 +1400,10 @@ void SandboxFrame::render()
             }
         }
         const bool holdExposure = app().m_vision.infrared > 0.0f || app().m_vision.ultraviolet > 0.0f || app().m_vision.echo > 0.0f || app().m_play.runtime().underAmount > 0.0f;
-        m_scene.applyPost(app().renderer(), cmd, viewProj, post, deferredMeter && app().m_autoExposure.mode == ExposureMode::Auto && !holdExposure, app().m_vision.echo > 0.0f);
+        m_scene.applyPost(app().renderer(), cmd, viewProj, post, deferredMeter && app().m_frame.autoExposure().mode == ExposureMode::Auto && !holdExposure, app().m_vision.echo > 0.0f);
     }
 
-    m_scene.endCameraFrame(app().m_viewCamera, viewProj);
+    m_scene.endCameraFrame(app().m_sceneWorld.camera, viewProj);
 
     Health* hudHp = app().localHealth();
     const Entity hudBody = app().possessedBody();
@@ -1411,9 +1412,9 @@ void SandboxFrame::render()
     const bool showHealth = !movieBlocks && !app().m_hud.m_menu.visible() && hudHp && hudTag && hudTag->kind == HudKind::HealthBar;
     const bool showCrosshair = !movieBlocks && !app().m_hud.m_menu.visible() && hudHp && hudHp->alive() && !app().m_gameplayPaused && !app().m_dialogue.locksWorld();
 
-    app().renderer().stats().drawCalls = app().m_terrain.lastDrawCalls() + app().m_water.lastDrawCalls() + meshDraws + 1;
+    app().renderer().stats().drawCalls = app().m_sceneWorld.terrain.lastDrawCalls() + app().m_sceneWorld.water.lastDrawCalls() + meshDraws + 1;
     app().renderer().stats().triangles =
-        app().m_terrain.lastTriangles() + app().m_water.lastTriangles() + meshDraws * (app().m_demo.cubeMesh().indexCount() / 3);
+        app().m_sceneWorld.terrain.lastTriangles() + app().m_sceneWorld.water.lastTriangles() + meshDraws * (app().m_demo.cubeMesh().indexCount() / 3);
 
     const bool ssaoTile = app().renderer().hasGBuffer() && app().renderer().debugState().ssaoDebug == 1;
     const bool ssrTile  = app().renderer().hasGBuffer() && app().renderer().debugState().ssrDebug != 0;

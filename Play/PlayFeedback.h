@@ -1,14 +1,14 @@
 #pragma once
 
 #include "ECS/Entity.h"
+#include "Particles/BloodSplatPool.h"
+#include "Particles/ParticleEmitter.h"
 
 namespace Dark
 {
 
     class World;
     class Camera3D;
-    class ParticleEmitter;
-    class BloodSplatPool;
     struct ParticleEmitterDesc;
     struct PlayHost;
 
@@ -17,16 +17,16 @@ namespace Dark
         class HeightMap;
     }
 
-    // App-owned pointers for the shared muzzle, blood, and respawn hooks.
-    // The same struct is bound before the play tick and again from fillPlayHost.
+    // Owned by PlaySession. World, camera, muzzle, and height are filled by the app
+    // before the play tick. The muzzle timer, blood burst, and splat pool live here.
     struct PlayFeedback
     {
-        World*          world       = nullptr;
-        Camera3D*       camera      = nullptr;
-        Entity*         muzzle      = nullptr;
-        float*          muzzleTimer = nullptr;
-        ParticleEmitter* blood      = nullptr;
-        BloodSplatPool* splats      = nullptr;
+        World*    world  = nullptr;
+        Camera3D* camera = nullptr;
+        Entity*   muzzle = nullptr;
+        float     muzzleTimer = 0.0f;
+        ParticleEmitter blood;
+        BloodSplatPool  splats;
         const Terrain::HeightMap* height = nullptr;
         void (*afterRespawn)(void* user) = nullptr;
         void* afterUser = nullptr;
@@ -40,6 +40,6 @@ namespace Dark
 
     void ensurePlayMuzzle(World& world, Entity& muzzle, float& timer);
     void destroyPlayMuzzle(World& world, Entity& muzzle, float& timer);
-    void tickPlayMuzzle(const PlayFeedback& feedback, float dt);
+    void tickPlayMuzzle(PlayFeedback& feedback, float dt);
 
 } // namespace Dark

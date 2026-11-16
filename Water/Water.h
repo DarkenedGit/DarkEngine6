@@ -87,6 +87,16 @@ namespace Dark
         // owns the list across the destroy of this world.
         void retireGpu(GpuMeshRetire& retire);
 
+        // Stream ribbons built with buildStreamRibbon. Cap is 16, matching a boot slice.
+        struct WaterRibbon
+        {
+            Mesh            mesh;
+            float           flowSpeed = 1.6f;
+            Math::AABox3f   bounds;
+        };
+        bool addRibbon(Mesh mesh, float flowSpeed, const Math::AABox3f& bounds);
+        const std::vector<WaterRibbon>& ribbons() const { return m_ribbons; }
+
         void draw(
             ID3D12GraphicsCommandList* cmd,
             WaterPipeline& pipeline,
@@ -139,6 +149,7 @@ namespace Dark
 
         std::vector<WaterChunk> m_chunks;
         std::vector<int>        m_lods;
+        std::vector<WaterRibbon> m_ribbons;
         GpuMeshRetire           m_gpuRetire;
 
         mutable uint32_t m_lastDrawCalls = 0;

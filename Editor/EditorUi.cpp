@@ -8,6 +8,7 @@
 #include "Editor/EditorInternals.h"
 #include "Editor/EditorObject.h"
 #include "Scene/SceneFile.h"
+#include "Water/WaterStream.h"
 #include "ECS/Components.h"
 #include "Network/Replication.h"
 #include "Core/ContentRoots.h"
@@ -316,10 +317,10 @@ void EditorApp::drawEditorUi()
                     const bool        props  = Dark::BeginPropTable("ibl");
                     if (Dark::PropCheckbox("Enabled", &iblDbg.iblEnabled))
                         DE_LOG_INFO(LogCategory::Render, "Ibl: enabled={} debug={}", iblDbg.iblEnabled, iblDbg.iblDebug);
-                    Dark::PropSlider("Intensity", &m_ibl.intensity, 0.0f, 4.0f, "%.2f");
-                    float rotDeg = m_ibl.rotationRadY * Math::RadToDeg;
+                    Dark::PropSlider("Intensity", &m_sceneWorld.ibl.intensity, 0.0f, 4.0f, "%.2f");
+                    float rotDeg = m_sceneWorld.ibl.rotationRadY * Math::RadToDeg;
                     if (Dark::PropSlider("Rotation", &rotDeg, -180.0f, 180.0f, "%.1f deg"))
-                        m_ibl.rotationRadY = rotDeg * Math::DegToRad;
+                        m_sceneWorld.ibl.rotationRadY = rotDeg * Math::DegToRad;
                     const char* debugViews[] = { "Off", "Irradiance", "Prefilter lod0", "LUT" };
                     if (Dark::PropCombo("Debug view", &iblDbg.iblDebug, debugViews, 4))
                     {
@@ -331,8 +332,8 @@ void EditorApp::drawEditorUi()
                     }
                     if (props)
                         Dark::EndPropTable();
-                    ImGui::TextUnformatted(m_ibl.virtualPath.empty() ? "(off)" : m_ibl.virtualPath.c_str());
-                    ImGui::TextDisabled("Bake %s", m_ibl.enabled ? "ready" : "off / failed");
+                    ImGui::TextUnformatted(m_sceneWorld.ibl.virtualPath.empty() ? "(off)" : m_sceneWorld.ibl.virtualPath.c_str());
+                    ImGui::TextDisabled("Bake %s", m_sceneWorld.ibl.enabled ? "ready" : "off / failed");
                     ImGui::EndTabItem();
                 }
                 if (ImGui::BeginTabItem("SSAO"))
@@ -341,12 +342,12 @@ void EditorApp::drawEditorUi()
                     const bool        props   = Dark::BeginPropTable("ssao");
                     if (Dark::PropCheckbox("Enabled", &ssaoDbg.ssaoEnabled))
                     {
-                        m_ssao.enabled = ssaoDbg.ssaoEnabled;
+                        m_sceneWorld.ssao.enabled = ssaoDbg.ssaoEnabled;
                         DE_LOG_INFO(LogCategory::Render, "Ssao: enabled={} debug={}", ssaoDbg.ssaoEnabled, ssaoDbg.ssaoDebug);
                     }
-                    Dark::PropSlider("Intensity", &m_ssao.intensity, 0.0f, 1.0f, "%.2f");
-                    Dark::PropSlider("Radius", &m_ssao.radius, 0.05f, 2.0f, "%.2f");
-                    Dark::PropSlider("Power", &m_ssao.power, 0.5f, 4.0f, "%.2f");
+                    Dark::PropSlider("Intensity", &m_sceneWorld.ssao.intensity, 0.0f, 1.0f, "%.2f");
+                    Dark::PropSlider("Radius", &m_sceneWorld.ssao.radius, 0.05f, 2.0f, "%.2f");
+                    Dark::PropSlider("Power", &m_sceneWorld.ssao.power, 0.5f, 4.0f, "%.2f");
                     const char* ssaoDebugViews[] = { "Off", "SSAO factor" };
                     if (Dark::PropCombo("Debug view", &ssaoDbg.ssaoDebug, ssaoDebugViews, 2))
                     {
@@ -366,13 +367,13 @@ void EditorApp::drawEditorUi()
                     const bool        props  = Dark::BeginPropTable("ssr");
                     if (Dark::PropCheckbox("Enabled", &ssrDbg.ssrEnabled))
                     {
-                        m_ssr.enabled = ssrDbg.ssrEnabled;
+                        m_sceneWorld.ssr.enabled = ssrDbg.ssrEnabled;
                         DE_LOG_INFO(LogCategory::Render, "Ssr: enabled={} debug={}", ssrDbg.ssrEnabled, ssrDbg.ssrDebug);
                     }
-                    Dark::PropSlider("Max roughness", &m_ssr.maxRoughness, 0.05f, 1.0f, "%.2f");
-                    Dark::PropSlider("Thickness", &m_ssr.thickness, 0.02f, 2.0f, "%.2f m");
-                    Dark::PropSlider("Stride", &m_ssr.stride, 1.0f, 8.0f, "%.1f px");
-                    Dark::PropSlider("Edge fade", &m_ssr.edgeFade, 0.0f, 0.25f, "%.2f");
+                    Dark::PropSlider("Max roughness", &m_sceneWorld.ssr.maxRoughness, 0.05f, 1.0f, "%.2f");
+                    Dark::PropSlider("Thickness", &m_sceneWorld.ssr.thickness, 0.02f, 2.0f, "%.2f m");
+                    Dark::PropSlider("Stride", &m_sceneWorld.ssr.stride, 1.0f, 8.0f, "%.1f px");
+                    Dark::PropSlider("Edge fade", &m_sceneWorld.ssr.edgeFade, 0.0f, 0.25f, "%.2f");
                     const char* ssrDebugViews[] = { "Off", "Radiance", "Confidence" };
                     if (Dark::PropCombo("Debug view", &ssrDbg.ssrDebug, ssrDebugViews, 3))
                     {
@@ -603,23 +604,23 @@ void EditorApp::drawEditorUi()
 
 void EditorApp::drawSkyPanel()
 {
-    const Vector3f lc = m_env.lightColor();
+    const Vector3f lc = m_sceneWorld.env.lightColor();
     ImGui::ColorButton("##light", ImVec4(lc.x, lc.y, lc.z, 1.0f), ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoDragDrop, ImVec2(18.0f, 18.0f));
     ImGui::SameLine();
-    ImGui::Text("Sun  elev %.0f deg", static_cast<double>(RadiansToDegrees(m_env.sunElevation())));
+    ImGui::Text("Sun  elev %.0f deg", static_cast<double>(RadiansToDegrees(m_sceneWorld.env.sunElevation())));
 
-    float tod = m_env.timeOfDay;
+    float tod = m_sceneWorld.env.timeOfDay;
     if (Dark::PropSlider("Time of day", &tod, 0.0f, 23.99f, "%.2f h"))
     {
-        m_env.timeOfDay = tod;
-        m_env.evaluate();
+        m_sceneWorld.env.timeOfDay = tod;
+        m_sceneWorld.env.evaluate();
         applySkyToLights();
     }
-    bool animate = m_env.timeScale > 0.0f;
+    bool animate = m_sceneWorld.env.timeScale > 0.0f;
     if (Dark::PropCheckbox("Animate time", &animate))
     {
-        m_env.timeScale = animate ? 0.35f : 0.0f;
-        DE_LOG_INFO("Sky: time scale = {:.2f} h/s", m_env.timeScale);
+        m_sceneWorld.env.timeScale = animate ? 0.35f : 0.0f;
+        DE_LOG_INFO("Sky: time scale = {:.2f} h/s", m_sceneWorld.env.timeScale);
     }
 
     auto weatherBtn = [&](const char* label, const Sky::WeatherState& w, const ImVec4& col) {
@@ -627,9 +628,9 @@ void EditorApp::drawSkyPanel()
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(col.x + 0.12f, col.y + 0.12f, col.z + 0.12f, 1.0f));
         if (ImGui::Button(label, ImVec2(uiPx(72.0f), uiPx(28.0f))))
         {
-            m_env.weather = w;
-            m_env.cloudLayer.windSpeedMps = Sky::cloudWindSpeedMpsFor(w);
-            m_env.evaluate();
+            m_sceneWorld.env.weather = w;
+            m_sceneWorld.env.cloudLayer.windSpeedMps = Sky::cloudWindSpeedMpsFor(w);
+            m_sceneWorld.env.evaluate();
             applySkyToLights();
             DE_LOG_INFO("Sky: weather {}", label);
         }
@@ -648,18 +649,18 @@ void EditorApp::drawSkyPanel()
     ImGui::Separator();
     if (ImGui::CollapsingHeader("Clouds", ImGuiTreeNodeFlags_DefaultOpen))
     {
-        Sky::CloudLayerDesc& cl = m_env.cloudLayer;
-        if (Dark::PropSlider("Coverage", &m_env.weather.cloudCoverage, 0.0f, 1.0f, "%.2f"))
+        Sky::CloudLayerDesc& cl = m_sceneWorld.env.cloudLayer;
+        if (Dark::PropSlider("Coverage", &m_sceneWorld.env.weather.cloudCoverage, 0.0f, 1.0f, "%.2f"))
         {
-            m_env.evaluate();
+            m_sceneWorld.env.evaluate();
             applySkyToLights();
         }
         if (Dark::PropSlider("Altitude (m)", &cl.altitude, 500.0f, 8000.0f, "%.0f"))
-            m_env.evaluate();
+            m_sceneWorld.env.evaluate();
         if (Dark::PropSlider("Amount", &cl.amount, 0.0f, 2.0f, "%.2f"))
-            m_env.evaluate();
+            m_sceneWorld.env.evaluate();
         Dark::PropSlider("Wind speed (m/s)", &cl.windSpeedMps, 0.0f, 20.0f, "%.1f");
-        Dark::PropFloat2("Wind dir", &m_env.weather.windDir.x, 0.01f);
+        Dark::PropFloat2("Wind dir", &m_sceneWorld.env.weather.windDir.x, 0.01f);
         ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
         ImGui::TextWrapped("Sky deck, drawn with the sky. A Cloud Volume is a separate object. It draws only when that volume is enabled and Rendering → Cloud Volumes is on.");
         ImGui::PopStyleColor();
@@ -1100,12 +1101,12 @@ void EditorApp::drawInspector3D()
             if (Dark::PropFloat("Width (m)", &width, 0.1f, 1.5f, 12.0f, "%.1f"))
                 stream->width = Clamp(width, 1.5f, 12.0f);
             Dark::PropSlider("Flow", &stream->flowSpeed, 0.0f, 6.0f, "%.2f m/s");
-            if (ImGui::Button("Follow downhill") && !stream->points.empty() && m_haveTerrain && m_terrain.coarse().valid())
+            if (ImGui::Button("Follow downhill") && !stream->points.empty() && m_haveTerrain && m_sceneWorld.terrain.coarse().valid())
             {
-                const float lake = m_water.chunksX() > 0 ? m_water.params().waterLevel : m_terrainSeaLevel;
+                const float lake = m_sceneWorld.water.chunksX() > 0 ? m_sceneWorld.water.params().waterLevel : m_sceneWorld.terrainSeaLevel;
                 std::vector<Vector2f> walked;
                 std::string reason;
-                if (followDownhill(m_terrain.coarse(), stream->points.front(), lake, walked, &reason))
+                if (followDownhill(m_sceneWorld.terrain.coarse(), stream->points.front(), lake, walked, &reason))
                 {
                     stream->points = std::move(walked);
                     stream->snapToPoints = true;
@@ -1189,12 +1190,11 @@ void EditorApp::onUpdate(float dt)
     m_movie.tick(dt);
     if (m_playMode)
         tickMovieCues(world(), m_movie, m_playPlayer);
-    if (m_movie.blocksWorld() && !m_movieWasBlocking)
+    if (m_movie.takeBeganBlocking())
     {
         audio().stopMusic();
         audio().stopClipVoices();
     }
-    m_movieWasBlocking = m_movie.blocksWorld();
 
     if (m_playMode)
         dt = m_play.scaleDt(dt);
@@ -1203,10 +1203,10 @@ void EditorApp::onUpdate(float dt)
         discardLocalSceneForJoin();
     m_lastNetRole = role;
 
-    m_cloudTime += dt;
+    m_sceneWorld.cloudTime += dt;
     if (m_sceneMode == SceneMode::Scene3D)
     {
-        m_env.tick(dt);
+        m_sceneWorld.env.tick(dt);
         applySkyToLights();
     }
     handleEditorCommands(dt);
@@ -1219,11 +1219,11 @@ void EditorApp::onUpdate(float dt)
             if (!m_dialogue.locksWorld() && !m_movie.blocksWorld())
             {
                 bindPlayFeedback();
-                tickPlayMuzzle(m_playFeedback, dt);
+                tickPlayMuzzle(m_play.feedback(), dt);
                 m_play.tickPawn(dt);
                 m_play.tickCamera();
                 m_play.tickWorld(dt);
-                m_blood.update(dt);
+                m_play.feedback().blood.update(dt);
             }
             if (!m_movie.blocksWorld())
                 m_dialogue.tick(dt);
@@ -1252,7 +1252,7 @@ void EditorApp::onUpdate(float dt)
     if (m_sceneMode != SceneMode::Scene2D)
     {
         if (!movieHolds)
-            m_water.tick(dt);
+            m_sceneWorld.water.tick(dt);
         const bool terrainChanged = m_terrainHeightDirty;
         syncTerrainLod();
         syncPlacedWater(terrainChanged);

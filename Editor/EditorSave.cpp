@@ -78,17 +78,17 @@ void EditorApp::installSaveHost()
 
 void EditorApp::ensurePlaySession()
 {
-    m_session = Save::ensureSessionEntity(world(), m_session);
+    m_play.session() = Save::ensureSessionEntity(world(), m_play.session());
 }
 
 void EditorApp::pullPhysicsVelocities()
 {
-    Save::pullDynamicVelocities(world(), m_physics);
+    Save::pullDynamicVelocities(world(), m_sceneWorld.physics);
 }
 
 void EditorApp::pushPhysicsProgress()
 {
-    Save::pushDynamicProgress(world(), m_physics);
+    Save::pushDynamicProgress(world(), m_sceneWorld.physics);
 }
 
 bool EditorApp::saveCanSave(void* user, Save::SaveResult& why)
@@ -132,11 +132,11 @@ void EditorApp::saveBeginLoad(void* user, World&)
     // The stream id must already be 0 before stopAll destroys voices.
     app->m_movie.close();
     app->audio().stopAll();
-    app->m_leafRustle.stopAll(app->audio());
+    app->m_sceneWorld.leafRustle.stopAll(app->audio());
     clearAllStatusFx(app->world(), &app->audio());
-    if (app->m_session.valid())
-        app->world().remove<QuestProgressComponent>(app->m_session);
-    app->m_play.forgetFacilitySave(app->world(), app->m_session);
+    if (app->m_play.session().valid())
+        app->world().remove<QuestProgressComponent>(app->m_play.session());
+    app->m_play.forgetFacilitySave(app->world(), app->m_play.session());
     PlayRuntime& rt = app->m_play.runtime();
     rt.attackCharge.reset();
     rt.blockCharge.reset();
@@ -231,29 +231,29 @@ void EditorApp::saveBeforeCapture(void* user, World& world)
     look.lowerBodyYaw = rt.lowerBodyYaw;
     look.crouch       = rt.crouchLatch;
     Save::captureBodyLook(world, body, look);
-    if (WorldClockComponent* clock = Save::sessionClock(world, app->m_session))
+    if (WorldClockComponent* clock = Save::sessionClock(world, app->m_play.session()))
     {
         Save::SessionClockState clockState;
-        clockState.cloudTime    = app->m_cloudTime;
-        clockState.envTimeOfDay = app->m_env.timeOfDay;
-        clockState.waterTime    = app->m_water.time();
+        clockState.cloudTime    = app->m_sceneWorld.cloudTime;
+        clockState.envTimeOfDay = app->m_sceneWorld.env.timeOfDay;
+        clockState.waterTime    = app->m_sceneWorld.water.time();
         Save::writeSessionClock(*clock, clockState);
     }
-    if (AiClockComponent* ai = Save::sessionAi(world, app->m_session))
+    if (AiClockComponent* ai = Save::sessionAi(world, app->m_play.session()))
     {
         ai->time          = app->m_ai.simTime();
         ai->packAttackGap = app->m_ai.packAttackGap();
         ai->token         = app->m_ai.jumpAttackToken();
     }
     syncThrowableLoadout(world, body, app->m_play.throws(), ThrowableLoadoutSync::OntoRecord);
-    if (app->m_session.valid())
+    if (app->m_play.session().valid())
     {
-        QuestProgressComponent* quest = world.get<QuestProgressComponent>(app->m_session);
+        QuestProgressComponent* quest = world.get<QuestProgressComponent>(app->m_play.session());
         if (!quest)
-            quest = &world.emplace<QuestProgressComponent>(app->m_session);
+            quest = &world.emplace<QuestProgressComponent>(app->m_play.session());
         writeQuestProgress(app->m_play.quest(), *quest);
     }
-    app->m_play.captureFacilitySave(world, app->m_session);
+    app->m_play.captureFacilitySave(world, app->m_play.session());
 }
 
 void EditorApp::saveAfterApply(void* user, World& world)
@@ -276,15 +276,15 @@ void EditorApp::saveAfterApply(void* user, World& world)
     rt.offhand.lightOn = look.lightOn;
     rt.lowerBodyYaw = look.lowerBodyYaw;
     rt.crouchLatch  = look.crouch;
-    if (const WorldClockComponent* clock = Save::sessionClock(world, app->m_session))
+    if (const WorldClockComponent* clock = Save::sessionClock(world, app->m_play.session()))
     {
         Save::SessionClockState clockState;
         Save::readSessionClock(*clock, clockState);
-        app->m_cloudTime     = clockState.cloudTime;
-        app->m_env.timeOfDay = clockState.envTimeOfDay;
-        app->m_water.setTime(clockState.waterTime);
+        app->m_sceneWorld.cloudTime     = clockState.cloudTime;
+        app->m_sceneWorld.env.timeOfDay = clockState.envTimeOfDay;
+        app->m_sceneWorld.water.setTime(clockState.waterTime);
     }
-    if (const AiClockComponent* ai = Save::sessionAi(world, app->m_session))
+    if (const AiClockComponent* ai = Save::sessionAi(world, app->m_play.session()))
     {
         app->m_ai.setSimTime(ai->time);
         app->m_ai.setPackAttackGap(ai->packAttackGap);
@@ -292,13 +292,13 @@ void EditorApp::saveAfterApply(void* user, World& world)
     }
     app->pushPhysicsProgress();
     app->ensurePlayerStealth(body);
-    if (const QuestProgressComponent* quest = app->m_session.valid() ? world.get<QuestProgressComponent>(app->m_session) : nullptr)
+    if (const QuestProgressComponent* quest = app->m_play.session().valid() ? world.get<QuestProgressComponent>(app->m_play.session()) : nullptr)
     {
         if (!readQuestProgress(*quest, app->m_play.quest()))
             DE_LOG_WARN("Quest: saved progress for '{}' was not restored", quest->id);
     }
     syncThrowableLoadout(world, body, app->m_play.throws(), ThrowableLoadoutSync::FromRecord);
-    app->m_play.applyFacilitySave(world, app->m_session, body);
+    app->m_play.applyFacilitySave(world, app->m_play.session(), body);
     applyDisabledCircuits(world);
     syncCarriedAgents(world);
 }

@@ -88,6 +88,9 @@ namespace Dark
         void draw(Renderer& renderer, float opacity = 1.f);
 
         bool           blocksWorld() const;
+        // True once when blocksWorld() becomes true since the previous call.
+        // Sandbox samples this after tick and again after runtime commands.
+        bool           takeBeganBlocking();
         MoviePlayState state() const;
         MovieStats     stats() const;
         bool           hasAudio() const;
@@ -216,6 +219,7 @@ namespace Dark
         bool           m_loop       = false;
         float          m_volume     = 1.f;
 
+        bool     m_wasBlocking        = false;
         bool     m_havePresented      = false;
         bool     m_presentedSlotValid = false;
         uint32_t m_presentedSlot      = 0;

@@ -34,8 +34,7 @@ namespace Dark
                 light->intensity = 37699.0f; // 12000*π after Fd/π
                 light->range     = 6.0f;
             }
-            if (feedback.muzzleTimer)
-                *feedback.muzzleTimer = 0.05f;
+            feedback.muzzleTimer = 0.05f;
         }
 
         void onMuzzle(void* user)
@@ -47,20 +46,20 @@ namespace Dark
         void onBloodBurst(void* user, const Math::Vector3f& pos)
         {
             auto* feedback = static_cast<PlayFeedback*>(user);
-            if (!feedback || !feedback->blood)
+            if (!feedback)
                 return;
-            feedback->blood->setTransform(Math::Vector3f{ pos.x, pos.y + 0.45f, pos.z });
-            feedback->blood->emitBurst(12);
+            feedback->blood.setTransform(Math::Vector3f{ pos.x, pos.y + 0.45f, pos.z });
+            feedback->blood.emitBurst(12);
         }
 
         void onBloodSplat(void* user, float x, float z)
         {
             auto* feedback = static_cast<PlayFeedback*>(user);
-            if (!feedback || !feedback->splats || !feedback->height || !feedback->height->valid())
+            if (!feedback || !feedback->height || !feedback->height->valid())
                 return;
-            if (!feedback->splats->isValid())
+            if (!feedback->splats.isValid())
                 return;
-            feedback->splats->spawn(x, z, *feedback->height);
+            feedback->splats.spawn(x, z, *feedback->height);
         }
 
         void onRespawn(void* user)
@@ -73,8 +72,7 @@ namespace Dark
                 if (LocalLightComponent* light = feedback->world->get<LocalLightComponent>(*feedback->muzzle))
                     light->enabled = false;
             }
-            if (feedback->muzzleTimer)
-                *feedback->muzzleTimer = 0.0f;
+            feedback->muzzleTimer = 0.0f;
             if (feedback->afterRespawn)
                 feedback->afterRespawn(feedback->afterUser);
         }
@@ -148,16 +146,16 @@ namespace Dark
         timer  = 0.0f;
     }
 
-    void tickPlayMuzzle(const PlayFeedback& feedback, float dt)
+    void tickPlayMuzzle(PlayFeedback& feedback, float dt)
     {
-        if (!feedback.muzzleTimer || *feedback.muzzleTimer <= 0.0f || !feedback.world || !feedback.muzzle)
+        if (feedback.muzzleTimer <= 0.0f || !feedback.world || !feedback.muzzle)
             return;
-        *feedback.muzzleTimer -= dt;
+        feedback.muzzleTimer -= dt;
         World&       world  = *feedback.world;
         const Entity muzzle = *feedback.muzzle;
-        if (*feedback.muzzleTimer <= 0.0f)
+        if (feedback.muzzleTimer <= 0.0f)
         {
-            *feedback.muzzleTimer = 0.0f;
+            feedback.muzzleTimer = 0.0f;
             if (LocalLightComponent* light = (muzzle.valid() && world.alive(muzzle)) ? world.get<LocalLightComponent>(muzzle) : nullptr)
                 light->enabled = false;
             return;

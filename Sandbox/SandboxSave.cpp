@@ -59,10 +59,10 @@ void SandboxApp::installSaveHost()
 
 void SandboxApp::ensureSessionEntity()
 {
-    m_session = Save::ensureSessionEntity(world(), m_session);
-    if (m_session.valid() && !world().get<DialogueFactsComponent>(m_session))
-        world().emplace<DialogueFactsComponent>(m_session);
-    m_dialogue.runtime().setFacts(m_session.valid() ? world().get<DialogueFactsComponent>(m_session) : nullptr);
+    m_play.session() = Save::ensureSessionEntity(world(), m_play.session());
+    if (m_play.session().valid() && !world().get<DialogueFactsComponent>(m_play.session()))
+        world().emplace<DialogueFactsComponent>(m_play.session());
+    m_dialogue.runtime().setFacts(m_play.session().valid() ? world().get<DialogueFactsComponent>(m_play.session()) : nullptr);
     m_dialogue.speech().setServices(&assets(), &audio(), &world());
     m_dialogue.speech().startSynth();
     m_dialogue.runtime().setAudio(m_dialogue.speech().hook());
@@ -90,12 +90,12 @@ void SandboxApp::ensurePlayerProgress(Entity e)
 
 void SandboxApp::pullPhysicsVelocities()
 {
-    Save::pullDynamicVelocities(world(), m_physics);
+    Save::pullDynamicVelocities(world(), m_sceneWorld.physics);
 }
 
 void SandboxApp::pushPhysicsProgress()
 {
-    Save::pushDynamicProgress(world(), m_physics);
+    Save::pushDynamicProgress(world(), m_sceneWorld.physics);
 }
 
 bool SandboxApp::saveCanSave(void* user, Save::SaveResult& why)
@@ -142,11 +142,11 @@ void SandboxApp::saveBeginLoad(void* user, World&)
     // The stream id must already be 0 before stopAll destroys voices.
     app->m_movie.close();
     app->audio().stopAll();
-    app->m_leafRustle.stopAll(app->audio());
+    app->m_sceneWorld.leafRustle.stopAll(app->audio());
     clearAllStatusFx(app->world(), &app->audio());
-    if (app->m_session.valid())
-        app->world().remove<QuestProgressComponent>(app->m_session);
-    app->m_play.forgetFacilitySave(app->world(), app->m_session);
+    if (app->m_play.session().valid())
+        app->world().remove<QuestProgressComponent>(app->m_play.session());
+    app->m_play.forgetFacilitySave(app->world(), app->m_play.session());
     app->m_play.runtime().attackCharge.reset();
     app->m_play.runtime().blockCharge.reset();
     app->m_play.runtime().chargeWindup = {};
@@ -168,7 +168,7 @@ void SandboxApp::saveEndLoad(void* user, World& world)
         return;
     app->pushPhysicsProgress();
     applyAuthoredMovement(world);
-    playMusicCue(world, app->audio(), app->assets(), app->m_camera, "music");
+    playMusicCue(world, app->audio(), app->assets(), app->m_play.cameraEntity(), "music");
 }
 
 Entity SandboxApp::saveRespawn(void* user, World& world, std::string_view archetype, const Save::SavePose& pose)
@@ -228,15 +228,15 @@ Entity SandboxApp::saveRespawn(void* user, World& world, std::string_view archet
     services.pins            = &app->pins();
     services.renderer        = &app->renderer();
     services.audio           = &app->audio();
-    services.ground          = &app->m_ground;
+    services.ground          = &app->m_sceneWorld.ground;
     services.ai              = app->m_chaseOk ? const_cast<AiSystem*>(&app->m_chase.ai()) : nullptr;
     services.ensurePrimitive = &SandboxApp::ensureScenePrimitive;
     services.ensureMarker    = &SandboxApp::ensureSceneMarker;
     services.onWeaponHit     = &SandboxApp::onWeaponHitThunk;
     services.weaponHitUser   = app;
     services.user            = app;
-    services.crows           = &app->m_crowModels;
-    services.crowTerrain     = &app->m_terrain;
+    services.crows           = &app->m_play.crows();
+    services.crowTerrain     = &app->m_sceneWorld.terrain;
     const ArchetypeSpawnHost host = makeSpawnHost(services);
     ArchetypeSpawnPose placed{};
     placed.position = xf.position;
@@ -253,12 +253,12 @@ Entity SandboxApp::saveRespawn(void* user, World& world, std::string_view archet
             DE_LOG_WARN(LogCategory::Collision, "Sandbox: respawn '{}' has no physics card", archetype);
         noteListedHunter(app, e);
     }
-    else if (world.has<PhysicsComponent>(e) && app->m_physics.valid())
+    else if (world.has<PhysicsComponent>(e) && app->m_sceneWorld.physics.valid())
     {
         const Model* model = nullptr;
         if (const ModelComponent* mc = world.get<ModelComponent>(e))
             model = app->assets().find<Model>(mc->modelAssetID);
-        if (!Physics::bindPhysicsEntity(app->m_physics, world, e, model))
+        if (!Physics::bindPhysicsEntity(app->m_sceneWorld.physics, world, e, model))
             DE_LOG_WARN(LogCategory::Collision, "Sandbox: respawn physics bind failed for '{}' #{}", archetype, e.id());
     }
     return e;
@@ -310,29 +310,29 @@ void SandboxApp::saveBeforeCapture(void* user, World& world)
         run->hasSpawn  = app->m_play.runtime().haveSpawn;
         run->spawn     = app->m_play.runtime().spawn;
     }
-    if (WorldClockComponent* clock = Save::sessionClock(world, app->m_session))
+    if (WorldClockComponent* clock = Save::sessionClock(world, app->m_play.session()))
     {
         Save::SessionClockState clockState;
-        clockState.cloudTime    = app->m_cloudTime;
-        clockState.envTimeOfDay = app->m_env.timeOfDay;
-        clockState.waterTime    = app->m_water.time();
+        clockState.cloudTime    = app->m_sceneWorld.cloudTime;
+        clockState.envTimeOfDay = app->m_sceneWorld.env.timeOfDay;
+        clockState.waterTime    = app->m_sceneWorld.water.time();
         Save::writeSessionClock(*clock, clockState);
     }
-    if (AiClockComponent* ai = Save::sessionAi(world, app->m_session))
+    if (AiClockComponent* ai = Save::sessionAi(world, app->m_play.session()))
     {
         ai->time          = app->m_chase.ai().simTime();
         ai->packAttackGap = app->m_chase.ai().packAttackGap();
         ai->token         = app->m_chase.ai().jumpAttackToken();
     }
     syncThrowableLoadout(world, body, app->m_play.runtime().throws, ThrowableLoadoutSync::OntoRecord);
-    if (app->m_session.valid())
+    if (app->m_play.session().valid())
     {
-        QuestProgressComponent* quest = world.get<QuestProgressComponent>(app->m_session);
+        QuestProgressComponent* quest = world.get<QuestProgressComponent>(app->m_play.session());
         if (!quest)
-            quest = &world.emplace<QuestProgressComponent>(app->m_session);
+            quest = &world.emplace<QuestProgressComponent>(app->m_play.session());
         writeQuestProgress(app->m_play.quest(), *quest);
     }
-    app->m_play.captureFacilitySave(world, app->m_session);
+    app->m_play.captureFacilitySave(world, app->m_play.session());
 }
 
 void SandboxApp::saveAfterApply(void* user, World& world)
@@ -340,9 +340,9 @@ void SandboxApp::saveAfterApply(void* user, World& world)
     auto* app = static_cast<SandboxApp*>(user);
     if (!app)
         return;
-    if (app->m_session.valid() && !world.get<DialogueFactsComponent>(app->m_session))
-        world.emplace<DialogueFactsComponent>(app->m_session);
-    app->m_dialogue.runtime().setFacts(app->m_session.valid() ? world.get<DialogueFactsComponent>(app->m_session) : nullptr);
+    if (app->m_play.session().valid() && !world.get<DialogueFactsComponent>(app->m_play.session()))
+        world.emplace<DialogueFactsComponent>(app->m_play.session());
+    app->m_dialogue.runtime().setFacts(app->m_play.session().valid() ? world.get<DialogueFactsComponent>(app->m_play.session()) : nullptr);
     const Entity body = app->possessedBody();
     Save::BodyLookState look;
     look.yaw          = app->m_play.runtime().lookYaw;
@@ -362,15 +362,15 @@ void SandboxApp::saveAfterApply(void* user, World& world)
         app->m_play.runtime().haveSpawn = run->hasSpawn;
         app->m_play.runtime().spawn     = run->spawn;
     }
-    if (const WorldClockComponent* clock = Save::sessionClock(world, app->m_session))
+    if (const WorldClockComponent* clock = Save::sessionClock(world, app->m_play.session()))
     {
         Save::SessionClockState clockState;
         Save::readSessionClock(*clock, clockState);
-        app->m_cloudTime     = clockState.cloudTime;
-        app->m_env.timeOfDay = clockState.envTimeOfDay;
-        app->m_water.setTime(clockState.waterTime);
+        app->m_sceneWorld.cloudTime     = clockState.cloudTime;
+        app->m_sceneWorld.env.timeOfDay = clockState.envTimeOfDay;
+        app->m_sceneWorld.water.setTime(clockState.waterTime);
     }
-    if (const AiClockComponent* ai = Save::sessionAi(world, app->m_session))
+    if (const AiClockComponent* ai = Save::sessionAi(world, app->m_play.session()))
     {
         app->m_chase.ai().setSimTime(ai->time);
         app->m_chase.ai().setPackAttackGap(ai->packAttackGap);
@@ -378,13 +378,13 @@ void SandboxApp::saveAfterApply(void* user, World& world)
     }
     app->pushPhysicsProgress();
     app->ensurePlayerStealth(body);
-    if (const QuestProgressComponent* quest = app->m_session.valid() ? world.get<QuestProgressComponent>(app->m_session) : nullptr)
+    if (const QuestProgressComponent* quest = app->m_play.session().valid() ? world.get<QuestProgressComponent>(app->m_play.session()) : nullptr)
     {
         if (!readQuestProgress(*quest, app->m_play.quest()))
             DE_LOG_WARN("Quest: saved progress for '{}' was not restored", quest->id);
     }
     syncThrowableLoadout(world, body, app->m_play.runtime().throws, ThrowableLoadoutSync::FromRecord);
-    app->m_play.applyFacilitySave(world, app->m_session, body);
+    app->m_play.applyFacilitySave(world, app->m_play.session(), body);
     applyDisabledCircuits(world);
     syncCarriedAgents(world);
 }

@@ -373,12 +373,12 @@ void SandboxApp::fillDialogueHost(void* user, DialogueHost& host)
     host.world      = &app->world();
     host.assets     = &app->assets();
     host.audio      = &app->audio();
-    host.guardVoice = &app->m_guardVoice;
+    host.guardVoice = &app->m_play.guardVoice();
     host.quest      = &app->m_play.quest();
     host.player     = app->possessedBody();
-    host.session    = app->m_session;
-    host.look       = app->m_viewCamera.GetLook();
-    host.cameraPos  = app->m_viewCamera.GetPosition();
+    host.session    = app->m_play.session();
+    host.look       = app->m_sceneWorld.camera.GetLook();
+    host.cameraPos  = app->m_sceneWorld.camera.GetPosition();
     host.enabled    = true;
     host.uiBlocked  = app->m_showDevTools || app->m_showInventory || app->m_showProfiler || app->m_hud.m_showJournal || app->m_hud.m_lootTarget.valid();
 }
@@ -394,31 +394,31 @@ void SandboxApp::fillPlayHost(void* user, PlayHost& host)
     host.assets    = &app->assets();
     host.pins      = &app->pins();
     host.audio     = &app->audio();
-    host.physics   = app->m_physics.valid() ? &app->m_physics : nullptr;
+    host.physics   = app->m_sceneWorld.physics.valid() ? &app->m_sceneWorld.physics : nullptr;
     host.ai        = &app->m_chase.ai();
-    host.camera    = &app->m_viewCamera;
+    host.camera    = &app->m_sceneWorld.camera;
     host.input     = &app->input();
-    host.terrain   = &app->m_terrain;
-    host.ground    = &app->m_ground;
-    host.groundBody = app->m_physicsGround;
-    host.guardVoice = &app->m_guardVoice;
-    host.crows     = &app->m_crowModels;
-    host.foliageCollision = &app->m_foliageCollision;
-    host.foliage   = app->m_foliage.empty() ? nullptr : &app->m_foliage;
+    host.terrain   = &app->m_sceneWorld.terrain;
+    host.ground    = &app->m_sceneWorld.ground;
+    host.groundBody = app->m_sceneWorld.physicsGround;
+    host.guardVoice = &app->m_play.guardVoice();
+    host.crows     = &app->m_play.crows();
+    host.foliageCollision = &app->m_sceneWorld.foliageCollision;
+    host.foliage   = app->m_sceneWorld.foliage.empty() ? nullptr : &app->m_sceneWorld.foliage;
 
     host.player       = app->possessedBody();
-    host.shield       = app->m_shield;
-    host.cameraEntity = app->m_camera;
-    host.muzzle       = app->m_muzzle;
-    host.session      = app->m_session;
+    host.shield       = app->m_play.shield();
+    host.cameraEntity = app->m_play.cameraEntity();
+    host.muzzle       = app->m_play.muzzle();
+    host.session      = app->m_play.session();
 
-    host.waterLevel   = app->m_water.params().waterLevel;
-    host.sunElevation = app->m_env.sunElevation();
-    host.sunDir       = app->m_env.sunDir();
-    host.cloudTime    = app->m_cloudTime;
+    host.waterLevel   = app->m_sceneWorld.water.params().waterLevel;
+    host.sunElevation = app->m_sceneWorld.env.sunElevation();
+    host.sunDir       = app->m_sceneWorld.env.sunDir();
+    host.cloudTime    = app->m_sceneWorld.cloudTime;
 
     host.groundProbeY = &app->m_play.runtime().groundProbeY;
-    host.groundIgnore = &app->m_groundIgnore;
+    host.groundIgnore = &app->m_sceneWorld.groundIgnore;
     host.camouflage   = app->m_vision.camouflage;
 
     const bool ui    = app->uiOpen();
@@ -446,7 +446,7 @@ void SandboxApp::fillPlayHost(void* user, PlayHost& host)
     host.groundContact = &SandboxApp::onPlayGroundContact;
     host.user          = app;
     app->bindPlayFeedback();
-    installPlayFeedback(host, &app->m_playFeedback);
+    installPlayFeedback(host, &app->m_play.feedback());
 }
 
 void SandboxApp::stepPlayPhysics(void* user, float dt)
@@ -454,20 +454,17 @@ void SandboxApp::stepPlayPhysics(void* user, float dt)
     auto* app = static_cast<SandboxApp*>(user);
     if (!app)
         return;
-    stepPossessedBody(app->m_physics, app->world(), app->possessedBody(), dt);
+    stepPossessedBody(app->m_sceneWorld.physics, app->world(), app->possessedBody(), dt);
 }
 
 void SandboxApp::bindPlayFeedback()
 {
-    m_playFeedback.world       = &world();
-    m_playFeedback.camera      = &m_viewCamera;
-    m_playFeedback.muzzle      = &m_muzzle;
-    m_playFeedback.muzzleTimer = &m_muzzleTimer;
-    m_playFeedback.blood       = &m_blood;
-    m_playFeedback.splats      = &m_bloodSplats;
-    m_playFeedback.height      = m_terrain.coarse().valid() ? &m_terrain.coarse() : nullptr;
-    m_playFeedback.afterRespawn = &SandboxApp::onPlayRespawn;
-    m_playFeedback.afterUser   = this;
+    m_play.feedback().world       = &world();
+    m_play.feedback().camera      = &m_sceneWorld.camera;
+    m_play.feedback().muzzle = &m_play.muzzle();
+    m_play.feedback().height = m_sceneWorld.terrain.coarse().valid() ? &m_sceneWorld.terrain.coarse() : nullptr;
+    m_play.feedback().afterRespawn = &SandboxApp::onPlayRespawn;
+    m_play.feedback().afterUser   = this;
 }
 
 void SandboxApp::onPlayRespawn(void* user)
@@ -532,12 +529,12 @@ Terrain::GroundContact SandboxApp::onPlayGroundContact(void* user, float x, floa
 
 void SandboxApp::expandSceneBuildings(SceneFileData& scene)
 {
-    m_buildingContainers.clear();
-    m_buildingHides.clear();
-    m_buildingLabels.clear();
-    m_buildingDoors.clear();
-    m_buildingCameras.clear();
-    Dark::expandSceneBuildings(scene, m_buildingContainers, m_buildingHides, &m_buildingDoors, &m_buildingCameras);
+    m_play.buildingContainers().clear();
+    m_play.buildingHides().clear();
+    m_play.buildingLabels().clear();
+    m_play.buildingDoors().clear();
+    m_play.buildingCameras().clear();
+    Dark::expandSceneBuildings(scene, m_play.buildingContainers(), m_play.buildingHides(), &m_play.buildingDoors(), &m_play.buildingCameras());
 }
 
 bool SandboxApp::spawnBuildingExtras(BuildingFixtureSpawn& spawn)
@@ -547,9 +544,9 @@ bool SandboxApp::spawnBuildingExtras(BuildingFixtureSpawn& spawn)
     spawn.assets   = &assets();
     spawn.pins     = &pins();
     spawn.ai       = &m_chase.ai();
-    spawn.labels   = &m_buildingLabels;
+    spawn.labels   = &m_play.buildingLabels();
     spawn.stampPrefix = "sandbox/level";
-    return spawnBuildingFixtures(spawn, m_buildingContainers, m_buildingHides, m_buildingDoors, m_buildingCameras);
+    return spawnBuildingFixtures(spawn, m_play.buildingContainers(), m_play.buildingHides(), m_play.buildingDoors(), m_play.buildingCameras());
 }
 
 void SandboxApp::startQuest(const std::string& id)
@@ -568,7 +565,7 @@ void SandboxApp::updateQuest(float dt)
 
 int SandboxApp::giveItem(InventoryComponent& inv, const ItemStack& item)
 {
-    return grantInventoryItem(world(), audio(), assets(), m_camera, inv, item);
+    return grantInventoryItem(world(), audio(), assets(), m_play.cameraEntity(), inv, item);
 }
 
 void SandboxApp::stockHunter(Entity hunter)
@@ -646,7 +643,7 @@ void SandboxApp::handleRuntimeCommands(float dt)
             m_bootPolling = false;
             if (m_sceneStarted)
             {
-                playMusicCue(world(), audio(), assets(), m_camera, "music");
+                playMusicCue(world(), audio(), assets(), m_play.cameraEntity(), "music");
                 m_hud.m_menu.hide();
             }
             else
@@ -703,7 +700,7 @@ void SandboxApp::handleRuntimeCommands(float dt)
                     break;
                 }
                 // Splash already finished without a camera, so the usual cue never played.
-                playMusicCue(world(), audio(), assets(), m_camera, "music");
+                playMusicCue(world(), audio(), assets(), m_play.cameraEntity(), "music");
             }
             else if (picked && picked->id == "new_game")
             {
@@ -744,29 +741,29 @@ void SandboxApp::handleRuntimeCommands(float dt)
     if (input().actionPressed("profiler") && !typing && (!uiKeys || m_showProfiler))
     {
         m_showProfiler = !m_showProfiler;
-        playSoundCue(world(), audio(), assets(), m_camera, "click");
+        playSoundCue(world(), audio(), assets(), m_play.cameraEntity(), "click");
         DE_LOG_INFO("Sandbox: profiler = {}", m_showProfiler);
     }
     if (input().actionPressed("dev_tools") && !typing && (!uiKeys || m_showDevTools))
     {
         m_showDevTools = !m_showDevTools;
-        playSoundCue(world(), audio(), assets(), m_camera, "click");
+        playSoundCue(world(), audio(), assets(), m_play.cameraEntity(), "click");
         DE_LOG_INFO("Sandbox: dev tools = {}", m_showDevTools);
     }
     if (input().actionPressed("inventory") && !typing && (!uiKeys || m_showInventory))
     {
         m_showInventory = !m_showInventory;
-        playSoundCue(world(), audio(), assets(), m_camera, "click");
+        playSoundCue(world(), audio(), assets(), m_play.cameraEntity(), "click");
     }
     if (input().actionPressed("journal") && !typing && (!uiKeys || m_hud.m_showJournal))
     {
         m_hud.m_showJournal = !m_hud.m_showJournal;
-        playSoundCue(world(), audio(), assets(), m_camera, "click");
+        playSoundCue(world(), audio(), assets(), m_play.cameraEntity(), "click");
     }
     if (input().actionPressed("upgrades") && !typing && (!uiKeys || m_hud.m_showUpgrades))
     {
         m_hud.m_showUpgrades = !m_hud.m_showUpgrades;
-        playSoundCue(world(), audio(), assets(), m_camera, "click");
+        playSoundCue(world(), audio(), assets(), m_play.cameraEntity(), "click");
     }
     if (!uiKeys && input().actionPressed("camouflage"))
     {
@@ -933,7 +930,7 @@ void SandboxApp::handleRuntimeCommands(float dt)
             {
                 m_gameplayPaused = !m_gameplayPaused;
                 m_stepGameplay   = false;
-                playSoundCue(world(), audio(), assets(), m_camera, "click");
+                playSoundCue(world(), audio(), assets(), m_play.cameraEntity(), "click");
                 DE_LOG_INFO("Sandbox: gameplay paused = {}", m_gameplayPaused);
             }
         }
@@ -943,7 +940,7 @@ void SandboxApp::handleRuntimeCommands(float dt)
 
     if (!uiKeys && input().actionPressed("reset"))
     {
-        m_spinSpeed  = 0.8f;
+        m_demo.spinSpeed()  = 0.8f;
         Vector3f pos{};
         if (m_demo.cube().valid())
         {
@@ -953,24 +950,24 @@ void SandboxApp::handleRuntimeCommands(float dt)
                 pos          = xf->position;
             }
         }
-        playSoundCueAt(world(), audio(), assets(), m_camera, "reset", pos);
+        playSoundCueAt(world(), audio(), assets(), m_play.cameraEntity(), "reset", pos);
         DE_LOG_INFO("Command: reset cube");
     }
 
     if (!uiKeys && input().actionPressed("speed_up"))
     {
-        m_spinSpeed += 0.2f;
-        if (m_spinSpeed > 5.0f)
-            m_spinSpeed = 5.0f;
-        DE_LOG_INFO("Command: spin speed = {:.2f}", m_spinSpeed);
+        m_demo.spinSpeed() += 0.2f;
+        if (m_demo.spinSpeed() > 5.0f)
+            m_demo.spinSpeed() = 5.0f;
+        DE_LOG_INFO("Command: spin speed = {:.2f}", m_demo.spinSpeed());
     }
 
     if (!uiKeys && input().actionPressed("speed_down"))
     {
-        m_spinSpeed -= 0.2f;
-        if (m_spinSpeed < 0.0f)
-            m_spinSpeed = 0.0f;
-        DE_LOG_INFO("Command: spin speed = {:.2f}", m_spinSpeed);
+        m_demo.spinSpeed() -= 0.2f;
+        if (m_demo.spinSpeed() < 0.0f)
+            m_demo.spinSpeed() = 0.0f;
+        DE_LOG_INFO("Command: spin speed = {:.2f}", m_demo.spinSpeed());
     }
 
     if (m_sceneStarted && !typing && input().keyPressed(Key::F8) && m_movie.state() == MoviePlayState::Closed)
@@ -1023,7 +1020,7 @@ void SandboxApp::handleRuntimeCommands(float dt)
 
     if (m_gameplayPaused && !m_stepGameplay)
     {
-        m_leafRustle.stopAll(audio());
+        m_sceneWorld.leafRustle.stopAll(audio());
         return;
     }
 
@@ -1047,12 +1044,12 @@ void SandboxApp::handleRuntimeCommands(float dt)
         // Host (and offline Idle) still spin the cube. Clients must not.
         if (role == NetRole::Host || role == NetRole::Idle)
         {
-            const Quaternion spin = Quaternion::FromAxisAngle(Vector3f::Y_AXIS, m_spinSpeed * dt);
+            const Quaternion spin = Quaternion::FromAxisAngle(Vector3f::Y_AXIS, m_demo.spinSpeed() * dt);
             xf->rotation          = spin * xf->rotation;
             xf->rotation.Normalize();
         }
 
-        xf->position.y = m_terrain.heightAtWorld(xf->position.x, xf->position.z) + 0.5f;
+        xf->position.y = m_sceneWorld.terrain.heightAtWorld(xf->position.x, xf->position.z) + 0.5f;
     }
 }
 
@@ -1073,11 +1070,11 @@ void SandboxApp::updateFlyCamera(float dt)
         const float speed   = (sprint ? 2.5f : 1.0f) * m_flySpeed;
 
         if (forward != 0.0f)
-            m_viewCamera.Walk(forward * speed * dt);
+            m_sceneWorld.camera.Walk(forward * speed * dt);
         if (strafe != 0.0f)
-            m_viewCamera.Strafe(strafe * speed * dt);
+            m_sceneWorld.camera.Strafe(strafe * speed * dt);
         if (climb != 0.0f)
-            m_viewCamera.Climb(climb * speed * dt);
+            m_sceneWorld.camera.Climb(climb * speed * dt);
     }
 
     constexpr float kSens    = 0.0045f;
@@ -1086,20 +1083,20 @@ void SandboxApp::updateFlyCamera(float dt)
     {
         if (!uiOpen() || input().mouseDown(MouseButton::Right))
         {
-            m_viewCamera.RotateY(static_cast<float>(input().mouseDeltaX()) * kSens);
-            m_viewCamera.Pitch(static_cast<float>(input().mouseDeltaY()) * kSens);
+            m_sceneWorld.camera.RotateY(static_cast<float>(input().mouseDeltaX()) * kSens);
+            m_sceneWorld.camera.Pitch(static_cast<float>(input().mouseDeltaY()) * kSens);
         }
     }
 
     const float lookYaw   = input().actionAxis("look_yaw");
     const float lookPitch = input().actionAxis("look_pitch");
     if (lookYaw != 0.0f)
-        m_viewCamera.RotateY(lookYaw * kPadLook * dt);
+        m_sceneWorld.camera.RotateY(lookYaw * kPadLook * dt);
     if (lookPitch != 0.0f)
-        m_viewCamera.Pitch(lookPitch * kPadLook * dt);
+        m_sceneWorld.camera.Pitch(lookPitch * kPadLook * dt);
 
-    if (auto* xf = world().get<TransformComponent>(m_camera))
-        xf->position = m_viewCamera.GetPosition();
+    if (auto* xf = world().get<TransformComponent>(m_play.cameraEntity()))
+        xf->position = m_sceneWorld.camera.GetPosition();
 }
 
 void SandboxApp::devNetHost()
@@ -1238,7 +1235,7 @@ void SandboxApp::updatePawnMotion(float dt)
         xf->position += delta * (kNetPawnMaxSpeed * dt);
     }
 
-    xf->position.y = m_terrain.heightAtWorld(xf->position.x, xf->position.z) + 0.5f;
+    xf->position.y = m_sceneWorld.terrain.heightAtWorld(xf->position.x, xf->position.z) + 0.5f;
 }
 
 Entity SandboxApp::possessedBody()
@@ -1280,7 +1277,7 @@ void SandboxApp::drawPrimitiveShadowCasters(void* user, ID3D12GraphicsCommandLis
             return;
         if (const HealthComponent* hp = app.world().get<HealthComponent>(e); hp && !hp->health.alive())
             return;
-        const Mesh* gpuMesh = sandboxPrimitiveMesh(mc.primitive, app.m_demo.cubeMesh(), app.m_crossMesh);
+        const Mesh* gpuMesh = sandboxPrimitiveMesh(mc.primitive, app.m_demo.cubeMesh(), app.m_demo.crossMesh());
         if (!gpuMesh)
             return;
         const TransformComponent* xf = app.world().get<TransformComponent>(e);
@@ -1323,7 +1320,7 @@ void SandboxApp::attachLocalPlayer(Entity e)
         hud.kind = HudKind::HealthBar;
         world().emplace<HudTagComponent>(e, hud);
     }
-    const CharacterHost host{ world(), renderer(), assets(), pins(), audio(), m_ground };
+    const CharacterHost host{ world(), renderer(), assets(), pins(), audio(), m_sceneWorld.ground };
     ensureLocalPlayerRig(host, e, &SandboxApp::onWeaponHitThunk, this);
     ensurePlayerProgress(e);
     ensurePlayerStealth(e);
@@ -1334,7 +1331,7 @@ void SandboxApp::ensurePlayerStealth(Entity e)
     if (!e.valid() || !world().alive(e) || world().has<PlayerStealthComponent>(e))
         return;
     PlayerStealthComponent& stealth = world().emplace<PlayerStealthComponent>(e);
-    applyScenePrey(stealth.settings, m_sceneStealth);
+    applyScenePrey(stealth.settings, m_sceneWorld.stealth);
 }
 
 PlayerStealthComponent* SandboxApp::localStealth()
@@ -1350,7 +1347,7 @@ bool SandboxApp::attachAnimatedCharacter(Entity e, const char* gltfPath)
     if (world().has<AnimGraphComponent>(e) && world().has<ModelComponent>(e))
         return true;
 
-    const CharacterHost host{ world(), renderer(), assets(), pins(), audio(), m_ground };
+    const CharacterHost host{ world(), renderer(), assets(), pins(), audio(), m_sceneWorld.ground };
     const ContentModelResult result = attachContentModel(host, e, gltfPath, ModelAttach::AnimatedOnly);
     return result.attached && result.skinned;
 }
@@ -1413,15 +1410,15 @@ bool SandboxApp::questTarget(Vector3f& out)
 TonemapSettings SandboxApp::playerPostFx()
 {
     TonemapSettings s{};
-    s.nearZ      = m_viewCamera.GetNearZ();
-    s.farZ       = m_viewCamera.GetFarZ();
+    s.nearZ      = m_sceneWorld.camera.GetNearZ();
+    s.farZ       = m_sceneWorld.camera.GetFarZ();
     s.focusRange = 12.0f;
 
     const Entity body = possessedBody();
     if (const TransformComponent* xf = body.valid() ? world().get<TransformComponent>(body) : nullptr)
     {
         const Vector3f focusPt{ xf->position.x, xf->position.y + 1.15f, xf->position.z };
-        s.focusZ = (focusPt - m_viewCamera.GetPosition()).Magnitude();
+        s.focusZ = (focusPt - m_sceneWorld.camera.GetPosition()).Magnitude();
     }
 
     Health* hpFx = localHealth();
@@ -1487,10 +1484,10 @@ Entity SandboxApp::spawnSpawnerUnit(Entity spawner, const SpawnerRequest& req)
     host.assets    = &assets();
     host.pins      = &pins();
     host.audio     = &audio();
-    host.ground    = &m_ground;
+    host.ground    = &m_sceneWorld.ground;
     host.ai        = &m_chase.ai();
-    host.crows     = &m_crowModels;
-    host.terrain   = m_terrain.valid() ? &m_terrain : nullptr;
+    host.crows     = &m_play.crows();
+    host.terrain   = m_sceneWorld.terrain.valid() ? &m_sceneWorld.terrain : nullptr;
     host.play      = &m_play;
     host.bindPhysics = &SandboxApp::bindListedPhysics;
     host.noteHunter  = &SandboxApp::noteListedHunter;
@@ -1509,12 +1506,12 @@ void SandboxApp::dropInventoryItem(int bagIndex)
     if (item.empty())
         return;
 
-    Vector3f forward = m_viewCamera.GetLook();
+    Vector3f forward = m_sceneWorld.camera.GetLook();
     forward.y        = 0.0f;
     if (forward.MagnitudeSqrd() < 1.0e-6f)
         forward = Vector3f{ 0.0f, 0.0f, 1.0f };
     forward.Normalize();
-    spawnItemPickup(world(), pins(), assets(), renderer(), m_physics, item, xf->position + forward + Vector3f{ 0.0f, 0.6f, 0.0f },
+    spawnItemPickup(world(), pins(), assets(), renderer(), m_sceneWorld.physics, item, xf->position + forward + Vector3f{ 0.0f, 0.6f, 0.0f },
                     forward * 2.0f + Vector3f{ 0.0f, 2.0f, 0.0f });
     DE_LOG_INFO("Inventory: dropped {} x{}", item.def->name, item.count);
 }
@@ -1566,9 +1563,9 @@ ImpactFxHost SandboxApp::impactHost()
     host.world       = &world();
     host.scene       = &m_frame.scene();
     host.renderer    = &renderer();
-    host.terrain     = &m_terrain;
-    host.ground      = &m_ground;
-    host.contactGrid = &m_terrain;
+    host.terrain     = &m_sceneWorld.terrain;
+    host.ground      = &m_sceneWorld.ground;
+    host.contactGrid = &m_sceneWorld.terrain;
     host.targets     = &m_play.targets();
     return host;
 }
@@ -1639,7 +1636,7 @@ void SandboxApp::spawnOwnedPawn(ClientId owner, float offsetX)
             pos.z = xf->position.z;
         }
     }
-    pos.y = m_terrain.heightAtWorld(pos.x, pos.z) + 0.5f;
+    pos.y = m_sceneWorld.terrain.heightAtWorld(pos.x, pos.z) + 0.5f;
 
     Entity e = world().createEntity();
     world().emplace<TagComponent>(e, "PlayerPawn");
@@ -1663,7 +1660,7 @@ void SandboxApp::ensureLocalCube()
     if (m_demo.cube().valid() && world().alive(m_demo.cube()))
         return;
 
-    const float groundY = m_terrain.heightAtWorld(0.0f, 0.0f) + 0.5f;
+    const float groundY = m_sceneWorld.terrain.heightAtWorld(0.0f, 0.0f) + 0.5f;
     m_demo.cube()              = world().createEntity();
     world().emplace<TagComponent>(m_demo.cube(), "Cube");
     world().emplace<TransformComponent>(m_demo.cube(), Vector3f{ 0.0f, groundY, 0.0f }, Quaternion::IDENTITY, Vector3f{ 1, 1, 1 });
@@ -1727,13 +1724,13 @@ void SandboxApp::syncTerrainLod()
 {
     const Entity body = possessedBody();
     const TransformComponent* anchor = body.valid() ? world().get<TransformComponent>(body) : nullptr;
-    updatePinnedTerrainStream(m_terrain, m_viewCamera.GetPosition(), renderer(), m_terrainMaterial, !body.valid(), anchor);
-    if (m_terrain.heightTexture().valid())
+    updatePinnedTerrainStream(m_sceneWorld.terrain, m_sceneWorld.camera.GetPosition(), renderer(), m_frame.terrainMaterial(), !body.valid(), anchor);
+    if (m_sceneWorld.terrain.heightTexture().valid())
     {
-        renderer().setHeightSrv(m_terrain.heightTexture().cpuHandle());
-        m_waterPipeline.setHeightSrv(renderer().device(), m_terrain.heightTexture().cpuHandle());
+        renderer().setHeightSrv(m_sceneWorld.terrain.heightTexture().cpuHandle());
+        m_waterPipeline.setHeightSrv(renderer().device(), m_sceneWorld.terrain.heightTexture().cpuHandle());
     }
-    if (!flushDirtyWater(m_water, renderer()))
+    if (!flushDirtyWater(m_sceneWorld.water, renderer()))
         DE_LOG_ERROR("SandboxApp: water upload failed");
 }
 
@@ -1742,27 +1739,27 @@ void SandboxApp::createPhysicsWorld()
     Physics::PhysicsWorldDesc desc;
     desc.enabled = true;
     desc.gravity = 24.0f;
-    if (!m_physics.create(desc))
+    if (!m_sceneWorld.physics.create(desc))
     {
         DE_LOG_ERROR(LogCategory::Collision, "SandboxApp: physics world create failed");
         return;
     }
 
-    const HeightMap& coarse = m_terrain.coarse();
+    const HeightMap& coarse = m_sceneWorld.terrain.coarse();
     if (!coarse.valid())
     {
         DE_LOG_WARN(LogCategory::Collision, "SandboxApp: no terrain height map; physics has no ground");
         return;
     }
 
-    m_physicsGround = bindHeightFieldGround(m_physics, coarse, "SandboxApp");
-    if (m_physicsGround == Physics::kNullPhysicsBody)
+    m_sceneWorld.physicsGround = bindHeightFieldGround(m_sceneWorld.physics, coarse, "SandboxApp");
+    if (m_sceneWorld.physicsGround == Physics::kNullPhysicsBody)
         DE_LOG_WARN(LogCategory::Collision, "SandboxApp: terrain height field failed");
 }
 
 void SandboxApp::addChaseObstaclesToPhysics()
 {
-    if (!m_physics.valid())
+    if (!m_sceneWorld.physics.valid())
         return;
 
     for (const AABox3f& box : m_chase.cubes())
@@ -1772,14 +1769,14 @@ void SandboxApp::addChaseObstaclesToPhysics()
         desc.halfExtents = box.Extents();
         desc.dynamic     = false;
         desc.friction    = 0.6f;
-        if (m_physics.createBox(desc) == Physics::kNullPhysicsBody)
+        if (m_sceneWorld.physics.createBox(desc) == Physics::kNullPhysicsBody)
             DE_LOG_WARN(LogCategory::Collision, "SandboxApp: chase obstacle body failed");
     }
 }
 
 void SandboxApp::bindEntityPhysics(Entity e, const char* entityType)
 {
-    if (!m_physics.valid() || !e.valid() || !world().alive(e))
+    if (!m_sceneWorld.physics.valid() || !e.valid() || !world().alive(e))
         return;
 
     if (!world().has<PhysicsComponent>(e))
@@ -1804,7 +1801,7 @@ void SandboxApp::bindEntityPhysics(Entity e, const char* entityType)
     const Model* model = nullptr;
     if (const ModelComponent* mc = world().get<ModelComponent>(e))
         model = assets().find<Model>(mc->modelAssetID);
-    if (!Physics::bindPhysicsEntity(m_physics, world(), e, model))
+    if (!Physics::bindPhysicsEntity(m_sceneWorld.physics, world(), e, model))
         DE_LOG_WARN(LogCategory::Collision, "SandboxApp: physics bind failed for '{}' #{}", entityType, e.id());
 }
 
@@ -1825,12 +1822,12 @@ void SandboxApp::bindCharacterPhysics()
 
 float SandboxApp::playerGroundHeight(float x, float z) const
 {
-    return raisedGroundY(m_physics, m_groundIgnore, m_physicsGround, m_terrain.heightAtWorld(x, z), x, z, m_play.runtime().groundProbeY);
+    return raisedGroundY(m_sceneWorld.physics, m_sceneWorld.groundIgnore, m_sceneWorld.physicsGround, m_sceneWorld.terrain.heightAtWorld(x, z), x, z, m_play.runtime().groundProbeY);
 }
 
 Terrain::GroundContact SandboxApp::groundContactAt(float x, float z) const
 {
-    return Terrain::groundContactAt(m_ground, &m_terrain, x, z);
+    return Terrain::groundContactAt(m_sceneWorld.ground, &m_sceneWorld.terrain, x, z);
 }
 
 void SandboxApp::onInit()
@@ -1838,10 +1835,10 @@ void SandboxApp::onInit()
     DE_LOG_INFO("SandboxApp: init");
     loadEchoChirpSettings(m_vision.echoChirp);
 
-    m_ground.loadFromContent();
+    m_sceneWorld.ground.loadFromContent();
     skillCatalog().loadFromContent();
     throwableCatalog().loadFromContent();
-    m_chase.setGround(&m_ground);
+    m_chase.setGround(&m_sceneWorld.ground);
     registerDefaultActions();
     audio().setMasterVolume(loadMasterVolume(0.85f));
 
@@ -1860,35 +1857,35 @@ void SandboxApp::onInit()
             requestQuit();
             return;
         }
-        m_foliagePipeline.create(renderer().device());
+        m_frame.foliagePipeline().create(renderer().device());
         if (!m_frame.drawList().create(renderer().device()))
             DE_LOG_ERROR(LogCategory::Render, "SandboxApp: instanced mesh pipeline failed; static draws stay immediate");
         if (!m_frame.skinnedInstances().create(renderer().device()))
             DE_LOG_ERROR(LogCategory::Render, "SandboxApp: skinned instancing unavailable; skinned draws stay immediate");
-        if (!m_grassPipeline.create(renderer()))
+        if (!m_frame.grassPipeline().create(renderer()))
         {
             DE_LOG_ERROR(LogCategory::Render, "SandboxApp: grass pipeline create failed");
-            GrassParams grassOff = m_grassField.params();
+            GrassParams grassOff = m_sceneWorld.grassField.params();
             grassOff.enabled     = false;
-            m_grassField.setParams(grassOff);
+            m_sceneWorld.grassField.setParams(grassOff);
         }
-        m_foliagePrototypes.create(renderer(), assets());
+        m_frame.foliagePrototypes().create(renderer(), assets());
         if (!m_demo.skeletonPipeline().create(renderer().device(), renderer().sceneColorFormat(), false))
             DE_LOG_ERROR(LogCategory::Render, "SandboxApp: skeleton LinePipeline create failed");
         else if (!m_demo.createSkeletonLineBuffers())
             DE_LOG_ERROR(LogCategory::Render, "SandboxApp: skeleton line buffers failed");
     }
 
-    if (!m_particles.create(renderer(), assets()))
+    if (!m_frame.particles().create(renderer(), assets()))
         DE_LOG_ERROR("SandboxApp: particle renderer failed");
-    if (!m_gpuParticles.create(renderer()))
+    if (!m_frame.gpuParticles().create(renderer()))
         DE_LOG_ERROR(LogCategory::Render, "SandboxApp: GPU particle system failed");
-    if (!m_leafRenderer.create(renderer(), assets()))
+    if (!m_frame.leafRenderer().create(renderer(), assets()))
         DE_LOG_ERROR(LogCategory::Render, "SandboxApp: leaf renderer failed");
-    if (!m_bloodSplats.create(renderer()))
+    if (!m_play.feedback().splats.create(renderer()))
         DE_LOG_ERROR("SandboxApp: blood splat pool failed");
-    m_blood.setDesc(playBloodBurstDesc());
-    m_blood.stop(true);
+    m_play.feedback().blood.setDesc(playBloodBurstDesc());
+    m_play.feedback().blood.stop(true);
     if (!pumpBootFrame())
         return;
     if (!pumpBootFrame())
@@ -1927,25 +1924,25 @@ void SandboxApp::onInit()
 void SandboxApp::onSplashFinished()
 {
     m_play.runtime().spawnAge = 0.0f;
-    playMusicCue(world(), audio(), assets(), m_camera, "music");
+    playMusicCue(world(), audio(), assets(), m_play.cameraEntity(), "music");
 }
 
 void SandboxApp::tickLeaves(float dt)
 {
-    const AssetRef<Model>& treeModel = m_foliagePrototypes.model(Terrain::FoliageKind::Tree);
+    const AssetRef<Model>& treeModel = m_frame.foliagePrototypes().model(Terrain::FoliageKind::Tree);
     FallingLeafTick        tick;
-    tick.field      = &m_leafField;
-    tick.rustle     = &m_leafRustle;
-    tick.terrain    = &m_terrain;
-    tick.foliage    = m_foliage.empty() ? nullptr : &m_foliage;
+    tick.field      = &m_sceneWorld.leafField;
+    tick.rustle     = &m_sceneWorld.leafRustle;
+    tick.terrain    = &m_sceneWorld.terrain;
+    tick.foliage    = m_sceneWorld.foliage.empty() ? nullptr : &m_sceneWorld.foliage;
     tick.treeModel  = treeModel ? treeModel.get() : nullptr;
     tick.audio      = &audio();
     tick.assets     = &assets();
-    tick.camera     = &m_viewCamera;
-    tick.simSeconds = &m_leafSimSeconds;
-    tick.shedScale  = m_leafShedScale;
-    tick.lake       = m_water.chunksX() > 0;
-    tick.lakeLevel  = m_water.params().waterLevel;
+    tick.camera     = &m_sceneWorld.camera;
+    tick.simSeconds = &m_sceneWorld.leafSimSeconds;
+    tick.shedScale  = m_sceneWorld.leafShedScale;
+    tick.lake       = m_sceneWorld.water.chunksX() > 0;
+    tick.lakeLevel  = m_sceneWorld.water.params().waterLevel;
     stepFallingLeaves(tick, dt);
 }
 
@@ -1953,33 +1950,31 @@ void SandboxApp::onUpdate(float dt)
 {
     m_movie.tick(dt);
     tickMovieCues(world(), m_movie, possessedBody());
-    if (m_movie.blocksWorld() && !m_movieWasBlocking)
+    if (m_movie.takeBeganBlocking())
     {
         audio().stopMusic();
         audio().stopClipVoices();
     }
-    m_movieWasBlocking = m_movie.blocksWorld();
 
     m_frameDt = dt;
     const bool menuFrame = m_hud.m_menu.visible();
     if (!menuFrame)
         dt = m_play.scaleDt(dt);
     handleRuntimeCommands(dt);
-    if (m_movie.blocksWorld() && !m_movieWasBlocking)
+    if (m_movie.takeBeganBlocking())
     {
         audio().stopMusic();
         audio().stopClipVoices();
     }
-    m_movieWasBlocking = m_movie.blocksWorld();
     if (menuFrame || m_hud.m_menu.visible())
     {
-        m_leafRustle.stopAll(audio());
+        m_sceneWorld.leafRustle.stopAll(audio());
         m_save.service(world());
         return;
     }
     if (!m_sceneStarted)
     {
-        m_leafRustle.stopAll(audio());
+        m_sceneWorld.leafRustle.stopAll(audio());
         return;
     }
     if (m_dialogue.locksWorld() || m_movie.blocksWorld())
@@ -1989,11 +1984,11 @@ void SandboxApp::onUpdate(float dt)
     else if (!m_gameplayPaused || m_stepGameplay)
     {
         syncPlayerMode();
-        m_cloudTime += dt;
-        m_env.tick(dt);
-        m_water.tick(dt);
+        m_sceneWorld.cloudTime += dt;
+        m_sceneWorld.env.tick(dt);
+        m_sceneWorld.water.tick(dt);
         bindPlayFeedback();
-        tickPlayMuzzle(m_playFeedback, dt);
+        tickPlayMuzzle(m_play.feedback(), dt);
         m_play.tickWorld(dt);
         updateQuest(dt);
         if (m_hud.m_defenseTextLeft > 0.0f)
@@ -2002,10 +1997,10 @@ void SandboxApp::onUpdate(float dt)
             if (m_hud.m_defenseTextLeft < 0.0f)
                 m_hud.m_defenseTextLeft = 0.0f;
         }
-        m_blood.update(dt);
-        m_gpuParticles.applyIntegratorFallback(world(), renderer().debugState().gpuParticles);
+        m_play.feedback().blood.update(dt);
+        m_frame.gpuParticles().applyIntegratorFallback(world(), renderer().debugState().gpuParticles);
         tickParticleEmitters(world(), dt);
-        m_gpuParticles.prepare(world(), dt);
+        m_frame.gpuParticles().prepare(world(), dt);
         m_demo.updateWiggleAnim();
         tickAnimGraphs(world(), assets(), dt);
         m_play.tickHeldItems();
@@ -2014,28 +2009,27 @@ void SandboxApp::onUpdate(float dt)
     }
     else
     {
-        m_leafRustle.stopAll(audio());
+        m_sceneWorld.leafRustle.stopAll(audio());
     }
     if (!m_movie.blocksWorld())
         m_dialogue.tick(dt);
     m_save.service(world());
-    m_water.updateLod(m_viewCamera.GetPosition());
+    m_sceneWorld.water.updateLod(m_sceneWorld.camera.GetPosition());
     syncTerrainLod();
     // Shared with foliage. Trees sway with no possessed body, and while gameplay is paused.
-    m_windClock.tick(dt);
-    m_grassWindSeconds = m_windClock.time;
+    m_sceneWorld.windClock.tick(dt);
     if (const Entity body = possessedBody(); body.valid())
     {
         float             x = 0.0f;
         float             z = 0.0f;
         GrassPlayerSample sample;
         if (fillGrassPlayerSample(world(), body, x, z, sample))
-            m_grassField.update(m_terrain, x, z, m_grassWindSeconds, m_water.params().waterLevel, sample);
+            m_sceneWorld.grassField.update(m_sceneWorld.terrain, x, z, m_sceneWorld.windClock.time, m_sceneWorld.water.params().waterLevel, sample);
     }
     if (!m_movie.blocksWorld() && renderer().scenePath() == ScenePath::HybridDeferred)
-        syncPlayerFlashlight(world(), possessedBody(), m_viewCamera.GetPosition(), m_viewCamera.GetLook(), m_viewCamera.GetRight(), m_viewCamera.GetUp(), m_play.runtime().offhand.lightOn);
+        syncPlayerFlashlight(world(), possessedBody(), m_sceneWorld.camera.GetPosition(), m_sceneWorld.camera.GetLook(), m_sceneWorld.camera.GetRight(), m_sceneWorld.camera.GetUp(), m_play.runtime().offhand.lightOn);
 
-    setViewAudioListener(audio(), m_viewCamera, &world(), possessedBody(), skillCatalog().enabled());
+    setViewAudioListener(audio(), m_sceneWorld.camera, &world(), possessedBody(), skillCatalog().enabled());
     if (!m_movie.blocksWorld())
         tickSoundEmitters(world(), audio(), assets());
     m_frame.scene().tickDecals(world(), dt);
@@ -2058,31 +2052,31 @@ void SandboxApp::onShutdown()
     m_movie.close();
     jobs().shutdown();
     resetMovieCues(world());
-    m_guardVoice.stop();
+    m_play.guardVoice().stop();
     network().shutdown();
     renderer().waitForGpu();
-    m_foliagePipeline.destroy();
-    m_grassPipeline.destroy();
+    m_frame.foliagePipeline().destroy();
+    m_frame.grassPipeline().destroy();
     m_hud.m_menu.shutdown(renderer());
     m_frame.scene().shutdown();
     m_hud.m_imgui.shutdown(renderer());
     m_hud.m_menuBackground   = Dark::Texture2D{};
     m_hud.m_menuBackgroundId = 0;
-    m_water = WaterWorld{};
-    m_terrainMaterial = TerrainMaterial{};
-    Physics::destroyFoliageCollision(m_physics, m_foliageCollision);
-    m_physics.destroy();
-    m_physicsGround = Physics::kNullPhysicsBody;
-    m_terrain.clear();
+    m_sceneWorld.water = WaterWorld{};
+    m_frame.terrainMaterial() = TerrainMaterial{};
+    Physics::destroyFoliageCollision(m_sceneWorld.physics, m_sceneWorld.foliageCollision);
+    m_sceneWorld.physics.destroy();
+    m_sceneWorld.physicsGround = Physics::kNullPhysicsBody;
+    m_sceneWorld.terrain.clear();
     audio().stopAll();
     if (WeaponLoadout* w = localWeapons())
     {
         w->projectile().setAudio(nullptr, nullptr);
         w->clear();
     }
-    m_gpuParticles.destroy(renderer());
-    m_particles.destroy(renderer());
-    m_leafRenderer.destroy(renderer());
-    m_bloodSplats.destroy(renderer());
+    m_frame.gpuParticles().destroy(renderer());
+    m_frame.particles().destroy(renderer());
+    m_frame.leafRenderer().destroy(renderer());
+    m_play.feedback().splats.destroy(renderer());
     DE_LOG_INFO("SandboxApp: shutdown");
 }

@@ -117,6 +117,14 @@ namespace Dark
         return false;
     }
 
+    bool MoviePlayer::takeBeganBlocking()
+    {
+        const bool blocking = blocksWorld();
+        const bool began    = blocking && !m_wasBlocking;
+        m_wasBlocking       = blocking;
+        return began;
+    }
+
     MoviePlayState MoviePlayer::state() const
     {
         return m_state;

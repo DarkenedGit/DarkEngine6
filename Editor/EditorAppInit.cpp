@@ -92,9 +92,9 @@ void EditorApp::onInit()
     m_play.bind(&EditorApp::fillPlayHost, this);
     m_dialogue.bind(&EditorApp::fillDialogueHost, this);
     m_movie.bind(&EditorApp::fillMovieHost, this);
-    m_water.params() = defaultWaterParams(0.0f);
+    m_sceneWorld.water.params() = defaultWaterParams(0.0f);
     DE_LOG_INFO("EditorApp: init");
-    m_ground.loadFromContent();
+    m_sceneWorld.ground.loadFromContent();
     skillCatalog().loadFromContent();
     throwableCatalog().loadFromContent();
     ensurePhysicsWorld();
@@ -159,10 +159,10 @@ void EditorApp::onInit()
         requestQuit();
         return;
     }
-    if (!m_bloodSplats.create(renderer()))
+    if (!m_play.feedback().splats.create(renderer()))
         DE_LOG_ERROR("EditorApp: blood splat pool failed");
-    m_blood.setDesc(playBloodBurstDesc());
-    m_blood.stop(true);
+    m_play.feedback().blood.setDesc(playBloodBurstDesc());
+    m_play.feedback().blood.stop(true);
     if (!m_gpuParticles.create(renderer()))
         DE_LOG_ERROR(LogCategory::Render, "EditorApp: GPU particle system failed");
     if (!m_leafRenderer.create(renderer(), assets()))
@@ -309,11 +309,11 @@ void EditorApp::applyIbl()
 {
     if (m_sceneMode != SceneMode::Scene3D)
     {
-        m_ibl.enabled = false;
-        m_iblImageId  = NULL_ASSET;
+        m_sceneWorld.ibl.enabled = false;
+        m_sceneWorld.iblImageId  = NULL_ASSET;
         return;
     }
-    if (!loadAndBakeIbl(renderer(), assets(), m_ibl, m_iblImageId))
+    if (!loadAndBakeIbl(renderer(), assets(), m_sceneWorld.ibl, m_sceneWorld.iblImageId))
         DE_LOG_INFO(LogCategory::Render, "Editor: IBL off — using ambient");
 }
 
@@ -377,15 +377,15 @@ void EditorApp::updateCamera(float dt)
 
 void EditorApp::frameCameraOnTerrain()
 {
-    if (!m_haveTerrain || !m_terrain.valid())
+    if (!m_haveTerrain || !m_sceneWorld.terrain.valid())
         return;
-    const AABox3f b = m_terrain.bounds();
+    const AABox3f b = m_sceneWorld.terrain.bounds();
     const Vector3f c = b.Center();
     const Vector3f e = b.Extents();
     float span = e.x > e.z ? e.x : e.z;
     if (span < 8.0f)
         span = 8.0f;
-    const float lookY = m_terrainSeaLevel > c.y ? m_terrainSeaLevel : c.y;
+    const float lookY = m_sceneWorld.terrainSeaLevel > c.y ? m_sceneWorld.terrainSeaLevel : c.y;
     const Vector3f target(c.x, lookY, c.z);
     const Vector3f pos(c.x, lookY + span * 0.35f, c.z - span * 1.2f);
     m_camera.LookAt(pos, target, Vector3f(0.0f, 1.0f, 0.0f));
@@ -393,10 +393,10 @@ void EditorApp::frameCameraOnTerrain()
 
 bool EditorApp::groundHitFromRay(const Ray3f& ray, Vector3f& outPoint) const
 {
-    if (m_haveTerrain && m_terrain.valid())
+    if (m_haveTerrain && m_sceneWorld.terrain.valid())
     {
-        const Terrain::HeightMap* working = m_terrain.editableWorking();
-        const Collision::RayHit3D hit = (working && working->valid()) ? working->raycast(ray) : m_terrain.raycast(ray);
+        const Terrain::HeightMap* working = m_sceneWorld.terrain.editableWorking();
+        const Collision::RayHit3D hit = (working && working->valid()) ? working->raycast(ray) : m_sceneWorld.terrain.raycast(ray);
         if (!hit.hit)
             return false;
         outPoint = hit.point;
@@ -426,13 +426,13 @@ void EditorApp::onShutdown()
     // Join MovieDecode before the device and stopAll. LoadingScreen closes later.
     m_movie.close();
     jobs().shutdown();
-    Physics::destroyFoliageCollision(m_physics, m_foliageCollision);
-    m_physics.destroy();
-    m_physicsGround = Physics::kNullPhysicsBody;
+    Physics::destroyFoliageCollision(m_sceneWorld.physics, m_sceneWorld.foliageCollision);
+    m_sceneWorld.physics.destroy();
+    m_sceneWorld.physicsGround = Physics::kNullPhysicsBody;
     network().shutdown();
     m_imgui.shutdown(renderer());
     m_gpuParticles.destroy(renderer());
-    m_bloodSplats.destroy(renderer());
+    m_play.feedback().splats.destroy(renderer());
     m_particleRenderer.destroy(renderer());
     m_leafRenderer.destroy(renderer());
     cancelFoliageSpawn();
@@ -442,8 +442,8 @@ void EditorApp::onShutdown()
     m_placedWater.clear();
     m_editorStreams.clear();
     m_placedWaterRetire.clear();
-    m_water = WaterWorld{};
-    m_terrain.clear();
+    m_sceneWorld.water = WaterWorld{};
+    m_sceneWorld.terrain.clear();
     m_terrainMaterial    = {};
     m_splat              = {};
     m_haveTerrain        = false;
