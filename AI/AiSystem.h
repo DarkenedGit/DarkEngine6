@@ -40,6 +40,10 @@ namespace Dark
         AiSystem() = default;
 
         bool bake(const AI::WalkabilityDesc& desc);
+        // Level teardown: drops the walk bake and the path binding, queued noises and radio calls,
+        // the pack duel and jump-attack tokens, and the per-level ground, hide-spot and conceal inputs.
+        // Settings (pack, prey, awareness, attack patterns) stay.
+        void clearLevel();
 
         AI::Walkability&       walkability() { return m_walk; }
         const AI::Walkability& walkability() const { return m_walk; }

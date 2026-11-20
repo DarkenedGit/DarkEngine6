@@ -26,6 +26,8 @@ namespace Dark::AI
     {
     public:
         bool bake(const WalkabilityDesc& desc);
+        // Drops the bake and its height map pointer. valid() is false until the next bake; bakeSerial() bumps.
+        void clear();
 
         bool valid() const { return m_cellsX > 0 && m_cellsZ > 0 && m_heightMap != nullptr; }
         // Bumps on every successful bake so a debug mesh can rebuild without comparing cells.

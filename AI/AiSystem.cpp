@@ -223,6 +223,30 @@ namespace Dark
         return m_finder.bind(&m_walk);
     }
 
+    void AiSystem::clearLevel()
+    {
+        m_walk.clear();
+        m_finder.unbind();
+        m_jumpAttackToken = {};
+        m_duelToken       = {};
+        m_noises.clear();
+        m_radios.clear();
+        m_hideSpots.clear();
+        m_conceal.clear();
+        m_scratch.clear();
+        m_jumpTargets.clear();
+        m_ground         = nullptr;
+        m_groundHeight   = nullptr;
+        m_groundSplat    = nullptr;
+        m_time           = 0.0f;
+        m_waterY         = -1.0e9f;
+        m_waterLevel     = -1.0e9f;
+        m_playerDepth    = 0.0f;
+        m_playerSwimming = false;
+        m_playerMotion   = 0.0f;
+        m_playerExposure = 1.0f;
+    }
+
     void AiSystem::setHunterHitReaction(World& world, const HitReactionSettings& settings)
     {
         m_hunterHit = settings;

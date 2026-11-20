@@ -34,6 +34,10 @@ namespace Dark::AI
     {
     public:
         bool bind(const Walkability* walk);
+        void unbind()
+        {
+            m_walk = nullptr;
+        }
         bool find(const PathRequest& req, PathResult& out) const;
 
     private:

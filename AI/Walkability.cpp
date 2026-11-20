@@ -33,6 +33,7 @@ namespace Dark::AI
         m_cellsX    = 0;
         m_cellsZ    = 0;
         m_heightMap = nullptr;
+        ++m_bakeSerial; // a failed bake still invalidates the old one
 
         if (!desc.heightMap || !desc.heightMap->valid())
         {
@@ -69,6 +70,17 @@ namespace Dark::AI
         ++m_bakeSerial;
         DE_LOG_INFO(LogCategory::AI, "Walkability: {}x{} cells, climb {:.2f}", m_cellsX, m_cellsZ, m_maxClimb);
         return true;
+    }
+
+    void Walkability::clear()
+    {
+        m_walk.clear();
+        m_island.clear();
+        m_cellsX    = 0;
+        m_cellsZ    = 0;
+        m_heightMap = nullptr;
+        m_desc      = {};
+        ++m_bakeSerial;
     }
 
     bool Walkability::worldToCell(float worldX, float worldZ, int& cx, int& cz) const
