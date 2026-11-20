@@ -449,10 +449,7 @@ namespace Dark
         else if (wolf)
             applySkillProfile(host.world, e, "wolf");
         attachHunterSounds(host.world, host.pins, host.assets, host.audio, e, host.ground);
-        const char* movement = wolf ? "wolf" : "hunter";
-        if (params && !params->movementType.empty())
-            movement = params->movementType.c_str();
-        applyNpcMovementFile(host.world, e, movement);
+        applyNpcMovementFile(host.world, e, npcMovementProfile(host.world, e, wolf));
     }
 
     ContentModelResult attachNpcVisual(const CharacterHost& host, Entity e, NpcKind kind, ModelAttach mode)
@@ -470,6 +467,14 @@ namespace Dark
         return result;
     }
 
+    const char* npcMovementProfile(World& world, Entity e, bool wolf)
+    {
+        // An explicit mod profile wins over the species default, here and after a save load.
+        if (const ArchetypeParamsComponent* params = world.get<ArchetypeParamsComponent>(e); params && !params->movementType.empty())
+            return params->movementType.c_str();
+        return wolf ? "wolf" : "hunter";
+    }
+
     void applyAuthoredMovement(World& world)
     {
         world.each<PlayerMotorComponent>([&](Entity, PlayerMotorComponent& motor) {
@@ -478,7 +483,7 @@ namespace Dark
         world.each<AiAgentComponent>([&](Entity e, AiAgentComponent&) {
             const TagComponent* tag  = world.get<TagComponent>(e);
             const bool          wolf = tagIsWolf(tag);
-            applyNpcMovementFile(world, e, wolf ? "wolf" : "hunter");
+            applyNpcMovementFile(world, e, npcMovementProfile(world, e, wolf));
             if (!wolf && !world.has<InteractableComponent>(e))
                 setInteractable(world, e, InteractKind::Guard, kInteractBodyRange);
         });

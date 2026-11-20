@@ -74,8 +74,12 @@ namespace Dark
     // mark becomes a guard. A wolf loses that mark. Does not load a model.
     void configureNpc(const CharacterHost& host, Entity e, NpcKind kind);
 
+    // Movement file for an NPC: its ArchetypeParamsComponent::movementType when set, else "wolf" or "hunter".
+    const char* npcMovementProfile(World& world, Entity e, bool wolf);
+
     // Re-reads player, hunter, and wolf movement files onto bodies already in the world.
     // A missing file leaves that body on the speeds it already has. Wolf is the tag "Wolf" or "wolf".
+    // An archetype movementType (a mod profile) wins over the tag, as in configureNpc.
     // An agent that is not a wolf and has no interact mark becomes a guard, so an old save can still be taken down.
     void applyAuthoredMovement(World& world);
 
