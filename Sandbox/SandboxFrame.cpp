@@ -1145,7 +1145,12 @@ void SandboxFrame::render()
         {
             if (drawIndex >= WaterPipeline::kMaxWaterDrawsPerFrame)
             {
-                DE_LOG_WARN(LogCategory::Render, "SandboxApp: water draw cap {} reached", WaterPipeline::kMaxWaterDrawsPerFrame);
+                static bool s_warned = false;
+                if (!s_warned)
+                {
+                    s_warned = true;
+                    DE_LOG_WARN(LogCategory::Render, "SandboxApp: water draw cap {} reached; the rest of the streams in view are not drawn (warns once)", WaterPipeline::kMaxWaterDrawsPerFrame);
+                }
                 break;
             }
             WaterParams streamParams = app().m_sceneWorld.water.params();

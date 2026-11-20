@@ -103,7 +103,8 @@ public:
     static constexpr UINT kRootSsrSrv    = 5;
     static constexpr UINT kBufferedFrames = 2;
     // Each draw in a frame needs its own upload slot. The GPU reads the heap after recording finishes.
-    static constexpr UINT kMaxWaterDrawsPerFrame = 32;
+    // Lake sheet + placed bodies + stream ribbons in view. 64 slots is 2 x 64 constant blocks.
+    static constexpr UINT kMaxWaterDrawsPerFrame = 64;
     static_assert(2u + 2u + 1u + 2u + 1u + 1u <= 64u, "water RS DWORD budget");
 
     WaterPipeline() = default;

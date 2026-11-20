@@ -1038,7 +1038,7 @@ bool SandboxApp::advanceBootSlice()
     }
     case BootSlice::StreamRibbon:
     {
-        while (boot.streamCursor < boot.scene.objects.size() && m_sceneWorld.water.ribbons().size() < 16)
+        while (boot.streamCursor < boot.scene.objects.size())
         {
             const SceneObjectData& o = boot.scene.objects[boot.streamCursor++];
             float width = 0.0f;
@@ -1062,7 +1062,8 @@ bool SandboxApp::advanceBootSlice()
                 DE_LOG_ERROR(LogCategory::Render, "SandboxApp: stream upload failed");
                 return true;
             }
-            m_sceneWorld.water.addRibbon(std::move(mesh), flow, bounds);
+            if (!m_sceneWorld.water.addRibbon(std::move(mesh), flow, bounds))
+                DE_LOG_WARN(LogCategory::Render, "SandboxApp: stream {} skipped", boot.streamCursor - 1);
             return true;
         }
         m_bootSlice = BootSlice::PrimitiveMesh;

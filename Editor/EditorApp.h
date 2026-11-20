@@ -511,13 +511,12 @@ private:
         WaterBody body;
     };
     std::vector<EditorWaterSlot>  m_placedWater;
+    // What each stream ribbon was built from. The mesh itself lives in m_sceneWorld.water.ribbons(), keyed by entity id.
     struct EditorStreamSlot
     {
-        EntityID                entityId = 0;
-        Mesh                    mesh;
-        float                   builtWidth = 0.0f;
+        EntityID                    entityId   = 0;
+        float                       builtWidth = 0.0f;
         std::vector<Math::Vector2f> builtPoints;
-        Math::AABox3f           bounds;
     };
     std::vector<EditorStreamSlot> m_editorStreams;
     // Placed bodies, streams, and the valley sheet when a live frame still

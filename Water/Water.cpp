@@ -334,21 +334,74 @@ using namespace Terrain;
         retire.takeFrom(m_gpuRetire);
     }
 
-    bool WaterWorld::addRibbon(Mesh mesh, float flowSpeed, const Math::AABox3f& bounds)
+    bool WaterWorld::addRibbon(Mesh mesh, float flowSpeed, const Math::AABox3f& bounds, uint64_t key, GpuMeshRetire* retire)
     {
         if (!mesh.valid())
             return false;
-        if (m_ribbons.size() >= 16)
+        if (WaterRibbon* existing = key != 0 ? findRibbon(key) : nullptr)
         {
-            DE_LOG_WARN(LogCategory::Render, "WaterWorld: stream ribbon cap is 16");
-            return false;
+            (retire ? *retire : m_gpuRetire).push(std::move(existing->mesh));
+            existing->mesh      = std::move(mesh);
+            existing->flowSpeed = flowSpeed;
+            existing->bounds    = bounds;
+            return true;
         }
         WaterRibbon ribbon;
         ribbon.mesh      = std::move(mesh);
         ribbon.flowSpeed = flowSpeed;
         ribbon.bounds    = bounds;
+        ribbon.key       = key;
         m_ribbons.push_back(std::move(ribbon));
+        // One draw slot goes to the lake sheet. Past this, the nearest visible ribbons in draw order win.
+        if (m_ribbons.size() + 1 > WaterPipeline::kMaxWaterDrawsPerFrame && !m_warnedRibbonSlots)
+        {
+            m_warnedRibbonSlots = true;
+            DE_LOG_WARN(LogCategory::Render, "WaterWorld: {} stream ribbons; only {} water draws fit in a frame, so some may not draw when all are in view", m_ribbons.size(),
+                        WaterPipeline::kMaxWaterDrawsPerFrame);
+        }
         return true;
+    }
+
+    WaterWorld::WaterRibbon* WaterWorld::findRibbon(uint64_t key)
+    {
+        if (key == 0)
+            return nullptr;
+        for (WaterRibbon& ribbon : m_ribbons)
+        {
+            if (ribbon.key == key)
+                return &ribbon;
+        }
+        return nullptr;
+    }
+
+    void WaterWorld::retainRibbons(const std::vector<uint64_t>& liveKeys, GpuMeshRetire& retire)
+    {
+        for (size_t i = 0; i < m_ribbons.size();)
+        {
+            const uint64_t key  = m_ribbons[i].key;
+            bool           keep = key == 0;
+            for (size_t k = 0; !keep && k < liveKeys.size(); ++k)
+                keep = liveKeys[k] == key;
+            if (keep)
+            {
+                ++i;
+                continue;
+            }
+            retire.push(std::move(m_ribbons[i].mesh));
+            m_ribbons.erase(m_ribbons.begin() + static_cast<std::ptrdiff_t>(i));
+        }
+    }
+
+    void WaterWorld::removeRibbon(uint64_t key, GpuMeshRetire& retire)
+    {
+        for (size_t i = 0; key != 0 && i < m_ribbons.size(); ++i)
+        {
+            if (m_ribbons[i].key != key)
+                continue;
+            retire.push(std::move(m_ribbons[i].mesh));
+            m_ribbons.erase(m_ribbons.begin() + static_cast<std::ptrdiff_t>(i));
+            return;
+        }
     }
 
     void WaterWorld::draw(
