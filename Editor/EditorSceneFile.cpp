@@ -510,6 +510,8 @@ bool EditorApp::applyLoadedScene(SceneFileData& data)
     }
     m_selected = {};
     DE_LOG_INFO("Editor: loaded {} objects", editorObjectCount());
+    if (renderer().debugState().showWalkability && m_sceneMode == SceneMode::Scene3D)
+        bakePlayWalkability();
     return true;
 }
 

@@ -14,6 +14,7 @@
 #include "Render/GrassPipeline.h"
 #include "Render/MeshConstants.h"
 #include "Render/SceneRenderer.h"
+#include "Render/WalkabilityDebug.h"
 #include "Render/SkinnedInstanceBuffer.h"
 #include "Terrain/TerrainMaterial.h"
 
@@ -72,6 +73,7 @@ private:
     Dark::DrawList                              m_drawList;
     Dark::SkinnedInstanceBuffer                 m_skinnedInstances;
     Dark::SceneRenderer                         m_scene;
+    Dark::WalkabilityDebug                      m_walkDebug;
     std::unordered_map<Dark::EntityID, Dark::Math::Matrix4f> m_prevWorldByEntity;
     Dark::FrameEntitySet                        m_acceptedMesh;
     Dark::FrameEntitySet                        m_acceptedModel;

@@ -731,6 +731,8 @@ namespace Dark::Audio
         }
 
         slot.voice->Start(0);
+        if (m_worldHeld && !slot.desc.ui)
+            slot.voice->Stop(0);
         return makeId(index);
     }
 
@@ -763,7 +765,34 @@ namespace Dark::Audio
         m_musicId = play(clip, d);
         const int index = decodeIndex(m_musicId);
         if (index >= 0)
-            m_voices[static_cast<size_t>(index)]->music = true;
+        {
+            VoiceSlot& slot = *m_voices[static_cast<size_t>(index)];
+            slot.music = true;
+            if (m_worldHeld && slot.voice)
+                slot.voice->Start(0);
+        }
+    }
+
+    void AudioSystem::setWorldHeld(bool held)
+    {
+        assertMainThread();
+        if (held == m_worldHeld)
+            return;
+        m_worldHeld = held;
+        if (!m_valid)
+            return;
+        for (const std::unique_ptr<VoiceSlot>& ptr : m_voices)
+        {
+            if (!ptr)
+                continue;
+            VoiceSlot& slot = *ptr;
+            if (!slot.inUse || !slot.voice || slot.music || slot.desc.ui)
+                continue;
+            if (held)
+                slot.voice->Stop(0);
+            else
+                slot.voice->Start(0);
+        }
     }
 
     void AudioSystem::stopMusic()

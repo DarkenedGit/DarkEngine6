@@ -5,6 +5,7 @@
 #include "Play/DialogueBinding.h"
 #include "Play/CombatHud.h"
 #include "Play/DialogueHud.h"
+#include "Play/SimTimeHud.h"
 #include "Ui/ImGuiGameChrome.h"
 #include "Ui/ImGuiTheme.h"
 #include "Play/DialogueMemory.h"
@@ -322,7 +323,8 @@ void EditorApp::bakePlayWalkability()
         height = &m_playGrid;
         DE_LOG_INFO(LogCategory::AI, "Editor: no terrain — hunters path the ground grid");
     }
-    if (!bakeHunterWalk(m_ai, height, -1.0e9f, 0.8f, m_playCubes, m_playSpheres))
+    const float water = m_sceneWorld.water.chunksX() > 0 ? m_sceneWorld.water.params().waterLevel : -1.0e9f;
+    if (!bakeHunterWalk(m_ai, height, water, 0.8f, m_playCubes, m_playSpheres))
         DE_LOG_WARN(LogCategory::AI, "Editor: walkability bake failed");
 }
 
@@ -525,6 +527,7 @@ void EditorApp::setPlayMode(bool play)
             gatherConcealVolumes(world(), conceal);
             m_ai.setConcealVolumes(std::move(conceal));
         }
+        m_play.setSimPaused(false);
         m_play.bind(&EditorApp::fillPlayHost, this);
         m_dialogue.bind(&EditorApp::fillDialogueHost, this);
         m_movie.bind(&EditorApp::fillMovieHost, this);
@@ -625,6 +628,8 @@ void EditorApp::setPlayMode(bool play)
         m_defenseTextLeft = 0.0f;
         m_defenseParry    = false;
         destroyPlayMuzzle(world(), m_play.muzzle(), m_play.feedback().muzzleTimer);
+        m_play.setSimPaused(false);
+        audio().setWorldHeld(false);
         m_play.guardVoice().stop();
         // Interrupt stores a resume bookmark. This Play is over, so the next one starts at the greeting.
         m_dialogue.endPlay();
@@ -1206,6 +1211,8 @@ void EditorApp::drawPlayHud()
         const QuestBanner& banner = m_questBanners.front();
         ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(banner.color), "%s  %s", banner.label.c_str(), banner.text.c_str());
     }
+    ImGui::Separator();
+    drawSimTimeControls(m_play, "Pause sim", nullptr, nullptr);
     ImGui::TextDisabled("RMB / V / LT shield    L light    F12 / Esc stop");
     Dark::EndGameCard();
 

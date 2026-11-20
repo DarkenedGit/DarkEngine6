@@ -28,6 +28,8 @@ namespace Dark::AI
         bool bake(const WalkabilityDesc& desc);
 
         bool valid() const { return m_cellsX > 0 && m_cellsZ > 0 && m_heightMap != nullptr; }
+        // Bumps on every successful bake so a debug mesh can rebuild without comparing cells.
+        uint32_t bakeSerial() const { return m_bakeSerial; }
 
         int   cellsX() const { return m_cellsX; }
         int   cellsZ() const { return m_cellsZ; }
@@ -67,5 +69,6 @@ namespace Dark::AI
         float                     m_minNy    = 0.70710678f;
         std::vector<uint8_t>      m_walk;
         std::vector<int>          m_island;
+        uint32_t                  m_bakeSerial = 0;
     };
 } // namespace Dark::AI

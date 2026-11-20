@@ -262,8 +262,39 @@ namespace Dark
         m_rt.quest.start(id);
     }
 
+    void PlaySession::setSimPaused(bool paused)
+    {
+        m_simPaused = paused;
+        m_simStep   = false;
+    }
+
+    void PlaySession::requestSimStep()
+    {
+        if (m_simPaused)
+            m_simStep = true;
+    }
+
+    void PlaySession::consumeSimStep()
+    {
+        m_simStep = false;
+    }
+
+    void PlaySession::setSimTimeScale(float scale)
+    {
+        if (!(scale > 0.0f))
+            scale = 1.0f;
+        if (scale < kSimTimeScaleMin)
+            scale = kSimTimeScaleMin;
+        if (scale > kSimTimeScaleMax)
+            scale = kSimTimeScaleMax;
+        m_simTimeScale = scale;
+    }
+
     float PlaySession::scaleDt(float dt)
     {
+        if (!(dt > 0.0f))
+            return 0.0f;
+        dt *= m_simTimeScale;
         if (m_rt.shake > 0.0f)
         {
             m_rt.shakeTime += dt;

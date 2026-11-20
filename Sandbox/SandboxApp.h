@@ -49,10 +49,14 @@ public:
 private:
     void registerDefaultActions();
     void populateMainMenu();
-    // Terrain, pawns, and the save baseline. Called once: from onInit when the
-    // menu is skipped, or from the first menu confirm. After the splash, confirm
-    // returns and onUpdate advances one slice per frame so Present runs between them.
+    // Terrain, pawns, and the save baseline. From onInit when the menu is skipped,
+    // or from a menu confirm. After the splash, confirm returns and onUpdate
+    // advances one slice per frame so Present runs between them.
+    // A running scene must leaveScene first; startScene returns without booting while one is up.
     bool startScene(const std::filesystem::path& scenePath);
+    // Drops the running 3D session so startScene can boot another file. The window,
+    // renderer, menu, and pipelines from onInit stay.
+    bool leaveScene();
 
     // One step of startScene, then the caller pumps. Editor and Sandbox2D do not use this.
     enum class BootSlice : uint8_t
@@ -78,7 +82,7 @@ private:
     bool bootSceneLoop();
     bool advanceBootSlice();
     bool advanceSpawnBatch();
-    void handleRuntimeCommands(float dt);
+    void handleRuntimeCommands(float wallDt, bool allowScale);
     void handleNetHotkeys();
     void applyNetRole();
     bool uiOpen() const
@@ -190,6 +194,10 @@ private:
     // False when the boot budget is spent and fixtures remain.
     bool         spawnBuildingExtras(Dark::BuildingFixtureSpawn& spawn);
     float                      m_frameDt = 0.0f;
+    // Filled by handleRuntimeCommands for the rest of the frame. Held freezes world clocks.
+    float                      m_simDt    = 0.0f;
+    bool                       m_simHeld  = false;
+    bool                       m_simReady = false;
 
     Dark::SceneWorld               m_sceneWorld;
 
@@ -201,10 +209,8 @@ private:
     Dark::NetRole m_netRole        = Dark::NetRole::Idle;
     uint32_t      m_browseLogCount = ~0u;
     bool          m_netBrowsing    = false;
-    bool          m_gameplayPaused = false;
     bool          m_godMode        = false;
     bool          m_reaperMode     = false;
-    bool          m_stepGameplay   = false;
     float         m_flySpeed       = 18.0f;
     bool          m_showShadowMaps = false;
     bool          m_showDepth      = false;

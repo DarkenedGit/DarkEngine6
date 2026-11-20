@@ -49,27 +49,24 @@ namespace Dark
         }
     } // namespace
 
-    bool playSoundCue(World& world, Audio::AudioSystem& audio, AssetManager& assets, Entity e, const char* name)
+    bool playSoundCue(World& world, Audio::AudioSystem& audio, AssetManager& assets, Entity e, const char* name, bool ui)
     {
         const SoundBankComponent* bank = e.valid() ? world.get<SoundBankComponent>(e) : nullptr;
         const SoundCueDesc*       cue  = bank ? findSoundCue(*bank, name) : nullptr;
         const auto                clip = cue ? cueClip(assets, *cue) : AssetRef<Audio::SoundClip>{};
         if (!clip || !clip->valid())
             return false;
+        Audio::PlayDesc desc{};
+        desc.volume = cue->volume;
+        desc.ui     = ui;
         if (cue->spatial)
         {
-            Math::Vector3f pos{};
             if (const TransformComponent* xf = world.get<TransformComponent>(e))
-                pos = xf->position;
-            Audio::PlayDesc desc{};
-            desc.volume   = cue->volume;
+                desc.position = xf->position;
             desc.spatial  = true;
-            desc.position = pos;
             desc.sourceId = e.id();
-            audio.play(clip, desc);
         }
-        else
-            audio.play2D(clip, cue->volume);
+        audio.play(clip, desc);
         return true;
     }
 

@@ -38,6 +38,7 @@ namespace Dark::Audio
         float          maxDistance = 64.0f;
         uint32_t       sourceId    = 0; // 0 is unattributed and does not train Hear.
         bool           doppler     = true;
+        bool           ui          = false; // Interface click. World hold does not stop it.
     };
 
     using VoiceId = uint32_t; // 0 = invalid
@@ -101,6 +102,11 @@ namespace Dark::Audio
         void setVoicePosition(VoiceId id, const Math::Vector3f& position);
         void setVoiceVolume(VoiceId id, float volume);
         void stopMusic();
+
+        // Stops every in-use voice except music and interface clicks, without flushing. Clear resumes them.
+        // A world clip started while held is stopped before it is heard. Music keeps playing.
+        void setWorldHeld(bool held);
+        bool worldHeld() const { return m_worldHeld; }
 
         void stop(VoiceId id);
         // Clip slots only. The streaming voice keeps playing.
@@ -178,6 +184,7 @@ namespace Dark::Audio
         bool           m_valid          = false;
         bool           m_comInited      = false;
         VoiceId        m_musicId        = 0;
+        bool           m_worldHeld      = false;
     };
 
 } // namespace Dark::Audio

@@ -20,6 +20,43 @@ TEST(PlaySession, ScaleDtSlowsWhileHitStop)
     EXPECT_FLOAT_EQ(play.runtime().hitStop, 0.15f);
 }
 
+TEST(PlaySession, SimTimeScaleStretchesHitStop)
+{
+    PlaySession play;
+    play.setSimTimeScale(0.25f);
+    play.runtime().hitStop = 0.1f;
+    const float scaled     = play.scaleDt(0.1f);
+    EXPECT_NEAR(scaled, 0.00125f, 1.0e-6f);
+    EXPECT_NEAR(play.runtime().hitStop, 0.075f, 1.0e-6f);
+}
+
+TEST(PlaySession, SimPauseStepAndScaleClamp)
+{
+    PlaySession play;
+    EXPECT_TRUE(play.simAdvances());
+    play.setSimPaused(true);
+    EXPECT_FALSE(play.simAdvances());
+    play.requestSimStep();
+    EXPECT_TRUE(play.simStepPending());
+    EXPECT_TRUE(play.simAdvances());
+    play.consumeSimStep();
+    EXPECT_FALSE(play.simStepPending());
+    EXPECT_FALSE(play.simAdvances());
+    play.requestSimStep();
+    play.setSimPaused(false);
+    EXPECT_FALSE(play.simStepPending());
+    EXPECT_TRUE(play.simAdvances());
+    play.requestSimStep();
+    EXPECT_FALSE(play.simStepPending());
+
+    play.setSimTimeScale(100.0f);
+    EXPECT_FLOAT_EQ(play.simTimeScale(), kSimTimeScaleMax);
+    play.setSimTimeScale(0.0f);
+    EXPECT_FLOAT_EQ(play.simTimeScale(), 1.0f);
+    play.setSimTimeScale(0.01f);
+    EXPECT_FLOAT_EQ(play.simTimeScale(), kSimTimeScaleMin);
+}
+
 TEST(PlaySession, ResetPawnKeepsLookAndClearsHitStop)
 {
     PlaySession play;

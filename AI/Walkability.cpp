@@ -66,6 +66,7 @@ namespace Dark::AI
         }
 
         floodIslands();
+        ++m_bakeSerial;
         DE_LOG_INFO(LogCategory::AI, "Walkability: {}x{} cells, climb {:.2f}", m_cellsX, m_cellsZ, m_maxClimb);
         return true;
     }

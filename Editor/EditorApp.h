@@ -12,6 +12,7 @@
 #include "Render/FoliagePrototypes.h"
 #include "Render/GrassPipeline.h"
 #include "Render/LinePipeline.h"
+#include "Render/WalkabilityDebug.h"
 #include "Render/SceneRenderer.h"
 #include "Render/Camera3D.h"
 #include "Render/Camera2D.h"
@@ -376,8 +377,9 @@ private:
     static float snap(float v, float grid);
 
     SceneRenderer   m_scene;
-    LinePipeline    m_linePipeline;
-    LinePipeline    m_linePipeline3D;
+    LinePipeline      m_linePipeline;
+    LinePipeline      m_linePipeline3D;
+    WalkabilityDebug  m_walkDebug;
 
     Mesh m_cubeMesh;
     DrawList m_drawList;

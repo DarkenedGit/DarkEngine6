@@ -28,6 +28,7 @@ TEST(DebugRenderState, DefaultsAreLitSolidWithShadows)
     EXPECT_FALSE(s.decalsEnabled);
     EXPECT_EQ(s.decalsDebug, 0);
     EXPECT_TRUE(s.gpuParticles);
+    EXPECT_FALSE(s.showWalkability);
     EXPECT_TRUE(s.lightingActive());
 }
 

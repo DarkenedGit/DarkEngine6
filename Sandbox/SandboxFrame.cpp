@@ -344,7 +344,7 @@ void SandboxFrame::render()
 
     app().m_frame.foliagePipeline().setWind(app().m_sceneWorld.wind, app().m_sceneWorld.windClock.time, app().m_sceneWorld.windClock.prevTime);
 
-    Dark::setGameNavEnabled(app().m_hud.m_menu.visible() || app().m_gameplayPaused);
+    Dark::setGameNavEnabled(app().m_hud.m_menu.visible() || app().m_play.simPaused());
     if (app().m_hud.m_imgui.isReady())
         app().m_hud.m_imgui.beginFrame();
 
@@ -1273,6 +1273,7 @@ void SandboxFrame::render()
         const GpuScope paths(cmd, "Path Debug", ProfileColor::DebugOverlay);
         app().m_chase.drawPaths(cmd, app().renderer(), viewProj);
     }
+    m_walkDebug.draw(cmd, app().renderer(), &app().m_chase.ai().walkability(), viewProj);
     app().m_demo.drawSkeletonOverlay(cmd, viewProj);
     m_scene.drawDecalVolumes(cmd, app().renderer(), app().m_chase.linePipeline(), viewProj);
 
@@ -1410,7 +1411,7 @@ void SandboxFrame::render()
     const HudTagComponent* hudTag = hudBody.valid() ? app().world().get<HudTagComponent>(hudBody) : nullptr;
     const bool movieBlocks = app().m_movie.blocksWorld();
     const bool showHealth = !movieBlocks && !app().m_hud.m_menu.visible() && hudHp && hudTag && hudTag->kind == HudKind::HealthBar;
-    const bool showCrosshair = !movieBlocks && !app().m_hud.m_menu.visible() && hudHp && hudHp->alive() && !app().m_gameplayPaused && !app().m_dialogue.locksWorld();
+    const bool showCrosshair = !movieBlocks && !app().m_hud.m_menu.visible() && hudHp && hudHp->alive() && !app().m_play.simPaused() && !app().m_dialogue.locksWorld();
 
     app().renderer().stats().drawCalls = app().m_sceneWorld.terrain.lastDrawCalls() + app().m_sceneWorld.water.lastDrawCalls() + meshDraws + 1;
     app().renderer().stats().triangles =
@@ -1461,7 +1462,7 @@ void SandboxFrame::render()
         app().m_hud.drawDefenseText();
         if (app().m_showProfiler)
             app().m_hud.drawProfiler();
-        if (app().m_gameplayPaused)
+        if (app().m_play.simPaused())
             app().m_hud.drawPauseOverlay();
         if (app().m_showDevTools)
             app().m_hud.drawDevTools();

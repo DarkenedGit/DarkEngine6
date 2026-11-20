@@ -189,6 +189,14 @@ void EditorApp::drawEditorUi()
             }
             if (m_sceneMode == SceneMode::Scene3D)
             {
+                if (ImGui::MenuItem("Walkable mesh", nullptr, &renderer().debugState().showWalkability))
+                {
+                    DE_LOG_INFO("Editor: walkable mesh = {}", renderer().debugState().showWalkability);
+                    if (renderer().debugState().showWalkability)
+                        bakePlayWalkability();
+                }
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+                    ImGui::SetTooltip("Hunter walk bake. Each color is one island. Gaps are water, steep ground, or a solid. Turn off and on after editing solids.");
                 DebugRenderState& decalDbg = renderer().debugState();
                 if (ImGui::MenuItem("Decals", nullptr, &decalDbg.decalsEnabled))
                     DE_LOG_INFO("Editor: decals = {}", decalDbg.decalsEnabled);
@@ -1196,47 +1204,56 @@ void EditorApp::onUpdate(float dt)
         audio().stopClipVoices();
     }
 
-    if (m_playMode)
-        dt = m_play.scaleDt(dt);
+    const float wallDt = dt;
     const NetRole role = network().role();
     if (role == NetRole::Joining && m_lastNetRole != NetRole::Joining)
         discardLocalSceneForJoin();
     m_lastNetRole = role;
 
-    m_sceneWorld.cloudTime += dt;
-    if (m_sceneMode == SceneMode::Scene3D)
+    handleEditorCommands(wallDt);
+    const bool talkHold = m_playMode && (m_dialogue.locksWorld() || m_movie.blocksWorld());
+    const bool stepThrough = m_play.simStepPending() && !talkHold;
+    const bool pauseHeld = m_playMode && m_play.simPaused() && !stepThrough;
+    const float simDt = (m_playMode && !pauseHeld) ? m_play.scaleDt(wallDt) : 0.0f;
+    const float clockDt = m_playMode ? simDt : wallDt;
+
+    if (!pauseHeld)
     {
-        m_sceneWorld.env.tick(dt);
-        applySkyToLights();
+        m_sceneWorld.cloudTime += clockDt;
+        if (m_sceneMode == SceneMode::Scene3D)
+        {
+            m_sceneWorld.env.tick(clockDt);
+            applySkyToLights();
+        }
     }
-    handleEditorCommands(dt);
     if (m_playMode)
     {
         if (!m_playPlayer.valid() || !world().alive(m_playPlayer))
             setPlayMode(false);
         else
         {
-            if (!m_dialogue.locksWorld() && !m_movie.blocksWorld())
+            if (!talkHold && !pauseHeld)
             {
                 bindPlayFeedback();
-                tickPlayMuzzle(m_play.feedback(), dt);
-                m_play.tickPawn(dt);
+                tickPlayMuzzle(m_play.feedback(), simDt);
+                m_play.tickPawn(simDt);
                 m_play.tickCamera();
-                m_play.tickWorld(dt);
-                m_play.feedback().blood.update(dt);
+                m_play.tickWorld(simDt);
+                m_play.feedback().blood.update(simDt);
+                m_play.consumeSimStep();
             }
-            if (!m_movie.blocksWorld())
-                m_dialogue.tick(dt);
+            if (!m_movie.blocksWorld() && !pauseHeld)
+                m_dialogue.tick(simDt);
             m_save.service(world());
-            if (m_defenseTextLeft > 0.0f)
+            if (!pauseHeld && m_defenseTextLeft > 0.0f)
             {
-                m_defenseTextLeft -= dt;
+                m_defenseTextLeft -= simDt;
                 if (m_defenseTextLeft < 0.0f)
                     m_defenseTextLeft = 0.0f;
             }
-            if (!m_questBanners.empty())
+            if (!pauseHeld && !m_questBanners.empty())
             {
-                m_questBanners.front().timeLeft -= dt;
+                m_questBanners.front().timeLeft -= simDt;
                 if (m_questBanners.front().timeLeft <= 0.0f)
                     m_questBanners.erase(m_questBanners.begin());
             }
@@ -1244,23 +1261,26 @@ void EditorApp::onUpdate(float dt)
     }
     else
     {
-        updateCamera(dt);
+        updateCamera(wallDt);
         syncEditPhysics();
     }
     const bool movieHolds = m_playMode && m_movie.blocksWorld();
-    window().setCursorCaptured(m_playMode && window().isFocused() && !m_lootTarget.valid() && !m_showUpgrades && !movieHolds);
+    const bool worldHeld = pauseHeld && m_playMode;
+    window().setCursorCaptured(m_playMode && window().isFocused() && !m_lootTarget.valid() && !m_showUpgrades && !movieHolds && !worldHeld);
     if (m_sceneMode != SceneMode::Scene2D)
     {
-        if (!movieHolds)
-            m_sceneWorld.water.tick(dt);
+        if (!movieHolds && !worldHeld)
+            m_sceneWorld.water.tick(clockDt);
         const bool terrainChanged = m_terrainHeightDirty;
         syncTerrainLod();
         syncPlacedWater(terrainChanged);
-        if (!movieHolds)
-            updateEditorGrass(dt);
+        if (!movieHolds && !worldHeld)
+            updateEditorGrass(clockDt);
+        else if (worldHeld)
+            m_sceneWorld.leafRustle.stopAll(audio());
     }
 
-    if (m_sceneMode != SceneMode::Scene2D && !movieHolds)
+    if (m_sceneMode != SceneMode::Scene2D && !movieHolds && !worldHeld)
     {
         const Entity selected = m_selected;
         world().each<AnimGraphComponent>([&](Entity e, AnimGraphComponent& ag) {
@@ -1280,20 +1300,20 @@ void EditorApp::onUpdate(float dt)
             }
         });
         if (!(m_playMode && m_dialogue.locksWorld()))
-            tickAnimGraphs(world(), assets(), dt);
+            tickAnimGraphs(world(), assets(), clockDt);
         if (m_playMode)
             m_play.tickHeldItems();
     }
 
     // Scene2D never calls simulateAndDraw. Leave the GPU clock and burst queue alone.
-    if (!movieHolds && m_sceneMode != SceneMode::Scene2D)
+    if (!movieHolds && !worldHeld && m_sceneMode != SceneMode::Scene2D)
     {
         m_gpuParticles.applyIntegratorFallback(world(), renderer().debugState().gpuParticles);
-        tickParticleEmitters(world(), dt);
-        m_gpuParticles.prepare(world(), dt);
+        tickParticleEmitters(world(), clockDt);
+        m_gpuParticles.prepare(world(), clockDt);
     }
-    else if (!movieHolds)
-        tickParticleEmitters(world(), dt);
+    else if (!movieHolds && !worldHeld)
+        tickParticleEmitters(world(), clockDt);
 
     if (m_sceneMode == SceneMode::Scene2D)
     {
@@ -1306,5 +1326,7 @@ void EditorApp::onUpdate(float dt)
     }
     else
         setViewAudioListener(audio(), m_camera, &world(), m_playPlayer, m_playMode && skillCatalog().enabled());
-    m_scene.tickDecals(world(), dt);
+    if (!worldHeld)
+        m_scene.tickDecals(world(), clockDt);
+    audio().setWorldHeld(m_playMode && m_play.simPaused());
 }

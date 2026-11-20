@@ -113,7 +113,7 @@ void SandboxDemo::spawnGltfDemo(int step)
         ModelComponent mc;
         mc.modelAssetID = model->id;
         mc.castShadow   = model->hasOpaque();
-        app().world().emplace<ModelComponent>(e, mc);
+        setModelComponent(app().world(), app().pins(), app().assets(), e, mc);
         DE_LOG_INFO("SandboxApp: spawned {} at ({:.1f},{:.1f},{:.1f}) ground {:.1f}", tag, x, y, z, groundY);
     };
 
@@ -172,7 +172,7 @@ void SandboxDemo::spawnAnimatedDemo()
     ModelComponent mc;
     mc.modelAssetID = model->id;
     mc.castShadow   = model->hasOpaque();
-    app().world().emplace<ModelComponent>(e, mc);
+    setModelComponent(app().world(), app().pins(), app().assets(), e, mc);
 
     AnimGraphComponent ag;
     ag.model   = model;

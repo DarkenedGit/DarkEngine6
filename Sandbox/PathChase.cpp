@@ -99,12 +99,13 @@ bool PathChase::init(Renderer& renderer, Terrain::TerrainGrid& terrain, WaterWor
 {
     m_ai.setHunterHitReactionSettings(defaultHunterHitReaction());
     m_world = &world;
-    if (!m_lines.create(renderer.device(), renderer.sceneColorFormat()))
+    // A level change calls init again. The pipeline and upload buffers already exist.
+    if (!m_lines.isValid() && !m_lines.create(renderer.device(), renderer.sceneColorFormat()))
     {
         DE_LOG_ERROR(LogCategory::AI, "PathChase: LinePipeline create failed");
         return false;
     }
-    if (!createLineBuffers(renderer))
+    if (!m_lineVb[0] && !createLineBuffers(renderer))
     {
         DE_LOG_ERROR(LogCategory::AI, "PathChase: line buffers failed");
         return false;

@@ -16,6 +16,7 @@
 #include "Play/Carry.h"
 #include "Media/MovieHud.h"
 #include "Play/DialogueHud.h"
+#include "Play/SimTimeHud.h"
 #include "Play/PlayerFlashlight.h"
 #include "Math/Vector4f.h"
 #include "Ui/NpcInfoOverlay.h"
@@ -366,7 +367,7 @@ void SandboxHud::drawUpgrades()
             {
                 facility.owned.push_back(up.id);
                 app().m_play.refreshUpgrades();
-                playSoundCue(app().world(), app().audio(), app().assets(), app().m_play.cameraEntity(), "click");
+                playSoundCue(app().world(), app().audio(), app().assets(), app().m_play.cameraEntity(), "click", true);
                 DE_LOG_INFO("Upgrades: bought {}", up.name);
             }
             ImGui::EndDisabled();
@@ -1207,13 +1208,10 @@ void SandboxHud::drawPauseOverlay()
     ImGui::TextUnformatted("Fly cam   WASD move   Q/Space up   Z/Ctrl down   Shift sprint   mouse look");
     ImGui::TextDisabled("O step    F3 resume");
     if (ImGui::Button("Resume"))
-    {
-        app().m_gameplayPaused = false;
-        app().m_stepGameplay   = false;
-    }
+        app().m_play.setSimPaused(false);
     ImGui::SameLine();
     if (ImGui::Button(ICON_FA_FORWARD_STEP "  Step"))
-        app().m_stepGameplay = true;
+        app().m_play.requestSimStep();
     Dark::EndGameCard();
 }
 
@@ -1229,19 +1227,7 @@ void SandboxHud::drawDevTools()
         return;
     }
 
-    if (ImGui::Checkbox("Pause gameplay (fly cam)", &app().m_gameplayPaused))
-    {
-        app().m_stepGameplay = false;
-        DE_LOG_INFO("Sandbox: gameplay paused = {}", app().m_gameplayPaused);
-    }
-    ImGui::SameLine();
-    ImGui::TextDisabled("F3");
-    ImGui::BeginDisabled(!app().m_gameplayPaused);
-    if (ImGui::Button(ICON_FA_FORWARD_STEP "  Step"))
-        app().m_stepGameplay = true;
-    ImGui::EndDisabled();
-    ImGui::SameLine();
-    ImGui::TextDisabled("O");
+    Dark::drawSimTimeControls(app().m_play, "Pause gameplay (fly cam)", "F3", "O");
     ImGui::SliderFloat(ICON_FA_GAUGE_HIGH "  Fly speed (m/s)", &app().m_flySpeed, 1.0f, 400.0f, "%.0f", ImGuiSliderFlags_Logarithmic);
     ImGui::SetItemTooltip("Free-fly camera while paused. Shift multiplies by 2.5.");
     ImGui::Separator();
@@ -1374,6 +1360,9 @@ void SandboxHud::drawDevTools()
         }
         if (Dark::PropCheckbox("Skeleton overlay", &app().m_showSkeleton))
             DE_LOG_INFO("Sandbox: skeleton overlay = {}", app().m_showSkeleton);
+        if (Dark::PropCheckbox("Walkable mesh", &dbg.showWalkability))
+            DE_LOG_INFO("Sandbox: walkable mesh = {}", dbg.showWalkability);
+        ImGui::SetItemTooltip("Hunter walk bake. Each color is one island. Gaps are water, steep ground, or a solid.");
         if (Dark::PropCheckbox("Decals", &dbg.decalsEnabled))
             DE_LOG_INFO("Sandbox: decals = {}", dbg.decalsEnabled);
         bool decalVolumes = dbg.decalsDebug != 0;

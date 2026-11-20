@@ -57,7 +57,8 @@ namespace Dark
     // Starts/stops voices from play flags. Does not call AudioSystem::tick (Application does).
     void tickSoundEmitters(World& world, Audio::AudioSystem& audio, AssetManager& assets);
 
-    bool playSoundCue(World& world, Audio::AudioSystem& audio, AssetManager& assets, Entity e, const char* name);
+    // ui keeps an interface click audible while the world is held.
+    bool playSoundCue(World& world, Audio::AudioSystem& audio, AssetManager& assets, Entity e, const char* name, bool ui = false);
     bool playSoundCueAt(World& world, Audio::AudioSystem& audio, AssetManager& assets, Entity e, const char* name, const Math::Vector3f& position);
     bool playMusicCue(World& world, Audio::AudioSystem& audio, AssetManager& assets, Entity e, const char* name);
 

@@ -70,6 +70,10 @@ namespace Dark
     inline constexpr float kPlaySpawnFocusSeconds = 1.75f;
     inline constexpr float kPlayJumpAttackBuffer  = 0.12f;
 
+    // Dev sim-time slider. 1 is real time. Pause is a separate hold.
+    inline constexpr float kSimTimeScaleMin = 0.05f;
+    inline constexpr float kSimTimeScaleMax = 8.0f;
+
     // Pawn, combat, and quest state for one play session.
     // Both apps read and write it through PlaySession::runtime(). resetPawn writes these fields in place.
     struct PlayRuntime
@@ -239,7 +243,21 @@ namespace Dark
         ThrowableFlights&   throws() { return m_rt.throws; }
         WeaponTargetList&   targets() { return m_rt.targets; }
 
-        // Shake decay, then hit-stop. Returns the dt the rest of the play frame should use.
+        // Pause holds every world clock. requestSimStep runs one frame, then holds again.
+        // setSimPaused clears a pending step. The scale is kept across pause.
+        void setSimPaused(bool paused);
+        bool simPaused() const { return m_simPaused; }
+        void requestSimStep();
+        bool simStepPending() const { return m_simStep; }
+        void consumeSimStep();
+        void setSimTimeScale(float scale);
+        float simTimeScale() const { return m_simTimeScale; }
+        // True when the sim is running, or a step is waiting. Callers still close the gate
+        // for a menu, a conversation, or a movie before they consume the step.
+        bool simAdvances() const { return !m_simPaused || m_simStep; }
+
+        // Sim time scale, then shake and hit-stop in sim seconds. Hit-stop returns 5% of that step.
+        // A scale below 1 stretches the authored hit-stop across more wall time.
         float scaleDt(float dt);
 
         void tickPawn(float dt);
@@ -311,6 +329,9 @@ namespace Dark
 
         void (*m_fill)(void* user, PlayHost& host) = nullptr;
         void*        m_user = nullptr;
+        bool         m_simPaused     = false;
+        bool         m_simStep       = false;
+        float        m_simTimeScale  = 1.0f;
         PlayHost     m_host{};
         PlayRuntime  m_rt{};
         FacilityState m_facility{};

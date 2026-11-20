@@ -627,7 +627,7 @@ void SandboxApp::populateMainMenu()
         m_hud.m_menu.selectById("continue");
 }
 
-void SandboxApp::handleRuntimeCommands(float dt)
+void SandboxApp::handleRuntimeCommands(float wallDt, bool allowScale)
 {
     // Splash teardown already ran. One slice here, then the main loop Presents.
     if (m_bootPolling && m_bootSlice != BootSlice::Done)
@@ -660,8 +660,6 @@ void SandboxApp::handleRuntimeCommands(float dt)
         {
         case MainMenuResult::Confirm:
         {
-            // The 3D world is built once. Esc brings this menu back;
-            // confirming a different level does not tear the session down.
             const MainMenuEntry* picked = m_hud.m_menu.selected();
             if (picked && picked->id == "settings")
             {
@@ -672,6 +670,22 @@ void SandboxApp::handleRuntimeCommands(float dt)
             {
                 m_hud.m_menuPage = MainMenuPage::Credits;
                 break;
+            }
+            // Esc reopens this menu. A different level, or New Game, tears the
+            // session down and boots that file. The level already running resumes.
+            if (m_sceneStarted)
+            {
+                const bool newGame = picked && picked->id == "new_game";
+                const bool otherScene = picked && picked->kind == MainMenuKind::Scene && !picked->path.empty()
+                    && picked->path.filename() != m_loadedScenePath.filename();
+                if (!newGame && !otherScene)
+                {
+                    m_hud.m_menuPage = MainMenuPage::Front;
+                    m_hud.m_menu.hide();
+                    break;
+                }
+                if (m_bootPolling || network().role() != NetRole::Idle || !leaveScene())
+                    break;
             }
             if (!m_sceneStarted)
             {
@@ -702,18 +716,6 @@ void SandboxApp::handleRuntimeCommands(float dt)
                 // Splash already finished without a camera, so the usual cue never played.
                 playMusicCue(world(), audio(), assets(), m_play.cameraEntity(), "music");
             }
-            else if (picked && picked->id == "new_game")
-            {
-                DE_LOG_INFO("Sandbox: already in '{}'; staying in this session", m_loadedScenePath.filename().string());
-                break;
-            }
-            else if (picked)
-            {
-                const bool otherScene = picked->kind == MainMenuKind::Scene && !picked->path.empty()
-                    && picked->path.filename() != m_loadedScenePath.filename();
-                if (otherScene)
-                    DE_LOG_INFO("Sandbox: already in '{}'; staying in this scene", m_loadedScenePath.filename().string());
-            }
             m_hud.m_menuPage = MainMenuPage::Front;
             m_hud.m_menu.hide();
             break;
@@ -732,38 +734,69 @@ void SandboxApp::handleRuntimeCommands(float dt)
     applyNetRole();
 
     const bool uiKeys = uiOpen() && m_hud.m_imgui.isReady() && m_hud.m_imgui.wantCaptureKeyboard();
-    // Playing swaps after the charge step. Paused play never reaches that step, so it still swaps here.
-    if (!uiKeys && m_gameplayPaused)
-        m_play.switchWeapons();
     // Dev tools and inventory become the keyboard-nav target, so WantCaptureKeyboard
     // is set and would swallow the same key that should close them. A text field still owns the key.
     const bool typing = m_hud.m_imgui.isReady() && m_hud.m_imgui.wantTextInput();
+    if (input().actionPressed("pause") && !m_movie.blocksWorld())
+    {
+        const bool dialogueWasOpen = m_dialogue.active();
+        if (!uiKeys || dialogueWasOpen)
+        {
+            if (dialogueWasOpen)
+                m_dialogue.interrupt(DialogueInterrupt::Pause);
+            const bool otherUi = m_showDevTools || m_showInventory || m_showProfiler || m_hud.m_showJournal || m_hud.m_lootTarget.valid();
+            if (!uiKeys || !otherUi)
+            {
+                m_play.setSimPaused(!m_play.simPaused());
+                playSoundCue(world(), audio(), assets(), m_play.cameraEntity(), "click", true);
+                DE_LOG_INFO("Sandbox: gameplay paused = {}", m_play.simPaused());
+            }
+        }
+    }
+    if (!typing && m_play.simPaused() && input().actionPressed("step") && (!uiKeys || !m_showDevTools))
+        m_play.requestSimStep();
+
+    const bool talkHold = m_dialogue.locksWorld() || m_movie.blocksWorld();
+    const bool stepThrough = allowScale && m_play.simStepPending() && !talkHold;
+    m_simHeld = allowScale && m_play.simPaused() && !stepThrough;
+    if (!allowScale)
+        m_simDt = wallDt;
+    else if (m_simHeld)
+        m_simDt = 0.0f;
+    else
+        m_simDt = m_play.scaleDt(wallDt);
+    m_simReady = true;
+
+    // Playing swaps after the charge step. A held pause never reaches that step, so it still swaps here.
+    if (!uiKeys && m_simHeld)
+        m_play.switchWeapons();
+
     if (input().actionPressed("profiler") && !typing && (!uiKeys || m_showProfiler))
     {
         m_showProfiler = !m_showProfiler;
-        playSoundCue(world(), audio(), assets(), m_play.cameraEntity(), "click");
+        playSoundCue(world(), audio(), assets(), m_play.cameraEntity(), "click", true);
         DE_LOG_INFO("Sandbox: profiler = {}", m_showProfiler);
     }
     if (input().actionPressed("dev_tools") && !typing && (!uiKeys || m_showDevTools))
     {
         m_showDevTools = !m_showDevTools;
-        playSoundCue(world(), audio(), assets(), m_play.cameraEntity(), "click");
+        playSoundCue(world(), audio(), assets(), m_play.cameraEntity(), "click", true);
         DE_LOG_INFO("Sandbox: dev tools = {}", m_showDevTools);
     }
     if (input().actionPressed("inventory") && !typing && (!uiKeys || m_showInventory))
     {
         m_showInventory = !m_showInventory;
-        playSoundCue(world(), audio(), assets(), m_play.cameraEntity(), "click");
+        playSoundCue(world(), audio(), assets(), m_play.cameraEntity(), "click", true);
     }
     if (input().actionPressed("journal") && !typing && (!uiKeys || m_hud.m_showJournal))
     {
         m_hud.m_showJournal = !m_hud.m_showJournal;
-        playSoundCue(world(), audio(), assets(), m_play.cameraEntity(), "click");
+        playSoundCue(world(), audio(), assets(), m_play.cameraEntity(), "click", true);
     }
     if (input().actionPressed("upgrades") && !typing && (!uiKeys || m_hud.m_showUpgrades))
     {
         m_hud.m_showUpgrades = !m_hud.m_showUpgrades;
-        playSoundCue(world(), audio(), assets(), m_play.cameraEntity(), "click");
+        playSoundCue(world(), audio(), assets(), m_play.cameraEntity(), "click", true);
     }
     if (!uiKeys && input().actionPressed("camouflage"))
     {
@@ -837,28 +870,28 @@ void SandboxApp::handleRuntimeCommands(float dt)
         else
         {
             const float target = m_vision.nightSightOn ? 1.0f : 0.0f;
-            const float step   = dt > 0.0f ? dt / kNightSightBlendSeconds : 0.0f;
+            const float step   = m_simDt > 0.0f ? m_simDt / kNightSightBlendSeconds : 0.0f;
             if (m_vision.nightSight < target)
                 m_vision.nightSight = Math::Min(target, m_vision.nightSight + step);
             else
                 m_vision.nightSight = Math::Max(target, m_vision.nightSight - step);
 
             const float heatTarget = m_vision.infraredOn ? 1.0f : 0.0f;
-            const float heatStep   = dt > 0.0f ? dt / kInfraredBlendSeconds : 0.0f;
+            const float heatStep   = m_simDt > 0.0f ? m_simDt / kInfraredBlendSeconds : 0.0f;
             if (m_vision.infrared < heatTarget)
                 m_vision.infrared = Math::Min(heatTarget, m_vision.infrared + heatStep);
             else
                 m_vision.infrared = Math::Max(heatTarget, m_vision.infrared - heatStep);
 
             const float uvTarget = m_vision.ultravioletOn ? 1.0f : 0.0f;
-            const float uvStep   = dt > 0.0f ? dt / kUltravioletBlendSeconds : 0.0f;
+            const float uvStep   = m_simDt > 0.0f ? m_simDt / kUltravioletBlendSeconds : 0.0f;
             if (m_vision.ultraviolet < uvTarget)
                 m_vision.ultraviolet = Math::Min(uvTarget, m_vision.ultraviolet + uvStep);
             else
                 m_vision.ultraviolet = Math::Max(uvTarget, m_vision.ultraviolet - uvStep);
 
             const float echoTarget = m_vision.echoOn ? 1.0f : 0.0f;
-            const float echoStep   = dt > 0.0f ? dt / kEchoBlendSeconds : 0.0f;
+            const float echoStep   = m_simDt > 0.0f ? m_simDt / kEchoBlendSeconds : 0.0f;
             if (m_vision.echo < echoTarget)
                 m_vision.echo = Math::Min(echoTarget, m_vision.echo + echoStep);
             else
@@ -866,7 +899,7 @@ void SandboxApp::handleRuntimeCommands(float dt)
 
             if (m_vision.echoOn || m_vision.echo > 0.0f)
             {
-                m_vision.echoChirpAge += dt;
+                m_vision.echoChirpAge += m_simDt;
                 if (!m_vision.echoHaveChirp || m_vision.echoChirpAge >= m_vision.echoChirp.periodSeconds)
                 {
                     m_vision.echoCapture  = true;
@@ -917,26 +950,6 @@ void SandboxApp::handleRuntimeCommands(float dt)
         const Save::SaveResult result = m_save.requestLoadNewest(Save::SaveKind::Quick);
         DE_LOG_INFO("Sandbox: quickload {}", Save::toString(result));
     }
-
-    if (input().actionPressed("pause") && !m_movie.blocksWorld())
-    {
-        const bool dialogueWasOpen = m_dialogue.active();
-        if (!uiKeys || dialogueWasOpen)
-        {
-            if (dialogueWasOpen)
-                m_dialogue.interrupt(DialogueInterrupt::Pause);
-            const bool otherUi = m_showDevTools || m_showInventory || m_showProfiler || m_hud.m_showJournal || m_hud.m_lootTarget.valid();
-            if (!uiKeys || !otherUi)
-            {
-                m_gameplayPaused = !m_gameplayPaused;
-                m_stepGameplay   = false;
-                playSoundCue(world(), audio(), assets(), m_play.cameraEntity(), "click");
-                DE_LOG_INFO("Sandbox: gameplay paused = {}", m_gameplayPaused);
-            }
-        }
-    }
-    if (!typing && m_gameplayPaused && input().actionPressed("step") && (!uiKeys || !m_showDevTools))
-        m_stepGameplay = true;
 
     if (!uiKeys && input().actionPressed("reset"))
     {
@@ -1007,18 +1020,19 @@ void SandboxApp::handleRuntimeCommands(float dt)
     }
 
     window().setCursorCaptured(window().isFocused() && !uiOpen() && !m_hud.m_menu.visible());
-    if (!m_dialogue.locksWorld() && !m_movie.blocksWorld())
+    const bool talkNow = m_dialogue.locksWorld() || m_movie.blocksWorld();
+    if (!talkNow)
     {
-        if (m_gameplayPaused)
-            updateFlyCamera(dt);
+        if (m_simHeld)
+            updateFlyCamera(wallDt);
         else
         {
-            m_play.tickPawn(dt);
+            m_play.tickPawn(m_simDt);
             m_play.tickCamera();
         }
     }
 
-    if (m_gameplayPaused && !m_stepGameplay)
+    if (m_simHeld)
     {
         m_sceneWorld.leafRustle.stopAll(audio());
         return;
@@ -1030,12 +1044,12 @@ void SandboxApp::handleRuntimeCommands(float dt)
         if (role == NetRole::Host)
         {
             constexpr float kTurnRate = 1.8f; // rad/s
-            const float     yawCmd    = m_gameplayPaused ? input().actionAxis("yaw") : 0.0f;
+            const float     yawCmd    = m_play.simPaused() ? input().actionAxis("yaw") : 0.0f;
             const float     pitchCmd  = input().actionAxis("pitch");
             if (yawCmd != 0.0f || pitchCmd != 0.0f)
             {
-                const Quaternion yawQ   = Quaternion::FromAxisAngle(Vector3f::Y_AXIS, yawCmd * kTurnRate * dt);
-                const Quaternion pitchQ = Quaternion::FromAxisAngle(Vector3f::X_AXIS, pitchCmd * kTurnRate * dt);
+                const Quaternion yawQ   = Quaternion::FromAxisAngle(Vector3f::Y_AXIS, yawCmd * kTurnRate * m_simDt);
+                const Quaternion pitchQ = Quaternion::FromAxisAngle(Vector3f::X_AXIS, pitchCmd * kTurnRate * m_simDt);
                 xf->rotation            = yawQ * pitchQ * xf->rotation;
                 xf->rotation.Normalize();
             }
@@ -1044,7 +1058,7 @@ void SandboxApp::handleRuntimeCommands(float dt)
         // Host (and offline Idle) still spin the cube. Clients must not.
         if (role == NetRole::Host || role == NetRole::Idle)
         {
-            const Quaternion spin = Quaternion::FromAxisAngle(Vector3f::Y_AXIS, m_demo.spinSpeed() * dt);
+            const Quaternion spin = Quaternion::FromAxisAngle(Vector3f::Y_AXIS, m_demo.spinSpeed() * m_simDt);
             xf->rotation          = spin * xf->rotation;
             xf->rotation.Normalize();
         }
@@ -1058,7 +1072,7 @@ void SandboxApp::updateFlyCamera(float dt)
     const bool uiKeys  = uiOpen() && m_hud.m_imgui.isReady() && m_hud.m_imgui.wantCaptureKeyboard();
     const bool uiMouse = uiOpen() && m_hud.m_imgui.isReady() && m_hud.m_imgui.wantCaptureMouse();
     const bool typing  = m_hud.m_imgui.isReady() && m_hud.m_imgui.wantTextInput();
-    const bool pauseCard = m_gameplayPaused && !m_showDevTools && !m_showInventory && !m_showProfiler && !m_hud.m_showJournal && !m_hud.m_showUpgrades
+    const bool pauseCard = m_play.simPaused() && !m_showDevTools && !m_showInventory && !m_showProfiler && !m_hud.m_showJournal && !m_hud.m_showUpgrades
         && !m_hud.m_lootTarget.valid() && !typing;
 
     if (!uiKeys || pauseCard)
@@ -1958,9 +1972,12 @@ void SandboxApp::onUpdate(float dt)
 
     m_frameDt = dt;
     const bool menuFrame = m_hud.m_menu.visible();
-    if (!menuFrame)
-        dt = m_play.scaleDt(dt);
-    handleRuntimeCommands(dt);
+    m_simReady = false;
+    m_simHeld  = false;
+    m_simDt    = dt;
+    handleRuntimeCommands(dt, !menuFrame);
+    if (!m_simReady && !menuFrame)
+        m_simDt = m_play.scaleDt(dt);
     if (m_movie.takeBeganBlocking())
     {
         audio().stopMusic();
@@ -1970,69 +1987,76 @@ void SandboxApp::onUpdate(float dt)
     {
         m_sceneWorld.leafRustle.stopAll(audio());
         m_save.service(world());
+        audio().setWorldHeld(m_play.simPaused());
         return;
     }
     if (!m_sceneStarted)
     {
         m_sceneWorld.leafRustle.stopAll(audio());
+        audio().setWorldHeld(m_play.simPaused());
         return;
     }
-    if (m_dialogue.locksWorld() || m_movie.blocksWorld())
+    const bool talkHold = m_dialogue.locksWorld() || m_movie.blocksWorld();
+    if (talkHold)
     {
-        // This conversation waits. Pawns, barks, and the fly cam stay where they are.
+        // This conversation or movie waits. Pawns and barks stay where they are.
+        // Wind and the other clocks still take the scaled step unless pause is holding them.
     }
-    else if (!m_gameplayPaused || m_stepGameplay)
+    else if (!m_simHeld)
     {
         syncPlayerMode();
-        m_sceneWorld.cloudTime += dt;
-        m_sceneWorld.env.tick(dt);
-        m_sceneWorld.water.tick(dt);
+        m_sceneWorld.cloudTime += m_simDt;
+        m_sceneWorld.env.tick(m_simDt);
+        m_sceneWorld.water.tick(m_simDt);
         bindPlayFeedback();
-        tickPlayMuzzle(m_play.feedback(), dt);
-        m_play.tickWorld(dt);
-        updateQuest(dt);
+        tickPlayMuzzle(m_play.feedback(), m_simDt);
+        m_play.tickWorld(m_simDt);
+        updateQuest(m_simDt);
         if (m_hud.m_defenseTextLeft > 0.0f)
         {
-            m_hud.m_defenseTextLeft -= dt;
+            m_hud.m_defenseTextLeft -= m_simDt;
             if (m_hud.m_defenseTextLeft < 0.0f)
                 m_hud.m_defenseTextLeft = 0.0f;
         }
-        m_play.feedback().blood.update(dt);
+        m_play.feedback().blood.update(m_simDt);
         m_frame.gpuParticles().applyIntegratorFallback(world(), renderer().debugState().gpuParticles);
-        tickParticleEmitters(world(), dt);
-        m_frame.gpuParticles().prepare(world(), dt);
+        tickParticleEmitters(world(), m_simDt);
+        m_frame.gpuParticles().prepare(world(), m_simDt);
         m_demo.updateWiggleAnim();
-        tickAnimGraphs(world(), assets(), dt);
+        tickAnimGraphs(world(), assets(), m_simDt);
         m_play.tickHeldItems();
-        tickLeaves(dt);
-        m_stepGameplay = false;
+        tickLeaves(m_simDt);
+        m_play.consumeSimStep();
     }
     else
     {
         m_sceneWorld.leafRustle.stopAll(audio());
     }
-    if (!m_movie.blocksWorld())
-        m_dialogue.tick(dt);
+    if (!m_movie.blocksWorld() && !m_simHeld)
+        m_dialogue.tick(m_simDt);
     m_save.service(world());
     m_sceneWorld.water.updateLod(m_sceneWorld.camera.GetPosition());
     syncTerrainLod();
-    // Shared with foliage. Trees sway with no possessed body, and while gameplay is paused.
-    m_sceneWorld.windClock.tick(dt);
-    if (const Entity body = possessedBody(); body.valid())
+    if (!m_simHeld)
     {
-        float             x = 0.0f;
-        float             z = 0.0f;
-        GrassPlayerSample sample;
-        if (fillGrassPlayerSample(world(), body, x, z, sample))
-            m_sceneWorld.grassField.update(m_sceneWorld.terrain, x, z, m_sceneWorld.windClock.time, m_sceneWorld.water.params().waterLevel, sample);
+        m_sceneWorld.windClock.tick(m_simDt);
+        if (const Entity body = possessedBody(); body.valid())
+        {
+            float             x = 0.0f;
+            float             z = 0.0f;
+            GrassPlayerSample sample;
+            if (fillGrassPlayerSample(world(), body, x, z, sample))
+                m_sceneWorld.grassField.update(m_sceneWorld.terrain, x, z, m_sceneWorld.windClock.time, m_sceneWorld.water.params().waterLevel, sample);
+        }
+        if (!m_movie.blocksWorld())
+            tickSoundEmitters(world(), audio(), assets());
+        m_frame.scene().tickDecals(world(), m_simDt);
     }
     if (!m_movie.blocksWorld() && renderer().scenePath() == ScenePath::HybridDeferred)
         syncPlayerFlashlight(world(), possessedBody(), m_sceneWorld.camera.GetPosition(), m_sceneWorld.camera.GetLook(), m_sceneWorld.camera.GetRight(), m_sceneWorld.camera.GetUp(), m_play.runtime().offhand.lightOn);
 
     setViewAudioListener(audio(), m_sceneWorld.camera, &world(), possessedBody(), skillCatalog().enabled());
-    if (!m_movie.blocksWorld())
-        tickSoundEmitters(world(), audio(), assets());
-    m_frame.scene().tickDecals(world(), dt);
+    audio().setWorldHeld(m_play.simPaused());
 }
 
 

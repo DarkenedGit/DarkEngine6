@@ -54,6 +54,28 @@ namespace Dark
             m_all.insert(m_all.end(), boxes.begin(), boxes.end());
         }
         void addObstacle(const Math::AABox3f& box) { m_levelCubes.push_back(box); }
+        // Drops the level's cubes, pawns, and bake inputs. The line pipeline stays.
+        void clearLevel()
+        {
+            m_cubes.clear();
+            m_spheres.clear();
+            m_levelCubes.clear();
+            m_all.clear();
+            m_hasDynamic     = false;
+            m_hasPlayerStart = false;
+            m_playerStart    = {};
+            m_hunters.clear();
+            m_walker = {};
+            m_ai.setConcealVolumes({});
+            m_ai.setHideSpots({});
+            m_ai.setJumpAttackToken({});
+            m_ai.setSimTime(0.0f);
+            m_ai.setWaterLevel(-1.0e9f);
+            m_ai.setPlayerDepth(0.0f);
+            m_ai.setPlayerSwimming(false);
+            m_ai.setPlayerMotion(0.0f);
+            m_ai.setPlayerExposure(1.0f);
+        }
         void setPlayerStart(const Math::Vector3f& pos)
         {
             m_playerStart    = pos;

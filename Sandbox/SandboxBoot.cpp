@@ -17,10 +17,14 @@
 #include "Core/EntityPins.h"
 #include "Core/Log.h"
 #include "ECS/Components.h"
+#include "ECS/World.h"
 #include "Gameplay/ThrowableBelt.h"
 #include "Gameplay/Upgrades.h"
 #include "Math/MathHelper.h"
 #include "Media/MovieCue.h"
+#include "Particles/StatusFxDriver.h"
+#include "Save/HostSync.h"
+#include "Weapons/WeaponLoadout.h"
 #include "Play/AttachedLights.h"
 #include "Play/Carry.h"
 #include "Play/CharacterAttach.h"
@@ -358,6 +362,114 @@ bool SandboxApp::bootSceneLoop()
         if (!pumpBootFrame())
             return false;
     }
+    return true;
+}
+
+bool SandboxApp::leaveScene()
+{
+    if (!m_sceneStarted || m_bootPolling)
+        return false;
+    if (network().role() != NetRole::Idle)
+        return false;
+
+    DE_LOG_INFO("Sandbox: leaving '{}'", m_loadedScenePath.filename().string());
+
+    // Voices and movie threads still name entities. Stop them before the world goes.
+    m_movie.close();
+    resetMovieCues(world());
+    if (m_dialogue.active())
+        m_dialogue.interrupt(DialogueInterrupt::Menu);
+    m_dialogue.speech().stop();
+    m_dialogue.runtime().setFacts(nullptr);
+    audio().stopAll();
+    m_sceneWorld.leafRustle.stopAll(audio());
+    clearAllStatusFx(world(), &audio());
+    m_play.guardVoice().stop();
+    m_play.resetPawn();
+    m_play.quest().clear();
+    m_play.throws().clear();
+    m_play.clearFacility();
+    m_play.sceneQuest().clear();
+    m_play.buildingContainers().clear();
+    m_play.buildingHides().clear();
+    m_play.buildingLabels().clear();
+    m_play.buildingDoors().clear();
+    m_play.buildingCameras().clear();
+    m_play.feedback().blood.stop(true);
+    m_play.feedback().splats.clear();
+    m_play.feedback().muzzleTimer = 0.0f;
+    if (WeaponLoadout* weapons = localWeapons())
+    {
+        weapons->projectile().setAudio(nullptr, nullptr);
+        weapons->clear();
+    }
+
+    // The last frame drew this scene. Wait, then release height and water resources.
+    renderer().waitForGpu();
+    Physics::destroyFoliageCollision(m_sceneWorld.physics, m_sceneWorld.foliageCollision);
+    m_sceneWorld.physics.destroy();
+    m_sceneWorld.physicsGround = Physics::kNullPhysicsBody;
+    m_sceneWorld.groundIgnore  = Physics::kNullPhysicsBody;
+
+    std::vector<Entity> ents;
+    world().forEachPool([&](IComponentPool& pool) {
+        pool.visit([](EntityID id, void*, void* user) {
+            static_cast<std::vector<Entity>*>(user)->push_back(Entity{ id });
+        }, &ents);
+    });
+    for (Entity e : ents)
+        Save::destroyProgressEntity(world(), e, network(), pins());
+
+    m_play.cameraEntity() = {};
+    m_play.muzzle()       = {};
+    m_play.shield()       = {};
+    m_play.session()      = {};
+    m_demo.cube()         = {};
+    m_chase.clearLevel();
+    m_chaseOk = false;
+
+    m_sceneWorld.terrain.clear();
+    m_sceneWorld.water = WaterWorld{};
+    m_sceneWorld.foliage.clear();
+    m_sceneWorld.grassField.reset();
+    m_sceneWorld.leafField.clear();
+    m_sceneWorld.leafSimSeconds = 0.0;
+    m_sceneWorld.leafShedScale  = 1.0f;
+    m_sceneWorld.cloudTime      = 0.0f;
+    m_sceneWorld.haveTerrainSea = false;
+    m_sceneWorld.terrainSeaLevel = 0.0f;
+    m_sceneWorld.showTerrain    = true;
+
+    m_frame.gpuParticles().prepare(world(), 0.0f);
+    m_frame.prevWorldByEntity().clear();
+    m_frame.scene().discardTemporalHistory();
+    m_frame.scene().clearDecals();
+
+    m_vision.camouflage    = false;
+    m_vision.nightSightOn  = false;
+    m_vision.nightSight    = 0.0f;
+    m_vision.infraredOn    = false;
+    m_vision.infrared      = 0.0f;
+    m_vision.ultravioletOn = false;
+    m_vision.ultraviolet   = 0.0f;
+    m_vision.echoOn        = false;
+    m_vision.echo          = 0.0f;
+    m_vision.echoChirpAge  = 0.0f;
+    m_vision.echoCapture   = false;
+    m_vision.echoHaveChirp = false;
+    m_play.setSimPaused(false);
+    m_showInventory        = false;
+    m_hud.m_showJournal    = false;
+    m_hud.m_showUpgrades   = false;
+    m_hud.m_lootTarget     = {};
+    m_hud.m_questBanners.clear();
+    m_hud.m_defenseTextLeft = 0.0f;
+
+    m_sceneStarted = false;
+    m_loadedScenePath.clear();
+    m_bootSlice   = BootSlice::Done;
+    m_bootPolling = false;
+    world().bumpGeneration();
     return true;
 }
 
@@ -1007,8 +1119,7 @@ bool SandboxApp::advanceBootSlice()
                 renderer().setLocalShadowSrvs(localSrvs.arraySrv, localSrvs.recordsSrv);
             }
             m_demo.demoScene() = boot.scenePath.filename() == "level.json";
-            if (!m_demo.demoScene())
-                m_hud.npcInfo().enabled = false;
+            m_hud.npcInfo().enabled = m_demo.demoScene();
             if (!m_demo.demoScene())
                 m_bootSlice = BootSlice::SpawnBatch;
             return true;
@@ -1712,11 +1823,11 @@ bool SandboxApp::advanceSpawnBatch()
             boot.phase = SandboxBootLoad::SpawnPhase::Session;
             return true;
         case SandboxBootLoad::SpawnPhase::Session:
+            m_loadedScenePath = boot.scenePath;
             ensureSessionEntity();
             installSaveHost();
             m_save.captureBaseline(world());
             resetMovieCues(world());
-            m_loadedScenePath = boot.scenePath;
             m_bootSlice = BootSlice::Done;
             if (boot.runScene && boot.sceneOk)
                 m_sceneStarted = true;

@@ -41,6 +41,7 @@ namespace Dark
         void destroy(Renderer& renderer);
 
         void spawn(float worldX, float worldZ, const Terrain::HeightMap& heightMap);
+        void clear() { m_active = 0; m_next = 0; }
         void draw(ID3D12GraphicsCommandList* cmd, const Camera3D& camera) const;
 
         int  activeCount() const { return m_active; }
