@@ -1236,9 +1236,7 @@ void EditorApp::onUpdate(float dt)
             {
                 bindPlayFeedback();
                 tickPlayMuzzle(m_play.feedback(), simDt);
-                m_play.tickPawn(simDt);
-                m_play.tickCamera();
-                m_play.tickWorld(simDt);
+                m_play.tickSimulation(simDt);
                 m_play.feedback().blood.update(simDt);
                 m_play.consumeSimStep();
             }

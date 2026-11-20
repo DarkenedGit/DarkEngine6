@@ -60,20 +60,26 @@ namespace Dark
         }
         int mouseDeltaX() const
         {
-            return m_mouseDeltaX;
+            return m_repeatSimTick ? 0 : m_mouseDeltaX;
         }
         int mouseDeltaY() const
         {
-            return m_mouseDeltaY;
+            return m_repeatSimTick ? 0 : m_mouseDeltaY;
         }
         float mouseWheel() const
         {
-            return m_mouseWheel;
+            return m_repeatSimTick ? 0.0f : m_mouseWheel;
         }
 
         bool mouseDown(MouseButton b) const;
         bool mousePressed(MouseButton b) const;
         bool mouseReleased(MouseButton b) const;
+
+        // A frame's second and later simulation ticks reuse held input, not edges or mouse deltas.
+        void setRepeatSimTick(bool repeat)
+        {
+            m_repeatSimTick = repeat;
+        }
 
         // ── Gamepad ──────────────────────────────────────────────────────────────
         bool gamepadConnected(int padIndex = 0) const;
@@ -126,6 +132,7 @@ namespace Dark
         ActionMap    m_actions;
 
         DigitalState m_mouseButtons[static_cast<int>(MouseButton::Count)]{};
+        bool         m_repeatSimTick = false;
         int          m_mouseX        = 0;
         int          m_mouseY        = 0;
         int          m_mouseDeltaX   = 0;

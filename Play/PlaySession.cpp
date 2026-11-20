@@ -1,4 +1,5 @@
 #include "Play/PlaySession.h"
+#include "Play/SimTicks.h"
 
 #include "AI/AiComponents.h"
 #include "AI/Exposure.h"
@@ -294,7 +295,7 @@ namespace Dark
     {
         if (!(dt > 0.0f))
             return 0.0f;
-        dt *= m_simTimeScale;
+        dt = planSimTicks(dt, m_simTimeScale).total;
         if (m_rt.shake > 0.0f)
         {
             m_rt.shakeTime += dt;
@@ -700,6 +701,30 @@ namespace Dark
             view.concealCount = static_cast<int>(volumes.size());
         }
         tickCarriedBody(view);
+    }
+
+    void PlaySession::tickSimulation(float dt)
+    {
+        const SimTickPlan plan = planSimTicks(dt, 1.0f);
+        for (int i = 0; i < plan.ticks; ++i)
+        {
+            if (m_host.input)
+                m_host.input->setRepeatSimTick(i > 0);
+            tickPawn(plan.tickDt);
+            // The camera follows the last pawn tick, before the last world tick, as with a single tick.
+            if (i + 1 == plan.ticks)
+                tickCamera();
+            tickWorld(plan.tickDt);
+        }
+        if (m_host.input)
+            m_host.input->setRepeatSimTick(false);
+        if (plan.ticks == 0)
+        {
+            // No time this frame (the first frame, or dt rounded to 0). Same calls as a single tick.
+            tickPawn(0.0f);
+            tickCamera();
+            tickWorld(0.0f);
+        }
     }
 
     void PlaySession::tickPawn(float dt)

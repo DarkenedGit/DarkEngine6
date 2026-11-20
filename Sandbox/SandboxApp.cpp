@@ -1026,11 +1026,6 @@ void SandboxApp::handleRuntimeCommands(float wallDt, bool allowScale)
     {
         if (m_simHeld)
             updateFlyCamera(wallDt);
-        else
-        {
-            m_play.tickPawn(m_simDt);
-            m_play.tickCamera();
-        }
     }
 
     if (m_simHeld)
@@ -2011,7 +2006,7 @@ void SandboxApp::onUpdate(float dt)
         m_sceneWorld.water.tick(m_simDt);
         bindPlayFeedback();
         tickPlayMuzzle(m_play.feedback(), m_simDt);
-        m_play.tickWorld(m_simDt);
+        m_play.tickSimulation(m_simDt);
         updateQuest(m_simDt);
         if (m_hud.m_defenseTextLeft > 0.0f)
         {

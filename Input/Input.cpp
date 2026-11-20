@@ -236,13 +236,13 @@ namespace Dark
     bool Input::mousePressed(MouseButton b) const
     {
         const int i = static_cast<int>(b);
-        return i >= 0 && i < static_cast<int>(MouseButton::Count) && m_mouseButtons[i].pressed;
+        return i >= 0 && i < static_cast<int>(MouseButton::Count) && !m_repeatSimTick && m_mouseButtons[i].pressed;
     }
 
     bool Input::mouseReleased(MouseButton b) const
     {
         const int i = static_cast<int>(b);
-        return i >= 0 && i < static_cast<int>(MouseButton::Count) && m_mouseButtons[i].released;
+        return i >= 0 && i < static_cast<int>(MouseButton::Count) && !m_repeatSimTick && m_mouseButtons[i].released;
     }
 
     bool Input::keyDown(Key key) const
@@ -267,12 +267,12 @@ namespace Dark
 
     bool Input::keyPressed(uint16_t vkCode) const
     {
-        return vkCode < kMaxKeyCode && m_keys[vkCode].pressed;
+        return vkCode < kMaxKeyCode && !m_repeatSimTick && m_keys[vkCode].pressed;
     }
 
     bool Input::keyReleased(uint16_t vkCode) const
     {
-        return vkCode < kMaxKeyCode && m_keys[vkCode].released;
+        return vkCode < kMaxKeyCode && !m_repeatSimTick && m_keys[vkCode].released;
     }
 
     bool Input::gamepadConnected(int padIndex) const
@@ -302,7 +302,7 @@ namespace Dark
         const int i = static_cast<int>(button);
         if (i < 0 || i >= static_cast<int>(GamepadButton::Count))
             return false;
-        return m_pads[p].buttons[i].pressed;
+        return !m_repeatSimTick && m_pads[p].buttons[i].pressed;
     }
 
     bool Input::buttonReleased(GamepadButton button, int padIndex) const
@@ -313,7 +313,7 @@ namespace Dark
         const int i = static_cast<int>(button);
         if (i < 0 || i >= static_cast<int>(GamepadButton::Count))
             return false;
-        return m_pads[p].buttons[i].released;
+        return !m_repeatSimTick && m_pads[p].buttons[i].released;
     }
 
     float Input::axis(GamepadAxis axisId, int padIndex) const

@@ -70,7 +70,8 @@ namespace Dark
     inline constexpr float kPlaySpawnFocusSeconds = 1.75f;
     inline constexpr float kPlayJumpAttackBuffer  = 0.12f;
 
-    // Dev sim-time slider. 1 is real time. Pause is a separate hold.
+    // Dev sim-time slider. 1 is real time. Pause is a separate hold. Scaled time per frame is capped at
+    // kSimFrameMaxSeconds (Play/SimTicks.h), so 8x runs at full speed down to about 32 fps.
     inline constexpr float kSimTimeScaleMin = 0.05f;
     inline constexpr float kSimTimeScaleMax = 8.0f;
 
@@ -256,10 +257,15 @@ namespace Dark
         // for a menu, a conversation, or a movie before they consume the step.
         bool simAdvances() const { return !m_simPaused || m_simStep; }
 
-        // Sim time scale, then shake and hit-stop in sim seconds. Hit-stop returns 5% of that step.
-        // A scale below 1 stretches the authored hit-stop across more wall time.
+        // Sim time scale, clamped to kSimFrameMaxSeconds after scaling, then shake and hit-stop in sim
+        // seconds. Hit-stop returns 5% of that step. A scale below 1 stretches the authored hit-stop
+        // across more wall time. Pass the result to tickSimulation, which cuts it into bounded ticks.
         float scaleDt(float dt);
 
+        // Pawn then world, once per tick of planSimTicks(dt): ticks of at most kSimTickMaxSeconds, so the
+        // possessed body's physics steps keep up with AI and timers at any time scale. Key and button
+        // edges and the mouse delta count on the first tick only; held input is live on every tick.
+        void tickSimulation(float dt);
         void tickPawn(float dt);
         void tickCamera();
         void tickWorld(float dt);

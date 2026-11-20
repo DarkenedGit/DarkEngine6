@@ -46,3 +46,25 @@ TEST(InputMouse, MoveAfterWarpAccumulatesFromWarp)
     EXPECT_EQ(in.mouseDeltaX(), 5);
     EXPECT_EQ(in.mouseY(), 50);
 }
+
+TEST(InputMouse, RepeatSimTickHidesEdgesAndDeltaKeepsHeld)
+{
+    Input in;
+    in.onMouseMove(10, 20);
+    in.beginFrame();
+    in.onMouseMove(40, 20);
+    in.onKeyDown(static_cast<uint16_t>(Key::Space), false);
+    in.onMouseButton(MouseButton::Left, true);
+    EXPECT_TRUE(in.keyPressed(Key::Space));
+
+    in.setRepeatSimTick(true);
+    EXPECT_FALSE(in.keyPressed(Key::Space));
+    EXPECT_FALSE(in.mousePressed(MouseButton::Left));
+    EXPECT_TRUE(in.keyDown(Key::Space));
+    EXPECT_TRUE(in.mouseDown(MouseButton::Left));
+    EXPECT_EQ(in.mouseDeltaX(), 0);
+
+    in.setRepeatSimTick(false);
+    EXPECT_TRUE(in.keyPressed(Key::Space));
+    EXPECT_EQ(in.mouseDeltaX(), 30);
+}
