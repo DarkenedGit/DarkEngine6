@@ -34,6 +34,9 @@ namespace Dark
         D3D12_INDEX_BUFFER_VIEW                     m_ibv{};
         uint32_t                                    m_indexCount = 0;
         uint32_t                                    m_serial     = 0;
+        // Set when the pipeline fails to build. Cleared when the overlay is turned off, so turning it
+        // back on (after fixing Walkability.hlsl) tries once more. No per-frame retries or log spam.
+        bool m_pipelineFailed = false;
     };
 
 } // namespace Dark

@@ -220,9 +220,20 @@ namespace Dark
     void WalkabilityDebug::draw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const AI::Walkability* walk, const Math::Matrix4f& viewProj)
     {
         if (!renderer.debugState().showWalkability)
+        {
+            m_pipelineFailed = false;
             return;
-        if (!cmd || !ensurePipeline(renderer))
+        }
+        if (!cmd || m_pipelineFailed)
             return;
+        if (!ensurePipeline(renderer))
+        {
+            m_pipelineFailed = true;
+            m_root.Reset();
+            m_pso.Reset();
+            DE_LOG_ERROR(LogCategory::Render, "WalkabilityDebug: pipeline failed; the walk overlay is off until it is toggled");
+            return;
+        }
         sync(renderer, walk);
         if (!m_pso || m_indexCount == 0)
             return;
