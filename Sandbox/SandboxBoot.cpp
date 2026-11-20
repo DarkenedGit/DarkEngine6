@@ -8,6 +8,7 @@
 #include "Content/SceneObjectSpawn.h"
 #include "Network/ArchetypeNet.h"
 #include "Play/SpawnHost.h"
+#include "Play/GuardVoice.h"
 
 #include "Assets/Image.h"
 #include "Assets/Material.h"

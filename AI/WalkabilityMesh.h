@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Render/DebugColorMesh.h"
+
 #include <cstdint>
 #include <vector>
 
@@ -7,24 +9,9 @@ namespace Dark::AI
 {
     class Walkability;
 
-    struct WalkabilityMeshVertex
-    {
-        float x = 0.0f;
-        float y = 0.0f;
-        float z = 0.0f;
-        float r = 0.0f;
-        float g = 0.0f;
-        float b = 0.0f;
-        float a = 0.0f;
-    };
-
-    static_assert(sizeof(WalkabilityMeshVertex) == 28, "walk mesh vertex is position + color");
-
-    struct WalkabilityMeshData
-    {
-        std::vector<WalkabilityMeshVertex> vertices;
-        std::vector<uint32_t>              indices;
-    };
+    // The overlay vertex and mesh are the renderer's plain debug types.
+    using WalkabilityMeshVertex = DebugColorVertex;
+    using WalkabilityMeshData   = DebugColorMesh;
 
     // Quads sit this far above the heightfield so the overlay clears the terrain.
     constexpr float kWalkabilityMeshLift = 0.25f;
@@ -33,5 +20,8 @@ namespace Dark::AI
 
     // One quad per run of walkable cells that share an island. Empty when nothing is walkable.
     bool buildWalkabilityMesh(const Walkability& walk, WalkabilityMeshData& out);
+
+    // What WalkabilityDebug draws for this bake: rebuilt when the bake serial changes, nothing when walk is null or invalid.
+    DebugMeshSource walkabilityMeshSource(const Walkability* walk);
 
 } // namespace Dark::AI

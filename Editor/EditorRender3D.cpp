@@ -43,6 +43,7 @@
 #include "Terrain/TerrainLodFile.h"
 #include "Sky/Environment.h"
 #include "Render/SkyPipeline.h"
+#include "AI/WalkabilityMesh.h"
 
 #include <imgui.h>
 
@@ -959,7 +960,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
     {
         drawLightGizmos();
     }
-    m_walkDebug.draw(cmd, renderer(), &m_ai.walkability(), viewProj);
+    m_walkDebug.draw(cmd, renderer(), AI::walkabilityMeshSource(&m_ai.walkability()), viewProj);
     drawTrailOverlay(cmd, viewProj);
     {
         LinePipeline& volumeLines = m_linePipeline3D.isValid() ? m_linePipeline3D : m_linePipeline;

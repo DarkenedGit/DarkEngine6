@@ -135,4 +135,23 @@ namespace Dark::AI
             DE_LOG_WARN(LogCategory::AI, "Walkability mesh: stopped at {} quads", kQuadCap);
         return true;
     }
+    namespace
+    {
+        bool buildFromWalk(const void* user, DebugColorMesh& out)
+        {
+            return user && buildWalkabilityMesh(*static_cast<const Walkability*>(user), out);
+        }
+    } // namespace
+
+    DebugMeshSource walkabilityMeshSource(const Walkability* walk)
+    {
+        DebugMeshSource source;
+        if (!walk || !walk->valid())
+            return source;
+        source.serial = walk->bakeSerial() != 0 ? walk->bakeSerial() : 1u;
+        source.build  = &buildFromWalk;
+        source.user   = walk;
+        return source;
+    }
+
 } // namespace Dark::AI

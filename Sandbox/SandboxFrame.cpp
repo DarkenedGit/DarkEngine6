@@ -83,6 +83,7 @@
 #include "Physics/PhysicsComponent.h"
 #include "Physics/PhysicsFile.h"
 #include "AI/HsmGraphComponent.h"
+#include "AI/WalkabilityMesh.h"
 #include "Audio/SoundComponents.h"
 #include "Animation/AnimNotify.h"
 #include "Character/HealthComponent.h"
@@ -1273,7 +1274,7 @@ void SandboxFrame::render()
         const GpuScope paths(cmd, "Path Debug", ProfileColor::DebugOverlay);
         app().m_chase.drawPaths(cmd, app().renderer(), viewProj);
     }
-    m_walkDebug.draw(cmd, app().renderer(), &app().m_chase.ai().walkability(), viewProj);
+    m_walkDebug.draw(cmd, app().renderer(), AI::walkabilityMeshSource(&app().m_chase.ai().walkability()), viewProj);
     app().m_demo.drawSkeletonOverlay(cmd, viewProj);
     m_scene.drawDecalVolumes(cmd, app().renderer(), app().m_chase.linePipeline(), viewProj);
 

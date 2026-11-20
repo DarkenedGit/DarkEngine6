@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Math/Matrix4f.h"
+#include "Render/DebugColorMesh.h"
 
 #include <cstdint>
 #include <d3d12.h>
@@ -10,20 +11,16 @@ namespace Dark
 {
     class Renderer;
 
-    namespace AI
-    {
-        class Walkability;
-    }
-
-    // GPU mesh of the hunter walk bake. Drawn when DebugRenderState::showWalkability is set.
+    // GPU mesh of the hunter walk bake (AI::walkabilityMeshSource builds the source). Drawn when
+    // DebugRenderState::showWalkability is set. Render does not include AI; the caller passes the mesh source.
     class WalkabilityDebug
     {
     public:
-        void draw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const AI::Walkability* walk, const Math::Matrix4f& viewProj);
+        void draw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const DebugMeshSource& source, const Math::Matrix4f& viewProj);
 
     private:
         bool ensurePipeline(Renderer& renderer);
-        void sync(Renderer& renderer, const AI::Walkability* walk);
+        void sync(Renderer& renderer, const DebugMeshSource& source);
         void releaseMesh(Renderer& renderer);
 
         Microsoft::WRL::ComPtr<ID3D12RootSignature> m_root;

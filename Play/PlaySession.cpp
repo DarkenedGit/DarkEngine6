@@ -197,8 +197,8 @@ namespace Dark
         m_host = {};
         if (m_fill)
             m_fill(m_user, m_host);
-        m_host.guardVoice    = &m_guardVoice;
-        m_host.crows         = &m_crowModels;
+        m_host.guardVoice    = m_guardVoice.get();
+        m_host.crows         = m_crowModels.get();
         m_host.shield        = m_shield;
         m_host.muzzle        = m_muzzle;
         m_host.cameraEntity  = m_camera;
@@ -279,6 +279,14 @@ namespace Dark
     {
         m_simStep = false;
     }
+
+    PlaySession::PlaySession() :
+        m_guardVoice(std::make_unique<GuardVoice>()),
+        m_crowModels(std::make_unique<CrowModels>())
+    {
+    }
+
+    PlaySession::~PlaySession() = default;
 
     void PlaySession::setSimTimeScale(float scale)
     {

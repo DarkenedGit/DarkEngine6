@@ -9,9 +9,7 @@
 #include "Gameplay/Inventory.h"
 #include "Gameplay/Item.h"
 #include "Gameplay/QuestRuntime.h"
-#include "Play/Crow.h"
 #include "Play/Facility.h"
-#include "Play/GuardVoice.h"
 #include "Play/ImpactFx.h"
 #include "Play/PlayFeedback.h"
 #include "Play/Interaction.h"
@@ -27,6 +25,7 @@
 
 #include <cstdint>
 #include <deque>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -226,7 +225,8 @@ namespace Dark
     class PlaySession
     {
     public:
-        PlaySession() = default;
+        PlaySession();
+        ~PlaySession();
         PlaySession(const PlaySession&) = delete;
         PlaySession& operator=(const PlaySession&) = delete;
         PlaySession(PlaySession&&) = delete;
@@ -283,8 +283,14 @@ namespace Dark
         void refreshUpgrades();
 
         // Owned here so Sandbox and the Editor do not each keep a copy.
-        GuardVoice&    guardVoice() { return m_guardVoice; }
-        CrowModels&    crows() { return m_crowModels; }
+        GuardVoice& guardVoice()
+        {
+            return *m_guardVoice;
+        }
+        CrowModels& crows()
+        {
+            return *m_crowModels;
+        }
         PlayFeedback&  feedback() { return m_feedback; }
         Entity&        shield() { return m_shield; }
         Entity&        muzzle() { return m_muzzle; }
@@ -342,8 +348,9 @@ namespace Dark
         PlayRuntime  m_rt{};
         FacilityState m_facility{};
         Combat::CombatSystem m_combat{};
-        GuardVoice   m_guardVoice;
-        CrowModels   m_crowModels{};
+        // Game.Core types, held by pointer so this engine header does not include them.
+        std::unique_ptr<GuardVoice>    m_guardVoice;
+        std::unique_ptr<CrowModels>    m_crowModels;
         PlayFeedback m_feedback{};
         Entity       m_shield{};
         Entity       m_muzzle{};

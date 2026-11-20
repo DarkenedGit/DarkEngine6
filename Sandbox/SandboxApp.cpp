@@ -4,6 +4,7 @@
 #include "Audio/MasterVolumePref.h"
 
 #include "Play/AttachedLights.h"
+#include "Play/GuardVoice.h"
 #include "Play/EnvironmentTick.h"
 #include "Play/Carry.h"
 #include "Play/CharacterAttach.h"

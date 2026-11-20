@@ -1,11 +1,12 @@
 #include "EditorApp.h"
 
 #include "Play/AttachedLights.h"
+#include "Play/GuardVoice.h"
 #include "Play/Carry.h"
 #include "Play/DialogueBinding.h"
 #include "Play/CombatHud.h"
 #include "Play/DialogueHud.h"
-#include "Play/SimTimeHud.h"
+#include "Ui/SimTimeHud.h"
 #include "Ui/ImGuiGameChrome.h"
 #include "Ui/ImGuiTheme.h"
 #include "Play/DialogueMemory.h"
