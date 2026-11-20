@@ -54,7 +54,7 @@ void SandboxApp::installSaveHost()
     host.afterApply    = &SandboxApp::saveAfterApply;
     host.user          = this;
     m_save.setHost(host);
-    // A save from one scene file does not apply onto another.
+    // SaveSystem normalizes this to a portable, package-aware content id.
     const std::string scenePath = m_loadedScenePath.empty() ? std::string{} : m_loadedScenePath.generic_string();
     m_save.setWorldIdentity(scenePath, "", "sandbox");
 }

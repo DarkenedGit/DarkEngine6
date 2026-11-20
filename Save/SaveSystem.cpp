@@ -1,4 +1,5 @@
 #include "Save/SaveSystem.h"
+#include "Scene/SceneId.h"
 #include "Content/ContentDb.h"
 
 #include "Core/Log.h"
@@ -532,7 +533,9 @@ namespace Dark::Save
             readText(*scene, "path", filePath);
             readText(*scene, "hash", fileHash);
             readText(*scene, "procedural", fileProc);
-            if (filePath != scenePath || fileProc != procedural)
+            // Saves before the content-relative id carried "" (Sandbox) or an absolute
+            // path. An absolute path normalizes to its id; "" is taken only by the default level.
+            if (!sceneIdAccepts(filePath, scenePath) || fileProc != procedural)
                 return SaveResult::SceneMismatch;
             if (!fileHash.empty() && !sceneHash.empty() && fileHash != sceneHash)
                 DE_LOG_WARN("Save: scene hash differs; continuing");
@@ -938,7 +941,7 @@ namespace Dark::Save
 
     void SaveSystem::setWorldIdentity(std::string path, std::string hash, std::string procedural)
     {
-        m->scenePath   = std::move(path);
+        m->scenePath   = Dark::sceneContentId(path);
         m->sceneHash   = std::move(hash);
         m->procedural  = std::move(procedural);
     }

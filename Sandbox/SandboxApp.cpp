@@ -12,6 +12,7 @@
 #include "Play/HunterTick.h"
 #include "Gameplay/PowerSystem.h"
 #include "Media/MovieCue.h"
+#include "Scene/SceneId.h"
 #include "Scene/SceneSpawn.h"
 #include "Content/SceneObjectSpawn.h"
 #include "Play/PhysicsGround.h"
@@ -677,7 +678,7 @@ void SandboxApp::handleRuntimeCommands(float wallDt, bool allowScale)
             {
                 const bool newGame = picked && picked->id == "new_game";
                 const bool otherScene = picked && picked->kind == MainMenuKind::Scene && !picked->path.empty()
-                    && picked->path.filename() != m_loadedScenePath.filename();
+                    && !sameSceneId(picked->path, m_loadedScenePath);
                 if (!newGame && !otherScene)
                 {
                     m_hud.m_menuPage = MainMenuPage::Front;
