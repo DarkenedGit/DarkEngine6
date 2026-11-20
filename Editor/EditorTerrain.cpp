@@ -668,6 +668,7 @@ bool EditorApp::applyEditorGridGpu()
     bindTerrainHeightSrv();
     m_terrainHeightDirty = false;
     m_terrainSplatDirty  = false;
+    ++m_walkTerrainEpoch;
     return true;
 }
 
@@ -801,6 +802,7 @@ void EditorApp::syncTerrainLod()
         else
             bindTerrainHeightSrv();
         m_terrainHeightDirty = false;
+        ++m_walkTerrainEpoch; // heights changed in place; the walk overlay rebakes
     }
     if (m_terrainSplatDirty)
         m_terrainSplatDirty = false;

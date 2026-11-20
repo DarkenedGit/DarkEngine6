@@ -196,7 +196,8 @@ void EditorApp::drawEditorUi()
                         bakePlayWalkability();
                 }
                 if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
-                    ImGui::SetTooltip("Hunter walk bake. Each color is one island. Gaps are water, steep ground, or a solid. Turn off and on after editing solids.");
+                    ImGui::SetTooltip(
+                        "Hunter walk bake. Each color is one island. Gaps are water, steep ground, or a solid. Rebakes on its own a moment after terrain, water or solids change (edit mode).");
                 DebugRenderState& decalDbg = renderer().debugState();
                 if (ImGui::MenuItem("Decals", nullptr, &decalDbg.decalsEnabled))
                     DE_LOG_INFO("Editor: decals = {}", decalDbg.decalsEnabled);
@@ -1272,6 +1273,7 @@ void EditorApp::onUpdate(float dt)
         const bool terrainChanged = m_terrainHeightDirty;
         syncTerrainLod();
         syncPlacedWater(terrainChanged);
+        refreshWalkOverlay(wallDt);
         if (!movieHolds && !worldHeld)
             updateEditorGrass(clockDt);
         else if (worldHeld)

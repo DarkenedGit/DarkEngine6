@@ -197,6 +197,11 @@ private:
     static void saveAfterApply(void* user, Dark::World& world);
     void   togglePlayMode();
     void   bakePlayWalkability();
+    // Gathers the walk obstacles into m_playCubes / m_playSpheres and picks the height map to bake.
+    const Dark::Terrain::HeightMap* gatherPlayWalkInputs(float& waterLevel);
+    uint64_t                        walkInputsKey(const Dark::Terrain::HeightMap* height, float waterLevel) const;
+    // Edit mode with the walk overlay on: rebakes once the terrain, water or solids have changed and settled.
+    void                                refreshWalkOverlay(float dt);
     void   resetPlayCombat();
     void   captureAuthoredPoses();
     void   restoreAuthoredPoses();
@@ -616,6 +621,11 @@ private:
     float                     m_defenseTextLeft = 0.0f;
     bool                      m_defenseParry    = false;
     Dark::Terrain::HeightMap           m_playGrid{};
+    uint64_t                           m_walkBakedKey     = 0; // inputs of the last walk bake
+    uint64_t                           m_walkPendingKey   = 0; // changed inputs waiting to settle
+    float                              m_walkPendingAge   = 0.0f;
+    float                              m_walkPollLeft     = 0.0f;
+    uint32_t                           m_walkTerrainEpoch = 0; // bumps when terrain heights change in place
     std::vector<Dark::Math::AABox3f> m_playCubes;
     std::vector<Dark::Math::Sphere3f> m_playSpheres;
     float                  m_playGroundProbeY = 0.0f;
