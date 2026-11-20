@@ -2,6 +2,7 @@
 #include "Play/SimTicks.h"
 
 #include "AI/AiComponents.h"
+#include "Content/ContentDb.h"
 #include "AI/Exposure.h"
 #include "AI/AiSystem.h"
 #include "Collision/Occlusion.h"
@@ -528,7 +529,7 @@ namespace Dark
             return;
         std::vector<LoadoutGrant> grants;
         if (!loadStartingLoadout(grants))
-            DE_LOG_ERROR("Play: player/loadout.json did not load");
+            reportCatalogIssue("Play", "player/loadout.json did not load; the player starts without the authored kit");
         const bool hadSword = hasItem(*inv, "sword");
         const bool hadRifle = hasItem(*inv, "rifle");
         for (const LoadoutGrant& grant : grants)

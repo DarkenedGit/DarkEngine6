@@ -1084,6 +1084,37 @@ namespace Dark
         return gDb.issues;
     }
 
+    namespace
+    {
+        std::vector<ContentIssue>& catalogIssueList()
+        {
+            static std::vector<ContentIssue> issues;
+            return issues;
+        }
+    } // namespace
+
+    void reportCatalogIssue(std::string_view source, std::string_view message)
+    {
+        std::vector<ContentIssue>& issues = catalogIssueList();
+        for (const ContentIssue& known : issues)
+        {
+            if (known.packageId == source && known.message == message)
+                return;
+        }
+        issues.push_back(ContentIssue{ std::string(source), std::string(message) });
+        DE_LOG_ERROR(LogCategory::Core, "{}: {}", std::string(source), std::string(message));
+    }
+
+    const std::vector<ContentIssue>& catalogIssues()
+    {
+        return catalogIssueList();
+    }
+
+    void clearCatalogIssues()
+    {
+        catalogIssueList().clear();
+    }
+
     bool contentHasArchetype(std::string_view idOrShort)
     {
         return findArchetype(idOrShort) != nullptr;

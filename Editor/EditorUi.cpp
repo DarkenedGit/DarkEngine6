@@ -699,6 +699,13 @@ void EditorApp::drawContentReport()
         for (const ContentIssue& issue : contentIssues())
             ImGui::TextWrapped("%s: %s", issue.packageId.c_str(), issue.message.c_str());
     }
+    if (!catalogIssues().empty())
+    {
+        ImGui::Separator();
+        ImGui::TextColored(toImVec4(UiPalette::kDanger), "Missing catalogs");
+        for (const ContentIssue& issue : catalogIssues())
+            ImGui::TextWrapped("%s: %s", issue.packageId.c_str(), issue.message.c_str());
+    }
     ImGui::End();
 }
 

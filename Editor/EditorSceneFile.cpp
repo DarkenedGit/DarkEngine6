@@ -903,6 +903,12 @@ void EditorApp::drawStatusBar()
             ImGui::TableSetColumnIndex(0);
             ImGui::AlignTextToFramePadding();
             ImGui::TextUnformatted(sceneName.c_str());
+            if (const size_t issues = catalogIssues().size(); issues > 0)
+            {
+                ImGui::SameLine();
+                ImGui::TextColored(toImVec4(UiPalette::kDanger), "%zu catalog issue%s", issues, issues == 1 ? "" : "s");
+                ImGui::SetItemTooltip("A required catalog did not load. Window > Content lists them.");
+            }
             ImGui::TableSetColumnIndex(1);
             ImGui::AlignTextToFramePadding();
             ImGui::TextUnformatted(info);
