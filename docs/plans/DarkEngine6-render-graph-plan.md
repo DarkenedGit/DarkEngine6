@@ -1,6 +1,6 @@
 # DarkEngine6: moving to a render graph (v2)
 
-> **In-repo copy.** This is the v2 plan as approved on 2026-11-20, plus decision D14. Line links still point at `7daebbb`, the tree it was written against. Progress: Phase 0 (baselines + docs) — see [docs/perf/README.md](../perf/README.md).
+> **In-repo copy.** This is the v2 plan as approved on 2026-11-20, plus decision D14. Line links still point at `7daebbb`, the tree it was written against. Progress: Phase 0 (baselines + docs) — see [docs/perf/README.md](../perf/README.md). Phase 1 (forward path deleted, D2) — branch `render-graph/phase-1`; the Windows gates (image diff vs the Phase 0 baselines, PSO count) are run on Travis's machine.
 
 **Repository:** [DarkenedGit/DarkEngine6](https://github.com/DarkenedGit/DarkEngine6) · **SHA:** `7daebbb` (`7daebbb8e11c858007977c17cfedc75d66ab007a`, main, pushed Nov 19, 10:21 PM PST). Main hadn't moved as of Nov 20, 8:30 PM PST.
 **Tree used:** `/workspace/de6-7daebbb`, which is main at `7daebbb`. PR #39 (`d805700`) only changes `Render/WalkabilityDebug.*`, `Render/WaterPipeline.h` and a new `Render/DebugColorMesh.h` under `Render/`. Nothing here depends on it.
