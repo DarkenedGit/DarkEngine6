@@ -46,32 +46,50 @@ namespace Dark::Rg
 
     // ---------------------------------------------------------------- Arena
 
+    namespace
+    {
+        // Bytes needed to bring `at` up to `align` (a power of two). Uses the real address, not the
+        // offset into the block: operator new only guarantees 16 bytes (MSVC x64), so a block base
+        // need not be 32- or 64-aligned.
+        size_t paddingFor(const std::byte* at, size_t align)
+        {
+            const uintptr_t addr = reinterpret_cast<uintptr_t>(at);
+            return static_cast<size_t>((~addr + 1) & (uintptr_t{ align } - 1));
+        }
+    } // namespace
+
     void* Arena::allocate(size_t bytes, size_t align)
     {
+        DE_ASSERT(align != 0 && (align & (align - 1)) == 0, "Arena alignment must be a power of two");
         if (bytes == 0)
             bytes = 1;
         for (; m_current < m_blocks.size(); ++m_current)
         {
-            Block&       b      = m_blocks[m_current];
-            const size_t offset = (b.used + align - 1) & ~(align - 1);
-            if (offset + bytes <= b.size)
+            Block&       b   = m_blocks[m_current];
+            const size_t pad = paddingFor(b.base + b.used, align);
+            if (pad <= b.size - b.used && bytes <= b.size - b.used - pad)
             {
-                b.used = offset + bytes;
+                std::byte* out = b.base + b.used + pad;
+                b.used += pad + bytes;
                 m_used += bytes;
-                return b.data.get() + offset;
+                return out;
             }
         }
-        Block b;
-        b.size = std::max(kArenaBlockBytes, bytes + align);
-        b.data = std::make_unique<std::byte[]>(b.size);
-        // operator new[] aligns to __STDCPP_DEFAULT_NEW_ALIGNMENT__; pad for anything stricter.
-        const uintptr_t base   = reinterpret_cast<uintptr_t>(b.data.get());
-        const size_t    offset = ((base + align - 1) & ~(uintptr_t{ align } - 1)) - base;
-        b.used                 = offset + bytes;
+        // A fresh block holds the request plus the worst-case padding for its alignment.
+        Block        b;
+        const size_t skewRoom = m_baseRemainder ? 64 : 0;
+        b.size                = std::max(kArenaBlockBytes, bytes + align);
+        b.data                = std::make_unique<std::byte[]>(b.size + skewRoom);
+        b.base                = b.data.get();
+        if (m_baseRemainder)
+            b.base += (m_baseRemainder + 64 - reinterpret_cast<uintptr_t>(b.base) % 64) % 64;
+        const size_t pad = paddingFor(b.base, align);
+        std::byte*   out = b.base + pad;
+        b.used           = pad + bytes;
         m_used += bytes;
         m_blocks.push_back(std::move(b));
         m_current = m_blocks.size() - 1;
-        return m_blocks.back().data.get() + offset;
+        return out;
     }
 
     const char* Arena::copyString(const char* text)

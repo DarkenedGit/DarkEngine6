@@ -907,6 +907,126 @@ TEST(RenderGraphArena, CreateRunsDestructorsOnReset)
     EXPECT_EQ(destroyed, 2);
 }
 
+namespace
+{
+    struct alignas(32) Over32
+    {
+        float v[8] = {};
+    };
+    struct alignas(64) Over64
+    {
+        float v[16] = {};
+        int   tag   = 0;
+    };
+
+    bool isAligned(const void* p, size_t align)
+    {
+        return reinterpret_cast<uintptr_t>(p) % align == 0;
+    }
+
+    // Base remainders (mod 64) the test hook can force: 0 is "as allocated", the rest model an
+    // allocator that only guarantees 16-byte alignment (MSVC x64 operator new).
+    constexpr size_t kRemainders[] = { 0, 16, 32, 48 };
+    constexpr size_t kBlockBytes   = 64 * 1024; // Arena's block size (RenderGraph.cpp)
+} // namespace
+
+TEST(RenderGraphArena, OverAlignedAfterASmallAllocation)
+{
+    for (const size_t rem : kRemainders)
+    {
+        SCOPED_TRACE("base % 64 == " + std::to_string(rem));
+        Arena a(rem);
+        a.allocate(1, 1);
+        const Over32* p32 = a.create<Over32>();
+        EXPECT_TRUE(isAligned(p32, 32));
+        a.allocate(24, 8);
+        Over64* p64 = a.create<Over64>();
+        EXPECT_TRUE(isAligned(p64, 64));
+        p64->tag = 7;
+        a.allocate(3, 1);
+        EXPECT_TRUE(isAligned(a.allocate(10, 64), 64));
+        EXPECT_TRUE(isAligned(a.allocate(1, 32), 32));
+        EXPECT_EQ(p64->tag, 7);
+    }
+}
+
+TEST(RenderGraphArena, OverAlignedAfterReset)
+{
+    for (const size_t rem : kRemainders)
+    {
+        SCOPED_TRACE("base % 64 == " + std::to_string(rem));
+        Arena a(rem);
+        a.allocate(5, 1);
+        a.create<Over64>();
+        a.reset();
+        // First allocation in the reused block, then one after a small allocation.
+        EXPECT_TRUE(isAligned(a.create<Over64>(), 64));
+        a.reset();
+        a.allocate(1, 1);
+        EXPECT_TRUE(isAligned(a.create<Over32>(), 32));
+        EXPECT_TRUE(isAligned(a.create<Over64>(), 64));
+    }
+}
+
+TEST(RenderGraphArena, OverAlignedAcrossBlockBoundariesAndNearTheEnd)
+{
+    for (const size_t rem : kRemainders)
+    {
+        SCOPED_TRACE("base % 64 == " + std::to_string(rem));
+        Arena a(rem);
+        // Many blocks' worth of mixed small and over-aligned allocations; every object is written in
+        // full so ASan catches a capacity check that forgot the padding.
+        for (int i = 0; i < 4000; ++i)
+        {
+            a.allocate(static_cast<size_t>(1 + i % 13), 1);
+            Over64* p = a.create<Over64>();
+            ASSERT_TRUE(isAligned(p, 64)) << i;
+            std::memset(static_cast<void*>(p), 0x5A, sizeof(Over64));
+            Over32* q = a.create<Over32>();
+            ASSERT_TRUE(isAligned(q, 32)) << i;
+            std::memset(static_cast<void*>(q), 0x5A, sizeof(Over32));
+        }
+        // Fill a block to just short of its end: the padded request must not run past it.
+        for (size_t tail = 1; tail <= 64; tail += 7)
+        {
+            a.reset();
+            void* fill = a.allocate(kBlockBytes - 64 - tail, 1);
+            std::memset(fill, 0, kBlockBytes - 64 - tail);
+            void* p = a.allocate(64, 64);
+            ASSERT_TRUE(isAligned(p, 64)) << tail;
+            std::memset(p, 0xA5, 64);
+        }
+        // A request larger than a block, over-aligned.
+        void* big = a.allocate(kBlockBytes * 2, 64);
+        ASSERT_TRUE(isAligned(big, 64));
+        std::memset(big, 1, kBlockBytes * 2);
+        EXPECT_TRUE(isAligned(a.create<Over64>(), 64));
+    }
+}
+
+TEST(RenderGraphArena, OverAlignedPassDataAcrossFrames)
+{
+    struct alignas(64) Data
+    {
+        TextureHandle t;
+        float         pad[3] = {};
+    };
+    RenderGraph g;
+    for (int frame = 0; frame < 3; ++frame)
+    {
+        const TextureHandle bb = [&]
+        {
+            g.beginFrame(64, 64);
+            return g.importBackBuffer(nullptr, 64, 64, kBgra8);
+        }();
+        bool aligned = false;
+        g.addPass<Data>("Over", [&](PassBuilder& b, Data& d) { d.t = b.write(bb); }, [&](PassContext&, const Data& d) { aligned = isAligned(&d, 64); });
+        ASSERT_TRUE(compiles(g));
+        ASSERT_TRUE(g.execute());
+        EXPECT_TRUE(aligned) << frame;
+    }
+}
+
 TEST(RenderGraphBlackboard, SetGetOverwriteAndPerFrameReset)
 {
     struct GBuffer

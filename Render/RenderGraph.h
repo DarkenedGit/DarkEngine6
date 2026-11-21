@@ -34,6 +34,12 @@ namespace Dark::Rg
     {
     public:
         Arena() = default;
+        // Test hook: every block's usable base sits at (address % 64) == baseRemainder (a multiple of
+        // 16), so tests see a 16-aligned allocator on any platform. 0 = use the allocation as is.
+        explicit Arena(size_t baseRemainder) :
+            m_baseRemainder(baseRemainder)
+        {
+        }
         ~Arena()
         {
             reset();
@@ -61,8 +67,9 @@ namespace Dark::Rg
         struct Block
         {
             std::unique_ptr<std::byte[]> data;
-            size_t                       size = 0;
-            size_t                       used = 0;
+            std::byte*                   base = nullptr; // start of the usable bytes (data, or skewed by the test hook)
+            size_t                       size = 0;       // usable bytes from base
+            size_t                       used = 0;       // bytes used from base
         };
         struct Destructor
         {
@@ -71,8 +78,9 @@ namespace Dark::Rg
         };
         std::vector<Block>      m_blocks;
         std::vector<Destructor> m_destructors;
-        size_t                  m_current = 0;
-        size_t                  m_used    = 0;
+        size_t                  m_current       = 0;
+        size_t                  m_used          = 0;
+        size_t                  m_baseRemainder = 0;
     };
 
     // Typed slots features share within a frame (§3.3). Values are copied into the frame arena, so T
