@@ -145,7 +145,6 @@ void EditorApp::drawEditorUi()
                 DE_LOG_INFO("Editor: indirect static draws = {}", renderer().debugState().instancedIndirect);
             if (ImGui::MenuItem("GPU particles", nullptr, &renderer().debugState().gpuParticles))
                 DE_LOG_INFO("Editor: GPU particles = {}", renderer().debugState().gpuParticles);
-            if (renderer().hasSceneBuffers())
             {
                 bool aces = renderer().debugState().aces;
                 if (ImGui::MenuItem("ACES Tonemap", nullptr, aces))
@@ -159,7 +158,6 @@ void EditorApp::drawEditorUi()
                 if (m_haveTerrain && m_terrainMaterial.isValid())
                     m_terrainMaterial.setLayerSamplingRaw(renderer().device(), renderer().debugState().legacyUnormAlbedo);
             }
-            if (renderer().hasGBuffer())
             {
                 bool albedoLinear = renderer().debugState().showAlbedoLinear;
                 if (ImGui::MenuItem("Show albedo (linear)", nullptr, albedoLinear))
@@ -313,7 +311,7 @@ void EditorApp::drawEditorUi()
 
     beginPassthruDockSpace("EditorDockHost", ImGui::GetFrameHeight(), toolbarH);
 
-    if (m_sceneMode == SceneMode::Scene3D && renderer().hasGBuffer())
+    if (m_sceneMode == SceneMode::Scene3D)
     {
         ImGui::SetNextWindowSize(ImVec2(uiPx(420.0f), uiPx(560.0f)), ImGuiCond_FirstUseEver);
         if (ImGui::Begin("Lighting"))

@@ -46,8 +46,6 @@ namespace Dark
         bool        debugLevelJump    = false; // Sandbox opt-in: right-side scene list on the front menu
         bool        cliDebugLevels    = false; // -debug-levels (force that list)
         bool        cliNoDebugLevels  = false; // -no-debug-levels (hide that list)
-        bool        cliForward    = false; // -forward (keep swap-chain forward 3D)
-        ScenePath   scenePath     = ScenePath::SwapChainForward; // request; live path is Renderer::scenePath()
         // Off keeps loadSceneFromJson on the caller and does not start the scheduler.
         bool        asyncSceneLoad = true;
         // -scene:<file> (Sandbox and Editor open it at startup). Empty = the host default.
@@ -61,7 +59,6 @@ namespace Dark
     bool shouldShowSplash(const AppConfig& cfg, bool jsonEnabled);
     bool shouldShowMainMenu(const AppConfig& cfg);
     bool shouldShowDebugLevelJump(const AppConfig& cfg);
-    void applyDeferredScenePath(AppConfig& cfg, ScenePath whenEnabled);
 
     class Application
     {
@@ -71,6 +68,8 @@ namespace Dark
 
         bool initOk() const { return m_window.nativeHandle() != nullptr && m_renderer.isValid(); }
         void run();
+        // Process exit code for main/WinMain. Non-zero after a fatal init error such as createSceneTargets().
+        int exitCode() const { return m_exitCode; }
 
         // Scene change, after the old entities, pins, and terrain are gone and
         // before the next scene interns replacements. Stops one-shot voices, then
@@ -79,6 +78,8 @@ namespace Dark
         // A clip XAudio2 is still mixing stays interned until a later release.
         void releaseUnreferencedAssets();
         void requestQuit() { m_running = false; }
+        // Required 3D scene targets. Logs, shows an error and quits with exitCode() 1 if allocation fails; no fallback.
+        bool createSceneTargets();
 
         bool pumpBootFrame();
         bool splashActive() const { return m_splashActive; }
@@ -149,6 +150,7 @@ namespace Dark
         LoadingScreen m_loading;
         AppConfig     m_config;
         bool          m_running        = true;
+        int           m_exitCode       = 0;
         bool          m_bootPresenting = false;
         bool          m_splashActive   = false;
         float         m_bootFade       = 1.0f;

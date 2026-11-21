@@ -378,18 +378,18 @@ TEST(DrawList, PassSequenceSkipsOptionalAndRejectsReorder)
     EXPECT_FALSE(passSequenceOk(deferred, deferredCount, swapped.data(), static_cast<uint32_t>(swapped.size())));
     EXPECT_EQ(swapped, swappedCopy);
 
-    uint32_t forwardCount = 0;
-    const PassNode* forward = sandboxForwardPasses(forwardCount);
-    const PassId gbuffer = PassId::GBuffer;
-    EXPECT_FALSE(passSequenceOk(forward, forwardCount, &gbuffer, 1));
-
-    uint32_t editorForwardCount = 0;
-    const PassNode* editorForward = editorForwardPasses(editorForwardCount);
-    const PassId editorOrder[] = { PassId::EditorGrid, PassId::EditorGizmos, PassId::Translucent, PassId::Post };
-    EXPECT_TRUE(passSequenceOk(editorForward, editorForwardCount, editorOrder, 4));
-    PassId editorReversed[] = { PassId::EditorGizmos, PassId::EditorGrid, PassId::Translucent, PassId::Post };
-    const PassId reversedCopy[] = { PassId::EditorGizmos, PassId::EditorGrid, PassId::Translucent, PassId::Post };
-    EXPECT_FALSE(passSequenceOk(editorForward, editorForwardCount, editorReversed, 4));
+    uint32_t editorCount = 0;
+    const PassNode* editor = editorDeferredPasses(editorCount);
+    const PassId editorOrder[] = { PassId::GBuffer, PassId::Decals, PassId::Gtao, PassId::Ssr, PassId::Lighting, PassId::LocalVolumes,
+                                   PassId::SsrCapture, PassId::EditorGrid, PassId::EditorGizmos, PassId::Translucent, PassId::Post };
+    constexpr uint32_t editorOrderCount = static_cast<uint32_t>(sizeof(editorOrder) / sizeof(editorOrder[0]));
+    EXPECT_TRUE(passSequenceOk(editor, editorCount, editorOrder, editorOrderCount));
+    PassId editorReversed[editorOrderCount];
+    std::memcpy(editorReversed, editorOrder, sizeof(editorOrder));
+    std::swap(editorReversed[7], editorReversed[8]); // EditorGizmos before EditorGrid
+    PassId reversedCopy[editorOrderCount];
+    std::memcpy(reversedCopy, editorReversed, sizeof(editorReversed));
+    EXPECT_FALSE(passSequenceOk(editor, editorCount, editorReversed, editorOrderCount));
     EXPECT_EQ(std::memcmp(editorReversed, reversedCopy, sizeof(reversedCopy)), 0);
 }
 

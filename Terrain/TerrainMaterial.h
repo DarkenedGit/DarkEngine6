@@ -80,7 +80,6 @@ namespace Dark
         bool applySurfaceDesc(Renderer& renderer, const Terrain::TerrainSurfaceDesc& desc);
 
         void bind(ID3D12GraphicsCommandList* cmd, UINT srvTableRootIndex) const;
-        void applySurface(TerrainFrameConstants& constants) const;
         void applySurface(TerrainGBufferConstants& constants, float worldSizeX, float worldSizeZ) const;
 
         // Layers 0–11 + dummy splat from this template. Slot 13 is empty (copyShadow).

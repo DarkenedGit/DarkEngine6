@@ -2,12 +2,10 @@
 #include "Terrain/TerrainMaterial.h"
 #include "Render/PackedSrvHeap.h"
 #include "Render/TerrainPipeline.h"
-#include "Render/ShadowSystem.h"
 #include "Render/Camera3D.h"
 #include "Render/Frustum3f.h"
 #include "Render/Profile.h"
 #include "Render/Renderer.h"
-#include "Sky/Environment.h"
 #include "Core/Log.h"
 #include "Math/Matrix4f.h"
 
@@ -369,98 +367,6 @@ bool TerrainWorld::uploadDirty(Renderer& renderer, int maxMeshes)
         ++n;
     }
     return ok;
-}
-
-void TerrainWorld::draw(
-    ID3D12GraphicsCommandList* cmd,
-    const TerrainPipeline& pipeline,
-    const TerrainMaterial& material,
-    const Camera3D& camera,
-    const Frustum3f* frustum,
-    const Sky::Environment* env,
-    const ShadowSystem* shadows,
-    const DebugRenderState* debug,
-    const PackedSrvHeap* srvHeap) const
-{
-    m_lastDrawCalls = 0;
-    m_lastTriangles = 0;
-    if (!cmd || !pipeline.isValid() || !material.isValid())
-        return;
-
-    const GpuScope terrain(cmd, "Terrain", ProfileColor::Terrain);
-    const DebugFill fill = debug ? debug->fill : DebugFill::Solid;
-    const bool lighting  = !debug || debug->lightingActive();
-    pipeline.bind(cmd, fill);
-    BindTerrainSrvTable(cmd, material, srvHeap);
-    if (shadows)
-        shadows->bindReceiverCbv(cmd, TerrainPipeline::kRootShadowCbv);
-
-    const Matrix4f world    = Matrix4f::IDENTITY;
-    const Matrix4f viewProj = camera.GetViewProj();
-    const Matrix4f wvp      = world * viewProj;
-
-    TerrainFrameConstants cb{};
-    CopyMatrix(cb.worldViewProj, wvp);
-    CopyMatrix(cb.world, world);
-    material.applySurface(cb);
-    const Vector3f cam = camera.GetPosition();
-    cb.cameraPosX = cam.x;
-    cb.cameraPosY = cam.y;
-    cb.cameraPosZ = cam.z;
-    if (env)
-    {
-        cb.lightDirWS[0]    = env->lightDir().x;
-        cb.lightDirWS[1]    = env->lightDir().y;
-        cb.lightDirWS[2]    = env->lightDir().z;
-        cb.lightColor[0]    = env->lightColor().x;
-        cb.lightColor[1]    = env->lightColor().y;
-        cb.lightColor[2]    = env->lightColor().z;
-        cb.ambientColor[0]  = env->ambientColor().x;
-        cb.ambientColor[1]  = env->ambientColor().y;
-        cb.ambientColor[2]  = env->ambientColor().z;
-        cb.fogColor[0]         = env->fogColor().x;
-        cb.fogColor[1]         = env->fogColor().y;
-        cb.fogColor[2]         = env->fogColor().z;
-        cb.fogDensity          = env->fogDensity();
-        cb.heightFogDensity    = env->heightFogDensity();
-        cb.heightFogFalloff    = env->heightFogFalloff();
-        cb.heightFogHeight     = m_heightMap.origin().y;
-    }
-    else
-    {
-        cb.lightDirWS[0]   = 0.35f;
-        cb.lightDirWS[1]   = 0.85f;
-        cb.lightDirWS[2]   = -0.35f;
-        cb.lightColor[0]   = 1.0f;
-        cb.lightColor[1]   = 0.96f;
-        cb.lightColor[2]   = 0.88f;
-        cb.ambientColor[0] = 0.18f;
-        cb.ambientColor[1] = 0.20f;
-        cb.ambientColor[2] = 0.22f;
-        cb.fogColor[0]     = 0.55f;
-        cb.fogColor[1]     = 0.62f;
-        cb.fogColor[2]     = 0.72f;
-        cb.fogDensity      = 0.0f;
-    }
-    cb.lighting = lighting ? 1.0f : 0.0f;
-    if (!lighting)
-    {
-        cb.fogDensity       = 0.0f;
-        cb.heightFogDensity = 0.0f;
-    }
-    pipeline.setConstants(cmd, cb);
-
-    const bool pointList = fill == DebugFill::Points;
-    for (const TerrainChunk& c : m_chunks)
-    {
-        if (!c.gpu.valid())
-            continue;
-        if (frustum && !frustum->Intersects(c.bounds))
-            continue;
-        c.gpu.draw(cmd, pointList);
-        ++m_lastDrawCalls;
-        m_lastTriangles += c.gpu.indexCount() / 3u;
-    }
 }
 
 void TerrainWorld::drawGBuffer(

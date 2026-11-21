@@ -55,7 +55,7 @@ struct SceneRendererDesc
     bool createTerrainPipeline = false;
     // Log prefix for create failures (e.g. "SandboxApp", "EditorApp").
     const char* logTag = "SceneRenderer";
-    // Sandbox HybridDeferred only. Editor leaves this false and does not build the meter.
+    // Sandbox only. Editor leaves this false and does not build the meter.
     bool createAutoExposure = false;
 };
 

@@ -12,18 +12,6 @@ namespace Dark
 
     using Microsoft::WRL::ComPtr;
 
-    enum class TerrainPass : uint8_t
-    {
-        ForwardUnorm = 0,
-        GBuffer,
-    };
-
-    inline DXGI_FORMAT terrainPassColorFormat(TerrainPass pass)
-    {
-        (void)pass;
-        return DXGI_FORMAT_R8G8B8A8_UNORM;
-    }
-
     struct TerrainGBufferConstants
     {
         float worldViewProj[16];
@@ -46,51 +34,23 @@ namespace Dark
     static_assert(offsetof(TerrainGBufferConstants, layerTint3) == 62 * sizeof(float), "layerTint3 last float");
     static_assert(63 + 1 <= 64, "terrain G-buffer root signature DWORD budget");
 
-    // Root constants for Terrain.hlsl. Must match the HLSL cbuffer packing
-    // (float3+float share a float4). 57 dwords, lighting at byte 224 = cb0[14].x.
-    struct TerrainFrameConstants
-    {
-        float worldViewProj[16];
-        float world[16];
-        float color[4];
-        float lightDirWS[3];
-        float fogDensity;
-        float layerTiling[4];
-        float lightColor[3];
-        float cameraPosX;
-        float ambientColor[3];
-        float cameraPosY;
-        float fogColor[3];
-        float cameraPosZ;
-        float lighting = 1.0f; // 1 = Lambert+shadow+fog, 0 = albedo only
-        float heightFogDensity  = 0.0f;
-        float heightFogFalloff  = 0.06f;
-        float heightFogHeight   = 0.0f;
-    };
-
-    static_assert(sizeof(TerrainFrameConstants) == 60 * sizeof(float), "terrain root constant size");
-    static_assert(offsetof(TerrainFrameConstants, lightDirWS) == 144, "lightDirWS pack");
-    static_assert(offsetof(TerrainFrameConstants, lighting) == 224, "lighting pack");
-    static_assert(60 + 1 + 2 <= 64, "terrain forward root signature DWORD budget");
-
     // PSO for height-map terrain: pos/normal/uv, 14-slot metal-rough heap (shadow last).
     class TerrainPipeline
     {
     public:
         static constexpr UINT kRootConstants = 0;
         static constexpr UINT kRootSrvTable  = 1;
-        static constexpr UINT kRootShadowCbv = 2;
-        static constexpr UINT kMapSrvCount   = 13; // G-buffer table (prefix, no shadow)
-        static constexpr UINT kSrvCount      = 14; // forward table (shadow last)
+        static constexpr UINT kMapSrvCount   = 13; // G-buffer table (heap prefix, no shadow)
+        static constexpr UINT kSrvCount      = 14; // material heap size (shadow slot last, unused by the G-buffer PSO)
 
         TerrainPipeline() = default;
 
-        bool create(ID3D12Device* device, TerrainPass pass = TerrainPass::ForwardUnorm);
+        // G-buffer only (D2): the forward terrain PSO and Terrain.hlsl are gone.
+        bool create(ID3D12Device* device);
 
         void bind(ID3D12GraphicsCommandList* cmd, DebugFill fill = DebugFill::Solid) const;
         void setThermal(bool on) { m_thermal = on; }
         void setUltraviolet(bool on) { m_ultraviolet = on; }
-        void setConstants(ID3D12GraphicsCommandList* cmd, const TerrainFrameConstants& constants) const;
         void setGBufferConstants(ID3D12GraphicsCommandList* cmd, const TerrainGBufferConstants& constants) const;
 
         bool isValid() const

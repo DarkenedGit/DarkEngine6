@@ -14,7 +14,6 @@ namespace Dark
 	enum class SkinnedMeshPass : uint8_t
 	{
 		GBuffer = 0,
-		Forward,
 		ForwardTransparent,
 		Shadow
 	};
@@ -27,7 +26,7 @@ namespace Dark
 		static constexpr UINT kRootShadowCbv = 2;
 		static constexpr UINT kRootBoneCbv   = 3;
 
-		bool create(ID3D12Device* device, SkinnedMeshPass pass, DXGI_FORMAT colorFormat = DXGI_FORMAT_R8G8B8A8_UNORM);
+		bool create(ID3D12Device* device, SkinnedMeshPass pass, DXGI_FORMAT colorFormat = DXGI_FORMAT_R16G16B16A16_FLOAT);
 
 		void bind(ID3D12GraphicsCommandList* cmd, DebugFill fill = DebugFill::Solid) const;
 		void setThermal(bool on) { m_thermal = on; }

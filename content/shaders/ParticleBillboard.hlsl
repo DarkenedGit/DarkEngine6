@@ -5,10 +5,6 @@
 #include "ParticleGpu.hlsli"
 #include "Color.hlsli"
 
-#ifndef ENCODE_SRGB
-#define ENCODE_SRGB 0
-#endif
-
 StructuredBuffer<GpuParticle> gParticles : register(t0);
 
 cbuffer GpuParticleDraw : register(b1)

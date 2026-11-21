@@ -149,7 +149,7 @@ namespace Dark
             return;
         if (!renderer.debugState().clouds)
             return;
-        if (!renderer.hasGBuffer() || renderer.depthSrvCpu().ptr == 0)
+        if (!renderer.hasSceneBuffers() || renderer.depthSrvCpu().ptr == 0)
             return;
 
         const Frustum3f frustum(camera.GetCullViewProj());

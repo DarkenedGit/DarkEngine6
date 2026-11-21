@@ -184,10 +184,8 @@ namespace Dark
 
         ComPtr<ID3DBlob> vs;
         ComPtr<ID3DBlob> ps;
-        D3D_SHADER_MACRO encodeMacros[2];
-        makeEncodeSrgbMacros(encodeSrgbForColorFormat(colorFormat), encodeMacros);
-        if (!compileShaderFromContent("shaders/ParticleBillboard.hlsl", "VSMain", "vs_5_0", vs, encodeMacros)
-            || !compileShaderFromContent("shaders/Particle.hlsl", "PSMain", "ps_5_0", ps, encodeMacros))
+        if (!compileShaderFromContent("shaders/ParticleBillboard.hlsl", "VSMain", "vs_5_0", vs)
+            || !compileShaderFromContent("shaders/Particle.hlsl", "PSMain", "ps_5_0", ps))
         {
             destroy();
             return false;

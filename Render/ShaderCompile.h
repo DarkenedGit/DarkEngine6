@@ -29,21 +29,6 @@ namespace Dark
     bool compileShaderFromContent(const char* relativeUnderContent, const char* entry, const char* target, ComPtr<ID3DBlob>& outBytecode,
                                   const D3D_SHADER_MACRO* defines = nullptr, bool forceOptimize = false);
 
-    // Scene-referred forward writing display-referred UNORM. HDR and _SRGB RTVs stay 0.
-    inline bool encodeSrgbForColorFormat(DXGI_FORMAT colorFormat)
-    {
-        return colorFormat == DXGI_FORMAT_R8G8B8A8_UNORM;
-    }
-
-    // outMacros must have room for 2 entries (define + terminator).
-    inline void makeEncodeSrgbMacros(bool encode, D3D_SHADER_MACRO outMacros[2])
-    {
-        outMacros[0].Name       = "ENCODE_SRGB";
-        outMacros[0].Definition = encode ? "1" : "0";
-        outMacros[1].Name       = nullptr;
-        outMacros[1].Definition = nullptr;
-    }
-
     // outMacros must have room for 3 entries. classHeat is a literal such as "0.72" and must outlive the compile.
     inline void makeThermalMacros(const char* classHeat, D3D_SHADER_MACRO outMacros[3])
     {

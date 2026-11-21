@@ -86,7 +86,7 @@ namespace Dark
             out.windDir[0]    = env->weather.windDir.x;
             out.windDir[1]    = env->weather.windDir.y;
             out.sunElevation  = env->sunElevation();
-            out.exposure      = 1.0f; // HybridDeferred sky pass: tonemap owns exposure
+            out.exposure      = 1.0f; // deferred sky pass: tonemap owns exposure
             out.cloudTime     = env->timeOfDay;
             Sky::CloudLayerGpu layer{};
             Sky::writeCloudLayer(layer, *env);
@@ -671,7 +671,7 @@ namespace Dark
             }
             return;
         }
-        if (!renderer.hasGBuffer())
+        if (!renderer.hasSceneBuffers())
             return;
 
         ID3D12Device*                     device = renderer.device();

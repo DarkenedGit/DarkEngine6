@@ -140,7 +140,7 @@ TEST(CloudLayer, DeviceCreatesDeckPso)
         GTEST_SKIP() << "no D3D12 device (WARP or hardware)";
 
     SkyPipeline sky;
-    ASSERT_TRUE(sky.create(device.Get(), SkyPass::DeferredLast, DXGI_FORMAT_R16G16B16A16_FLOAT));
+    ASSERT_TRUE(sky.create(device.Get(), DXGI_FORMAT_R16G16B16A16_FLOAT));
     EXPECT_TRUE(sky.isValid());
     EXPECT_TRUE(sky.hasCloudLayer());
 }

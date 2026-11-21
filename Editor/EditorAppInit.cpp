@@ -32,7 +32,6 @@
 #include "Render/GpuResourceCache.h"
 #include "Render/GpuUpload.h"
 #include "Render/SkyPipeline.h"
-#include "Render/ScenePath.h"
 #include "Render/PassTable.h"
 #include "Assets/Material.h"
 #include "Assets/Model.h"
@@ -66,7 +65,7 @@ void EditorApp::registerActions()
 
     DE_LOG_INFO(
         "Editor: F3 toggle 2D/3D | F2 particle UI | F4 animation UI | F8 HSM UI | F1 fill F6 lighting F7 shadows | F11 G-buffer | "
-        "1-7 place type | P place | 6 Player 7 Hunter | F12 play | MMB/RMB pan (2D) | wheel zoom | Ctrl+S/O save/load | C color | Del delete | -forward");
+        "1-7 place type | P place | 6 Player 7 Hunter | F12 play | MMB/RMB pan (2D) | wheel zoom | Ctrl+S/O save/load | C color | Del delete");
 }
 
 void EditorApp::ensurePlayReticle()
@@ -103,10 +102,9 @@ void EditorApp::onInit()
 
     m_ai.setHunterHitReactionSettings(defaultHunterHitReaction());
 
-    if (!renderer().enableSceneBuffers(config().scenePath))
-        DE_LOG_ERROR(LogCategory::Render, "EditorApp: SceneBuffers enable failed; SwapChainForward");
-    if (renderer().scenePath() == ScenePath::HybridDeferred)
-        renderer().debugState().decalsEnabled = true;
+    if (!createSceneTargets())
+        return;
+    renderer().debugState().decalsEnabled = true;
 
     {
         SceneRendererDesc sceneDesc{};
@@ -129,9 +127,8 @@ void EditorApp::onInit()
         if (!m_skinnedInstances.create(renderer().device()))
             DE_LOG_ERROR(LogCategory::Render, "EditorApp: skinned instancing unavailable; skinned draws stay immediate");
         m_foliagePrototypes.create(renderer(), assets());
-        if (renderer().scenePath() == ScenePath::HybridDeferred)
         {
-            if (!m_skyPipeline.create(renderer().device(), SkyPass::DeferredLast, renderer().sceneColorFormat()))
+            if (!m_skyPipeline.create(renderer().device(), renderer().sceneColorFormat()))
                 DE_LOG_ERROR(LogCategory::Render, "EditorApp: SkyPipeline create failed — no sun disc");
         }
     }
@@ -141,7 +138,6 @@ void EditorApp::onInit()
         requestQuit();
         return;
     }
-    if (renderer().hasSceneBuffers())
     {
         if (!m_linePipeline3D.create(renderer().device(), renderer().sceneColorFormat()))
         {

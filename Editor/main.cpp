@@ -24,7 +24,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR lpCmdLine, int)
 #endif
     Dark::parseNetCommandLine(lpCmdLine, cfg);
     Dark::parseAppCommandLine(lpCmdLine, cfg);
-    Dark::applyDeferredScenePath(cfg, Dark::ScenePath::HybridDeferred);
 
     EditorApp app{cfg};
     if (!app.initOk())
@@ -33,5 +32,5 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR lpCmdLine, int)
         return 1;
     }
     app.run();
-    return 0;
+    return app.exitCode();
 }

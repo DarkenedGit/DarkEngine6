@@ -403,16 +403,6 @@ namespace Dark
         cmd->SetGraphicsRootDescriptorTable(srvTableRootIndex, m_heap.gpu);
     }
 
-    void TerrainMaterial::applySurface(TerrainFrameConstants& constants) const
-    {
-        constants.color[0] = 1.0f;
-        constants.color[1] = 1.0f;
-        constants.color[2] = 1.0f;
-        constants.color[3] = 1.0f;
-        for (int i = 0; i < Terrain::kMaxTerrainLayers; ++i)
-            constants.layerTiling[i] = m_layers[i].tiling;
-    }
-
     void TerrainMaterial::applySurface(TerrainGBufferConstants& constants, float worldSizeX, float worldSizeZ) const
     {
         constants.color[0] = 1.0f;

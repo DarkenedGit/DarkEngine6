@@ -253,7 +253,6 @@ TEST(SkinnedInstance, WarpKeepsTheOtherFrameSlot)
     SkinnedInstanceBuffer buffer;
     ASSERT_TRUE(buffer.create(device.Get()));
     EXPECT_TRUE(buffer.isValid());
-    EXPECT_TRUE(buffer.forwardReady());
 
     Mesh     mesh = Mesh::takeSortIdentity();
     AnimPose poseA{};
@@ -468,53 +467,6 @@ TEST(SkinnedInstance, SubmitBakesWorldAndRollsBackTheCharacter)
     EXPECT_FALSE(submitSkinnedModelOpaque(capped, gpu, model, &pose, entity, prevEntity, StaticPopulation::OpaqueModels, true));
     EXPECT_EQ(capped.partCount(), before);
     EXPECT_EQ(capped.paletteCount(), 1u);
-}
-
-TEST(SkinnedInstance, ForwardSignatureIs45)
-{
-    EXPECT_EQ(36u + 1u + 2u + 2u + 2u + 2u, 45u);
-    EXPECT_EQ(sizeof(MeshForwardBatchConstants), 144u);
-    EXPECT_EQ(SkinnedInstanceBuffer::kForwardConstants, 0u);
-    EXPECT_EQ(SkinnedInstanceBuffer::kForwardMaterial, 1u);
-    EXPECT_EQ(SkinnedInstanceBuffer::kForwardShadow, 2u);
-    EXPECT_EQ(SkinnedInstanceBuffer::kForwardInstances, 3u);
-    EXPECT_EQ(SkinnedInstanceBuffer::kForwardIndices, 4u);
-    EXPECT_EQ(SkinnedInstanceBuffer::kForwardPalettes, 5u);
-
-    ComPtr<ID3DBlob> vs;
-    ComPtr<ID3DBlob> ps;
-    ASSERT_TRUE(compileShaderFromContent("shaders/SkinnedMeshForwardInstanced.hlsl", "VSMain", "vs_5_0", vs));
-    ASSERT_TRUE(compileShaderFromContent("shaders/SkinnedMeshForwardInstanced.hlsl", "PSMain", "ps_5_0", ps));
-
-    UINT vsBytes = 0;
-    UINT psBytes = 0;
-    ASSERT_TRUE(cbufferBytes(vs.Get(), "MeshForwardBatchConstants", vsBytes));
-    ASSERT_TRUE(cbufferBytes(ps.Get(), "MeshForwardBatchConstants", psBytes));
-    EXPECT_EQ(vsBytes, 144u);
-    EXPECT_EQ(psBytes, 144u);
-
-    UINT base = 0;
-    ASSERT_TRUE(variableOffset(vs.Get(), "MeshForwardBatchConstants", "baseIndex", base));
-    EXPECT_EQ(base, 128u);
-
-    UINT instances = 0;
-    UINT indices   = 0;
-    UINT palettes  = 0;
-    UINT albedo    = 0;
-    UINT shadow    = 0;
-    ASSERT_TRUE(bindPoint(vs.Get(), "gInstances", instances));
-    ASSERT_TRUE(bindPoint(vs.Get(), "gIndices", indices));
-    ASSERT_TRUE(bindPoint(vs.Get(), "gPalettes", palettes));
-    ASSERT_TRUE(bindPoint(ps.Get(), "gAlbedo", albedo));
-    ASSERT_TRUE(bindPoint(ps.Get(), "gShadowMap", shadow));
-    EXPECT_EQ(instances, 5u);
-    EXPECT_EQ(indices, 6u);
-    EXPECT_EQ(palettes, 7u);
-    EXPECT_EQ(albedo, 0u);
-    EXPECT_EQ(shadow, 4u);
-
-    EXPECT_TRUE(disassemblyHas(vs.Get(), "dcl_resource_structured t5, 160"));
-    EXPECT_TRUE(disassemblyHas(vs.Get(), "dcl_resource_structured t7, 2048"));
 }
 
 TEST(SkinnedInstance, CullAabbUsesOneWorldBoxAndSkipsInvalidCenters)

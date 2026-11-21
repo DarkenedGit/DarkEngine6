@@ -20,14 +20,8 @@ class Renderer;
 class TerrainPipeline;
 class TerrainMaterial;
 class Camera3D;
-class ShadowSystem;
 class Frustum3f;
 struct PackedSrvHeap;
-
-namespace Sky
-{
-class Environment;
-}
 
 namespace Terrain
 {
@@ -78,17 +72,6 @@ namespace Terrain
         // maxMeshes < 0 uploads every pending chunk (legacy). Spread path passes a cap.
         bool uploadDirty(Renderer& renderer, int maxMeshes = -1);
         bool uploadHeightTexture(Renderer& renderer);
-
-        void draw(
-            ID3D12GraphicsCommandList* cmd,
-            const TerrainPipeline& pipeline,
-            const TerrainMaterial& material,
-            const Camera3D& camera,
-            const Frustum3f* frustum = nullptr,
-            const Sky::Environment* env = nullptr,
-            const ShadowSystem* shadows = nullptr,
-            const DebugRenderState* debug = nullptr,
-            const PackedSrvHeap* srvHeap = nullptr) const;
 
         void drawGBuffer(
             ID3D12GraphicsCommandList* cmd,

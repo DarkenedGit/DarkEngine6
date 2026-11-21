@@ -52,7 +52,6 @@ public:
     Dark::AutoExposureResult&    autoExposureResult() { return m_autoExposureResult; }
 
 private:
-    void drawProjectiles(ID3D12GraphicsCommandList* cmd, const Dark::Math::Matrix4f& viewProj, Dark::MeshFrameConstants& cb, bool instanced, const std::vector<int>* rejectedShots);
     void drawProjectilesGBuffer(ID3D12GraphicsCommandList* cmd, const Dark::Math::Matrix4f& viewProj, const Dark::Math::Matrix4f& prevViewProj, bool instanced, const std::vector<int>* rejectedShots);
     void drawDebugOverlays(ID3D12GraphicsCommandList* cmd);
     void dropDeadPrevWorlds();

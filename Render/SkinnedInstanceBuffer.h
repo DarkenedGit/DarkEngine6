@@ -41,8 +41,7 @@ struct SkinnedPartSubmit
 
 // Palette upload and skinned instance upload. Two frame slots.
 // One pose is 8192 bytes. The shader reads it as four 2048-byte structured elements (SM 5.0 limit).
-// G-buffer root is 47 DWORDs. Depth root is 26. Forward root is 45. The immediate skinned signature is not extended.
-// A failed forward PSO leaves g-buffer and depth instancing on.
+// G-buffer root is 47 DWORDs. Depth root is 26. The immediate skinned signature is not extended.
 // A failed cull leaves DrawIndexedInstanced. The cull owns its arguments, indices, and counters.
 // DrawIndexedInstanced and ExecuteIndirect keep StartInstanceLocation at 0.
 class SkinnedInstanceBuffer
@@ -63,13 +62,6 @@ public:
     static constexpr UINT kDepthIndices   = 2;
     static constexpr UINT kDepthPalettes  = 3;
 
-    static constexpr UINT kForwardConstants = 0;
-    static constexpr UINT kForwardMaterial  = 1;
-    static constexpr UINT kForwardShadow    = 2;
-    static constexpr UINT kForwardInstances = 3;
-    static constexpr UINT kForwardIndices   = 4;
-    static constexpr UINT kForwardPalettes  = 5;
-
     SkinnedInstanceBuffer();
     ~SkinnedInstanceBuffer();
     SkinnedInstanceBuffer(const SkinnedInstanceBuffer&)            = delete;
@@ -79,7 +71,6 @@ public:
     bool isValid() const;
     void setThermal(bool on);
     void setUltraviolet(bool on);
-    bool forwardReady() const;
     bool cullReady() const;
     bool depthResourceSetReady() const;
     void ensureCompiled() const { compile(); }
@@ -118,8 +109,6 @@ public:
 
     void recordGBuffer(ID3D12GraphicsCommandList* cmd, GpuResourceCache& gpu, StaticPopulation population, const float viewProj[16], const float prevViewProj[16]) const;
     void recordDepth(ID3D12GraphicsCommandList* cmd, uint32_t viewIndex, const float lightViewProj[16]) const;
-    void recordForward(ID3D12GraphicsCommandList* cmd, GpuResourceCache& gpu, StaticPopulation population, const MeshForwardBatchConstants& lighting,
-                       const float viewProj[16], uint64_t shadowCbv) const;
 
 private:
     struct Part

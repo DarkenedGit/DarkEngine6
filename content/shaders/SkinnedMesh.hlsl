@@ -3,9 +3,6 @@
 
 #include "Color.hlsli"
 #include "PbrLighting.hlsli"
-#ifndef ENCODE_SRGB
-#define ENCODE_SRGB 0
-#endif
 
 cbuffer FrameConstants : register(b0)
 {
@@ -99,7 +96,7 @@ float4 PSMain(PSInput input) : SV_TARGET
         clip(albedoS.a - alphaCutoff);
     float4 albedo = float4(albedoS.rgb * color.rgb, albedoS.a * color.a);
     if (lighting < 0.5f)
-        return float4(encodeSceneRgb(albedo.rgb), albedo.a);
+        return float4(albedo.rgb, albedo.a);
     float3 n = ApplyNormalMap(input.normalWS, input.tangentWS, input.uv);
     float3 l = normalize(lightDirWS);
     float  ndotl = saturate(dot(n, l));
@@ -108,5 +105,5 @@ float4 PSMain(PSInput input) : SV_TARGET
     float3 ambient = ambientScale * albedo.rgb * aoTerm;
     float3 diffuse = ndotl * lightColor * albedo.rgb * shadow * (1.0f / DE_PBR_PI);
     float  emis = dot(gEmissive.Sample(gSamp, input.uv).rgb, float3(0.2126f, 0.7152f, 0.0722f)) * emissive;
-    return float4(encodeSceneRgb(ambient + diffuse + emis), albedo.a);
+    return float4(ambient + diffuse + emis, albedo.a);
 }

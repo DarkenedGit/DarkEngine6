@@ -11,9 +11,6 @@
 #pragma pack_matrix(row_major)
 
 #include "Color.hlsli"
-#ifndef ENCODE_SRGB
-#define ENCODE_SRGB 0
-#endif
 #include "PbrLighting.hlsli"
 #define SHADOW_T t2
 #include "Shadow.hlsli"
@@ -515,14 +512,14 @@ float4 PSMain(PSInput input, bool isFront : SV_IsFrontFace) : SV_TARGET
         FogResult underResult = FogIntegrate(cameraPos, worldPos, underFog, gHeightMap, gHeightSamp, 1.0f);
         underColor = ApplyLitFog(underColor, underResult);
         alphaUnder = max(alphaUnder, foam * 0.85f * underAmount);
-        return float4(encodeSceneRgb(thermalMix(underColor, kThermalWater, thermal)), saturate(alphaUnder));
+        return float4(thermalMix(underColor, kThermalWater, thermal), saturate(alphaUnder));
     }
 
     if (specPower < 0.0f)
     {
         float3 unlit = lerp(body, foamColor, foam);
         alpha = max(alpha, foam * 0.85f);
-        return float4(encodeSceneRgb(thermalMix(unlit, kThermalWater, thermal)), saturate(alpha));
+        return float4(thermalMix(unlit, kThermalWater, thermal), saturate(alpha));
     }
 
     float3 v = normalize(cameraPos - worldPos);
@@ -597,5 +594,5 @@ float4 PSMain(PSInput input, bool isFront : SV_IsFrontFace) : SV_TARGET
     // Fresnel boost is not multiplied by the rectangle edge. Foam stays opaque on a ribbon bank.
     alpha += fres * 0.15f * (1.0f - foam);
     alpha = max(alpha, foam * 0.85f);
-    return float4(encodeSceneRgb(thermalMix(color, kThermalWater, thermal)), saturate(alpha));
+    return float4(thermalMix(color, kThermalWater, thermal), saturate(alpha));
 }

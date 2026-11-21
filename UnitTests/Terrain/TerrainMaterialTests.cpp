@@ -7,7 +7,6 @@
 #include <cstddef>
 #include <cstdint>
 
-using Dark::TerrainFrameConstants;
 using Dark::TerrainGBufferConstants;
 using Dark::TerrainMaterial;
 using Dark::Terrain::TerrainMaterialParams;
@@ -48,8 +47,6 @@ TEST(TerrainGBufferConstants, Size)
     EXPECT_EQ(offsetof(TerrainGBufferConstants, layerTint2), 61u * sizeof(float));
     EXPECT_EQ(offsetof(TerrainGBufferConstants, layerTint3), 62u * sizeof(float));
     EXPECT_LE(63u + 1u, 64u);
-    EXPECT_EQ(sizeof(TerrainFrameConstants), 60u * sizeof(float));
-    EXPECT_LE(60u + 1u + 2u, 64u);
 }
 
 TEST(TerrainMaterial, ApplySurface_GBufferWorldScaleAndTints)
@@ -86,23 +83,6 @@ TEST(TerrainMaterial, ApplySurface_GBufferWorldScaleAndTints)
     EXPECT_EQ(cb.layerTint2 & 255u, 255u);
     EXPECT_EQ((cb.layerTint2 >> 8) & 255u, 0u);
     EXPECT_EQ((cb.layerTint2 >> 16) & 255u, 128u);
-}
-
-TEST(TerrainMaterial, ApplySurface_ForwardUnconvertedTiling)
-{
-    TerrainMaterial mat;
-    mat.layer(0).tiling = 24.0f;
-    mat.layer(1).tiling = 20.0f;
-    mat.layer(2).tiling = 16.0f;
-    mat.layer(3).tiling = 12.0f;
-
-    TerrainFrameConstants cb{};
-    mat.applySurface(cb);
-    EXPECT_NEAR(cb.layerTiling[0], 24.0f, 1.0e-6f);
-    EXPECT_NEAR(cb.layerTiling[1], 20.0f, 1.0e-6f);
-    EXPECT_NEAR(cb.layerTiling[2], 16.0f, 1.0e-6f);
-    EXPECT_NEAR(cb.layerTiling[3], 12.0f, 1.0e-6f);
-    EXPECT_EQ(cb.color[3], 1.0f);
 }
 
 TEST(TerrainMaterial, ApplySurface_ZeroExtentTiling)

@@ -36,7 +36,7 @@ namespace Dark
         int       ssrDebug          = 0;    // 0 off, 1 radiance, 2 confidence
         int       localShadowDebug  = 0;    // 0 off, 1 shadow factor, 2 face id (volume pass only)
         bool      shadowMapTiles    = false;
-        bool      decalsEnabled     = false; // AND with HybridDeferred before any UAV. Struct stays false; hosts set the checkbox.
+        bool      decalsEnabled     = false; // Struct stays false; 3D hosts turn it on after createSceneTargets() and own the checkbox.
         int       decalsDebug       = 0;     // 0 off, 1 wire volumes
         bool      gpuParticles      = true;  // Off: CPU Euler at or under 100000. Above that, no pool and no dispatch.
         bool      showWalkability   = false; // Translucent island mesh of the hunter walk bake.

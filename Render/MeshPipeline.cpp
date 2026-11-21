@@ -119,13 +119,9 @@ namespace Dark
         }
 
         const char* shader = gbuffer ? "shaders/BasicMeshGBuffer.hlsl" : "shaders/BasicMesh.hlsl";
-        const DXGI_FORMAT rtv0 = transparent ? colorFormat : meshPassColorFormat(pass);
-        D3D_SHADER_MACRO encodeMacros[2];
-        makeEncodeSrgbMacros(!gbuffer && encodeSrgbForColorFormat(rtv0), encodeMacros);
-        const D3D_SHADER_MACRO* defines = gbuffer ? nullptr : encodeMacros;
         ComPtr<ID3DBlob> vs;
         ComPtr<ID3DBlob> ps;
-        if (!compileShaderFromContent(shader, "VSMain", "vs_5_0", vs, defines) || !compileShaderFromContent(shader, "PSMain", "ps_5_0", ps, defines))
+        if (!compileShaderFromContent(shader, "VSMain", "vs_5_0", vs) || !compileShaderFromContent(shader, "PSMain", "ps_5_0", ps))
         {
             return false;
         }
@@ -184,7 +180,7 @@ namespace Dark
         else
         {
             psoDesc.NumRenderTargets = 1;
-            psoDesc.RTVFormats[0]    = transparent ? colorFormat : meshPassColorFormat(pass);
+            psoDesc.RTVFormats[0]    = colorFormat;
         }
         psoDesc.DSVFormat             = DXGI_FORMAT_D32_FLOAT;
         psoDesc.SampleDesc            = { 1, 0 };
@@ -229,7 +225,7 @@ namespace Dark
             }
         }
 
-        const char* passName = gbuffer ? "GBuffer" : (transparent ? "ForwardTransparent" : "UNORM");
+        const char* passName = gbuffer ? "GBuffer" : "ForwardTransparent";
         DE_LOG_INFO(LogCategory::Render, "MeshPipeline: ready (textured, solid/wire/point, {})", passName);
         return true;
     }

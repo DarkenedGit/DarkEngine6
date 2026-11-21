@@ -55,7 +55,6 @@
 #include "Render/Frustum3f.h"
 #include "Render/TaaJitter.h"
 #include "Render/MeshGen.h"
-#include "Render/ScenePath.h"
 #include "Render/Fog.h"
 #include "Render/Underwater.h"
 #include "Render/PbrLighting.h"
@@ -168,71 +167,6 @@ using namespace Audio;
 SandboxApp& SandboxFrame::app() const
 {
     return *m_app;
-}
-
-void SandboxFrame::drawProjectiles(ID3D12GraphicsCommandList* cmd, const Matrix4f& viewProj, MeshFrameConstants& cb, bool instanced, const std::vector<int>* rejectedShots)
-{
-    WeaponLoadout* w = app().localWeapons();
-    const Model* model = app().assets().find<Model>(app().m_demo.tracerModelId());
-    if (!cmd || !w || !model || !model->hasOpaque())
-        return;
-    bool any = false;
-    for (const LiveProjectile& s : w->projectile().live())
-    {
-        if (s.alive)
-        {
-            any = true;
-            break;
-        }
-    }
-    if (!any)
-        return;
-
-    GpuResourceCache& gpu = app().renderer().gpuResources();
-    if (!instanced && !gpu.retainModel(app().assets(), *model))
-        return;
-
-    const GpuScope projectiles(cmd, "Projectiles", ProfileColor::Projectiles);
-    const float     radius = w->projectile().desc().radius;
-    const float     scale  = radius * 2.0f;
-    const DebugFill fill   = app().renderer().debugState().fill;
-    if (instanced)
-    {
-        MeshForwardBatchConstants lighting{};
-        fillForwardLighting(lighting, cb);
-        m_drawList.recordForward(cmd, gpu, ViewId{ 0 }, StaticPopulation::Projectiles, lighting, m_shadows.receiverCbvGpu());
-        if (!rejectedShots || rejectedShots->empty() || !gpu.retainModel(app().assets(), *model))
-            return;
-        int shot = 0;
-        for (const LiveProjectile& s : w->projectile().live())
-        {
-            const int index = shot++;
-            if (!s.alive)
-                continue;
-            bool rejected = false;
-            for (int r : *rejectedShots)
-            {
-                if (r == index)
-                {
-                    rejected = true;
-                    break;
-                }
-            }
-            if (!rejected)
-                continue;
-            const Matrix4f world = Matrix4f::ScaleMatrixXYZ(scale, scale, scale) * Matrix4f::TranslationMatrix(s.position.x, s.position.y, s.position.z);
-            drawModelForward(cmd, gpu, m_meshPipeline, m_shadows, *model, false, world, viewProj, cb, fill);
-        }
-        return;
-    }
-
-    for (const LiveProjectile& s : w->projectile().live())
-    {
-        if (!s.alive)
-            continue;
-        const Matrix4f world = Matrix4f::ScaleMatrixXYZ(scale, scale, scale) * Matrix4f::TranslationMatrix(s.position.x, s.position.y, s.position.z);
-        drawModelForward(cmd, gpu, m_meshPipeline, m_shadows, *model, false, world, viewProj, cb, fill);
-    }
 }
 
 void SandboxFrame::drawProjectilesGBuffer(ID3D12GraphicsCommandList* cmd, const Matrix4f& viewProj, const Matrix4f& prevViewProj, bool instanced, const std::vector<int>* rejectedShots)
@@ -364,8 +298,7 @@ void SandboxFrame::render()
     };
 
     const Frustum3f cameraCull(app().m_sceneWorld.camera.GetCullViewProj());
-    const bool selectLocalShadows = app().renderer().scenePath() == ScenePath::HybridDeferred
-        && app().renderer().debugState().localLights
+    const bool selectLocalShadows = app().renderer().debugState().localLights
         && app().renderer().debugState().lightingActive();
     m_scene.localShadows().update(app().world(), app().m_sceneWorld.camera, cameraCull, app().renderer().frameIndex(), selectLocalShadows);
 
@@ -398,8 +331,7 @@ void SandboxFrame::render()
         app().renderer().frameIndex());
 
     const bool instanceStatic = m_drawList.gpuReady() && app().renderer().debugState().instancedStatic && app().renderer().debugState().fill == DebugFill::Solid;
-    const bool instanceSkinned = instanceStatic && m_skinnedInstances.isValid()
-        && (app().renderer().scenePath() == ScenePath::HybridDeferred || m_skinnedInstances.forwardReady());
+    const bool instanceSkinned = instanceStatic && m_skinnedInstances.isValid();
     m_acceptedMesh.clear();
     m_acceptedModel.clear();
     m_acceptedSkinned.clear();
@@ -509,7 +441,6 @@ void SandboxFrame::render()
     // Opaque casters only — same set as G-buffer / forward color. Water, particles, blood, lines stay out.
     // A point light culls foliage once against its range sphere and redraws that list on each face.
     // Views are built here. recordDirectionalShadows dispatches them in execute order.
-    const bool deferredEarly = app().renderer().scenePath() == ScenePath::HybridDeferred;
     const bool gpuCull       = instanceStatic && app().renderer().debugState().instancedIndirect && m_drawList.cullReady();
     if (gpuCull)
     {
@@ -534,7 +465,6 @@ void SandboxFrame::render()
             const LocalShadowFaceDraw& face = cullLocals.face(f);
             addDepthView(face.viewProj, face.frustum);
         }
-        if (deferredEarly || m_drawList.forwardReady() || instanceSkinned)
         {
             const Matrix4f camVp   = m_scene.beginCameraFrame(app().m_sceneWorld.camera, app().renderer());
             const Matrix4f camPrev = m_scene.havePrevViewProj() ? m_scene.prevViewProj() : camVp;
@@ -611,14 +541,11 @@ void SandboxFrame::render()
         localShadows.endCapture(cmd);
     }
 
-    const bool deferred = app().renderer().scenePath() == ScenePath::HybridDeferred;
     const bool visionPicture = app().m_vision.infrared > 0.0f || app().m_vision.ultraviolet > 0.0f || app().m_vision.echo > 0.0f;
-    const float underDraw = (deferred && !visionPicture) ? Math::Clamp(app().m_play.runtime().underAmount, 0.0f, 1.0f) : 0.0f;
-    const bool instanceColor = instanceStatic && deferred;
-    const bool instanceForward = instanceStatic && !deferred && m_drawList.forwardReady();
+    const float underDraw = !visionPicture ? Math::Clamp(app().m_play.runtime().underAmount, 0.0f, 1.0f) : 0.0f;
+    const bool instanceColor = instanceStatic;
     const Matrix4f viewProjEarly = m_scene.beginCameraFrame(app().m_sceneWorld.camera, app().renderer());
     (void)viewProjEarly;
-    if (deferred)
     {
         markPass(PassId::GBuffer);
         app().renderer().bindGBuffer();
@@ -640,15 +567,6 @@ void SandboxFrame::render()
         m_drawList.setThermal(thermalDraw);
         m_skinnedInstances.setThermal(thermalDraw);
     }
-    else if (app().renderer().hasSceneBuffers())
-    {
-        app().renderer().bindHdr(true);
-        app().renderer().clearHdr();
-    }
-    else
-    {
-        app().renderer().bindSceneTargets();
-    }
 
     const Matrix4f  viewProj = app().m_sceneWorld.camera.GetViewProj();
     const Matrix4f  prevViewProj = m_scene.havePrevViewProj() ? m_scene.prevViewProj() : viewProj;
@@ -657,17 +575,11 @@ void SandboxFrame::render()
     const Vector3f  camPos   = app().m_sceneWorld.camera.GetPosition();
     uint32_t        meshDraws = 0;
 
-    const float skyExposure = deferred ? 1.0f : app().m_sceneWorld.env.exposure();
+    const float skyExposure = 1.0f; // tonemap owns exposure
     const float fogScale    = (app().renderer().debugState().lightingActive() ? 1.0f : 0.0f) * (1.0f - underDraw);
-    const float ultraviolet = (deferred && app().m_vision.ultraviolet > 0.0f) ? app().m_vision.ultraviolet : 0.0f;
-    const float thermal     = (deferred && !(app().m_vision.ultraviolet > 0.0f)) ? app().m_vision.infrared : 0.0f;
+    const float ultraviolet = app().m_vision.ultraviolet > 0.0f ? app().m_vision.ultraviolet : 0.0f;
+    const float thermal     = !(app().m_vision.ultraviolet > 0.0f) ? app().m_vision.infrared : 0.0f;
     m_skyPipeline.upload(app().renderer().frameIndex(), app().m_sceneWorld.camera, app().m_sceneWorld.env, skyExposure, app().m_sceneWorld.water.params().waterLevel, fogScale, thermal, ultraviolet);
-    if (!deferred)
-    {
-        markPass(PassId::Sky);
-        m_skyPipeline.draw(cmd, app().renderer().frameIndex(), &m_shadows);
-    }
-
     const Material* material = nullptr;
     if (app().m_demo.cube().valid())
     {
@@ -683,7 +595,7 @@ void SandboxFrame::render()
         }
     }
 
-    if (deferred)
+    // Opaque G-buffer, deferred resolve, then sky last.
     {
         {
             const GpuScope gbuffer(cmd, "GBuffer", ProfileColor::GBuffer);
@@ -890,7 +802,7 @@ void SandboxFrame::render()
         fillIblLightingConstants(lc, app().m_sceneWorld.ibl, app().renderer().debugState().iblEnabled, app().renderer().debugState().iblDebug, iblGpuReady(app().renderer().gpuResources(), app().m_sceneWorld.iblImageId));
         lc.iblNight = 1.0f - app().m_sceneWorld.env.dayFactor();
         lc.thermal  = app().m_vision.ultraviolet > 0.0f ? -app().m_vision.ultraviolet : app().m_vision.infrared;
-        fillSsrLightingConstants(lc, app().m_sceneWorld.ssr, app().renderer().debugState().ssrEnabled, m_scene.ssr().isValid() && app().renderer().hasGBuffer());
+        fillSsrLightingConstants(lc, app().m_sceneWorld.ssr, app().renderer().debugState().ssrEnabled, m_scene.ssr().isValid());
         // The pass list is an order check after the frame. These five run inside resolveDeferred in this order.
         markPass(PassId::Decals);
         markPass(PassId::Gtao);
@@ -913,149 +825,6 @@ void SandboxFrame::render()
         app().renderer().bindHdr(true);
         markPass(PassId::Sky);
         m_skyPipeline.draw(cmd, app().renderer().frameIndex(), &m_shadows);
-    }
-    else
-    {
-        static bool loggedForwardGrassSkip = false;
-        if (!loggedForwardGrassSkip && m_grassPipeline.isValid() && app().m_sceneWorld.grassField.params().enabled)
-        {
-            loggedForwardGrassSkip = true;
-            DE_LOG_INFO(LogCategory::Render, "SandboxApp: forward frame skips grass");
-        }
-        const GpuScope forward(cmd, "Forward Opaque", ProfileColor::ForwardOpaque);
-        if (app().m_sceneWorld.showTerrain)
-        {
-            app().m_sceneWorld.terrain.draw(
-                cmd, m_terrainPipeline, app().m_frame.terrainMaterial(), app().m_sceneWorld.camera, &frustum, &app().m_sceneWorld.env, &m_shadows,
-                &app().renderer().debugState());
-        }
-
-        m_meshPipeline.bind(cmd, fill);
-        if (material && material->isValid())
-            app().renderer().gpuResources().bindMaterial(cmd, *material, MeshPipeline::kRootAlbedoSrv);
-        m_shadows.bindReceiverCbv(cmd, MeshPipeline::kRootShadowCbv);
-
-        MeshFrameConstants cb{};
-        if (material)
-            applyMaterialSurface(*material, cb);
-        else
-        {
-            cb.color[0] = 1.0f;
-            cb.color[1] = 1.0f;
-            cb.color[2] = 1.0f;
-            cb.color[3] = 1.0f;
-        }
-        cb.lightDirWS[0] = app().m_sceneWorld.env.lightDir().x;
-        cb.lightDirWS[1] = app().m_sceneWorld.env.lightDir().y;
-        cb.lightDirWS[2] = app().m_sceneWorld.env.lightDir().z;
-        cb.ambientScale  = 0.22f;
-        {
-            const Vector3f pbrSun = pbrSunLightColor(app().m_sceneWorld.env.lightColor());
-            cb.lightColor[0]      = pbrSun.x;
-            cb.lightColor[1]      = pbrSun.y;
-            cb.lightColor[2]      = pbrSun.z;
-        }
-        cb.cameraPos[0]  = camPos.x;
-        cb.cameraPos[1]  = camPos.y;
-        cb.cameraPos[2]  = camPos.z;
-        cb.lighting      = app().renderer().debugState().lightingActive() ? 1.0f : 0.0f;
-        if (instanceForward && !m_drawList.gpuCullActive())
-        {
-            float drawVp[16];
-            float drawPrev[16];
-            copyMatrix(drawVp, viewProj);
-            copyMatrix(drawPrev, prevViewProj);
-            m_drawList.buildView(frustum, drawVp, drawPrev, RenderPassKind::GBuffer, ViewId{ 0 });
-        }
-        MeshForwardBatchConstants forwardLighting{};
-        fillForwardLighting(forwardLighting, cb);
-        const D3D12_GPU_VIRTUAL_ADDRESS forwardShadow = m_shadows.receiverCbvGpu();
-
-        {
-            const GpuScope meshes(cmd, "Opaque Meshes", ProfileColor::OpaqueMeshes);
-            if (instanceForward)
-            {
-                m_drawList.recordForward(cmd, gpu, ViewId{ 0 }, StaticPopulation::OpaqueMeshes, forwardLighting, forwardShadow);
-                m_meshPipeline.bind(cmd, fill);
-                if (material && material->isValid())
-                    app().renderer().gpuResources().bindMaterial(cmd, *material, MeshPipeline::kRootAlbedoSrv);
-                m_shadows.bindReceiverCbv(cmd, MeshPipeline::kRootShadowCbv);
-            }
-            app().world().each<MeshComponent>([&](Entity e, MeshComponent& mc) {
-            if (app().world().has<ModelComponent>(e))
-                return;
-            if (const HealthComponent* hp = app().world().get<HealthComponent>(e); hp && !hp->health.alive())
-                return;
-            const Mesh* gpuMesh = sandboxPrimitiveMesh(mc.primitive, app().m_demo.cubeMesh(), app().m_demo.crossMesh());
-            if (!gpuMesh)
-                return;
-            const TransformComponent* xf = app().world().get<TransformComponent>(e);
-            if (!xf)
-                return;
-            if (instanceForward && acceptedMesh.contains(e.id()))
-                return;
-            if (const Material* mat = app().assets().find<Material>(mc.matAssetID))
-            {
-                gpu.retainMaterial(app().assets(), *mat);
-                gpu.bindMaterial(cmd, *mat, MeshPipeline::kRootAlbedoSrv);
-                applyMaterialSurface(*mat, cb);
-            }
-            const Matrix4f worldMat = makeWorldMatrix(*xf);
-            copyMatrix(cb.worldViewProj, worldMat * viewProj);
-            copyMatrix(cb.world, worldMat);
-            if (const NetworkedComponent* nc = app().world().get<NetworkedComponent>(e))
-                unpackRgba8(nc->colorRgba8, cb.color);
-            m_meshPipeline.setConstants(cmd, cb);
-            gpuMesh->draw(cmd, fill == DebugFill::Points);
-            ++meshDraws;
-        });
-        }
-
-        drawProjectiles(cmd, viewProj, cb, instanceForward, &rejectedShots);
-        {
-            const GpuScope models(cmd, "Opaque Models", ProfileColor::OpaqueModels);
-            if (instanceForward)
-                m_drawList.recordForward(cmd, gpu, ViewId{ 0 }, StaticPopulation::OpaqueModels, forwardLighting, forwardShadow);
-            if (instanceSkinned)
-            {
-                float drawVp[16];
-                copyMatrix(drawVp, viewProj);
-                m_skinnedInstances.recordForward(cmd, gpu, StaticPopulation::OpaqueModels, forwardLighting, drawVp, forwardShadow);
-            }
-            app().world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
-            if (!mc.visible || app().camouflageHides(e))
-                return;
-            const TransformComponent* xf = app().world().get<TransformComponent>(e);
-            const Model* model = app().assets().find<Model>(mc.modelAssetID);
-            if (!xf || xf->scale.MagnitudeSqrd() < 1.0e-12f || !model || !model->hasOpaque() || !gpu.retainModel(app().assets(), *model))
-                return;
-            const Matrix4f worldMat = makeWorldMatrix(*xf);
-            if (model->skinned())
-            {
-                AnimGraphComponent* ag = app().world().get<AnimGraphComponent>(e);
-                const AnimPose* pose = skinnedPose(*model, ag);
-                if (!pose)
-                    return;
-                if (ag)
-                {
-                    ag->prevWorld = worldMat;
-                    ag->prevWorldValid = true;
-                }
-                const bool accepted = instanceForward && acceptedModel.contains(e.id());
-                const bool skinnedListed = instanceSkinned && acceptedSkinned.contains(e.id());
-                if (accepted && skinnedListed)
-                    return;
-                if (accepted)
-                    drawSkinnedModelForwardSkinnedOnly(cmd, gpu, m_skinnedPipeline, m_meshPipeline, m_shadows, m_skinRing, *model, *pose, worldMat, viewProj, cb, fill);
-                else if (skinnedListed)
-                    drawModelForward(cmd, gpu, m_meshPipeline, m_shadows, *model, false, worldMat, viewProj, cb, fill);
-                else
-                    drawSkinnedModelForward(cmd, gpu, m_skinnedPipeline, m_meshPipeline, m_shadows, m_skinRing, *model, false, *pose, worldMat, viewProj, cb, fill);
-            }
-            else if (!(instanceForward && acceptedModel.contains(e.id())))
-                drawModelForward(cmd, gpu, m_meshPipeline, m_shadows, *model, false, worldMat, viewProj, cb, fill);
-        });
-        }
     }
 
     D3D12_GPU_VIRTUAL_ADDRESS waterLightsVa   = m_localLightGpu.isValid() ? m_localLightGpu.dummyGpuVa() : 0;
@@ -1096,11 +865,8 @@ void SandboxFrame::render()
         heightHeap = app().renderer().lightingHeap();
         heightGpu  = app().renderer().heightTableGpu();
     }
-    if (app().renderer().hasSceneBuffers())
-    {
-        markPass(PassId::SsrCapture);
-        m_scene.captureSsrSceneColor(cmd, app().renderer());
-    }
+    markPass(PassId::SsrCapture);
+    m_scene.captureSsrSceneColor(cmd, app().renderer());
     D3D12_CPU_DESCRIPTOR_HANDLE waterSceneColor{};
     D3D12_CPU_DESCRIPTOR_HANDLE waterDepth{};
     const SsrSettings*          waterSsr = nullptr;
@@ -1181,7 +947,6 @@ void SandboxFrame::render()
         }
     }
 
-    if (app().renderer().hasGBuffer())
     {
         markPass(PassId::Clouds);
         app().renderer().bindHdrDepthRead();
@@ -1195,7 +960,7 @@ void SandboxFrame::render()
     }
 
     bool lateDepthWrite = false;
-    if (app().m_vision.camouflage && app().renderer().hasSceneBuffers() && m_scene.camouflage().isValid())
+    if (app().m_vision.camouflage && m_scene.camouflage().isValid())
     {
         markPass(PassId::Camouflage);
         const Entity body = app().possessedBody();
@@ -1309,7 +1074,7 @@ void SandboxFrame::render()
     if (!app().deferredDecals())
         app().m_play.feedback().splats.draw(cmd, app().m_sceneWorld.camera);
 
-    if (underDraw > 0.0f && app().renderer().hasSceneBuffers() && m_scene.underwater().isValid())
+    if (underDraw > 0.0f && m_scene.underwater().isValid())
     {
         markPass(PassId::Underwater);
         UnderwaterFrame under{};
@@ -1352,7 +1117,7 @@ void SandboxFrame::render()
         float exposure       = app().m_sceneWorld.env.exposure();
         app().m_frame.autoExposureResult() = {};
         app().m_frame.autoExposureResult().finalExposure = exposure;
-        const bool deferredMeter = app().renderer().scenePath() == ScenePath::HybridDeferred && m_scene.autoExposure().isValid();
+        const bool deferredMeter = m_scene.autoExposure().isValid();
         if (deferredMeter)
         {
             // Resize drops the 1×1. Zero the correction before this frame can apply a stale sample.
@@ -1368,7 +1133,7 @@ void SandboxFrame::render()
         }
         post.exposure = exposure;
         markPass(PassId::Post);
-        const bool echoImage = deferred && app().m_vision.echo > 0.0f && app().renderer().hasGBuffer() && m_scene.echo().isValid();
+        const bool echoImage = app().m_vision.echo > 0.0f && m_scene.echo().isValid();
         if (echoImage)
         {
             EchoPipeline& echo = m_scene.echo();
@@ -1423,8 +1188,8 @@ void SandboxFrame::render()
     app().renderer().stats().triangles =
         app().m_sceneWorld.terrain.lastTriangles() + app().m_sceneWorld.water.lastTriangles() + meshDraws * (app().m_demo.cubeMesh().indexCount() / 3);
 
-    const bool ssaoTile = app().renderer().hasGBuffer() && app().renderer().debugState().ssaoDebug == 1;
-    const bool ssrTile  = app().renderer().hasGBuffer() && app().renderer().debugState().ssrDebug != 0;
+    const bool ssaoTile = app().renderer().debugState().ssaoDebug == 1;
+    const bool ssrTile  = app().renderer().debugState().ssrDebug != 0;
     if (!movieBlocks)
     {
         if (cmd && m_debugOverlay.isValid()
@@ -1490,7 +1255,7 @@ void SandboxFrame::render()
     else
         app().m_hud.m_menu.draw(app().renderer());
     uint32_t tableCount = 0;
-    const PassNode* table = deferred ? sandboxDeferredPasses(tableCount) : sandboxForwardPasses(tableCount);
+    const PassNode* table = sandboxDeferredPasses(tableCount);
     (void)validateHostPassSequence("Sandbox", table, tableCount, playedPasses, playedCount);
     frameJoinRender(app().jobs(), app().renderer().frameIndex());
     app().renderer().endFrame();
@@ -1500,8 +1265,8 @@ void SandboxFrame::drawDebugOverlays(ID3D12GraphicsCommandList* cmd)
 {
     if (!cmd || !m_debugOverlay.isValid())
         return;
-    const bool ssaoTile = app().renderer().hasGBuffer() && app().renderer().debugState().ssaoDebug == 1;
-    const bool ssrTile  = app().renderer().hasGBuffer() && app().renderer().debugState().ssrDebug != 0;
+    const bool ssaoTile = app().renderer().debugState().ssaoDebug == 1;
+    const bool ssrTile  = app().renderer().debugState().ssrDebug != 0;
     if (!app().m_showShadowMaps && !app().renderer().debugState().shadowMapTiles && !app().m_showDepth && !app().m_showGBuffer && !app().m_showVelocity && !ssaoTile && !ssrTile)
         return;
 
@@ -1520,7 +1285,7 @@ void SandboxFrame::drawDebugOverlays(ID3D12GraphicsCommandList* cmd)
     if (tile > 220)
         tile = 220;
 
-    if (app().m_showGBuffer && app().renderer().hasGBuffer())
+    if (app().m_showGBuffer)
     {
         app().renderer().transitionAlbedo(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
         app().renderer().transitionAttrib(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
@@ -1532,7 +1297,7 @@ void SandboxFrame::drawDebugOverlays(ID3D12GraphicsCommandList* cmd)
         if (attrib.ptr != 0)
             m_debugOverlay.drawColor(cmd, app().renderer().device(), attrib, pad + tile + 8, y, tile, tile);
     }
-    if ((app().m_showGBuffer || app().m_showVelocity) && app().renderer().hasGBuffer())
+    if ((app().m_showGBuffer || app().m_showVelocity))
     {
         app().renderer().transitionVelocity(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
         const D3D12_CPU_DESCRIPTOR_HANDLE velocity = app().renderer().velocitySrvCpu();
