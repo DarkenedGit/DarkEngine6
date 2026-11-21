@@ -59,7 +59,7 @@ struct PassNode
 // `played` must be a subsequence of `table` in table order.
 // Skipping optional nodes is success. Skipping a required node, or playing
 // a node that is not still ahead in the table, returns false.
-// Does not reorder `played`. Logs once per table on failure.
+// Does not reorder `played`. Logs once per process on the first failure.
 bool passSequenceOk(const PassNode* table, uint32_t tableCount, const PassId* played, uint32_t playedCount);
 
 // Host path: a failure latches the run as unsuitable for a baseline and logs the host,
