@@ -1274,20 +1274,23 @@ bool EditorApp::loadTerrainFromScene(const SceneFileData& data, const std::files
         return false;
     }
 
-    Texture2D splatTex;
-    Image splatImg;
-    if (!splatImg.createFromRGBA(matSplat.rgba(), matSplat.width(), matSplat.height(), matSplat.width() * 4u)
-        || !splatTex.createFromImage(renderer(), splatImg, Dark::Color::TextureUsage::Data))
-    {
-        DE_LOG_ERROR(LogCategory::Render, "Editor: splat GPU upload failed");
-        removeEditorTerrain();
-        resetFoliageAuthoring();
-        return false;
-    }
-
     bool ok = false;
     if (anyMap)
+    {
+        // createDefault uploads its own splat. This copy is only for authored maps.
+        // Dropping it at the end of the load releases the graphics-queue copy (#921).
+        Texture2D splatTex;
+        Image splatImg;
+        if (!splatImg.createFromRGBA(matSplat.rgba(), matSplat.width(), matSplat.height(), matSplat.width() * 4u)
+            || !splatTex.createFromImage(renderer(), splatImg, Dark::Color::TextureUsage::Data))
+        {
+            DE_LOG_ERROR(LogCategory::Render, "Editor: splat GPU upload failed");
+            removeEditorTerrain();
+            resetFoliageAuthoring();
+            return false;
+        }
         ok = m_terrainMaterial.create(renderer(), m_terrainSurface, std::move(splatTex));
+    }
     else
         ok = m_terrainMaterial.createDefault(renderer(), matSplat);
     if (!ok)

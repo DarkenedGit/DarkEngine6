@@ -7,8 +7,26 @@
 # options). Visual Studio's bundled LLVM (VC\Tools\Llvm) is usually new enough;
 # otherwise: winget install LLVM.LLVM
 #
-# The script's default "Includes" mode runs ONLY misc-include-cleaner and ignores
-# the Checks list below. "-Mode All" uses this whole list.
+# scripts/code-hygiene.ps1 -Mode Includes runs ONLY misc-include-cleaner.
+# -Mode Tidy uses the Checks list below. The static analyzer is not in this
+# file: it is slow enough to stall the IDE, so scripts/nightly-quality.ps1
+# passes it on its own pass.
+#
+# Left off on purpose after a sample of engine translation units (LLVM 22):
+#   readability-redundant-member-init, cppcoreguidelines-pro-bounds-constant-array-index,
+#   cppcoreguidelines-special-member-functions
+#     hundreds of hits on aggregate member `{}` init, index loops, and types that
+#     delete copy or follow the rule of zero.
+#   readability-magic-numbers, cppcoreguidelines-pro-type-reinterpret-cast,
+#   cppcoreguidelines-owning-memory, modernize-use-nodiscard, misc-const-correctness
+#     style or Win32/D3D volume, not crash finding.
+#   bugprone-easily-swappable-parameters, bugprone-narrowing-conversions,
+#   bugprone-implicit-widening-of-multiplication-result, performance-enum-size
+#     graphics math and saved enum width.
+#   bugprone-exception-escape
+#     flags std containers that are specified to throw. This project does not use exceptions.
+#   clang-analyzer-*
+#     nightly only. See scripts/nightly-quality.ps1.
 
 Checks: >
   -*,
@@ -18,7 +36,6 @@ Checks: >
   -bugprone-narrowing-conversions,
   -bugprone-implicit-widening-of-multiplication-result,
   -bugprone-exception-escape,
-  -bugprone-unchecked-optional-access,
   performance-*,
   -performance-enum-size,
   modernize-use-override,
@@ -30,8 +47,16 @@ Checks: >
   readability-redundant-smartptr-get,
   readability-container-size-empty,
   readability-misleading-indentation,
+  readability-simplify-boolean-expr,
+  readability-redundant-casting,
   cppcoreguidelines-pro-type-member-init,
-  cppcoreguidelines-slicing
+  cppcoreguidelines-slicing,
+  cppcoreguidelines-virtual-class-destructor,
+  cppcoreguidelines-pro-type-static-cast-downcast,
+  cppcoreguidelines-init-variables,
+  misc-redundant-expression,
+  misc-unused-using-decls,
+  misc-header-include-cycle
 
 # Report findings in engine headers too (engine top-level folders only).
 # clang-tidy regexes have no lookahead, so third-party code is kept out by the

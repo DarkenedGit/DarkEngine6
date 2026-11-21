@@ -1,0 +1,7 @@
+# status: advisory
+# One group per line: count<TAB>path<TAB>check<TAB>message
+#
+# Accept the current analyzer results with:
+#   .\scripts\nightly-quality.ps1 -UpdateBaseline -SkipBuild -SkipTests -SkipTidy -SkipExceptions
+# The first gated analyzer run reads every engine translation unit and takes a while.
+# UnitTests are not part of the analyzer pass.

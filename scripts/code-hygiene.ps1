@@ -37,6 +37,8 @@
   .\scripts\code-hygiene.ps1 -Mode Duplicates -MinTokens 75 -IgnoreIdentifiers
 .EXAMPLE
   .\scripts\code-hygiene.ps1 -Mode All -FailOnFindings  # CI: exit 1 if anything is found
+.EXAMPLE
+  .\scripts\code-hygiene.ps1 -Mode Tidy -Checks "-*,clang-analyzer-core*" -Label analyzer -Exclude UnitTests
 #>
 [CmdletBinding()]
 param(
@@ -45,6 +47,16 @@ param(
 
     # Only check translation units whose repo-relative path starts with one of these (e.g. Render, Core/Json.cpp).
     [string[]]$Path = @(),
+
+    # Skip translation units whose repo-relative path starts with one of these.
+    [string[]]$Exclude = @(),
+
+    # Replaces the Checks list from .clang-tidy. HeaderFilterRegex and CheckOptions still apply.
+    # Meaningful for -Mode Tidy. Example: -*,clang-analyzer-core*
+    [string]$Checks = "",
+
+    # Report file tag. Default is "includes" or "tidy".
+    [string]$Label = "",
 
     # Apply clang-tidy fixes in place (removes unused includes). Review the diff before committing.
     [switch]$Fix,
@@ -178,9 +190,16 @@ function Invoke-ClangTidy([bool]$includesOnly) {
                 @($prefixes | Where-Object { $rel -eq $_ -or $rel.StartsWith("$_/", [System.StringComparison]::OrdinalIgnoreCase) }).Count -gt 0
             })
     }
+    if ($Exclude.Count -gt 0) {
+        $skipped = $Exclude | ForEach-Object { ($_ -replace '\\', '/').TrimStart('./').TrimEnd('/') }
+        $files = @($files | Where-Object {
+                $rel = Get-RelPath $_
+                @($skipped | Where-Object { $rel -eq $_ -or $rel.StartsWith("$_/", [System.StringComparison]::OrdinalIgnoreCase) }).Count -eq 0
+            })
+    }
     if ($files.Count -eq 0) { Write-Error "No translation units matched." }
 
-    $label = if ($includesOnly) { "includes" } else { "tidy" }
+    $label = if ($Label) { $Label } elseif ($includesOnly) { "includes" } else { "tidy" }
     $jobsToUse = $Jobs
     if ($Fix -and -not $includesOnly -and $jobsToUse -gt 1) {
         # Wider checks can edit shared headers; parallel -fix would race on them.
@@ -191,6 +210,7 @@ function Invoke-ClangTidy([bool]$includesOnly) {
 
     $common = @("-p", "`"$buildPath`"", "--quiet", "--extra-arg=/w")
     if ($includesOnly) { $common += "--checks=-*,misc-include-cleaner" }
+    elseif ($Checks) { $common += "--checks=$Checks" }
     # Removing an include that only supplied symbols transitively breaks the build unless the
     # direct header is added in the same pass, so -Fix always adds missing includes too.
     $addMissing = $MissingIncludes -or ($Fix -and $includesOnly)
@@ -259,7 +279,14 @@ function Invoke-ClangTidy([bool]$includesOnly) {
     Remove-Item $tmp -Recurse -Force
 
     $csvPath = Join-Path $ReportPath "clang-tidy-$label.csv"
-    $rows | Sort-Object File, Line | Export-Csv -Path $csvPath -NoTypeInformation -Encoding UTF8
+    # -NoTypeInformation is required on Windows PowerShell 5.1 and obsolete (the default) on 7.
+    $sorted = $rows | Sort-Object File, Line
+    if ($PSVersionTable.PSVersion.Major -ge 7) {
+        $sorted | Export-Csv -Path $csvPath -Encoding utf8
+    }
+    else {
+        $sorted | Export-Csv -Path $csvPath -NoTypeInformation -Encoding UTF8
+    }
 
     $findings = @($rows | Where-Object { $_.Check -ne 'clang-diagnostic-error' })
     Write-Host ""

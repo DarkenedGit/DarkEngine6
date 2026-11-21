@@ -3,6 +3,10 @@
 #include "Assets/Image.h"
 #include "Math/Color.h"
 
+#include <cstdint>
+#include <filesystem>
+#include <system_error>
+
 using Dark::Image;
 using Dark::ImageFormat;
 using Dark::Color::ColorSpace;
@@ -94,4 +98,62 @@ TEST(Image, FailedCreateLeavesColorSpace)
     EXPECT_FALSE(img.createFromR32Float(nullptr, 0, 0, 0));
     EXPECT_EQ(img.colorSpace(), ColorSpace::Linear);
     EXPECT_FALSE(img.colorSpaceWasDefaulted());
+}
+
+TEST(Image, WriteRgbaPngRoundTrip)
+{
+    // Pitch is wider than the two pixels so the pad bytes must not be stored.
+    // Red and blue differ so a BGRA swap fails this check.
+    const uint8_t rows[] = {
+        10, 20, 30, 255, 200, 10, 1, 128, 0xAA, 0xBB,
+        1, 2, 3, 4, 255, 0, 0, 64, 0xCC, 0xDD,
+    };
+    std::error_code ec;
+    const auto      base = std::filesystem::temp_directory_path(ec);
+    ASSERT_FALSE(ec);
+    const auto path = base / "darkengine6_write_rgba.png";
+    std::filesystem::remove(path, ec);
+
+    ASSERT_TRUE(Dark::writeRgbaPng(path, rows, 2, 2, 10));
+    const auto size = std::filesystem::file_size(path, ec);
+    ASSERT_FALSE(ec);
+    EXPECT_GT(size, 8u);
+
+    Image img;
+    ASSERT_TRUE(img.createFromFile(path));
+    EXPECT_EQ(img.width(), 2u);
+    EXPECT_EQ(img.height(), 2u);
+    EXPECT_EQ(img.format(), ImageFormat::RGBA8);
+    ASSERT_NE(img.pixels(), nullptr);
+    const uint8_t* px    = img.pixels();
+    const uint32_t pitch = img.rowPitchBytes();
+    EXPECT_EQ(px[0], 10);
+    EXPECT_EQ(px[1], 20);
+    EXPECT_EQ(px[2], 30);
+    EXPECT_EQ(px[3], 255);
+    EXPECT_EQ(px[4], 200);
+    EXPECT_EQ(px[5], 10);
+    EXPECT_EQ(px[6], 1);
+    EXPECT_EQ(px[7], 128);
+    const uint8_t* row1 = px + pitch;
+    EXPECT_EQ(row1[0], 1);
+    EXPECT_EQ(row1[1], 2);
+    EXPECT_EQ(row1[2], 3);
+    EXPECT_EQ(row1[3], 4);
+    EXPECT_EQ(row1[4], 255);
+    EXPECT_EQ(row1[5], 0);
+    EXPECT_EQ(row1[6], 0);
+    EXPECT_EQ(row1[7], 64);
+    std::filesystem::remove(path, ec);
+}
+
+TEST(Image, WriteRgbaPngRejectsEmpty)
+{
+    std::error_code ec;
+    const auto      base = std::filesystem::temp_directory_path(ec);
+    ASSERT_FALSE(ec);
+    const auto path = base / "darkengine6_write_rgba_reject.png";
+    std::filesystem::remove(path, ec);
+    EXPECT_FALSE(Dark::writeRgbaPng(path, nullptr, 1, 1, 4));
+    EXPECT_FALSE(std::filesystem::exists(path, ec));
 }

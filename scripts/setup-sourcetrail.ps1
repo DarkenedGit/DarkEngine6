@@ -134,6 +134,39 @@ if (-not $SkipInstallCheck) {
 }
 
 $buildPath = Join-Path $RepoRoot $BuildDir
+
+# A Visual Studio update removes the previous MSVC toolset directory. CMake
+# keeps that cl.exe path in this build tree and then refuses to configure.
+function Repair-StaleMsvcCache([string]$tree) {
+    $cachePath = Join-Path $tree "CMakeCache.txt"
+    if (-not (Test-Path -LiteralPath $cachePath)) { return }
+    $cache = [System.IO.File]::ReadAllText($cachePath)
+    $match = [regex]::Match($cache, 'CMAKE_CXX_COMPILER:FILEPATH=(.+)')
+    if (-not $match.Success) { return }
+    $compiler = $match.Groups[1].Value.Trim()
+    if (Test-Path -LiteralPath ($compiler -replace '/', '\')) { return }
+
+    Write-Host "    Cached compiler is gone: $compiler" -ForegroundColor Yellow
+    $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+    if (-not (Test-Path -LiteralPath $vswhere)) { return }
+    $found = @(
+        & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+            -find "VC\Tools\MSVC\*\bin\Hostx64\x64\cl.exe" 2>$null |
+            Where-Object { $_ -and (Test-Path -LiteralPath $_) }
+    )
+    if ($found.Count -eq 0) {
+        Write-Host "    No installed cl.exe found to retarget the cache." -ForegroundColor Yellow
+        return
+    }
+    $cl = ($found | Sort-Object)[-1]
+    $oldDir = ($compiler -replace '\\', '/') -replace '/[^/]+$', ''
+    $newDir = ((Resolve-Path -LiteralPath $cl).Path -replace '\\', '/') -replace '/[^/]+$', ''
+    if ($oldDir -eq $newDir) { return }
+    Write-Host "    Retargeting CMake cache to $newDir"
+    [System.IO.File]::WriteAllText($cachePath, $cache.Replace($oldDir, $newDir))
+}
+
+Repair-StaleMsvcCache $buildPath
 Write-Host "==> Configuring Ninja build in $BuildDir ..."
 
 # Ninja needs cl.exe on PATH — import the VS x64 developer environment first.

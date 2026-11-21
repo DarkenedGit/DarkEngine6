@@ -1,0 +1,10 @@
+# status: advisory
+# One group per line: count<TAB>path<TAB>check<TAB>message
+# Line numbers are not stored. A repeated warning in the same file counts, so a new
+# site with the same message still fails, and inserting a line above a finding does not.
+#
+# This file is advisory until you accept the current tree:
+#   .\scripts\nightly-quality.ps1 -UpdateBaseline -SkipBuild -SkipTests
+# That rewrites this file with "# status: gated". Later nights then fail
+# when a finding appears that is not listed here.
+# A cleared finding does not fail the night. Run -UpdateBaseline again to drop it.

@@ -678,7 +678,43 @@ namespace Dark
             }
         }
 
+        // The PNG encoder has no 8-bit RGBA format. Asking for 32bppRGBA makes
+        // SetPixelFormat substitute 32bppBGRA; returning there skips Commit and
+        // leaves the file InitializeFromFilename already created at zero bytes.
+        const uint32_t packedPitch = width * 4u;
+        const size_t   packedBytes = static_cast<size_t>(packedPitch) * static_cast<size_t>(height);
+        std::vector<uint8_t> bgra(packedBytes);
+        for (uint32_t y = 0; y < height; ++y)
+        {
+            const uint8_t* src = rgba + static_cast<size_t>(y) * rowPitchBytes;
+            uint8_t*       dst = bgra.data() + static_cast<size_t>(y) * packedPitch;
+            for (uint32_t x = 0; x < width; ++x)
+            {
+                dst[0] = src[2];
+                dst[1] = src[1];
+                dst[2] = src[0];
+                dst[3] = src[3];
+                src += 4;
+                dst += 4;
+            }
+        }
+
         EnsureCom();
+        // Declared before the WIC objects so they close the file before a failed write deletes it.
+        struct DropUncommittedFile
+        {
+            std::filesystem::path file;
+            bool                  armed = false;
+
+            ~DropUncommittedFile()
+            {
+                if (!armed)
+                    return;
+                std::error_code removeEc;
+                std::filesystem::remove(file, removeEc);
+            }
+        } drop;
+
         ComPtr<IWICImagingFactory>    factory;
         ComPtr<IWICStream>            stream;
         ComPtr<IWICBitmapEncoder>     encoder;
@@ -691,23 +727,30 @@ namespace Dark
             DE_LOG_ERROR("Image: failed to open '{}' for writing", path.string());
             return false;
         }
+        // InitializeFromFilename truncates the file before any pixels are committed.
+        drop.file  = path;
+        drop.armed = true;
+
         if (FailedHr(factory->CreateEncoder(GUID_ContainerFormatPng, nullptr, &encoder), "WIC CreateEncoder PNG")
             || FailedHr(encoder->Initialize(stream.Get(), WICBitmapEncoderNoCache), "WIC encoder Initialize")
             || FailedHr(encoder->CreateNewFrame(&frame, nullptr), "WIC CreateNewFrame")
             || FailedHr(frame->Initialize(nullptr), "WIC frame Initialize")
             || FailedHr(frame->SetSize(width, height), "WIC frame SetSize"))
             return false;
-        WICPixelFormatGUID format = GUID_WICPixelFormat32bppRGBA;
+        WICPixelFormatGUID format = GUID_WICPixelFormat32bppBGRA;
         if (FailedHr(frame->SetPixelFormat(&format), "WIC frame SetPixelFormat"))
             return false;
-        if (!IsEqualGUID(format, GUID_WICPixelFormat32bppRGBA))
+        if (!IsEqualGUID(format, GUID_WICPixelFormat32bppBGRA))
         {
-            DE_LOG_ERROR("Image: PNG encoder did not accept RGBA8 for '{}'", path.string());
+            DE_LOG_ERROR("Image: PNG encoder did not accept BGRA8 for '{}'", path.string());
             return false;
         }
-        return !FailedHr(frame->WritePixels(height, rowPitchBytes, static_cast<UINT>(byteCount), const_cast<BYTE*>(rgba)), "WIC WritePixels")
-            && !FailedHr(frame->Commit(), "WIC frame Commit")
-            && !FailedHr(encoder->Commit(), "WIC encoder Commit");
+        if (FailedHr(frame->WritePixels(height, packedPitch, static_cast<UINT>(packedBytes), bgra.data()), "WIC WritePixels")
+            || FailedHr(frame->Commit(), "WIC frame Commit")
+            || FailedHr(encoder->Commit(), "WIC encoder Commit"))
+            return false;
+        drop.armed = false;
+        return true;
     }
 
 } // namespace Dark

@@ -4,8 +4,11 @@
     Fail if engine/Sandbox sources introduce try/catch/throw (or std exception types).
 
 .DESCRIPTION
-    Scans DarkEngine + Sandbox (+ optional paths) for exception keywords.
-    Intended for local pre-commit or CI. Does not scan UnitTests or third-party.
+    Scans engine, Sandbox, and Editor sources for exception keywords.
+    Intended for local pre-commit or the nightly quality script.
+    Does not scan UnitTests, third_party, content, or build trees.
+    Comments and string literals are stripped first, so words like
+    "throw distance" are not treated as a throw statement.
 
 .EXAMPLE
     .\scripts\check-no-exceptions.ps1
@@ -18,16 +21,22 @@ param(
 $ErrorActionPreference = "Stop"
 $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 
-$defaultRoots = @(
-    "AI", "Animation", "Assets", "Audio", "Character", "Collision", "Core", "Debug", "ECS", "Editor", "Gameplay", "Geometry",
-    "Math", "Network", "Particles", "Render", "Sandbox", "Sandbox2D", "Scene", "Shaders", "Sprite",
-    "Terrain", "Ui", "VisualDebugger", "Water", "Weapons", "Save"
+$skipDirs = @(
+    "third_party", "content", "docs", "scripts", "cmake", "Saves", "out", "UnitTests",
+    ".git", ".vs", ".vscode", ".github"
 )
 
-$roots = if ($Path -and $Path.Count -gt 0) { $Path } else { $defaultRoots }
+$roots = if ($Path -and $Path.Count -gt 0) {
+    $Path
+}
+else {
+    @(Get-ChildItem -Path $RepoRoot -Directory | Where-Object {
+            ($skipDirs -notcontains $_.Name) -and ($_.Name -notlike "build*")
+        } | ForEach-Object { $_.Name })
+}
 
-# Match control-flow exception usage; allow the word noexcept.
-$pattern = '(?i)(?<!no)\b(try|catch|throw)\b|\bstd::(exception|runtime_error|invalid_argument|logic_error|out_of_range)\b'
+# Match real control flow after comments and quotes are removed. noexcept stays legal.
+$pattern = '\btry\s*\{|\bcatch\s*\(|\bthrow\b|\bstd::(?:exception|runtime_error|invalid_argument|logic_error|out_of_range|bad_alloc|system_error)\b'
 
 $extensions = @("*.cpp", "*.cxx", "*.cc", "*.c", "*.h", "*.hpp", "*.hh", "*.inl")
 $hits = New-Object System.Collections.Generic.List[string]
@@ -43,9 +52,13 @@ foreach ($root in $roots) {
                 $lines = Get-Content -LiteralPath $_.FullName
                 for ($i = 0; $i -lt $lines.Count; $i++) {
                     $line = $lines[$i]
-                    # Skip obvious comments-only lines that mention the policy.
                     if ($line -match '^\s*//') { continue }
-                    if ($line -match $pattern) {
+                    $code = $line
+                    $code = [regex]::Replace($code, '/\*.*?\*/', ' ')
+                    $code = [regex]::Replace($code, '//.*$', '')
+                    $code = [regex]::Replace($code, '"(?:\\.|[^"\\])*"', '""')
+                    $code = [regex]::Replace($code, "'(?:\\.|[^'\\])*'", "''")
+                    if ($code -match $pattern) {
                         $rel = $_.FullName.Substring($RepoRoot.Path.Length).TrimStart("\", "/")
                         [void]$hits.Add(("{0}:{1}: {2}" -f $rel, ($i + 1), $line.Trim()))
                     }
