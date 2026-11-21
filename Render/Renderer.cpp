@@ -44,32 +44,6 @@ namespace Dark
                 obj->SetName(name);
         }
 
-        bool moduleLoaded(const wchar_t* name)
-        {
-            return name && GetModuleHandleW(name) != nullptr;
-        }
-
-        // PIX and Nsight Graphics intercept CreateDevice. The debug layer crashes
-        // those captures and perturbs Nsight Systems timings. They inject before main.
-        bool captureToolAttached()
-        {
-            return moduleLoaded(L"WinPixGpuCapturer.dll")
-                || moduleLoaded(L"Nvda.Graphics.Interception.dll")
-                || moduleLoaded(L"nvtx64_1.dll");
-        }
-
-        bool wantDebugLayer()
-        {
-#if !defined(_DEBUG)
-            return false;
-#else
-            wchar_t flag[8]{};
-            if (GetEnvironmentVariableW(L"DE_D3D12_DEBUG", flag, 8) > 0 && flag[0] == L'0')
-                return false;
-            return !captureToolAttached();
-#endif
-        }
-
         constexpr uint32_t kBrdfLutMagic = 0x554c4544u; // 'DELU'
 
         std::filesystem::path brdfLutCachePath(uint32_t size, uint32_t samples)
@@ -130,18 +104,6 @@ namespace Dark
         }
     } // namespace
 
-#if defined(_DEBUG)
-    void EnableDebugLayer()
-    {
-        ComPtr<ID3D12Debug> debug;
-        if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug))))
-        {
-            debug->EnableDebugLayer();
-            DE_LOG_INFO(LogCategory::Render, "D3D12 debug layer enabled");
-        }
-    }
-#endif
-
     Renderer::Renderer(Window& window, bool vsync)
         : m_vsync(vsync)
     {
@@ -163,6 +125,7 @@ namespace Dark
         if (m_testShell)
             return;
         waitForGpu();
+        detachDebugMessageLog();
         profileTimersShutdown();
         if (m_copyQueue && m_copyFence)
         {
@@ -204,18 +167,11 @@ namespace Dark
             return false;
         }
 
-#if defined(_DEBUG)
-        if (wantDebugLayer())
-            EnableDebugLayer();
-        else
-            DE_LOG_INFO(LogCategory::Render, "D3D12 debug layer skipped (PIX/Nsight attached, or DE_D3D12_DEBUG=0)");
-#endif
+        configureDiagnostics();
 
         UINT dxgiFactoryFlags = 0;
-#if defined(_DEBUG)
-        if (wantDebugLayer())
+        if (m_debugLayerEnabled)
             dxgiFactoryFlags |= DXGI_CREATE_FACTORY_DEBUG;
-#endif
 
         ComPtr<IDXGIFactory6> factory;
         if (!checkHr(CreateDXGIFactory2(dxgiFactoryFlags, IID_PPV_ARGS(&factory)), "CreateDXGIFactory2"))
@@ -250,6 +206,7 @@ namespace Dark
         if (!checkHr(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&m_device)), "D3D12CreateDevice"))
             return false;
         nameObject(m_device.Get(), L"DE.Device");
+        attachDebugMessageLog();
 
         {
             wchar_t power[8]{};
@@ -553,7 +510,10 @@ namespace Dark
         if (width == m_width && height == m_height)
             return true;
         if (FAILED(m_device->GetDeviceRemovedReason()))
+        {
+            logDeviceRemoved("resize");
             return false;
+        }
 
         waitForGpu();
         broadcastFenceValueAfterWait(m_fenceValues, kFrameCount, m_frameIndex);
@@ -791,6 +751,9 @@ namespace Dark
                 checkHr(m_shadowList[m_frameIndex]->Close(), "Shadow list Close (abandoned)");
         }
 
+        // A capture copies this back buffer before Present; no extra work without a request.
+        recordBackBufferCapture();
+
         // RENDER_TARGET -> PRESENT
         D3D12_RESOURCE_BARRIER barrier{};
         barrier.Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
@@ -821,6 +784,8 @@ namespace Dark
         lists[listCount++] = m_commandList.Get();
         m_commandQueue->ExecuteCommandLists(listCount, lists);
         m_frameSubmitted = true;
+        if (m_captureRecorded)
+            writeBackBufferCapture();
         return true;
     }
 
@@ -914,7 +879,7 @@ namespace Dark
         {
             const HRESULT removed = m_device ? m_device->GetDeviceRemovedReason() : S_OK;
             if (FAILED(removed))
-                DE_LOG_ERROR(LogCategory::Render, "Present: device removed ({})", static_cast<unsigned>(removed));
+                logDeviceRemoved("Present");
             else
                 DE_LOG_ERROR(LogCategory::Render, "Present failed (HRESULT 0x{:08X})", static_cast<unsigned>(hr));
             return false;
