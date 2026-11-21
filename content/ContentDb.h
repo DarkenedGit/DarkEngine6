@@ -170,6 +170,12 @@ namespace Dark
     const std::vector<Archetype>& archetypes();
     const std::vector<ContentPackage>& contentPackages();
     const std::vector<ContentIssue>& contentIssues();
+    // A required catalog that is missing or did not load (items, throwables, the starting loadout).
+    // Logged as an error once per message and listed by catalogIssues() for the Editor Content panel,
+    // the Editor status bar and Sandbox Dev Tools. A content database reload does not clear these.
+    void                             reportCatalogIssue(std::string_view source, std::string_view message);
+    const std::vector<ContentIssue>& catalogIssues();
+    void                             clearCatalogIssues();
 
     bool        contentHasArchetype(std::string_view idOrShort);
     // False until loadContentDatabase succeeds. Distinct from a missing id.

@@ -511,11 +511,18 @@ void EditorApp::syncPlacedWater(bool terrainChanged)
                 }
             }
         }
+        const uint64_t           key           = static_cast<uint64_t>(e.id());
+        WaterWorld::WaterRibbon* ribbon        = m_sceneWorld.water.findRibbon(key);
         const bool inputsChanged = !samePoints || fabsf(slot->builtWidth - stream->width) > 1.0e-3f;
-        const bool rebuild = force || inputsChanged || (heightMap && !slot->mesh.valid());
+        // A WaterWorld rebuild (new sheet, panel rebuild) drops the ribbons, so a missing one rebuilds too.
+        const bool rebuild = force || inputsChanged || (heightMap && !ribbon);
         if (!rebuild)
+        {
+            if (ribbon)
+                ribbon->flowSpeed = stream->flowSpeed;
             return;
-        m_placedWaterRetire.push(std::move(slot->mesh));
+        }
+        m_sceneWorld.water.removeRibbon(key, m_placedWaterRetire);
         slot->builtWidth = stream->width;
         slot->builtPoints = stream->points;
         if (!heightMap)
@@ -528,12 +535,21 @@ void EditorApp::syncPlacedWater(bool terrainChanged)
         desc.flowSpeed    = stream->flowSpeed;
         desc.bedClearance = 0.45f;
         desc.pointsXZ     = stream->points;
-        MeshData cpu;
-        std::string err;
-        if (!buildStreamRibbon(*heightMap, desc, lakeLevel, cpu, &slot->bounds, &err) || !Mesh::tryCreate(renderer(), cpu, slot->mesh))
+        MeshData      cpu;
+        Math::AABox3f bounds;
+        Mesh          mesh;
+        std::string   err;
+        if (!buildStreamRibbon(*heightMap, desc, lakeLevel, cpu, &bounds, &err) || !Mesh::tryCreate(renderer(), cpu, mesh))
             DE_LOG_ERROR(LogCategory::Render, "Editor: stream upload failed");
+        else
+            m_sceneWorld.water.addRibbon(std::move(mesh), stream->flowSpeed, bounds, key, &m_placedWaterRetire);
     });
 
+    std::vector<uint64_t> liveKeys;
+    liveKeys.reserve(liveStreams.size());
+    for (EntityID id : liveStreams)
+        liveKeys.push_back(static_cast<uint64_t>(id));
+    m_sceneWorld.water.retainRibbons(liveKeys, m_placedWaterRetire);
     for (size_t i = 0; i < m_editorStreams.size();)
     {
         bool found = false;
@@ -550,7 +566,6 @@ void EditorApp::syncPlacedWater(bool terrainChanged)
             ++i;
             continue;
         }
-        m_placedWaterRetire.push(std::move(m_editorStreams[i].mesh));
         if (i + 1 != m_editorStreams.size())
             m_editorStreams[i] = std::move(m_editorStreams.back());
         m_editorStreams.pop_back();
@@ -567,14 +582,19 @@ void EditorApp::drawPlacedWater(
     const SsrSettings* ssr)
 {
     const bool sheet = m_sceneWorld.water.wetChunkCount() > 0;
-    if (!cmd || !m_scene.waterPipeline().isValid() || (!sheet && m_placedWater.empty() && m_editorStreams.empty()))
+    if (!cmd || !m_scene.waterPipeline().isValid() || (!sheet && m_placedWater.empty() && m_sceneWorld.water.ribbons().empty()))
         return;
     const Terrain::HeightMap* heightMap = (m_haveTerrain && m_sceneWorld.terrain.valid() && m_sceneWorld.terrain.coarse().valid()) ? &m_sceneWorld.terrain.coarse() : nullptr;
     uint32_t drawIndex = 0;
     auto pastCap = [&]() {
         if (drawIndex < WaterPipeline::kMaxWaterDrawsPerFrame)
             return false;
-        DE_LOG_WARN(LogCategory::Render, "Editor: water draw cap {} reached", WaterPipeline::kMaxWaterDrawsPerFrame);
+        static bool s_warned = false;
+        if (!s_warned)
+        {
+            s_warned = true;
+            DE_LOG_WARN(LogCategory::Render, "Editor: water draw cap {} reached; the rest of the water in view is not drawn (warns once)", WaterPipeline::kMaxWaterDrawsPerFrame);
+        }
         return true;
     };
     if (sheet)
@@ -622,35 +642,14 @@ void EditorApp::drawPlacedWater(
                 &m_sceneWorld.env))
             ++drawIndex;
     }
-    for (const EditorStreamSlot& slot : m_editorStreams)
+    for (const WaterWorld::WaterRibbon& ribbon : m_sceneWorld.water.ribbons())
     {
         if (pastCap())
             break;
-        float flowSpeed = 1.6f;
-        if (const StreamComponent* stream = world().get<StreamComponent>(Entity(slot.entityId)))
-            flowSpeed = stream->flowSpeed;
         WaterParams params = m_sceneWorld.water.params();
-        params.flowSpeed = flowSpeed;
-        if (drawStreamRibbon(
-                cmd,
-                m_scene.waterPipeline(),
-                slot.mesh,
-                slot.bounds,
-                params,
-                m_camera,
-                &frustum,
-                &renderer().debugState(),
-                m_sceneWorld.water.time(),
-                renderer().frameIndex(),
-                drawIndex,
-                heightHeap,
-                heightGpu,
-                &m_shadows,
-                sceneColorCpu,
-                depthCpu,
-                ssr,
-                heightMap,
-                &m_sceneWorld.env))
+        params.flowSpeed   = ribbon.flowSpeed;
+        if (drawStreamRibbon(cmd, m_scene.waterPipeline(), ribbon.mesh, ribbon.bounds, params, m_camera, &frustum, &renderer().debugState(), m_sceneWorld.water.time(), renderer().frameIndex(),
+                             drawIndex, heightHeap, heightGpu, &m_shadows, sceneColorCpu, depthCpu, ssr, heightMap, &m_sceneWorld.env))
             ++drawIndex;
     }
 }
@@ -668,6 +667,7 @@ bool EditorApp::applyEditorGridGpu()
     bindTerrainHeightSrv();
     m_terrainHeightDirty = false;
     m_terrainSplatDirty  = false;
+    ++m_walkTerrainEpoch;
     return true;
 }
 
@@ -801,6 +801,7 @@ void EditorApp::syncTerrainLod()
         else
             bindTerrainHeightSrv();
         m_terrainHeightDirty = false;
+        ++m_walkTerrainEpoch; // heights changed in place; the walk overlay rebakes
     }
     if (m_terrainSplatDirty)
         m_terrainSplatDirty = false;

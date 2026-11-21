@@ -1,6 +1,8 @@
 #include "Play/PlaySession.h"
+#include "Play/SimTicks.h"
 
 #include "AI/AiComponents.h"
+#include "Content/ContentDb.h"
 #include "AI/Exposure.h"
 #include "AI/AiSystem.h"
 #include "Collision/Occlusion.h"
@@ -196,8 +198,8 @@ namespace Dark
         m_host = {};
         if (m_fill)
             m_fill(m_user, m_host);
-        m_host.guardVoice    = &m_guardVoice;
-        m_host.crows         = &m_crowModels;
+        m_host.guardVoice    = m_guardVoice.get();
+        m_host.crows         = m_crowModels.get();
         m_host.shield        = m_shield;
         m_host.muzzle        = m_muzzle;
         m_host.cameraEntity  = m_camera;
@@ -279,6 +281,14 @@ namespace Dark
         m_simStep = false;
     }
 
+    PlaySession::PlaySession() :
+        m_guardVoice(std::make_unique<GuardVoice>()),
+        m_crowModels(std::make_unique<CrowModels>())
+    {
+    }
+
+    PlaySession::~PlaySession() = default;
+
     void PlaySession::setSimTimeScale(float scale)
     {
         if (!(scale > 0.0f))
@@ -294,7 +304,7 @@ namespace Dark
     {
         if (!(dt > 0.0f))
             return 0.0f;
-        dt *= m_simTimeScale;
+        dt = planSimTicks(dt, m_simTimeScale).total;
         if (m_rt.shake > 0.0f)
         {
             m_rt.shakeTime += dt;
@@ -519,7 +529,7 @@ namespace Dark
             return;
         std::vector<LoadoutGrant> grants;
         if (!loadStartingLoadout(grants))
-            DE_LOG_ERROR("Play: player/loadout.json did not load");
+            reportCatalogIssue("Play", "player/loadout.json did not load; the player starts without the authored kit");
         const bool hadSword = hasItem(*inv, "sword");
         const bool hadRifle = hasItem(*inv, "rifle");
         for (const LoadoutGrant& grant : grants)
@@ -700,6 +710,30 @@ namespace Dark
             view.concealCount = static_cast<int>(volumes.size());
         }
         tickCarriedBody(view);
+    }
+
+    void PlaySession::tickSimulation(float dt)
+    {
+        const SimTickPlan plan = planSimTicks(dt, 1.0f);
+        for (int i = 0; i < plan.ticks; ++i)
+        {
+            if (m_host.input)
+                m_host.input->setRepeatSimTick(i > 0);
+            tickPawn(plan.tickDt);
+            // The camera follows the last pawn tick, before the last world tick, as with a single tick.
+            if (i + 1 == plan.ticks)
+                tickCamera();
+            tickWorld(plan.tickDt);
+        }
+        if (m_host.input)
+            m_host.input->setRepeatSimTick(false);
+        if (plan.ticks == 0)
+        {
+            // No time this frame (the first frame, or dt rounded to 0). Same calls as a single tick.
+            tickPawn(0.0f);
+            tickCamera();
+            tickWorld(0.0f);
+        }
     }
 
     void PlaySession::tickPawn(float dt)

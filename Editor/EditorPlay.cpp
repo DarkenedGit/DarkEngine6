@@ -1,11 +1,12 @@
 #include "EditorApp.h"
 
 #include "Play/AttachedLights.h"
+#include "Play/GuardVoice.h"
 #include "Play/Carry.h"
 #include "Play/DialogueBinding.h"
 #include "Play/CombatHud.h"
 #include "Play/DialogueHud.h"
-#include "Play/SimTimeHud.h"
+#include "Ui/SimTimeHud.h"
 #include "Ui/ImGuiGameChrome.h"
 #include "Ui/ImGuiTheme.h"
 #include "Play/DialogueMemory.h"
@@ -277,7 +278,7 @@ void EditorApp::restoreAuthoredPoses()
     });
 }
 
-void EditorApp::bakePlayWalkability()
+const Terrain::HeightMap* EditorApp::gatherPlayWalkInputs(float& waterLevel)
 {
     m_playCubes.clear();
     m_playSpheres.clear();
@@ -305,30 +306,105 @@ void EditorApp::bakePlayWalkability()
             m_playSphereEntities.push_back(e);
         }
     });
-    const Terrain::HeightMap* height = nullptr;
+    waterLevel = m_sceneWorld.water.chunksX() > 0 ? m_sceneWorld.water.params().waterLevel : -1.0e9f;
     if (m_haveTerrain && m_sceneWorld.terrain.valid() && m_sceneWorld.terrain.coarse().valid())
-        height = &m_sceneWorld.terrain.coarse();
-    else
+        return &m_sceneWorld.terrain.coarse();
+    // The default editor ground is the Y=0 grid from -20 to 20. Bake that as a flat walk map.
+    if (!m_playGrid.valid())
     {
-        // The default editor ground is the Y=0 grid from -20 to 20. Bake that as a flat walk map.
-        if (!m_playGrid.valid())
-        {
-            if (!m_playGrid.create(41, 41, 1.0f, 1.0f))
-            {
-                DE_LOG_WARN(LogCategory::AI, "Editor: play without terrain — hunters will not path");
-                return;
-            }
-            m_playGrid.setOrigin(Vector3f{ -20.0f, 0.0f, -20.0f });
-        }
-        height = &m_playGrid;
-        DE_LOG_INFO(LogCategory::AI, "Editor: no terrain — hunters path the ground grid");
+        if (!m_playGrid.create(41, 41, 1.0f, 1.0f))
+            return nullptr;
+        m_playGrid.setOrigin(Vector3f{ -20.0f, 0.0f, -20.0f });
     }
-    const float water = m_sceneWorld.water.chunksX() > 0 ? m_sceneWorld.water.params().waterLevel : -1.0e9f;
+    return &m_playGrid;
+}
+
+uint64_t EditorApp::walkInputsKey(const Terrain::HeightMap* height, float waterLevel) const
+{
+    // FNV-1a over everything the bake reads except the height samples; m_walkTerrainEpoch covers those.
+    uint64_t   key = 1469598103934665603ull;
+    const auto mix = [&key](const void* data, size_t bytes)
+    {
+        const auto* p = static_cast<const unsigned char*>(data);
+        for (size_t i = 0; i < bytes; ++i)
+            key = (key ^ p[i]) * 1099511628211ull;
+    };
+    const uintptr_t heightPtr = reinterpret_cast<uintptr_t>(height);
+    mix(&heightPtr, sizeof(heightPtr));
+    if (height)
+    {
+        const uint32_t dims[2] = { height->width(), height->height() };
+        const float    cell    = height->cellSize();
+        mix(dims, sizeof(dims));
+        mix(&cell, sizeof(cell));
+    }
+    mix(&waterLevel, sizeof(waterLevel));
+    mix(&m_walkTerrainEpoch, sizeof(m_walkTerrainEpoch));
+    for (const AABox3f& box : m_playCubes)
+    {
+        const float v[6] = { box.Min.x, box.Min.y, box.Min.z, box.Max.x, box.Max.y, box.Max.z };
+        mix(v, sizeof(v));
+    }
+    for (const Sphere3f& sphere : m_playSpheres)
+    {
+        const float v[4] = { sphere.Center.x, sphere.Center.y, sphere.Center.z, sphere.Radius };
+        mix(v, sizeof(v));
+    }
+    return key == 0 ? 1 : key;
+}
+
+void EditorApp::bakePlayWalkability()
+{
+    float                     water  = -1.0e9f;
+    const Terrain::HeightMap* height = gatherPlayWalkInputs(water);
+    m_walkBakedKey                   = walkInputsKey(height, water);
+    m_walkPendingKey                 = 0;
+    if (!height)
+    {
+        DE_LOG_WARN(LogCategory::AI, "Editor: play without terrain — hunters will not path");
+        m_ai.walkability().clear();
+        return;
+    }
+    if (height == &m_playGrid)
+        DE_LOG_INFO(LogCategory::AI, "Editor: no terrain — hunters path the ground grid");
     if (!bakeHunterWalk(m_ai, height, water, 0.8f, m_playCubes, m_playSpheres))
         DE_LOG_WARN(LogCategory::AI, "Editor: walkability bake failed");
 }
 
+void EditorApp::refreshWalkOverlay(float dt)
+{
+    constexpr float kPollSeconds   = 0.1f;
+    constexpr float kSettleSeconds = 0.3f; // a gizmo drag or a slider rebakes once it stops
+    if (!renderer().debugState().showWalkability || m_playMode || m_sceneMode != SceneMode::Scene3D)
+    {
+        m_walkPendingKey = 0;
+        m_walkPollLeft   = 0.0f;
+        return;
+    }
+    m_walkPollLeft -= dt;
+    if (m_walkPendingKey != 0)
+        m_walkPendingAge += dt;
+    if (m_walkPollLeft > 0.0f)
+        return;
+    m_walkPollLeft = kPollSeconds;
 
+    float                     water  = -1.0e9f;
+    const Terrain::HeightMap* height = gatherPlayWalkInputs(water);
+    const uint64_t            key    = walkInputsKey(height, water);
+    if (key == m_walkBakedKey)
+    {
+        m_walkPendingKey = 0;
+        return;
+    }
+    if (key != m_walkPendingKey)
+    {
+        m_walkPendingKey = key;
+        m_walkPendingAge = 0.0f;
+        return;
+    }
+    if (m_walkPendingAge >= kSettleSeconds)
+        bakePlayWalkability();
+}
 
 void EditorApp::fillMovieHost(void* user, MovieHost& host)
 {

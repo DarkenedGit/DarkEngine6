@@ -196,7 +196,8 @@ void EditorApp::drawEditorUi()
                         bakePlayWalkability();
                 }
                 if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
-                    ImGui::SetTooltip("Hunter walk bake. Each color is one island. Gaps are water, steep ground, or a solid. Turn off and on after editing solids.");
+                    ImGui::SetTooltip(
+                        "Hunter walk bake. Each color is one island. Gaps are water, steep ground, or a solid. Rebakes on its own a moment after terrain, water or solids change (edit mode).");
                 DebugRenderState& decalDbg = renderer().debugState();
                 if (ImGui::MenuItem("Decals", nullptr, &decalDbg.decalsEnabled))
                     DE_LOG_INFO("Editor: decals = {}", decalDbg.decalsEnabled);
@@ -696,6 +697,13 @@ void EditorApp::drawContentReport()
         ImGui::Separator();
         ImGui::TextUnformatted("Issues");
         for (const ContentIssue& issue : contentIssues())
+            ImGui::TextWrapped("%s: %s", issue.packageId.c_str(), issue.message.c_str());
+    }
+    if (!catalogIssues().empty())
+    {
+        ImGui::Separator();
+        ImGui::TextColored(toImVec4(UiPalette::kDanger), "Missing catalogs");
+        for (const ContentIssue& issue : catalogIssues())
             ImGui::TextWrapped("%s: %s", issue.packageId.c_str(), issue.message.c_str());
     }
     ImGui::End();
@@ -1236,9 +1244,7 @@ void EditorApp::onUpdate(float dt)
             {
                 bindPlayFeedback();
                 tickPlayMuzzle(m_play.feedback(), simDt);
-                m_play.tickPawn(simDt);
-                m_play.tickCamera();
-                m_play.tickWorld(simDt);
+                m_play.tickSimulation(simDt);
                 m_play.feedback().blood.update(simDt);
                 m_play.consumeSimStep();
             }
@@ -1274,6 +1280,7 @@ void EditorApp::onUpdate(float dt)
         const bool terrainChanged = m_terrainHeightDirty;
         syncTerrainLod();
         syncPlacedWater(terrainChanged);
+        refreshWalkOverlay(wallDt);
         if (!movieHolds && !worldHeld)
             updateEditorGrass(clockDt);
         else if (worldHeld)

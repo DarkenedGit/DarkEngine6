@@ -28,6 +28,8 @@ namespace Dark::AI
 
     bool Walkability::bake(const WalkabilityDesc& desc)
     {
+        // One bump per bake: on success below, or here when a failure drops an old bake.
+        const bool hadBake = valid();
         m_walk.clear();
         m_island.clear();
         m_cellsX    = 0;
@@ -37,11 +39,15 @@ namespace Dark::AI
         if (!desc.heightMap || !desc.heightMap->valid())
         {
             DE_LOG_ERROR(LogCategory::AI, "Walkability::bake: height map is invalid");
+            if (hadBake)
+                ++m_bakeSerial;
             return false;
         }
         if (desc.heightMap->width() < 2 || desc.heightMap->height() < 2)
         {
             DE_LOG_ERROR(LogCategory::AI, "Walkability::bake: height map too small");
+            if (hadBake)
+                ++m_bakeSerial;
             return false;
         }
 
@@ -69,6 +75,17 @@ namespace Dark::AI
         ++m_bakeSerial;
         DE_LOG_INFO(LogCategory::AI, "Walkability: {}x{} cells, climb {:.2f}", m_cellsX, m_cellsZ, m_maxClimb);
         return true;
+    }
+
+    void Walkability::clear()
+    {
+        m_walk.clear();
+        m_island.clear();
+        m_cellsX    = 0;
+        m_cellsZ    = 0;
+        m_heightMap = nullptr;
+        m_desc      = {};
+        ++m_bakeSerial;
     }
 
     bool Walkability::worldToCell(float worldX, float worldZ, int& cx, int& cz) const

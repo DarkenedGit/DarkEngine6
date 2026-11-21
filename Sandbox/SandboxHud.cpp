@@ -1,4 +1,5 @@
 #include "Audio/MasterVolumePref.h"
+#include "Content/ContentDb.h"
 #include "Audio/SoundComponents.h"
 #include "Combat/ArmorPieces.h"
 #include "SandboxHud.h"
@@ -14,9 +15,10 @@
 #include "Gameplay/PowerComponents.h"
 #include "Gameplay/QuestZone.h"
 #include "Play/Carry.h"
+#include "Play/GuardVoice.h"
 #include "Media/MovieHud.h"
 #include "Play/DialogueHud.h"
-#include "Play/SimTimeHud.h"
+#include "Ui/SimTimeHud.h"
 #include "Play/PlayerFlashlight.h"
 #include "Math/Vector4f.h"
 #include "Ui/NpcInfoOverlay.h"
@@ -1227,6 +1229,13 @@ void SandboxHud::drawDevTools()
         return;
     }
 
+    if (!Dark::catalogIssues().empty())
+    {
+        ImGui::TextColored(Dark::toImVec4(Dark::UiPalette::kDanger), "Missing catalogs");
+        for (const Dark::ContentIssue& issue : Dark::catalogIssues())
+            ImGui::TextWrapped("%s: %s", issue.packageId.c_str(), issue.message.c_str());
+        ImGui::Separator();
+    }
     Dark::drawSimTimeControls(app().m_play, "Pause gameplay (fly cam)", "F3", "O");
     ImGui::SliderFloat(ICON_FA_GAUGE_HIGH "  Fly speed (m/s)", &app().m_flySpeed, 1.0f, 400.0f, "%.0f", ImGuiSliderFlags_Logarithmic);
     ImGui::SetItemTooltip("Free-fly camera while paused. Shift multiplies by 2.5.");

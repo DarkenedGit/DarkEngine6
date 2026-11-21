@@ -1,5 +1,6 @@
 #include "Gameplay/ThrowableCatalog.h"
 
+#include "Content/ContentDb.h"
 #include "Core/ContentRoots.h"
 #include "Core/Log.h"
 
@@ -278,7 +279,7 @@ namespace Dark
         if (file.state == ContentFile::Missing)
         {
             m_items.clear();
-            DE_LOG_ERROR(LogCategory::Core, "ThrowableCatalog: items/throwables.json is missing");
+            reportCatalogIssue("ThrowableCatalog", "items/throwables.json is missing; no throwables");
             ok = false;
         }
         else if (file.state != ContentFile::Ok)

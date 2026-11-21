@@ -4,6 +4,7 @@
 #include "Audio/MasterVolumePref.h"
 
 #include "Play/AttachedLights.h"
+#include "Play/GuardVoice.h"
 #include "Play/EnvironmentTick.h"
 #include "Play/Carry.h"
 #include "Play/CharacterAttach.h"
@@ -12,6 +13,7 @@
 #include "Play/HunterTick.h"
 #include "Gameplay/PowerSystem.h"
 #include "Media/MovieCue.h"
+#include "Scene/SceneId.h"
 #include "Scene/SceneSpawn.h"
 #include "Content/SceneObjectSpawn.h"
 #include "Play/PhysicsGround.h"
@@ -677,7 +679,7 @@ void SandboxApp::handleRuntimeCommands(float wallDt, bool allowScale)
             {
                 const bool newGame = picked && picked->id == "new_game";
                 const bool otherScene = picked && picked->kind == MainMenuKind::Scene && !picked->path.empty()
-                    && picked->path.filename() != m_loadedScenePath.filename();
+                    && !sameSceneId(picked->path, m_loadedScenePath);
                 if (!newGame && !otherScene)
                 {
                     m_hud.m_menuPage = MainMenuPage::Front;
@@ -1025,11 +1027,6 @@ void SandboxApp::handleRuntimeCommands(float wallDt, bool allowScale)
     {
         if (m_simHeld)
             updateFlyCamera(wallDt);
-        else
-        {
-            m_play.tickPawn(m_simDt);
-            m_play.tickCamera();
-        }
     }
 
     if (m_simHeld)
@@ -2010,7 +2007,7 @@ void SandboxApp::onUpdate(float dt)
         m_sceneWorld.water.tick(m_simDt);
         bindPlayFeedback();
         tickPlayMuzzle(m_play.feedback(), m_simDt);
-        m_play.tickWorld(m_simDt);
+        m_play.tickSimulation(m_simDt);
         updateQuest(m_simDt);
         if (m_hud.m_defenseTextLeft > 0.0f)
         {

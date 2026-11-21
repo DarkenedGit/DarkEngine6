@@ -7,6 +7,7 @@
 
 #include "third_party/nlohmann/json.hpp"
 
+#include <unordered_set>
 #include <fstream>
 #include <memory>
 #include <sstream>
@@ -187,7 +188,7 @@ namespace Dark
             scan(*it);
         catalogLoaded() = true;
         if (files == 0)
-            DE_LOG_ERROR(LogCategory::Core, "Items: no items json found");
+            reportCatalogIssue("Items", "no *.items.json found; every item lookup will miss");
     }
 
     bool loadStartingLoadout(std::vector<LoadoutGrant>& out)
@@ -236,7 +237,12 @@ namespace Dark
     {
         const ItemDef* def = tryFindItemDef(id);
         if (!def && !id.empty())
-            DE_LOG_WARN(LogCategory::Core, "Items: '{}' is not in the catalog", std::string(id));
+        {
+            // Once per id. A per-frame lookup of a missing item would otherwise flood the log.
+            static std::unordered_set<std::string> warned;
+            if (warned.insert(std::string(id)).second)
+                DE_LOG_WARN(LogCategory::Core, "Items: '{}' is not in the catalog (warns once)", std::string(id));
+        }
         return def;
     }
 

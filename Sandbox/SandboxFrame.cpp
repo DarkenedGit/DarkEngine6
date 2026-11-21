@@ -83,6 +83,7 @@
 #include "Physics/PhysicsComponent.h"
 #include "Physics/PhysicsFile.h"
 #include "AI/HsmGraphComponent.h"
+#include "AI/WalkabilityMesh.h"
 #include "Audio/SoundComponents.h"
 #include "Animation/AnimNotify.h"
 #include "Character/HealthComponent.h"
@@ -1144,7 +1145,12 @@ void SandboxFrame::render()
         {
             if (drawIndex >= WaterPipeline::kMaxWaterDrawsPerFrame)
             {
-                DE_LOG_WARN(LogCategory::Render, "SandboxApp: water draw cap {} reached", WaterPipeline::kMaxWaterDrawsPerFrame);
+                static bool s_warned = false;
+                if (!s_warned)
+                {
+                    s_warned = true;
+                    DE_LOG_WARN(LogCategory::Render, "SandboxApp: water draw cap {} reached; the rest of the streams in view are not drawn (warns once)", WaterPipeline::kMaxWaterDrawsPerFrame);
+                }
                 break;
             }
             WaterParams streamParams = app().m_sceneWorld.water.params();
@@ -1273,7 +1279,7 @@ void SandboxFrame::render()
         const GpuScope paths(cmd, "Path Debug", ProfileColor::DebugOverlay);
         app().m_chase.drawPaths(cmd, app().renderer(), viewProj);
     }
-    m_walkDebug.draw(cmd, app().renderer(), &app().m_chase.ai().walkability(), viewProj);
+    m_walkDebug.draw(cmd, app().renderer(), AI::walkabilityMeshSource(&app().m_chase.ai().walkability()), viewProj);
     app().m_demo.drawSkeletonOverlay(cmd, viewProj);
     m_scene.drawDecalVolumes(cmd, app().renderer(), app().m_chase.linePipeline(), viewProj);
 

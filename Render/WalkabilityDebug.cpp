@@ -1,7 +1,5 @@
 #include "Render/WalkabilityDebug.h"
 
-#include "AI/Walkability.h"
-#include "AI/WalkabilityMesh.h"
 #include "Core/Log.h"
 #include "Render/DebugRenderState.h"
 #include "Render/DepthState.h"
@@ -146,28 +144,28 @@ namespace Dark
         return true;
     }
 
-    void WalkabilityDebug::sync(Renderer& renderer, const AI::Walkability* walk)
+    void WalkabilityDebug::sync(Renderer& renderer, const DebugMeshSource& source)
     {
-        if (!walk || !walk->valid())
+        if (source.serial == 0 || !source.build)
         {
             if (m_indexCount > 0 || m_serial != 0)
                 releaseMesh(renderer);
             m_serial = 0;
             return;
         }
-        if (walk->bakeSerial() == m_serial)
+        if (source.serial == m_serial)
             return;
 
-        AI::WalkabilityMeshData cpu;
-        if (!AI::buildWalkabilityMesh(*walk, cpu) || cpu.indices.empty())
+        DebugColorMesh cpu;
+        if (!source.build(source.user, cpu) || cpu.indices.empty())
         {
             releaseMesh(renderer);
-            m_serial = walk->bakeSerial();
+            m_serial = source.serial;
             return;
         }
 
         ID3D12Device* device = renderer.device();
-        const uint64_t vbBytes = cpu.vertices.size() * sizeof(AI::WalkabilityMeshVertex);
+        const uint64_t                         vbBytes  = cpu.vertices.size() * sizeof(DebugColorVertex);
         const uint64_t ibBytes = cpu.indices.size() * sizeof(uint32_t);
         Microsoft::WRL::ComPtr<ID3D12Resource> vb = CreateBuffer(device, vbBytes, D3D12_HEAP_TYPE_DEFAULT, D3D12_RESOURCE_STATE_COPY_DEST);
         Microsoft::WRL::ComPtr<ID3D12Resource> ib = CreateBuffer(device, ibBytes, D3D12_HEAP_TYPE_DEFAULT, D3D12_RESOURCE_STATE_COPY_DEST);
@@ -175,21 +173,21 @@ namespace Dark
         Microsoft::WRL::ComPtr<ID3D12Resource> uploadIb = CreateBuffer(device, ibBytes, D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ);
         if (!vb || !ib || !uploadVb || !uploadIb)
         {
-            m_serial = walk->bakeSerial();
+            m_serial = source.serial;
             return;
         }
 
         void* mapped = nullptr;
         if (FailedHr(uploadVb->Map(0, nullptr, &mapped), "Map walk mesh VB"))
         {
-            m_serial = walk->bakeSerial();
+            m_serial = source.serial;
             return;
         }
         std::memcpy(mapped, cpu.vertices.data(), static_cast<size_t>(vbBytes));
         uploadVb->Unmap(0, nullptr);
         if (FailedHr(uploadIb->Map(0, nullptr, &mapped), "Map walk mesh IB"))
         {
-            m_serial = walk->bakeSerial();
+            m_serial = source.serial;
             return;
         }
         std::memcpy(mapped, cpu.indices.data(), static_cast<size_t>(ibBytes));
@@ -197,7 +195,7 @@ namespace Dark
 
         if (!renderer.submitBufferCopies(vb.Get(), uploadVb.Get(), vbBytes, ib.Get(), uploadIb.Get(), ibBytes))
         {
-            m_serial = walk->bakeSerial();
+            m_serial = source.serial;
             return;
         }
         renderer.deferRelease(uploadVb.Get());
@@ -208,22 +206,33 @@ namespace Dark
         m_ib = ib;
         m_indexCount = static_cast<uint32_t>(cpu.indices.size());
         m_vbv.BufferLocation = m_vb->GetGPUVirtualAddress();
-        m_vbv.StrideInBytes  = sizeof(AI::WalkabilityMeshVertex);
+        m_vbv.StrideInBytes  = sizeof(DebugColorVertex);
         m_vbv.SizeInBytes    = static_cast<UINT>(vbBytes);
         m_ibv.BufferLocation = m_ib->GetGPUVirtualAddress();
         m_ibv.Format         = DXGI_FORMAT_R32_UINT;
         m_ibv.SizeInBytes    = static_cast<UINT>(ibBytes);
-        m_serial = walk->bakeSerial();
+        m_serial             = source.serial;
         DE_LOG_INFO(LogCategory::Render, "Walkability mesh: {} quads", m_indexCount / 6);
     }
 
-    void WalkabilityDebug::draw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const AI::Walkability* walk, const Math::Matrix4f& viewProj)
+    void WalkabilityDebug::draw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const DebugMeshSource& source, const Math::Matrix4f& viewProj)
     {
         if (!renderer.debugState().showWalkability)
+        {
+            m_pipelineFailed = false;
             return;
-        if (!cmd || !ensurePipeline(renderer))
+        }
+        if (!cmd || m_pipelineFailed)
             return;
-        sync(renderer, walk);
+        if (!ensurePipeline(renderer))
+        {
+            m_pipelineFailed = true;
+            m_root.Reset();
+            m_pso.Reset();
+            DE_LOG_ERROR(LogCategory::Render, "WalkabilityDebug: pipeline failed; the walk overlay is off until it is toggled");
+            return;
+        }
+        sync(renderer, source);
         if (!m_pso || m_indexCount == 0)
             return;
 

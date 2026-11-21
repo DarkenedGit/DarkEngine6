@@ -849,6 +849,8 @@ void EditorApp::clearScene()
     if (netSceneLocked())
         return;
     destroyBuildingFixtures();
+    // The old walk bake points at the old terrain. Nothing paths or draws it until the next bake.
+    m_ai.clearLevel();
     std::vector<Entity> ents;
     collectEditorEntities(ents);
     for (Entity e : ents)

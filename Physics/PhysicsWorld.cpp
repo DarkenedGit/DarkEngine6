@@ -1,6 +1,7 @@
 #include "Physics/PhysicsWorld.h"
 #include "Physics/CollisionShape.h"
 #include "Physics/PhysicsMath.h"
+#include "Core/FixedStep.h"
 #include "Core/Log.h"
 #include "ECS/Components.h"
 #include "ECS/World.h"
@@ -325,16 +326,20 @@ namespace Dark::Physics
         if (dt <= 0.0f)
             return true;
 
-        m_accum += dt;
-        int steps = 0;
-        while (m_accum >= m_desc.timeStep && steps < m_desc.maxSteps)
-        {
+        FixedStepAccumulator fixed{ m_accum };
+        const int            steps = fixed.advance(dt, m_desc.timeStep, m_desc.maxSteps);
+        for (int i = 0; i < steps; ++i)
             b3World_Step(loadWorld(m_id), m_desc.timeStep, m_desc.subSteps);
-            m_accum -= m_desc.timeStep;
-            ++steps;
+        m_accum = fixed.accum;
+        if (fixed.lastDropped)
+        {
+            static bool s_warned = false;
+            if (!s_warned)
+            {
+                s_warned = true;
+                DE_LOG_WARN(LogCategory::Collision, "PhysicsWorld: a {:.3f}s step needed more than {} fixed steps; the rest was dropped (warns once)", dt, m_desc.maxSteps);
+            }
         }
-        if (steps == m_desc.maxSteps)
-            m_accum = 0.0f;
         return true;
     }
 
