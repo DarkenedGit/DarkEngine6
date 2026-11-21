@@ -29,8 +29,6 @@
 #include <Windows.h>
 #include <commdlg.h>
 #include <shlobj.h>
-#include <wincodec.h>
-#include <wrl/client.h>
 
 #include <cmath>
 #include <cstdio>
@@ -41,7 +39,6 @@
 using namespace Dark;
 using namespace Math;
 using namespace Terrain;
-using Microsoft::WRL::ComPtr;
 
 namespace
 {
@@ -105,80 +102,7 @@ std::string terrainMapKey(AssetManager& assets, const std::filesystem::path& pat
 
 bool saveRgbaPng(const std::filesystem::path& path, uint32_t width, uint32_t height, const uint8_t* rgba)
 {
-    if (!rgba || width == 0 || height == 0)
-        return false;
-
-    std::error_code ec;
-    if (path.has_parent_path())
-    {
-        std::filesystem::create_directories(path.parent_path(), ec);
-        if (ec)
-        {
-            DE_LOG_ERROR("Editor: failed to create directory for '{}' ({})", path.string(), ec.message());
-            return false;
-        }
-    }
-
-    const HRESULT co = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    (void)co;
-
-    ComPtr<IWICImagingFactory> factory;
-    HRESULT hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory));
-    if (FAILED(hr) || !factory)
-    {
-        DE_LOG_ERROR("Editor: WIC factory failed (HRESULT 0x{:08X})", static_cast<unsigned>(hr));
-        return false;
-    }
-
-    ComPtr<IWICStream> stream;
-    hr = factory->CreateStream(&stream);
-    if (FAILED(hr) || !stream)
-        return false;
-    hr = stream->InitializeFromFilename(path.c_str(), GENERIC_WRITE);
-    if (FAILED(hr))
-    {
-        DE_LOG_ERROR("Editor: failed to open '{}' for splat write", path.string());
-        return false;
-    }
-
-    ComPtr<IWICBitmapEncoder> encoder;
-    hr = factory->CreateEncoder(GUID_ContainerFormatPng, nullptr, &encoder);
-    if (FAILED(hr) || !encoder)
-        return false;
-    hr = encoder->Initialize(stream.Get(), WICBitmapEncoderNoCache);
-    if (FAILED(hr))
-        return false;
-
-    ComPtr<IWICBitmapFrameEncode> frame;
-    hr = encoder->CreateNewFrame(&frame, nullptr);
-    if (FAILED(hr) || !frame)
-        return false;
-    hr = frame->Initialize(nullptr);
-    if (FAILED(hr))
-        return false;
-    hr = frame->SetSize(width, height);
-    if (FAILED(hr))
-        return false;
-    WICPixelFormatGUID format = GUID_WICPixelFormat32bppRGBA;
-    hr = frame->SetPixelFormat(&format);
-    if (FAILED(hr))
-        return false;
-
-    const UINT stride = width * 4u;
-    const UINT bytes  = stride * height;
-    hr = frame->WritePixels(height, stride, bytes, const_cast<BYTE*>(rgba));
-    if (FAILED(hr))
-    {
-        DE_LOG_ERROR("Editor: splat PNG write failed (HRESULT 0x{:08X})", static_cast<unsigned>(hr));
-        return false;
-    }
-    hr = frame->Commit();
-    if (FAILED(hr))
-        return false;
-    hr = encoder->Commit();
-    if (FAILED(hr))
-        return false;
-    return true;
+    return writeRgbaPng(path, rgba, width, height, width * 4u);
 }
 
 std::filesystem::path sidecarPath(const std::filesystem::path& scenePath, const std::string& file)

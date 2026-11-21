@@ -101,6 +101,9 @@ public:
     void onUpdate(float dt) override;
     void onRender() override;
     void onShutdown() override;
+    bool captureSceneReady() const override;
+    void applyCapturePreset(const Dark::CapturePreset& preset, bool firstFrame) override;
+    uint32_t capturePassSequenceFailures() const override;
 
 private:
     void registerActions();

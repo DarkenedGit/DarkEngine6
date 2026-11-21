@@ -1,0 +1,15 @@
+{
+  "_comment": "Render graph Phase 0 baseline cameras. Run: <Host>.exe -capture-frame 600 -camera <name> [-scene:<file>] (see docs/perf/README.md). Player-anchored eye/target are offsets from the possessed body; world ones are positions. World positions here are first guesses: in Sandbox, Profiler (P) -> 'Log camera as capture preset' prints the current view as a line to paste. Changing a preset invalidates its baselines.",
+  "presets": [
+    { "name": "default",       "host": "sandbox", "anchor": "player", "eye": [0.0, 2.4, -6.0], "target": [0.0, 1.2, 6.0], "note": "Over the shoulder, normal vision" },
+    { "name": "night_sight",   "host": "sandbox", "anchor": "player", "eye": [0.0, 2.4, -6.0], "target": [0.0, 1.2, 6.0], "vision": "nightSight", "visionAmount": 1.0 },
+    { "name": "infrared",      "host": "sandbox", "anchor": "player", "eye": [0.0, 2.4, -6.0], "target": [0.0, 1.2, 6.0], "vision": "infrared", "visionAmount": 1.0 },
+    { "name": "infrared_half", "host": "sandbox", "anchor": "player", "eye": [0.0, 2.4, -6.0], "target": [0.0, 1.2, 6.0], "vision": "infrared", "visionAmount": 0.5, "note": "Mid-fade, for the Phase 8 diff" },
+    { "name": "ultraviolet",   "host": "sandbox", "anchor": "player", "eye": [0.0, 2.4, -6.0], "target": [0.0, 1.2, 6.0], "vision": "ultraviolet", "visionAmount": 1.0 },
+    { "name": "ultraviolet_half", "host": "sandbox", "anchor": "player", "eye": [0.0, 2.4, -6.0], "target": [0.0, 1.2, 6.0], "vision": "ultraviolet", "visionAmount": 0.5, "note": "Mid-fade, for the Phase 8 diff" },
+    { "name": "echo",          "host": "sandbox", "anchor": "player", "eye": [0.0, 2.4, -6.0], "target": [0.0, 1.2, 6.0], "vision": "echo", "visionAmount": 1.0, "echoAgeSeconds": 1.0 },
+    { "name": "camouflage",    "host": "sandbox", "anchor": "player", "eye": [1.5, 1.8, -3.0], "target": [0.0, 1.1, 0.0], "camouflage": true, "note": "Looks at the player's body so the camouflage pass is on screen" },
+    { "name": "underwater",    "host": "sandbox", "anchor": "world", "underwater": true, "eye": [0.0, -1.5, 0.0], "target": [0.0, -2.0, 10.0], "note": "PLACEHOLDER x/z: move over open water. Heights are relative to the water level" },
+    { "name": "default",       "host": "editor",  "anchor": "world", "eye": [8.0, 6.0, -10.0], "target": [0.0, 0.0, 0.0], "note": "The Editor's own start view; pass -scene:level.json for a real scene" }
+  ]
+}

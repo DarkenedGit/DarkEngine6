@@ -59,4 +59,7 @@ namespace Dark
         bool                 m_colorSpaceDefaulted = true;
     };
 
+    // Writes 8-bit RGBA rows as a PNG (WIC). Creates the parent folder. rowPitchBytes >= width * 4.
+    bool writeRgbaPng(const std::filesystem::path& path, const uint8_t* rgba, uint32_t width, uint32_t height, uint32_t rowPitchBytes);
+
 } // namespace Dark
