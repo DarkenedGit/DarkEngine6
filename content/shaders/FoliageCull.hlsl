@@ -132,6 +132,7 @@ bool visibleInstance(uint id, out uint kind, out uint variant)
 {
     uint packed = gKinds[id];
     kind = packed & 0xFFu;
+    variant = 0u; // DXC warns when an out parameter can be returned unset.
     if (kind >= kKindCount)
         return false;
     variant = (packed >> 8u) & 0xFFu;

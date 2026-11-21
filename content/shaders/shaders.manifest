@@ -1,0 +1,166 @@
+# DarkEngine6 shader permutations (D10). Release loads only these, baked by the de_shaders target.
+# One permutation per line: <file under content/shaders> <entry> <stage vs|ps|cs> [NAME=VALUE,NAME=VALUE...]
+# Defines are sorted by name. ShaderManifestTests checks the format; Debug runs log any
+# compileShaderFromContent() call whose key is missing here.
+
+AutoExposure.hlsl VSMain vs
+AutoExposure.hlsl PSReduce ps AE_REDUCE=1
+AutoExposure.hlsl PSDownsample ps
+
+BasicMesh.hlsl VSMain vs
+BasicMesh.hlsl PSMain ps
+
+BasicMeshGBuffer.hlsl VSMain vs
+BasicMeshGBuffer.hlsl PSMain ps
+BasicMeshGBuffer.hlsl PSMain ps DE_THERMAL=1,DE_THERMAL_HEAT=0.41
+BasicMeshGBuffer.hlsl PSMain ps DE_ULTRAVIOLET=1,DE_UV_CLASS=0.00
+
+BasicMeshGBufferInstanced.hlsl VSMain vs
+BasicMeshGBufferInstanced.hlsl PSMain ps
+BasicMeshGBufferInstanced.hlsl PSMain ps DE_THERMAL=1,DE_THERMAL_HEAT=0.41
+BasicMeshGBufferInstanced.hlsl PSMain ps DE_ULTRAVIOLET=1,DE_UV_CLASS=0.00
+
+BasicMeshDepthInstanced.hlsl VSMain vs
+
+Bloom.hlsl VSMain vs
+Bloom.hlsl PSExtract ps
+Bloom.hlsl PSDownsample ps
+Bloom.hlsl PSUpsample ps
+Bloom.hlsl PSComposite ps
+
+Camouflage.hlsl VSMain vs
+Camouflage.hlsl VSMainStatic vs
+Camouflage.hlsl PSMain ps
+
+CloudVolume.hlsl VSMain vs
+CloudVolume.hlsl PSMain ps
+
+DebugOverlay2D.hlsl VSMain vs
+DebugOverlay2D.hlsl PSMain ps
+DebugOverlayArray.hlsl PSMain ps
+DebugOverlayColor.hlsl PSMain ps
+DebugOverlayVelocity.hlsl PSMain ps
+
+Decal.hlsl VSMain vs
+Decal.hlsl VSFullscreen vs
+Decal.hlsl PSMain ps
+
+DeferredLighting.hlsl VSMain vs
+DeferredLighting.hlsl PSMain ps
+
+Echo.hlsl VSMain vs
+Echo.hlsl PSSnapshot ps ECHO_SNAPSHOT=1
+Echo.hlsl PSComposite ps
+
+FoliageCull.hlsl CSCompact cs
+FoliageCull.hlsl CSPrefix cs
+FoliageCull.hlsl CSScatter cs
+FoliageCull.hlsl CSArgs cs
+
+FoliageDepth.hlsl VSMain vs
+FoliageDepth.hlsl PSMain ps
+
+FoliageGBuffer.hlsl VSMain vs
+FoliageGBuffer.hlsl PSMain ps
+FoliageGBuffer.hlsl PSMain ps DE_THERMAL=1,DE_THERMAL_HEAT=0.40
+FoliageGBuffer.hlsl PSMain ps DE_ULTRAVIOLET=1,DE_UV_CLASS=0.08
+
+GrassGBuffer.hlsl VSMain vs GRASS_LOD=0
+GrassGBuffer.hlsl VSMain vs GRASS_LOD=1
+GrassGBuffer.hlsl VSMain vs GRASS_LOD=2
+GrassGBuffer.hlsl VSMain vs GRASS_LOD=3
+GrassGBuffer.hlsl PSMain ps
+GrassGBuffer.hlsl PSMain ps DE_THERMAL=1,DE_THERMAL_HEAT=0.40
+GrassGBuffer.hlsl PSMain ps DE_ULTRAVIOLET=1,DE_UV_CLASS=0.08
+
+Gtao.hlsl VSMain vs
+Gtao.hlsl PSGtao ps
+Gtao.hlsl PSUpsampleTemporal ps
+Gtao.hlsl PSCompose ps
+
+IblBake.hlsl VSMain vs IBL_SRC_CUBE=1
+IblBake.hlsl PSEquirect ps IBL_SRC_EQUIRECT=1
+IblBake.hlsl PSIrradiance ps IBL_SRC_CUBE=1
+IblBake.hlsl PSPrefilter ps IBL_SRC_CUBE=1
+
+InstanceCull.hlsl CSCompact cs
+InstanceCull.hlsl CSArgs cs
+
+Line.hlsl VSMain vs
+Line.hlsl PSMain ps
+
+LoadingScreen.hlsl VSMain vs
+LoadingScreen.hlsl PSMain ps
+
+LocalLightVolume.hlsl VSMain vs
+LocalLightVolume.hlsl VSFullscreen vs
+LocalLightVolume.hlsl PSMain ps
+
+MotionBlur.hlsl VSMain vs
+MotionBlur.hlsl PSMain ps
+
+MovieNv12Convert.hlsl CSMain cs
+
+MoviePresent.hlsl VSMain vs
+MoviePresent.hlsl PSMain ps
+
+Particle.hlsl VSMain vs
+Particle.hlsl PSMain ps
+ParticleBillboard.hlsl VSMain vs
+ParticleSimulate.hlsl CSSimulate cs
+ParticleSimulate.hlsl CSInPlace cs
+ParticleSimulate.hlsl CSConsume cs
+
+ShadowDepth.hlsl VSMain vs
+
+SkinnedMesh.hlsl VSMain vs
+SkinnedMesh.hlsl PSMain ps
+
+SkinnedMeshGBuffer.hlsl VSMain vs
+SkinnedMeshGBuffer.hlsl PSMain ps
+SkinnedMeshGBuffer.hlsl PSMain ps DE_THERMAL=1,DE_THERMAL_HEAT=0.72
+SkinnedMeshGBuffer.hlsl PSMain ps DE_ULTRAVIOLET=1,DE_UV_CLASS=0.30
+
+SkinnedMeshGBufferInstanced.hlsl VSMain vs
+SkinnedMeshGBufferInstanced.hlsl PSMain ps
+SkinnedMeshGBufferInstanced.hlsl PSMain ps DE_THERMAL=1,DE_THERMAL_HEAT=0.72
+SkinnedMeshGBufferInstanced.hlsl PSMain ps DE_ULTRAVIOLET=1,DE_UV_CLASS=0.30
+
+SkinnedShadowDepth.hlsl VSMain vs
+SkinnedShadowDepthInstanced.hlsl VSMain vs
+
+Sky.hlsl VSMainDeferred vs CLOUD_LAYER=0
+Sky.hlsl PSMain ps CLOUD_LAYER=0
+Sky.hlsl PSMain ps CLOUD_LAYER=1
+
+Sprite.hlsl VSMain vs
+Sprite.hlsl PSMain ps
+
+Ssr.hlsl VSMain vs CLOUD_LAYER=1
+Ssr.hlsl PSTrace ps CLOUD_LAYER=1
+Ssr.hlsl PSUpsampleTemporal ps CLOUD_LAYER=1
+Ssr.hlsl PSDownsample ps CLOUD_LAYER=1
+Ssr.hlsl PSDebugConf ps CLOUD_LAYER=1
+
+Taa.hlsl VSMain vs
+Taa.hlsl PSMain ps
+
+TerrainErosion.hlsl CSThermal cs
+TerrainErosion.hlsl CSPipe cs
+
+TerrainGBuffer.hlsl VSMain vs
+TerrainGBuffer.hlsl PSMain ps
+TerrainGBuffer.hlsl PSMain ps DE_THERMAL=1,DE_THERMAL_HEAT=0.41
+TerrainGBuffer.hlsl PSMain ps DE_ULTRAVIOLET=1,DE_UV_CLASS=0.12
+
+Tonemap.hlsl VSMain vs
+Tonemap.hlsl PSMain ps
+
+Underwater.hlsl VSMain vs
+Underwater.hlsl PSMain ps
+
+Walkability.hlsl VSMain vs
+Walkability.hlsl PSMain ps
+
+Water.hlsl VSMain vs CLOUD_LAYER=1
+Water.hlsl PSMain ps CLOUD_LAYER=1
