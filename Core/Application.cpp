@@ -754,6 +754,8 @@ namespace Dark
             t0 = m_window.getTime();
             {
                 CpuScope ecs("ECS Update", ProfileColor::EcsUpdate);
+                // Clamped dt, the same value onUpdate receives. Not the profiler frameDt.
+                m_frameTimers.tick(static_cast<double>(dt));
                 onUpdate(dt);
                 // -capture-stay keeps the shot's pinned view after the shot (for a PIX capture of the same frame).
                 if (capture.applyPreset || (m_captureActive && m_captureSchedule.finished()))

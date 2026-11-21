@@ -210,6 +210,7 @@ namespace Dark
 
     void PlaySession::resetPawn()
     {
+        m_simTimers.clear();
         pull();
         PlayRuntime& r = m_rt;
         r.crouchLatch       = false;
@@ -714,6 +715,8 @@ namespace Dark
 
     void PlaySession::tickSimulation(float dt)
     {
+        if (!simAdvances())
+            return;
         const SimTickPlan plan = planSimTicks(dt, 1.0f);
         for (int i = 0; i < plan.ticks; ++i)
         {
@@ -1600,6 +1603,9 @@ namespace Dark
             return;
         if (WorldClockComponent* clock = m_host.session.valid() ? world->get<WorldClockComponent>(m_host.session) : nullptr)
             clock->playTimeSec += static_cast<double>(dt);
+
+        // Rest of this tickWorld sees the callback. tickPawn and the last substep's camera already ran.
+        m_simTimers.tick(static_cast<double>(dt));
 
         tickFacility(m_facility, facilityHostOf(m_host, m_rt), dt);
         const Math::AABox3f* blocks     = m_facility.blocks;

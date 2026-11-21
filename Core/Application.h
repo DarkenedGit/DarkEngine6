@@ -2,6 +2,7 @@
 #include "Core/Log.h"
 #include "Core/FrameCapture.h"
 #include "Core/JobSystem.h"
+#include "Core/TimerQueue.h"
 #include "Core/Window.h"
 #include "ECS/World.h"
 #include "Assets/AssetManager.h"
@@ -117,7 +118,9 @@ namespace Dark
         Input&         input()    { return m_input; }
         const Input&   input() const { return m_input; }
         Window&        window()   { return m_window; }
-        JobSystem&     jobs()     { return m_jobs; }
+        JobSystem&            jobs() { return m_jobs; }
+        TimerQueue&           frameTimers() { return m_frameTimers; }
+        const TimerQueue&     frameTimers() const { return m_frameTimers; }
 
     private:
         void applyNetConfig();
@@ -147,6 +150,7 @@ namespace Dark
 
     private:
         JobSystem     m_jobs;
+        TimerQueue    m_frameTimers;
         LoadingScreen m_loading;
         AppConfig     m_config;
         bool          m_running        = true;

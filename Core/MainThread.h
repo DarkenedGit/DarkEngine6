@@ -43,6 +43,13 @@ namespace Dark
         return std::this_thread::get_id() == state.id;
     }
 
+    // False until bindMainThread. isMainThread is also false then, so callers that must
+    // allow unbound tests use this to tell "never bound" from "bound to someone else".
+    inline bool mainThreadBound()
+    {
+        return MainThreadDetail::state().bound.load(std::memory_order_acquire);
+    }
+
     inline void assertMainThread()
     {
         // Unbound means "no token yet", not "wrong thread". Tests that never bind stay quiet.

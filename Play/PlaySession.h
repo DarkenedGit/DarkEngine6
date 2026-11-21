@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Animation/Locomotion.h"
+#include "Core/TimerQueue.h"
 #include "Collision/HitResult.h"
 #include "Combat/CombatSystem.h"
 #include "Combat/HoldCharge.h"
@@ -257,6 +258,9 @@ namespace Dark
         // for a menu, a conversation, or a movie before they consume the step.
         bool simAdvances() const { return !m_simPaused || m_simStep; }
 
+        TimerQueue&       simTimers() { return m_simTimers; }
+        const TimerQueue& simTimers() const { return m_simTimers; }
+
         // Sim time scale, clamped to kSimFrameMaxSeconds after scaling, then shake and hit-stop in sim
         // seconds. Hit-stop returns 5% of that step. A scale below 1 stretches the authored hit-stop
         // across more wall time. Pass the result to tickSimulation, which cuts it into bounded ticks.
@@ -344,6 +348,7 @@ namespace Dark
         bool         m_simPaused     = false;
         bool         m_simStep       = false;
         float        m_simTimeScale  = 1.0f;
+        TimerQueue   m_simTimers;
         PlayHost     m_host{};
         PlayRuntime  m_rt{};
         FacilityState m_facility{};

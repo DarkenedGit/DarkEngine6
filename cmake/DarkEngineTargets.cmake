@@ -95,6 +95,8 @@ set(DE_FOUNDATION_CORE_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/Core/JobSystem.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/Core/JobSystem.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/Core/MainThread.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Core/TimerQueue.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Core/TimerQueue.h"
 )
 
 set(DE_ENGINE_CORE_SOURCES
