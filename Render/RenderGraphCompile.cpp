@@ -91,6 +91,7 @@ namespace Dark::Rg
         std::vector<std::vector<ResAccess>>        resAccess;
         std::vector<std::pair<uint32_t, uint32_t>> edges;        // live dependency edges incl. barrier edges
         std::vector<uint16_t>                      aliasedAfter; // previous occupant of the alias slot
+        std::vector<bool>                          opaqueRes;    // touched by an OwnBarriers pass: no barrier records
 
         explicit Impl(RenderGraph& graph) :
             g(graph)
@@ -346,6 +347,29 @@ namespace Dark::Rg
                 for (const Merged& m : merged)
                     resAccess[m.resource].push_back({ p, queue, m.state, m.write });
             }
+            // OwnBarriers passes keep their state transitions in their own code (Phases 4-6), so the graph
+            // plans no barriers for a resource they touch. A resource shared with a declared pass would
+            // need a barrier at the boundary, which arrives with the Phase 6 emitter.
+            opaqueRes.assign(g.m_resources.size(), false);
+            for (size_t r = 0; r < g.m_resources.size(); ++r)
+            {
+                uint32_t opaquePass = kNoPass, declaredPass = kNoPass;
+                for (const ResAccess& a : resAccess[r])
+                {
+                    if (hasFlag(g.m_passes[a.pass].flags, PassFlags::OwnBarriers))
+                        opaquePass = a.pass;
+                    else
+                        declaredPass = a.pass;
+                }
+                opaqueRes[r] = opaquePass != kNoPass;
+                if (opaquePass != kNoPass && declaredPass != kNoPass)
+                {
+                    g.addError(ErrorCode::MixedOpaqueUse, declaredPass, static_cast<uint16_t>(r),
+                               "'" + std::string(g.m_resources[r].name) + "' is used by OwnBarriers pass " + passText(opaquePass) + " and declared pass " + passText(declaredPass) +
+                                   "; mixing needs boundary barriers (Phase 6)");
+                    ok = false;
+                }
+            }
             g.m_cRes.assign(g.m_resources.size(), {});
             for (size_t r = 0; r < g.m_resources.size(); ++r)
             {
@@ -471,6 +495,8 @@ namespace Dark::Rg
             g.m_barriers.clear();
             for (uint16_t res = 0; res < g.m_resources.size(); ++res)
             {
+                if (opaqueRes[res])
+                    continue;
                 const ResourceNode&  node = g.m_resources[res];
                 std::vector<Segment> segs = buildSegments(res);
 

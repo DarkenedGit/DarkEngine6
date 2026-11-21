@@ -649,8 +649,8 @@ TEST(RenderGraph, PassContextReportsScopeFrameAndNatives)
     RenderGraph g;
     g.beginFrame(320, 200);
     int                 nativeTag = 0;
-    const TextureHandle imported  = g.importTexture("Env", absTex(64, 64), &nativeTag, Layout::ShaderResource, Layout::ShaderResource);
-    const BufferHandle  ibuf      = g.importBuffer("Lights", buf(1024, 16), &nativeTag);
+    const TextureHandle imported  = g.importTexture("Env", absTex(64, 64), reinterpret_cast<ID3D12Resource*>(&nativeTag), Layout::ShaderResource, Layout::ShaderResource);
+    const BufferHandle  ibuf      = g.importBuffer("Lights", buf(1024, 16), reinterpret_cast<ID3D12Resource*>(&nativeTag));
     TextureHandle       out;
     struct Data
     {
@@ -673,13 +673,13 @@ TEST(RenderGraph, PassContextReportsScopeFrameAndNatives)
             EXPECT_STREQ(ctx.scopeName(), "SkyScope");
             EXPECT_EQ(ctx.scopeColor(), 0xFF00FF00u);
             EXPECT_EQ(ctx.frameIndex(), 1u);
-            EXPECT_EQ(ctx.native(d.env), &nativeTag);
-            EXPECT_EQ(ctx.native(d.out), &nativeTag);
-            EXPECT_EQ(ctx.native(d.lights), &nativeTag);
+            EXPECT_EQ(ctx.resource(d.env), reinterpret_cast<ID3D12Resource*>(&nativeTag));
+            EXPECT_EQ(ctx.resource(d.out), reinterpret_cast<ID3D12Resource*>(&nativeTag));
+            EXPECT_EQ(ctx.resource(d.lights), reinterpret_cast<ID3D12Resource*>(&nativeTag));
             ASSERT_NE(ctx.desc(d.env), nullptr);
             EXPECT_EQ(ctx.desc(d.env)->width, 64u);
             EXPECT_EQ(ctx.desc(TextureHandle{}), nullptr);
-            EXPECT_EQ(ctx.native(TextureHandle{}), nullptr);
+            EXPECT_EQ(ctx.resource(TextureHandle{}), nullptr);
             EXPECT_EQ(ctx.width(TextureHandle{}), 0u);
         });
     EXPECT_FALSE(g.compile()); // read + write of one texture in one pass (SR + RT)
@@ -692,7 +692,7 @@ TEST(RenderGraph, PassContextNativesWhenValid)
     RenderGraph g;
     g.beginFrame(320, 200);
     int                 nativeTag = 0;
-    const TextureHandle imported  = g.importTexture("Env", absTex(64, 64), &nativeTag, Layout::ShaderResource, Layout::ShaderResource);
+    const TextureHandle imported  = g.importTexture("Env", absTex(64, 64), reinterpret_cast<ID3D12Resource*>(&nativeTag), Layout::ShaderResource, Layout::ShaderResource);
     struct Data
     {
         TextureHandle env, tmp;
@@ -713,8 +713,8 @@ TEST(RenderGraph, PassContextNativesWhenValid)
             EXPECT_STREQ(ctx.scopeName(), "SkyScope");
             EXPECT_EQ(ctx.scopeColor(), 7u);
             EXPECT_EQ(ctx.frameIndex(), 1u);
-            EXPECT_EQ(ctx.native(d.env), &nativeTag);
-            EXPECT_EQ(ctx.native(d.tmp), nullptr); // transients get memory in Phase 5
+            EXPECT_EQ(ctx.resource(d.env), reinterpret_cast<ID3D12Resource*>(&nativeTag));
+            EXPECT_EQ(ctx.resource(d.tmp), nullptr); // transients get memory in Phase 5
             EXPECT_EQ(ctx.width(d.tmp), 80u);
             EXPECT_EQ(ctx.height(d.tmp), 50u);
             EXPECT_EQ(ctx.historyId(d.tmp), kNoPass);

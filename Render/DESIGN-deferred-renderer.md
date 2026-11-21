@@ -301,7 +301,7 @@ Then `onInit` requests `enableSceneBuffers(config().scenePath)` but compiles PSO
 
 `SceneBuffers` is **not** a second `Renderer`. It does not record command lists. It exposes bind/clear/SRV helpers.
 
-Why not a `DeferredRenderer` that owns the 3D frame: Sandbox and Editor **disagree** on what they draw (sky/terrain/water vs ground/grid/ImGui). A god class would grow every Sandbox-only pass. ~~Why not a frame graph: one list, ~8 passes, no async compute, no reuse across hosts worth the abstraction.~~ **Reversed 2026-11-20 (D1).** The frame now has 15+ passes, history and async-compute plans, and both hosts repeat the same pass order; see [DarkEngine6-render-graph-plan.md](../docs/plans/DarkEngine6-render-graph-plan.md). Phase 0 makes `passSequenceOk` failures visible (`validateHostPassSequence`) so the baselines can trust the current order.
+Why not a `DeferredRenderer` that owns the 3D frame: Sandbox and Editor **disagree** on what they draw (sky/terrain/water vs ground/grid/ImGui). A god class would grow every Sandbox-only pass. ~~Why not a frame graph: one list, ~8 passes, no async compute, no reuse across hosts worth the abstraction.~~ **Reversed 2026-11-20 (D1).** The frame now has 15+ passes, history and async-compute plans, and both hosts repeat the same pass order; see [DarkEngine6-render-graph-plan.md](../docs/plans/DarkEngine6-render-graph-plan.md). Phase 0 made `passSequenceOk` failures visible so the baselines could trust the order; since Phase 4 the graph drives the frame (`Render/FrameComposer.h`) and checks its compiled order against the host's feature list (`validateHostFeatureOrder`).
 
 ### SceneBuffers resource table
 
@@ -1028,7 +1028,7 @@ void EditorApp::onRender()
     if (m_sceneMode == SceneMode::Scene2D)
         renderScene2D(cmd);   // swap chain UNORM; no bindHdr, no tonemap
     else
-        renderScene3D(cmd);   // shadows → G-buffer/HDR → lighting → lines/particles
+        renderScene3D();      // shadows → G-buffer/HDR → lighting → lines/particles
                               // → bindColorTargetOnly + tonemap (3D only)
 
     if (m_imgui.isReady())

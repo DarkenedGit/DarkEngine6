@@ -47,6 +47,8 @@ public:
     void writeSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE dest) const;
 
     const ShadowPipeline& pipeline() const { return m_pipeline; }
+    // The shadow map, imported into the frame graph (render-graph plan Phase 4).
+    ID3D12Resource*       resource() const { return m_resource.Get(); }
     const ShadowSettings& settings() const { return m_settings; }
     const CascadeData&    cascade(int i) const { return m_cascades[i]; }
     int  cascadeCount() const { return m_cascadeCount; }

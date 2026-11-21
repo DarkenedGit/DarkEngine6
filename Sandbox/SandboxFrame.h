@@ -10,6 +10,7 @@
 #include "Render/CloudVolumePipeline.h"
 #include "Render/DrawList.h"
 #include "Render/FoliagePipeline.h"
+#include "Render/FrameComposer.h"
 #include "Render/FoliagePrototypes.h"
 #include "Render/GrassPipeline.h"
 #include "Render/MeshConstants.h"
@@ -72,6 +73,7 @@ private:
     Dark::DrawList                              m_drawList;
     Dark::SkinnedInstanceBuffer                 m_skinnedInstances;
     Dark::SceneRenderer                         m_scene;
+    Dark::FrameComposer                         m_frameComposer; // the frame graph (render-graph plan Phase 4)
     Dark::WalkabilityDebug                      m_walkDebug;
     std::unordered_map<Dark::EntityID, Dark::Math::Matrix4f> m_prevWorldByEntity;
     Dark::FrameEntitySet                        m_acceptedMesh;

@@ -101,7 +101,7 @@ namespace Dark::Rg
         None        = 0,
         SideEffect  = 1, // never culled; its work is visible outside the graph
         NeverCull   = 2,
-        OwnBarriers = 4, // opaque pass during migration (Phases 4-6); graphics queue only
+        OwnBarriers = 4, // opaque pass during migration (Phases 4-6): graphics only, no barrier records
     };
     constexpr PassFlags operator|(PassFlags a, PassFlags b)
     {
@@ -272,6 +272,7 @@ namespace Dark::Rg
         IncompatibleUses, // one pass uses one resource in two incompatible ways
         IllegalOnQueue,   // use not legal on the pass's queue (e.g. RenderTarget on AsyncCompute)
         OwnBarriersOnCompute,
+        MixedOpaqueUse, // one resource used by an OwnBarriers pass and a declared pass (Phase 6 adds boundary barriers)
         Cycle,
         HistoryDescMismatch, // history(name) twice in one frame with different descs
         TooManyResources,

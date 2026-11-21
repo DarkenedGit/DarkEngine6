@@ -63,6 +63,8 @@ public:
     float debugSlice(int faceOrdinal) const;
 
     bool isValid() const { return m_resource != nullptr && m_records != nullptr; }
+    // The face array, imported into the frame graph (render-graph plan Phase 4).
+    ID3D12Resource* resource() const { return m_resource.Get(); }
     bool debugEnabled() const { return m_debugEnabled; }
     void setDebugEnabled(bool enabled) { m_debugEnabled = enabled; }
 

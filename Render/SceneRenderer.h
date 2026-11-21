@@ -97,9 +97,19 @@ public:
     // dropped, and the host should zero its stored EV before adapting.
     bool syncAutoExposureSize(Renderer& renderer);
 
-    // Decals, HDR clear, GTAO, SSR, deferred lighting, local volumes.
-    // Hosts fill LightingConstants. ssrEnv may be null.
-    void resolveDeferred(ID3D12GraphicsCommandList* cmd, Renderer& renderer, World& world, const Camera3D& camera, const DeferredResolveInput& in);
+    // The deferred resolve as five graph passes (render-graph plan Phase 4), run every frame in this
+    // order with the same input: Decals (then the HDR bind and clear) -> Gtao -> Ssr -> Lighting ->
+    // LocalVolumes. Hosts fill LightingConstants. ssrEnv may be null. Lighting stores the constants
+    // it drew with (SSR bit sampled after applySsr) for LocalVolumes.
+    enum class DeferredStep : uint8_t
+    {
+        Decals,
+        Gtao,
+        Ssr,
+        Lighting,
+        LocalVolumes,
+    };
+    void resolveDeferred(DeferredStep step, ID3D12GraphicsCommandList* cmd, Renderer& renderer, World& world, const Camera3D& camera, const DeferredResolveInput& in);
 
     // After bindHdr(false), before lighting.draw. Compose authored*ssao into slot 5 when enabled;
     // restore MRT3 on skip so a disable cannot stick a stale compose handle.
@@ -253,6 +263,7 @@ private:
     ShadowSystem             m_shadows;
     LocalShadowSystem        m_localShadows;
     const Math::AABox3f*     m_fogOccluders     = nullptr;
+    LightingConstants        m_resolveLighting{}; // DeferredStep::Lighting -> LocalVolumes
     int                      m_fogOccluderCount = 0;
     DebugOverlay             m_debugOverlay;
 

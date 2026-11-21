@@ -66,7 +66,7 @@ void EditorApp::onRender()
     if (m_sceneMode == SceneMode::Scene2D)
         renderScene2D(cmd);
     else
-        renderScene3D(cmd);
+        renderScene3D();
 
     if (m_imgui.isReady())
     {

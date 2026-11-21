@@ -463,25 +463,43 @@ void SceneRenderer::captureSsrSceneColor(ID3D12GraphicsCommandList* cmd, Rendere
     m_ssr.captureSceneColor(cmd, renderer);
 }
 
-void SceneRenderer::resolveDeferred(ID3D12GraphicsCommandList* cmd, Renderer& renderer, World& world, const Camera3D& camera, const DeferredResolveInput& in)
+void SceneRenderer::resolveDeferred(DeferredStep step, ID3D12GraphicsCommandList* cmd, Renderer& renderer, World& world, const Camera3D& camera, const DeferredResolveInput& in)
 {
     if (!in.viewProj || !in.prevViewProj || !in.gtao || !in.ssr || !in.lighting)
     {
-        DE_LOG_ERROR(LogCategory::Render, "SceneRenderer: resolveDeferred is missing a required input");
+        static bool logged = false;
+        if (!logged)
+        {
+            logged = true;
+            DE_LOG_ERROR(LogCategory::Render, "SceneRenderer: resolveDeferred is missing a required input (logs once)");
+        }
         return;
     }
-    LightingConstants lc = *in.lighting;
-    drawDecals(cmd, renderer, camera, *in.viewProj);
-    renderer.bindHdr(false);
-    renderer.clearHdr();
-    applyGtao(cmd, renderer, camera, *in.prevViewProj, *in.gtao);
-    applySsr(cmd, renderer, camera, *in.prevViewProj, *in.ssr, in.ssrEnv);
-    // applySsr may resize the history. Sample the enable bit after that.
-    fillSsrLightingConstants(lc, *in.ssr, renderer.debugState().ssrEnabled, m_ssr.isValid());
-    drawDeferredLighting(cmd, renderer, lc);
-    // A flashlight pool is visible light. Heat is already in the emissive meshes.
-    if (!(lc.thermal > 1.0e-4f))
-        drawLocalLights(cmd, renderer, world, camera, *in.viewProj, lc);
+    switch (step)
+    {
+    case DeferredStep::Decals:
+        drawDecals(cmd, renderer, camera, *in.viewProj);
+        renderer.bindHdr(false);
+        renderer.clearHdr();
+        break;
+    case DeferredStep::Gtao:
+        applyGtao(cmd, renderer, camera, *in.prevViewProj, *in.gtao);
+        break;
+    case DeferredStep::Ssr:
+        applySsr(cmd, renderer, camera, *in.prevViewProj, *in.ssr, in.ssrEnv);
+        break;
+    case DeferredStep::Lighting:
+        m_resolveLighting = *in.lighting;
+        // applySsr may resize the history. Sample the enable bit after that.
+        fillSsrLightingConstants(m_resolveLighting, *in.ssr, renderer.debugState().ssrEnabled, m_ssr.isValid());
+        drawDeferredLighting(cmd, renderer, m_resolveLighting);
+        break;
+    case DeferredStep::LocalVolumes:
+        // A flashlight pool is visible light. Heat is already in the emissive meshes.
+        if (!(m_resolveLighting.thermal > 1.0e-4f))
+            drawLocalLights(cmd, renderer, world, camera, *in.viewProj, m_resolveLighting);
+        break;
+    }
 }
 
 void SceneRenderer::drawDeferredLighting(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const LightingConstants& lc) const

@@ -477,6 +477,8 @@ namespace Dark::Rg
             return "IllegalOnQueue";
         case ErrorCode::OwnBarriersOnCompute:
             return "OwnBarriersOnCompute";
+        case ErrorCode::MixedOpaqueUse:
+            return "MixedOpaqueUse";
         case ErrorCode::Cycle:
             return "Cycle";
         case ErrorCode::HistoryDescMismatch:

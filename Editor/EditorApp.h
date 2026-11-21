@@ -14,6 +14,7 @@
 #include "Render/LinePipeline.h"
 #include "Render/WalkabilityDebug.h"
 #include "Render/SceneRenderer.h"
+#include "Render/FrameComposer.h"
 #include "Render/Camera3D.h"
 #include "Render/Camera2D.h"
 #include "Assets/Material.h"
@@ -137,7 +138,7 @@ private:
         float cb,
         float uvSx,
         float uvSy);
-    void renderScene3D(ID3D12GraphicsCommandList* cmd);
+    void renderScene3D();
     void renderScene2D(ID3D12GraphicsCommandList* cmd);
 
     bool groundHitFromMouse(Math::Vector3f& outPoint);
@@ -385,6 +386,7 @@ private:
     static float snap(float v, float grid);
 
     SceneRenderer   m_scene;
+    FrameComposer     m_frameComposer; // the frame graph (render-graph plan Phase 4)
     LinePipeline      m_linePipeline;
     LinePipeline      m_linePipeline3D;
     WalkabilityDebug  m_walkDebug;

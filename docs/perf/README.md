@@ -17,7 +17,7 @@ For each host and camera preset there is one folder entry:
 
 Folder name: `docs/perf/baselines/<yyyy-mm-dd>-<short sha>-fxc-<Debug|Release>/`. Release numbers are the reference. Debug runs are only for the GBV list.
 
-A baseline is valid only if its JSON says `"baselineValid": true`: the shot was written, at least one frame was timed, and the host's pass order matched its `PassTable` on every frame (`passSequenceFailures == 0`).
+A baseline is valid only if its JSON says `"baselineValid": true`: the shot was written, at least one frame was timed, and the host's frame graph compiled and its pass order matched the host's feature list (`Render/FrameFeatures.h`) on every frame (`passSequenceFailures == 0`).
 
 ## Command line
 

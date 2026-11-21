@@ -1,0 +1,291 @@
+#include <gtest/gtest.h>
+
+#include "Render/FrameFeatures.h"
+
+#include <cstdint>
+#include <cstring>
+#include <string>
+#include <vector>
+
+// Feature lists and FeatureFrame (render-graph plan Phase 4): the real Sandbox and Editor lists are
+// built into a graph with stub execute callbacks, and the compiled order must match the legacy pass
+// tables (Render/PassTable.cpp before Phase 4) that the Phase 0 baselines were recorded against.
+
+using namespace Dark;
+
+namespace
+{
+    constexpr uint32_t kBgra8 = 87;
+    constexpr uint32_t kD32   = 40;
+    constexpr uint32_t kRgba  = 10;
+
+    // Legacy pass tables, in order (sandboxDeferredPasses / editorDeferredPasses at f57ddd7).
+    const std::vector<PassId> kLegacySandbox = {
+        PassId::Shadows,    PassId::LocalShadows, PassId::GBuffer, PassId::Decals,     PassId::Gtao,        PassId::Ssr,       PassId::Lighting,   PassId::LocalVolumes, PassId::Sky,
+        PassId::SsrCapture, PassId::Water,        PassId::Clouds,  PassId::Camouflage, PassId::Translucent, PassId::Particles, PassId::Underwater, PassId::Post,         PassId::Overlay,
+    };
+    const std::vector<PassId> kLegacyEditor = {
+        PassId::Shadows,      PassId::LocalShadows, PassId::GBuffer,    PassId::Decals, PassId::Gtao,    PassId::Ssr,        PassId::Lighting,
+        PassId::LocalVolumes, PassId::Sky,          PassId::SsrCapture, PassId::Water,  PassId::Clouds,  PassId::EditorGrid, PassId::EditorGizmos,
+        PassId::Translucent,  PassId::Particles,    PassId::Underwater, PassId::Post,   PassId::Overlay,
+    };
+
+    ID3D12Resource* fakeResource(uint32_t r)
+    {
+        return reinterpret_cast<ID3D12Resource*>(static_cast<uintptr_t>(0x100 + r * 0x10));
+    }
+
+    Rg::TextureDesc absDesc(uint32_t w, uint32_t h, uint32_t format)
+    {
+        Rg::TextureDesc d;
+        d.sizeMode = Rg::SizeMode::Absolute;
+        d.width    = w;
+        d.height   = h;
+        d.format   = format;
+        return d;
+    }
+
+    // One host frame: imports every RenderResource, sets `ids` (in the given order) with callbacks
+    // that log their PassId, compiles and executes.
+    struct HostFrame
+    {
+        Rg::RenderGraph     graph;
+        FeatureFrame        features;
+        std::vector<PassId> ran;
+        std::vector<bool>   sawResource;
+
+        bool run(const FeaturePass* list, uint32_t count, const std::vector<PassId>& ids, const char* host = "test")
+        {
+            ran.clear();
+            sawResource.clear();
+            graph.beginFrame(1280, 720);
+            features.begin(list, count);
+            for (uint32_t r = 0; r < kRenderResourceCount; ++r)
+            {
+                const auto     res = static_cast<RenderResource>(r);
+                const uint32_t fmt = res == RenderResource::Swap ? kBgra8 : (res == RenderResource::Depth ? kD32 : kRgba);
+                features.importResource(graph, res, fakeResource(r), absDesc(1280, 720, fmt));
+            }
+            for (const PassId id : ids)
+            {
+                features.set(id,
+                             [this, id](Rg::PassContext& ctx)
+                             {
+                                 ran.push_back(id);
+                                 sawResource.push_back(ctx.resource(features.handle(RenderResource::Hdr)) == fakeResource(static_cast<uint32_t>(RenderResource::Hdr)));
+                             });
+            }
+            if (!features.compileFrame(graph, host))
+                return false;
+            return graph.execute();
+        }
+    };
+
+    std::vector<PassId> listIds(const FeaturePass* list, uint32_t count)
+    {
+        std::vector<PassId> ids;
+        for (uint32_t i = 0; i < count; ++i)
+            ids.push_back(list[i].id);
+        return ids;
+    }
+
+    std::vector<PassId> without(std::vector<PassId> ids, std::initializer_list<PassId> drop)
+    {
+        for (const PassId d : drop)
+            std::erase(ids, d);
+        return ids;
+    }
+
+    std::string names(const std::vector<PassId>& ids)
+    {
+        std::string s;
+        for (const PassId id : ids)
+            s += std::string(s.empty() ? "" : " ") + passName(id);
+        return s;
+    }
+} // namespace
+
+TEST(FrameFeatures, NamesEveryPassIdAndResource)
+{
+    for (uint32_t i = 0; i < kPassIdCount; ++i)
+        EXPECT_STRNE(passName(static_cast<PassId>(i)), "Unknown") << i;
+    EXPECT_STREQ(passName(PassId::Gtao), "GTAO");
+    EXPECT_STREQ(passName(static_cast<PassId>(200)), "Unknown");
+    for (uint32_t i = 0; i < kRenderResourceCount; ++i)
+        EXPECT_STRNE(renderResourceName(static_cast<RenderResource>(i)), "Unknown") << i;
+}
+
+TEST(FrameFeatures, ListsMatchTheLegacyTablesPlusDebugOverlays)
+{
+    uint32_t           count   = 0;
+    const FeaturePass* sandbox = sandboxFeatures(count);
+    EXPECT_EQ(without(listIds(sandbox, count), { PassId::DebugOverlays }), kLegacySandbox);
+    const FeaturePass* editor = editorFeatures(count);
+    // Underwater is optional in both lists; the Editor never sets it (as before, it never marked it).
+    EXPECT_EQ(without(listIds(editor, count), { PassId::DebugOverlays }), kLegacyEditor);
+}
+
+TEST(FrameFeatures, OrderCheckSkipsOptionalAndRejectsMissingOrReordered)
+{
+    uint32_t                  count        = 0;
+    const FeaturePass*        list         = sandboxFeatures(count);
+    const std::vector<PassId> withoutWater = without(listIds(list, count), { PassId::Water });
+    EXPECT_TRUE(featureOrderOk(list, count, withoutWater.data(), static_cast<uint32_t>(withoutWater.size())));
+
+    const std::vector<PassId> withoutGBuffer = without(listIds(list, count), { PassId::GBuffer });
+    EXPECT_FALSE(featureOrderOk(list, count, withoutGBuffer.data(), static_cast<uint32_t>(withoutGBuffer.size())));
+
+    std::vector<PassId> swapped = withoutWater;
+    std::swap(swapped[0], swapped[1]);
+    EXPECT_FALSE(featureOrderOk(list, count, swapped.data(), static_cast<uint32_t>(swapped.size())));
+
+    const FeaturePass* editor        = editorFeatures(count);
+    const PassId       editorOrder[] = { PassId::GBuffer,    PassId::Decals,     PassId::Gtao,         PassId::Ssr,         PassId::Lighting, PassId::LocalVolumes,
+                                         PassId::SsrCapture, PassId::EditorGrid, PassId::EditorGizmos, PassId::Translucent, PassId::Post };
+    EXPECT_TRUE(featureOrderOk(editor, count, editorOrder, 11));
+    PassId reversed[11];
+    std::memcpy(reversed, editorOrder, sizeof(editorOrder));
+    std::swap(reversed[7], reversed[8]); // EditorGizmos before EditorGrid
+    EXPECT_FALSE(featureOrderOk(editor, count, reversed, 11));
+}
+
+TEST(FrameFeatures, HostCheckCountsEveryFailedFrame)
+{
+    uint32_t           count  = 0;
+    const FeaturePass* list   = sandboxFeatures(count);
+    const uint32_t     before = hostPassSequenceFailures();
+    const PassId       good[] = { PassId::GBuffer, PassId::Decals, PassId::Gtao, PassId::Ssr, PassId::Lighting, PassId::LocalVolumes, PassId::Translucent, PassId::Post };
+    EXPECT_TRUE(validateHostFeatureOrder("test", list, count, good, 8));
+    EXPECT_EQ(hostPassSequenceFailures(), before);
+    const PassId bad[] = { PassId::Lighting, PassId::GBuffer };
+    EXPECT_FALSE(validateHostFeatureOrder("test", list, count, bad, 2));
+    EXPECT_FALSE(validateHostFeatureOrder("test", list, count, bad, 2)); // logged once, counted twice
+    EXPECT_EQ(hostPassSequenceFailures(), before + 2);
+}
+
+TEST(FrameFeatures, SandboxFrameCompilesInLegacyOrderWithNoBarriers)
+{
+    uint32_t           count = 0;
+    const FeaturePass* list  = sandboxFeatures(count);
+    HostFrame          f;
+    const uint32_t     failures = hostPassSequenceFailures();
+    // Every pass the Sandbox can set (underwater, camouflage, debug tiles on).
+    ASSERT_TRUE(f.run(list, count, listIds(list, count), "Sandbox"));
+    EXPECT_TRUE(f.features.orderOk());
+    EXPECT_EQ(f.features.compiledOrder(), listIds(list, count)) << names(f.features.compiledOrder());
+    EXPECT_EQ(without(f.features.compiledOrder(), { PassId::DebugOverlays }), kLegacySandbox);
+    EXPECT_EQ(f.ran, f.features.compiledOrder());
+    EXPECT_TRUE(f.graph.barriers().empty()); // opaque passes own their barriers until Phase 6
+    EXPECT_TRUE(f.graph.syncPoints().empty());
+    EXPECT_EQ(f.graph.queueOrder(Rg::Queue::AsyncCompute).size(), 0u);
+    for (const bool saw : f.sawResource)
+        EXPECT_TRUE(saw); // ctx.resource() hands the pass the imported ID3D12Resource
+    EXPECT_EQ(hostPassSequenceFailures(), failures);
+
+    // A plain frame (no water, camouflage, underwater or debug tiles), set in reverse order: still list order.
+    std::vector<PassId> plain = without(listIds(list, count), { PassId::Water, PassId::Camouflage, PassId::Underwater, PassId::Overlay });
+    std::vector<PassId> reversed(plain.rbegin(), plain.rend());
+    ASSERT_TRUE(f.run(list, count, reversed, "Sandbox"));
+    EXPECT_EQ(f.ran, plain) << names(f.ran);
+    EXPECT_EQ(hostPassSequenceFailures(), failures);
+}
+
+TEST(FrameFeatures, EditorFrameCompilesInLegacyOrderWithNoBarriers)
+{
+    uint32_t                  count = 0;
+    const FeaturePass*        list  = editorFeatures(count);
+    HostFrame                 f;
+    const uint32_t            failures = hostPassSequenceFailures();
+    const std::vector<PassId> all      = without(listIds(list, count), { PassId::Underwater });
+    ASSERT_TRUE(f.run(list, count, all, "Editor 3D"));
+    EXPECT_EQ(f.ran, all) << names(f.ran);
+    EXPECT_EQ(without(f.ran, { PassId::DebugOverlays }), without(kLegacyEditor, { PassId::Underwater }));
+    EXPECT_TRUE(f.graph.barriers().empty());
+    EXPECT_EQ(hostPassSequenceFailures(), failures);
+
+    // Same frame again: the plan comes from the cache.
+    ASSERT_TRUE(f.run(list, count, all, "Editor 3D"));
+    EXPECT_TRUE(f.graph.compiledFromCache());
+    EXPECT_EQ(f.ran, all);
+}
+
+TEST(FrameFeatures, MissingRequiredPassFailsTheOrderCheck)
+{
+    uint32_t           count = 0;
+    const FeaturePass* list  = sandboxFeatures(count);
+    HostFrame          f;
+    const uint32_t     before = hostPassSequenceFailures();
+    EXPECT_TRUE(f.run(list, count, without(listIds(list, count), { PassId::Lighting }), "missing-lighting"));
+    EXPECT_FALSE(f.features.orderOk());
+    EXPECT_EQ(hostPassSequenceFailures(), before + 1);
+    EXPECT_EQ(f.ran, without(listIds(list, count), { PassId::Lighting })); // the frame still runs, as before
+}
+
+TEST(FrameFeatures, PassNotInTheListIsRejectedAndNeverRuns)
+{
+    uint32_t           count = 0;
+    const FeaturePass* list  = editorFeatures(count);
+    Rg::RenderGraph    g;
+    FeatureFrame       features;
+    g.beginFrame(64, 64);
+    features.begin(list, count);
+    bool ran = false;
+    EXPECT_FALSE(features.set(PassId::Camouflage, [&](Rg::PassContext&) { ran = true; })); // Sandbox only
+    EXPECT_FALSE(features.isSet(PassId::Camouflage));
+    EXPECT_TRUE(features.set(PassId::GBuffer, [&](Rg::PassContext&) {}));
+    EXPECT_TRUE(features.isSet(PassId::GBuffer));
+    features.begin(list, count); // a new frame forgets the callbacks
+    EXPECT_FALSE(features.isSet(PassId::GBuffer));
+    EXPECT_FALSE(ran);
+}
+
+TEST(FrameFeatures, MissingImportStillCompiles)
+{
+    uint32_t           count = 0;
+    const FeaturePass* list  = sandboxFeatures(count);
+    Rg::RenderGraph    g;
+    FeatureFrame       features;
+    g.beginFrame(320, 180);
+    features.begin(list, count);
+    // Only the back buffer, depth and HDR exist (no shadows, no G-buffer handles).
+    features.importResource(g, RenderResource::Swap, nullptr, absDesc(320, 180, kBgra8));
+    features.importResource(g, RenderResource::Depth, nullptr, absDesc(320, 180, kD32));
+    features.importResource(g, RenderResource::Hdr, nullptr, absDesc(320, 180, kRgba));
+    std::vector<PassId> ran;
+    for (const PassId id : without(listIds(list, count), { PassId::Water, PassId::Camouflage, PassId::Underwater, PassId::Overlay }))
+        features.set(id, [&ran, id](Rg::PassContext&) { ran.push_back(id); });
+    ASSERT_TRUE(features.compileFrame(g, "partial"));
+    ASSERT_TRUE(g.execute());
+    EXPECT_EQ(ran.size(), features.compiledOrder().size());
+    EXPECT_EQ(ran.front(), PassId::Shadows);
+    EXPECT_EQ(ran.back(), PassId::Post);
+}
+
+TEST(FrameFeatures, CompileFailureCountsAFailedFrameAndRunsNothing)
+{
+    uint32_t           count = 0;
+    const FeaturePass* list  = sandboxFeatures(count);
+    Rg::RenderGraph    g;
+    FeatureFrame       features;
+    g.beginFrame(320, 180);
+    features.begin(list, count);
+    features.importResource(g, RenderResource::Hdr, nullptr, absDesc(320, 180, kRgba));
+    features.importResource(g, RenderResource::Swap, nullptr, absDesc(320, 180, kBgra8));
+    bool ran = false;
+    features.set(PassId::Post, [&](Rg::PassContext&) { ran = true; });
+    // A declared (non-opaque) pass on a resource an opaque pass also uses: Phase 6 boundary barriers.
+    g.addPass<Rg::NoData>(
+        "Declared",
+        [&](Rg::PassBuilder& b, Rg::NoData&)
+        {
+            b.flags(Rg::PassFlags::SideEffect);
+            b.read(features.handle(RenderResource::Hdr), Rg::Use::PixelSrv);
+        },
+        [](Rg::PassContext&, const Rg::NoData&) {});
+    const uint32_t before = hostPassSequenceFailures();
+    EXPECT_FALSE(features.compileFrame(g, "compile-failure"));
+    EXPECT_TRUE(g.hasError(Rg::ErrorCode::MixedOpaqueUse));
+    EXPECT_EQ(hostPassSequenceFailures(), before + 1);
+    EXPECT_FALSE(features.orderOk());
+    EXPECT_FALSE(ran);
+}

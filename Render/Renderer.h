@@ -201,6 +201,11 @@ namespace Dark
         ID3D12Resource*             depthResource() const { return m_depthStencil.Get(); }
         ID3D12Resource*             albedoResource() const;
         ID3D12Resource*             attribResource() const;
+        // Frame graph imports (render-graph plan Phase 4). Null when the target does not exist.
+        ID3D12Resource*             backBufferResource() const;
+        ID3D12Resource*             velocityResource() const;
+        ID3D12Resource*             aoResource() const;
+        ID3D12Resource*             postResource() const;
         float                       depthClearValue() const { return kDepthClear; }
         const D3D12_VIEWPORT& viewport() const { return m_viewport; }
         const D3D12_RECT&     scissor() const { return m_scissor; }

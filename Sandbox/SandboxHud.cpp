@@ -34,7 +34,7 @@
 #include "Math/MathDefines.h"
 #include "Render/DebugRenderState.h"
 #include "Render/GpuResourceCache.h"
-#include "Render/PassTable.h"
+#include "Render/FrameFeatures.h"
 #include "Render/Profile.h"
 #include "Sky/Environment.h"
 

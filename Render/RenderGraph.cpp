@@ -234,12 +234,12 @@ namespace Dark::Rg
         const auto* r = m_graph.resourceAt(h.index, ResourceKind::Texture);
         return r ? &r->tex : nullptr;
     }
-    void* PassContext::native(TextureHandle h) const
+    ID3D12Resource* PassContext::resource(TextureHandle h) const
     {
         const auto* r = m_graph.resourceAt(h.index, ResourceKind::Texture);
         return r ? r->native : nullptr;
     }
-    void* PassContext::native(BufferHandle h) const
+    ID3D12Resource* PassContext::resource(BufferHandle h) const
     {
         const auto* r = m_graph.resourceAt(h.index, ResourceKind::Buffer);
         return r ? r->native : nullptr;
@@ -498,7 +498,7 @@ namespace Dark::Rg
 
     // ---------------------------------------------------------------- imports and history
 
-    TextureHandle RenderGraph::importTexture(const char* name, const TextureDesc& desc, void* native, Layout initial, Layout finalLayout)
+    TextureHandle RenderGraph::importTexture(const char* name, const TextureDesc& desc, ID3D12Resource* native, Layout initial, Layout finalLayout)
     {
         ResourceNode node;
         node.name        = m_arena.copyString(name);
@@ -517,7 +517,7 @@ namespace Dark::Rg
         return index == kInvalidIndex ? TextureHandle{} : TextureHandle{ index, 0 };
     }
 
-    BufferHandle RenderGraph::importBuffer(const char* name, const BufferDesc& desc, void* native)
+    BufferHandle RenderGraph::importBuffer(const char* name, const BufferDesc& desc, ID3D12Resource* native)
     {
         ResourceNode node;
         node.name     = m_arena.copyString(name);
@@ -532,7 +532,7 @@ namespace Dark::Rg
         return index == kInvalidIndex ? BufferHandle{} : BufferHandle{ index, 0 };
     }
 
-    TextureHandle RenderGraph::importBackBuffer(void* native, uint32_t width, uint32_t height, uint32_t dxgiFormat)
+    TextureHandle RenderGraph::importBackBuffer(ID3D12Resource* native, uint32_t width, uint32_t height, uint32_t dxgiFormat)
     {
         TextureDesc desc;
         desc.sizeMode = SizeMode::Absolute;

@@ -5,7 +5,6 @@
 #include "Render/Frustum3f.h"
 #include "Render/GpuModel.h"
 #include "Render/GpuResourceCache.h"
-#include "Render/PassTable.h"
 #include "Render/RhiDevice.h"
 
 #include <d3d12.h>
@@ -69,17 +68,6 @@ const DepthBatch* depthForMesh(const DrawList& list, const Mesh& mesh)
             return &list.depthBatch(i);
     }
     return nullptr;
-}
-
-std::vector<PassId> idsExcept(const PassNode* table, uint32_t count, PassId skip)
-{
-    std::vector<PassId> ids;
-    for (uint32_t i = 0; i < count; ++i)
-    {
-        if (table[i].id != skip)
-            ids.push_back(table[i].id);
-    }
-    return ids;
 }
 
 } // namespace
@@ -359,38 +347,6 @@ TEST(DrawList, TranslucentSortsFartherFirstAndDoesNotBatch)
     EXPECT_FALSE(list.submit(blend));
     EXPECT_EQ(list.staticCount(), 0u);
     EXPECT_EQ(list.gbufferBatchCount(), 0u);
-}
-
-TEST(DrawList, PassSequenceSkipsOptionalAndRejectsReorder)
-{
-    uint32_t deferredCount = 0;
-    const PassNode* deferred = sandboxDeferredPasses(deferredCount);
-    const std::vector<PassId> withoutWater = idsExcept(deferred, deferredCount, PassId::Water);
-    EXPECT_TRUE(passSequenceOk(deferred, deferredCount, withoutWater.data(), static_cast<uint32_t>(withoutWater.size())));
-
-    const std::vector<PassId> withoutGBuffer = idsExcept(deferred, deferredCount, PassId::GBuffer);
-    EXPECT_FALSE(passSequenceOk(deferred, deferredCount, withoutGBuffer.data(), static_cast<uint32_t>(withoutGBuffer.size())));
-
-    std::vector<PassId> swapped = withoutWater;
-    ASSERT_GE(swapped.size(), 2u);
-    std::swap(swapped[0], swapped[1]);
-    const std::vector<PassId> swappedCopy = swapped;
-    EXPECT_FALSE(passSequenceOk(deferred, deferredCount, swapped.data(), static_cast<uint32_t>(swapped.size())));
-    EXPECT_EQ(swapped, swappedCopy);
-
-    uint32_t editorCount = 0;
-    const PassNode* editor = editorDeferredPasses(editorCount);
-    const PassId editorOrder[] = { PassId::GBuffer, PassId::Decals, PassId::Gtao, PassId::Ssr, PassId::Lighting, PassId::LocalVolumes,
-                                   PassId::SsrCapture, PassId::EditorGrid, PassId::EditorGizmos, PassId::Translucent, PassId::Post };
-    constexpr uint32_t editorOrderCount = static_cast<uint32_t>(sizeof(editorOrder) / sizeof(editorOrder[0]));
-    EXPECT_TRUE(passSequenceOk(editor, editorCount, editorOrder, editorOrderCount));
-    PassId editorReversed[editorOrderCount];
-    std::memcpy(editorReversed, editorOrder, sizeof(editorOrder));
-    std::swap(editorReversed[7], editorReversed[8]); // EditorGizmos before EditorGrid
-    PassId reversedCopy[editorOrderCount];
-    std::memcpy(reversedCopy, editorReversed, sizeof(editorReversed));
-    EXPECT_FALSE(passSequenceOk(editor, editorCount, editorReversed, editorOrderCount));
-    EXPECT_EQ(std::memcmp(editorReversed, reversedCopy, sizeof(reversedCopy)), 0);
 }
 
 TEST(DrawList, ThreeKeyInterleaveSecondBatchBaseIsNotZero)
