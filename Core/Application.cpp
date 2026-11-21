@@ -832,6 +832,7 @@ namespace Dark
         DE_LOG_FATAL(LogCategory::Render, "Required 3D scene targets could not be created; quitting");
         MessageBoxW(nullptr, L"DarkEngine6 could not create the required 3D scene targets.\nSee DarkEngine6.log for details.",
                     L"DarkEngine6 - renderer initialization failed", MB_OK | MB_ICONERROR);
+        m_exitCode = 1;
         requestQuit();
         return false;
     }

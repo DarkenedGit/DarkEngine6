@@ -30,5 +30,5 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR lpCmdLine, int)
         return 1;
     }
     app.run();
-    return 0;
+    return app.exitCode();
 }
