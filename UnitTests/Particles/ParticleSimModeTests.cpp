@@ -903,11 +903,6 @@ TEST(ParticleSimMode, GpuBillboardShadersCompile)
     Microsoft::WRL::ComPtr<ID3DBlob> ps;
     ASSERT_TRUE(compileShaderFromContent("shaders/ParticleSimulate.hlsl", "CSSimulate", "cs_5_0", csCopy));
     ASSERT_TRUE(compileShaderFromContent("shaders/ParticleSimulate.hlsl", "CSInPlace", "cs_5_0", csInPlace));
-    D3D_SHADER_MACRO macros[2]{};
-    makeEncodeSrgbMacros(false, macros);
-    ASSERT_TRUE(compileShaderFromContent("shaders/ParticleBillboard.hlsl", "VSMain", "vs_5_0", vs, macros));
-    ASSERT_TRUE(compileShaderFromContent("shaders/Particle.hlsl", "PSMain", "ps_5_0", ps, macros));
-    makeEncodeSrgbMacros(true, macros);
-    ASSERT_TRUE(compileShaderFromContent("shaders/ParticleBillboard.hlsl", "VSMain", "vs_5_0", vs, macros));
-    ASSERT_TRUE(compileShaderFromContent("shaders/Particle.hlsl", "PSMain", "ps_5_0", ps, macros));
+    ASSERT_TRUE(compileShaderFromContent("shaders/ParticleBillboard.hlsl", "VSMain", "vs_5_0", vs));
+    ASSERT_TRUE(compileShaderFromContent("shaders/Particle.hlsl", "PSMain", "ps_5_0", ps));
 }

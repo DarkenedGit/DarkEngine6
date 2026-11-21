@@ -95,9 +95,10 @@ namespace
         return authored * ssao;
     }
 
-    bool gtaoShouldSkip(bool settingsEnabled, bool ssaoEnabled, bool hybridDeferred, bool hasGBuffer, bool gtaoValid, bool cmdOk)
+    // Mirrors SceneRenderer::applyGtao. Scene targets are an init requirement, so they are not a skip reason.
+    bool gtaoShouldSkip(bool settingsEnabled, bool ssaoEnabled, bool gtaoValid, bool cmdOk)
     {
-        return !cmdOk || !hybridDeferred || !hasGBuffer || !(settingsEnabled && ssaoEnabled) || !gtaoValid;
+        return !cmdOk || !(settingsEnabled && ssaoEnabled) || !gtaoValid;
     }
 } // namespace
 
@@ -163,7 +164,7 @@ TEST(Gtao, Create_NullDevice_DropsAoOverride)
     EXPECT_EQ(buffers.lightingAoCpu().ptr, ao.ptr);
 
     const float hdrClear[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
-    EXPECT_FALSE(buffers.create(nullptr, 64, 64, true, {}, hdrClear));
+    EXPECT_FALSE(buffers.create(nullptr, 64, 64, {}, hdrClear));
     EXPECT_FALSE(buffers.valid());
     EXPECT_EQ(buffers.lightingAoCpu().ptr, 0u);
 }
@@ -175,7 +176,7 @@ TEST(Gtao, Create_ZeroSize_DropsAoOverride)
     ao.ptr = 0x1234;
     buffers.setLightingAoSrv(nullptr, ao);
     EXPECT_EQ(buffers.lightingAoCpu().ptr, ao.ptr);
-    EXPECT_FALSE(buffers.create(nullptr, 0, 0, true, {}, nullptr));
+    EXPECT_FALSE(buffers.create(nullptr, 0, 0, {}, nullptr));
     EXPECT_EQ(buffers.lightingAoCpu().ptr, 0u);
 }
 
@@ -300,7 +301,7 @@ TEST(Gtao, Disabled_SkipsPass)
     const DebugRenderState dbg{};
     EXPECT_FALSE(s.enabled);
     EXPECT_FALSE(dbg.ssaoEnabled);
-    EXPECT_TRUE(gtaoShouldSkip(s.enabled, dbg.ssaoEnabled, true, true, true, true));
+    EXPECT_TRUE(gtaoShouldSkip(s.enabled, dbg.ssaoEnabled, true, true));
 
     SceneBuffers buffers;
     EXPECT_EQ(buffers.lightingAoCpu().ptr, 0u);
@@ -310,7 +311,7 @@ TEST(Gtao, Disabled_SkipsPass)
         GTEST_SKIP() << "no D3D12 device (WARP or hardware) — CPU skip contract already checked";
 
     const float hdrClear[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
-    ASSERT_TRUE(buffers.create(device.Get(), 64, 64, true, {}, hdrClear));
+    ASSERT_TRUE(buffers.create(device.Get(), 64, 64, {}, hdrClear));
     ASSERT_NE(buffers.aoSrvCpu().ptr, 0u);
     EXPECT_EQ(buffers.lightingAoCpu().ptr, 0u);
 
@@ -333,16 +334,14 @@ TEST(Gtao, EnabledWithoutDebugFlag_Skips)
     const DebugRenderState dbg{};
     EXPECT_TRUE(s.enabled);
     EXPECT_FALSE(dbg.ssaoEnabled);
-    EXPECT_TRUE(gtaoShouldSkip(s.enabled, dbg.ssaoEnabled, true, true, true, true));
-    EXPECT_FALSE(gtaoShouldSkip(true, true, true, true, true, true));
+    EXPECT_TRUE(gtaoShouldSkip(s.enabled, dbg.ssaoEnabled, true, true));
+    EXPECT_FALSE(gtaoShouldSkip(true, true, true, true));
 }
 
 TEST(Gtao, NullCmd_TreatedAsSkip)
 {
-    EXPECT_TRUE(gtaoShouldSkip(true, true, true, true, true, false));
-    EXPECT_TRUE(gtaoShouldSkip(true, true, false, true, true, true));
-    EXPECT_TRUE(gtaoShouldSkip(true, true, true, false, true, true));
-    EXPECT_TRUE(gtaoShouldSkip(true, true, true, true, false, true));
+    EXPECT_TRUE(gtaoShouldSkip(true, true, true, false));
+    EXPECT_TRUE(gtaoShouldSkip(true, true, false, true));
 }
 
 TEST(Gtao, IntensityZero_Identity)

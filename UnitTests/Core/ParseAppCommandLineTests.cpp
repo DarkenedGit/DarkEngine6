@@ -55,8 +55,6 @@ TEST(ParseAppCommandLine, EmptyAndNullLeaveFlags)
     EXPECT_FALSE(a.cliMenu);
     EXPECT_FALSE(a.cliDebugLevels);
     EXPECT_FALSE(a.cliNoDebugLevels);
-    EXPECT_FALSE(a.cliForward);
-    EXPECT_EQ(a.scenePath, ScenePath::SwapChainForward);
     EXPECT_FALSE(a.showSplash);
     EXPECT_FALSE(a.showMainMenu);
 
@@ -136,33 +134,12 @@ TEST(ParseAppCommandLine, Menu)
     EXPECT_FALSE(cfg.cliNoMenu);
 }
 
-TEST(ParseAppCommandLine, ForwardFlag)
+TEST(ParseAppCommandLine, RemovedForwardFlagIsIgnored)
 {
+    // -forward was removed with the forward opaque path. It only logs; the other flags still parse.
     AppConfig cfg{};
-    ASSERT_TRUE(parseAppCommandLine("-forward", cfg));
-    EXPECT_TRUE(cfg.cliForward);
-    EXPECT_EQ(cfg.scenePath, ScenePath::SwapChainForward);
-}
-
-TEST(ApplyDeferredScenePath, MapsForwardFlag)
-{
-    AppConfig on{};
-    on.cliForward = true;
-    applyDeferredScenePath(on, ScenePath::HybridDeferred);
-    EXPECT_EQ(on.scenePath, ScenePath::SwapChainForward);
-
-    AppConfig off{};
-    applyDeferredScenePath(off, ScenePath::HybridDeferred);
-    EXPECT_EQ(off.scenePath, ScenePath::HybridDeferred);
-}
-
-TEST(ApplyDeferredScenePath, ParseThenMap)
-{
-    AppConfig cfg{};
-    ASSERT_TRUE(parseAppCommandLine("-forward", cfg));
-    applyDeferredScenePath(cfg, ScenePath::HybridDeferred);
-    EXPECT_TRUE(cfg.cliForward);
-    EXPECT_EQ(cfg.scenePath, ScenePath::SwapChainForward);
+    ASSERT_TRUE(parseAppCommandLine("-forward -no-menu", cfg));
+    EXPECT_TRUE(cfg.cliNoMenu);
 }
 
 TEST(ParseAppCommandLine, TogetherWithParseNet)

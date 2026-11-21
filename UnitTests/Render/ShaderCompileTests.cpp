@@ -7,8 +7,6 @@
 #include <filesystem>
 
 using Dark::compileShaderFromFile;
-using Dark::encodeSrgbForColorFormat;
-using Dark::makeEncodeSrgbMacros;
 using Dark::makeThermalMacros;
 using Dark::makeUvMacros;
 using Microsoft::WRL::ComPtr;
@@ -38,26 +36,6 @@ struct ScopedTempFile
 
 } // namespace
 
-TEST(ShaderCompile, EncodeSrgbMacroForUnorm)
-{
-    EXPECT_TRUE(encodeSrgbForColorFormat(DXGI_FORMAT_R8G8B8A8_UNORM));
-    D3D_SHADER_MACRO macros[2]{};
-    makeEncodeSrgbMacros(true, macros);
-    EXPECT_STREQ(macros[0].Name, "ENCODE_SRGB");
-    EXPECT_STREQ(macros[0].Definition, "1");
-    EXPECT_EQ(macros[1].Name, nullptr);
-    EXPECT_EQ(macros[1].Definition, nullptr);
-}
-
-TEST(ShaderCompile, EncodeSrgbMacroOffForHdrAndSrgbRtv)
-{
-    EXPECT_FALSE(encodeSrgbForColorFormat(DXGI_FORMAT_R16G16B16A16_FLOAT));
-    EXPECT_FALSE(encodeSrgbForColorFormat(DXGI_FORMAT_R8G8B8A8_UNORM_SRGB));
-    D3D_SHADER_MACRO macros[2]{};
-    makeEncodeSrgbMacros(false, macros);
-    EXPECT_STREQ(macros[0].Definition, "0");
-}
-
 TEST(ShaderCompile, PassesDefinesToD3DCompile)
 {
     const std::filesystem::path path = std::filesystem::temp_directory_path() / "de_shader_macro_test.hlsl";
@@ -81,20 +59,6 @@ TEST(ShaderCompile, PassesDefinesToD3DCompile)
     blob.Reset();
     EXPECT_TRUE(compileShaderFromFile(path, "PSMain", "ps_5_0", blob));
     EXPECT_NE(blob.Get(), nullptr);
-}
-
-TEST(ShaderCompile, EncodeSrgbCompilesWithColorInclude)
-{
-    const std::filesystem::path hlsl = Dark::resolveContentPath("shaders/BasicMesh.hlsl");
-    if (hlsl.empty())
-        GTEST_SKIP() << "shaders/BasicMesh.hlsl not on content roots";
-
-    ComPtr<ID3DBlob> blob;
-    D3D_SHADER_MACRO macros[2];
-    makeEncodeSrgbMacros(true, macros);
-    EXPECT_TRUE(compileShaderFromFile(hlsl, "PSMain", "ps_5_0", blob, macros));
-    makeEncodeSrgbMacros(false, macros);
-    EXPECT_TRUE(compileShaderFromFile(hlsl, "PSMain", "ps_5_0", blob, macros));
 }
 
 TEST(ShaderCompile, DeferredLightingIblCompiles)
@@ -125,22 +89,6 @@ TEST(ShaderCompile, TerrainGBufferCompiles)
     D3D_SHADER_MACRO uvMacros[3];
     makeUvMacros("0.12", uvMacros);
     EXPECT_TRUE(compileShaderFromFile(hlsl, "PSMain", "ps_5_0", ps, uvMacros));
-}
-
-TEST(ShaderCompile, TerrainForwardCompiles)
-{
-    const std::filesystem::path hlsl = Dark::resolveContentPath("shaders/Terrain.hlsl");
-    if (hlsl.empty())
-        GTEST_SKIP() << "shaders/Terrain.hlsl not on content roots";
-
-    ComPtr<ID3DBlob> vs;
-    ComPtr<ID3DBlob> ps;
-    D3D_SHADER_MACRO macros[2];
-    makeEncodeSrgbMacros(true, macros);
-    EXPECT_TRUE(compileShaderFromFile(hlsl, "VSMain", "vs_5_0", vs, macros));
-    EXPECT_TRUE(compileShaderFromFile(hlsl, "PSMain", "ps_5_0", ps, macros));
-    makeEncodeSrgbMacros(false, macros);
-    EXPECT_TRUE(compileShaderFromFile(hlsl, "PSMain", "ps_5_0", ps, macros));
 }
 
 TEST(ShaderCompile, IblBakeCompiles)
@@ -229,12 +177,10 @@ TEST(ShaderCompile, SkyCloudLayer)
         GTEST_SKIP() << "shaders/Sky.hlsl not on content roots";
 
     const D3D_SHADER_MACRO off[] = {
-        { "ENCODE_SRGB", "0" },
         { "CLOUD_LAYER", "0" },
         { nullptr, nullptr },
     };
     const D3D_SHADER_MACRO on[] = {
-        { "ENCODE_SRGB", "0" },
         { "CLOUD_LAYER", "1" },
         { nullptr, nullptr },
     };
@@ -266,13 +212,8 @@ TEST(ShaderCompile, Water)
 
     ComPtr<ID3DBlob> vs;
     ComPtr<ID3DBlob> ps;
-    D3D_SHADER_MACRO macros[2];
-    makeEncodeSrgbMacros(false, macros);
-    EXPECT_TRUE(compileShaderFromFile(hlsl, "VSMain", "vs_5_0", vs, macros));
-    EXPECT_TRUE(compileShaderFromFile(hlsl, "PSMain", "ps_5_0", ps, macros));
-    makeEncodeSrgbMacros(true, macros);
-    EXPECT_TRUE(compileShaderFromFile(hlsl, "VSMain", "vs_5_0", vs, macros));
-    EXPECT_TRUE(compileShaderFromFile(hlsl, "PSMain", "ps_5_0", ps, macros));
+    EXPECT_TRUE(compileShaderFromFile(hlsl, "VSMain", "vs_5_0", vs));
+    EXPECT_TRUE(compileShaderFromFile(hlsl, "PSMain", "ps_5_0", ps));
 }
 
 TEST(ShaderCompile, AutoExposure)

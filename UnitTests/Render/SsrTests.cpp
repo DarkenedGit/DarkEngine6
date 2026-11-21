@@ -176,7 +176,7 @@ TEST(Ssr, Create_NullDevice_DropsSsrOverride)
     EXPECT_EQ(buffers.lightingSsrCpu().ptr, ssr.ptr);
 
     const float hdrClear[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
-    EXPECT_FALSE(buffers.create(nullptr, 64, 64, true, {}, hdrClear));
+    EXPECT_FALSE(buffers.create(nullptr, 64, 64, {}, hdrClear));
     EXPECT_FALSE(buffers.valid());
     EXPECT_EQ(buffers.lightingSsrCpu().ptr, 0u);
     EXPECT_EQ(buffers.ssrTableGpu().ptr, 0u);
@@ -189,7 +189,7 @@ TEST(Ssr, Create_ZeroSize_DropsSsrOverride)
     ssr.ptr = 0x1234;
     buffers.setLightingSsrSrv(nullptr, ssr);
     EXPECT_EQ(buffers.lightingSsrCpu().ptr, ssr.ptr);
-    EXPECT_FALSE(buffers.create(nullptr, 0, 0, true, {}, nullptr));
+    EXPECT_FALSE(buffers.create(nullptr, 0, 0, {}, nullptr));
     EXPECT_EQ(buffers.lightingSsrCpu().ptr, 0u);
     EXPECT_EQ(buffers.ssrTableGpu().ptr, 0u);
 }
@@ -202,8 +202,8 @@ TEST(Ssr, Dummy_ConfZero)
 
     SceneBuffers buffers;
     const float  hdrClear[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
-    ASSERT_TRUE(buffers.create(device.Get(), 64, 64, true, {}, hdrClear));
-    ASSERT_TRUE(buffers.hasGBuffer());
+    ASSERT_TRUE(buffers.create(device.Get(), 64, 64, {}, hdrClear));
+    ASSERT_TRUE(buffers.valid());
     ASSERT_NE(buffers.hdrSrvCpu().ptr, 0u);
     ASSERT_NE(buffers.lightingHeap(), nullptr);
     EXPECT_EQ(buffers.lightingHeap()->GetDesc().NumDescriptors, SceneBuffers::kLightingCount);
