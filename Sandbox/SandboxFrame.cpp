@@ -1438,6 +1438,11 @@ void SandboxFrame::render()
         app().m_hud.drawMainMenu();
         app().m_hud.m_imgui.render(app().renderer());
     }
+    else if (app().m_hud.m_imgui.isReady() && !app().m_hud.m_menu.visible() && app().frameCaptureActive())
+    {
+        // Frame capture: the baseline PNG is the 3D frame with no HUD, pause card or panels.
+        app().m_hud.m_imgui.render(app().renderer());
+    }
     else if (app().m_hud.m_imgui.isReady() && !app().m_hud.m_menu.visible())
     {
         app().m_hud.drawNpcInfoOverlay();

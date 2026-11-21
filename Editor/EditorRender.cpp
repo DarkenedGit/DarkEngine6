@@ -70,7 +70,9 @@ void EditorApp::onRender()
 
     if (m_imgui.isReady())
     {
-        drawEditorUi();
+        // Frame capture: the baseline PNG is the full-window 3D view without panels.
+        if (!frameCaptureActive())
+            drawEditorUi();
         m_imgui.render(renderer());
     }
 

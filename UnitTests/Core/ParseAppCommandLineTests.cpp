@@ -399,3 +399,45 @@ TEST(ShouldShowMainMenu, DefaultOff)
     AppConfig cfg{};
     EXPECT_FALSE(shouldShowMainMenu(cfg));
 }
+
+TEST(ParseAppCommandLine, NoVsyncAndWindowSize)
+{
+    AppConfig cfg{};
+    EXPECT_TRUE(parseAppCommandLine("-no-vsync -window 2560x1440", cfg));
+    EXPECT_FALSE(cfg.vsync);
+    EXPECT_EQ(cfg.width, 2560u);
+    EXPECT_EQ(cfg.height, 1440u);
+
+    AppConfig bad{};
+    const uint32_t w = bad.width;
+    EXPECT_TRUE(parseAppCommandLine("-window 2560by1440", bad));
+    EXPECT_EQ(bad.width, w);
+    EXPECT_TRUE(parseAppCommandLine("-window 10x10", bad));
+    EXPECT_EQ(bad.width, w);
+}
+
+TEST(ParseAppCommandLine, SceneArgument)
+{
+    AppConfig cfg{};
+    EXPECT_TRUE(parseAppCommandLine("-no-menu -scene:canal_test.json -no-splash", cfg));
+    EXPECT_EQ(cfg.cliScene, "canal_test.json");
+    AppConfig none{};
+    EXPECT_TRUE(parseAppCommandLine("-no-menu", none));
+    EXPECT_TRUE(none.cliScene.empty());
+}
+
+TEST(ParseAppCommandLine, FrameCaptureSkipsSplashAndMenu)
+{
+    AppConfig cfg{};
+    EXPECT_TRUE(parseAppCommandLine("-capture-frame 600 -camera default", cfg));
+    EXPECT_TRUE(cfg.capture.enabled);
+    EXPECT_EQ(cfg.capture.frame, 600u);
+    EXPECT_EQ(cfg.capture.camera, "default");
+    EXPECT_TRUE(cfg.cliNoSplash);
+    EXPECT_TRUE(cfg.cliNoMenu);
+
+    AppConfig bad{};
+    EXPECT_FALSE(parseAppCommandLine("-capture-frame 600", bad));
+    EXPECT_FALSE(bad.capture.enabled);
+    EXPECT_FALSE(bad.cliNoMenu);
+}
