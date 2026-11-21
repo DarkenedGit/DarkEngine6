@@ -77,6 +77,7 @@ namespace Dark
         std::atomic<uint32_t>     g_msgWarnings{ 0 };
         std::atomic<uint32_t>     g_msgDistinct{ 0 };
 
+#if defined(__ID3D12InfoQueue1_INTERFACE_DEFINED__)
         const char* severityName(D3D12_MESSAGE_SEVERITY s)
         {
             switch (s)
@@ -110,6 +111,7 @@ namespace Dark
             else if (seen == 4)
                 Log::log(level, LogCategory::Render, "D3D12 [{} #{}] repeats; further copies are only counted", severityName(severity), static_cast<int>(id));
         }
+#endif
 
         const char* removedReasonName(HRESULT hr)
         {
