@@ -62,9 +62,9 @@ Read once at device creation (`Render/RendererDiagnostics.cpp`).
 |----------|---------|--------|
 | `DE_D3D12_DEBUG=0` | Debug: on. Release: off | Turns the debug layer off in a Debug build. |
 | `DE_D3D12_GBV=1` | off | GPU-based validation (`ID3D12Debug1::SetEnableGPUBasedValidation`). Debug builds only; needs the debug layer. Very slow: use a small `-capture-frame`. |
-| `DE_D3D12_DRED=0` / `=1` | Debug: on. Release: off | DRED auto-breadcrumbs and page-fault reporting. On device removal the log gets the removed reason, the command lists that didn't finish (±6 ops around the failure) and the page-fault address with its allocations. |
+| `DE_D3D12_DRED=0` / `=1` | Debug: on (off when PIX/Nsight is attached). Release: off. `=1` forces it on in any build, even under PIX | DRED auto-breadcrumbs and page-fault reporting. On device removal the log gets the removed reason, the command lists that didn't finish (±6 ops around the failure) and the page-fault address with its allocations. |
 
-The debug layer and DRED are skipped when PIX or another capture tool is attached, as before. Debug-layer messages are now also written to `DarkEngine6.log` (`D3D12 [SEVERITY #id] ...`, the first 4 of each id), with per-id totals at shutdown.
+The debug layer is skipped when PIX or Nsight is attached, as before, and DRED is too unless `DE_D3D12_DRED=1`. Debug-layer messages are now also written to `DarkEngine6.log` (`D3D12 [SEVERITY #id] ...`, the first 4 of each id), with per-id totals at shutdown.
 
 ## Recording a baseline set
 

@@ -15,8 +15,8 @@
 //
 //   DE_D3D12_DEBUG=0  Debug build: no debug layer (also off when PIX or Nsight is attached)
 //   DE_D3D12_GBV=1    Debug build: GPU-based validation on top of the debug layer (slow)
-//   DE_D3D12_DRED=0   Debug build: no DRED breadcrumbs / page-fault tracking
-//   DE_D3D12_DRED=1   Release build: turn DRED on
+//   DE_D3D12_DRED=0   Debug build: no DRED breadcrumbs / page-fault tracking (also off when PIX or Nsight is attached)
+//   DE_D3D12_DRED=1   Any build: turn DRED on, even under PIX or Nsight
 //
 // With the debug layer on, every debug-layer / GBV message of severity WARNING or worse is
 // copied into DarkEngine6.log as "D3D12 [ERROR #id] ..." (first 4 of each id), and the totals
@@ -137,13 +137,18 @@ namespace Dark
         m_dredEnabled       = false;
         const bool gbvRequested = envFlag(L"DE_D3D12_GBV") == L'1';
 
+        const bool    toolAttached = captureToolAttached();
+        const wchar_t dredFlag     = envFlag(L"DE_D3D12_DRED");
 #if defined(_DEBUG)
-        const bool wantDebug = envFlag(L"DE_D3D12_DEBUG") != L'0' && !captureToolAttached();
-        const bool wantDred  = envFlag(L"DE_D3D12_DRED") != L'0';
+        const bool wantDebug = envFlag(L"DE_D3D12_DEBUG") != L'0' && !toolAttached;
+        // DRED's breadcrumb writes would end up in a PIX/Nsight capture; DE_D3D12_DRED=1 still forces it on.
+        const bool wantDred = dredFlag == L'1' || (dredFlag != L'0' && !toolAttached);
 #else
         const bool wantDebug = false;
-        const bool wantDred  = envFlag(L"DE_D3D12_DRED") == L'1';
+        const bool wantDred  = dredFlag == L'1';
 #endif
+        if (toolAttached)
+            DE_LOG_INFO(LogCategory::Render, "D3D12: PIX/Nsight attached; debug layer off, DRED {}", wantDred ? "forced on (DE_D3D12_DRED=1)" : "off");
 
         if (wantDebug)
         {
