@@ -760,7 +760,8 @@ namespace Dark
             {
                 CpuScope ecs("ECS Update", ProfileColor::EcsUpdate);
                 onUpdate(dt);
-                if (capture.applyPreset)
+                // -capture-stay keeps the shot's pinned view after the shot (for a PIX capture of the same frame).
+                if (capture.applyPreset || (m_captureActive && m_captureSchedule.finished()))
                     applyCapturePreset(m_capturePreset, capture.firstFrame);
             }
             m_debug.perf().add(PerfSlot::Update, m_window.getTime() - t0);
@@ -816,9 +817,13 @@ namespace Dark
             if (capture.shoot)
             {
                 finishCapture(m_renderer.takeBackBufferCaptureResult());
-                m_captureActive = false;
-                if (!m_config.capture.stay)
-                    m_running = false;
+                if (m_config.capture.stay)
+                    DE_LOG_INFO(LogCategory::Render, "Frame capture: -capture-stay, holding the pinned view until the window is closed");
+                else
+                {
+                    m_captureActive = false;
+                    m_running       = false;
+                }
             }
         }
 

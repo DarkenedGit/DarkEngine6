@@ -29,7 +29,7 @@ Both `Sandbox.exe` and `Editor.exe` accept these. Parsing lives in the engine (`
 | `-camera <preset>` | Preset from `content/perf/capture_cameras.json`. Required with `-capture-frame`. |
 | `-capture-avg K` | Time the K frames before the shot (default 300, fewer if N − 1 < K). |
 | `-capture-out <dir>` | Output folder. Default: `captures/` under the working directory. |
-| `-capture-stay` | Keep running after the shot (for a PIX capture of the same view). |
+| `-capture-stay` | Keep running after the shot, still pinned: same camera, vision state, paused sim, fixed step and no UI, until the window is closed (for a PIX capture of the same view). |
 | `-scene:<file>` | Scene to load. Now works in the Editor too. |
 | `-no-vsync` | Present without vsync. Use it for every timing run. |
 | `-window WxH` | Window size, e.g. `-window 2560x1440` for the 1440p gate. |
@@ -40,7 +40,7 @@ While capturing, the host:
 - pauses the simulation, uses a fixed 1/60 s step, and discards TAA history and the previous view-projection on the first frame (GTAO/SSR history settles during the timed frames);
 - re-applies the preset camera (and in Sandbox the vision mode, echo, camouflage and underwater state) every frame;
 - hides the HUD and the editor UI;
-- quits after writing the PNG and the JSON, unless `-capture-stay`.
+- quits after writing the PNG and the JSON. With `-capture-stay` it keeps the pinned view instead; there is no return to interactive play, so close the window when done.
 
 ### JSON fields
 
