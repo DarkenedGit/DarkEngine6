@@ -2,7 +2,6 @@
 #include "Render/ShaderCompile.h"
 #include "Core/Log.h"
 
-#include <d3dcompiler.h>
 
 namespace Dark
 {
@@ -118,8 +117,8 @@ namespace Dark
         ComPtr<ID3DBlob> csThermal;
         ComPtr<ID3DBlob> csPipe;
         // Bake CS loops: never SKIP_OPTIMIZATION (Debug hitch), same as IblBake.
-        if (!compileShaderFromContent("shaders/TerrainErosion.hlsl", "CSThermal", "cs_5_0", csThermal, nullptr, true) ||
-            !compileShaderFromContent("shaders/TerrainErosion.hlsl", "CSPipe", "cs_5_0", csPipe, nullptr, true))
+        if (!compileShaderFromContent("shaders/TerrainErosion.hlsl", "CSThermal", ShaderStage::Compute, csThermal, nullptr, true) ||
+            !compileShaderFromContent("shaders/TerrainErosion.hlsl", "CSPipe", ShaderStage::Compute, csPipe, nullptr, true))
             return false;
 
         D3D12_COMPUTE_PIPELINE_STATE_DESC pso{};

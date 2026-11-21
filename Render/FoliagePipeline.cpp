@@ -589,7 +589,7 @@ namespace Dark
 
         ComPtr<ID3DBlob> vs;
         ComPtr<ID3DBlob> ps;
-        if (!compileShaderFromContent("shaders/FoliageGBuffer.hlsl", "VSMain", "vs_5_0", vs) || !compileShaderFromContent("shaders/FoliageGBuffer.hlsl", "PSMain", "ps_5_0", ps))
+        if (!compileShaderFromContent("shaders/FoliageGBuffer.hlsl", "VSMain", ShaderStage::Vertex, vs) || !compileShaderFromContent("shaders/FoliageGBuffer.hlsl", "PSMain", ShaderStage::Pixel, ps))
         {
             destroy();
             return false;
@@ -644,7 +644,7 @@ namespace Dark
             D3D_SHADER_MACRO thermalMacros[3];
             makeThermalMacros("0.40", thermalMacros);
             ComPtr<ID3DBlob> thermalPs;
-            if (!compileShaderFromContent("shaders/FoliageGBuffer.hlsl", "PSMain", "ps_5_0", thermalPs, thermalMacros))
+            if (!compileShaderFromContent("shaders/FoliageGBuffer.hlsl", "PSMain", ShaderStage::Pixel, thermalPs, thermalMacros))
             {
                 destroy();
                 return false;
@@ -666,7 +666,7 @@ namespace Dark
             D3D_SHADER_MACRO uvMacros[3];
             makeUvMacros("0.08", uvMacros);
             ComPtr<ID3DBlob> uvPs;
-            if (!compileShaderFromContent("shaders/FoliageGBuffer.hlsl", "PSMain", "ps_5_0", uvPs, uvMacros))
+            if (!compileShaderFromContent("shaders/FoliageGBuffer.hlsl", "PSMain", ShaderStage::Pixel, uvPs, uvMacros))
             {
                 destroy();
                 return false;
@@ -743,8 +743,8 @@ namespace Dark
 
         ComPtr<ID3DBlob> depthVs;
         ComPtr<ID3DBlob> depthPs;
-        if (!compileShaderFromContent("shaders/FoliageDepth.hlsl", "VSMain", "vs_5_0", depthVs)
-            || !compileShaderFromContent("shaders/FoliageDepth.hlsl", "PSMain", "ps_5_0", depthPs))
+        if (!compileShaderFromContent("shaders/FoliageDepth.hlsl", "VSMain", ShaderStage::Vertex, depthVs)
+            || !compileShaderFromContent("shaders/FoliageDepth.hlsl", "PSMain", ShaderStage::Pixel, depthPs))
         {
             destroy();
             return false;
@@ -1024,10 +1024,10 @@ namespace Dark
         ComPtr<ID3DBlob> prefix;
         ComPtr<ID3DBlob> scatter;
         ComPtr<ID3DBlob> args;
-        if (!compileShaderFromContent("shaders/FoliageCull.hlsl", "CSCompact", "cs_5_0", compact)
-            || !compileShaderFromContent("shaders/FoliageCull.hlsl", "CSPrefix", "cs_5_0", prefix)
-            || !compileShaderFromContent("shaders/FoliageCull.hlsl", "CSScatter", "cs_5_0", scatter)
-            || !compileShaderFromContent("shaders/FoliageCull.hlsl", "CSArgs", "cs_5_0", args))
+        if (!compileShaderFromContent("shaders/FoliageCull.hlsl", "CSCompact", ShaderStage::Compute, compact)
+            || !compileShaderFromContent("shaders/FoliageCull.hlsl", "CSPrefix", ShaderStage::Compute, prefix)
+            || !compileShaderFromContent("shaders/FoliageCull.hlsl", "CSScatter", ShaderStage::Compute, scatter)
+            || !compileShaderFromContent("shaders/FoliageCull.hlsl", "CSArgs", ShaderStage::Compute, args))
             return logFoliageCullUnavailable();
 
         D3D12_COMPUTE_PIPELINE_STATE_DESC pso{};

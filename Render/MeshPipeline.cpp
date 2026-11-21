@@ -5,7 +5,6 @@
 #include "Render/ShaderCompile.h"
 #include "Core/Log.h"
 
-#include <d3dcompiler.h>
 
 namespace Dark
 {
@@ -121,7 +120,7 @@ namespace Dark
         const char* shader = gbuffer ? "shaders/BasicMeshGBuffer.hlsl" : "shaders/BasicMesh.hlsl";
         ComPtr<ID3DBlob> vs;
         ComPtr<ID3DBlob> ps;
-        if (!compileShaderFromContent(shader, "VSMain", "vs_5_0", vs) || !compileShaderFromContent(shader, "PSMain", "ps_5_0", ps))
+        if (!compileShaderFromContent(shader, "VSMain", ShaderStage::Vertex, vs) || !compileShaderFromContent(shader, "PSMain", ShaderStage::Pixel, ps))
         {
             return false;
         }
@@ -196,7 +195,7 @@ namespace Dark
             D3D_SHADER_MACRO thermalMacros[3];
             makeThermalMacros("0.41", thermalMacros);
             ComPtr<ID3DBlob> thermalPs;
-            if (!compileShaderFromContent(shader, "PSMain", "ps_5_0", thermalPs, thermalMacros))
+            if (!compileShaderFromContent(shader, "PSMain", ShaderStage::Pixel, thermalPs, thermalMacros))
             {
                 m_rootSignature.Reset();
                 return false;
@@ -211,7 +210,7 @@ namespace Dark
             D3D_SHADER_MACRO uvMacros[3];
             makeUvMacros("0.00", uvMacros);
             ComPtr<ID3DBlob> uvPs;
-            if (!compileShaderFromContent(shader, "PSMain", "ps_5_1", uvPs, uvMacros))
+            if (!compileShaderFromContent(shader, "PSMain", ShaderStage::Pixel, uvPs, uvMacros))
             {
                 m_rootSignature.Reset();
                 return false;

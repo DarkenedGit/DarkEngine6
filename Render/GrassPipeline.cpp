@@ -126,17 +126,17 @@ namespace Dark
         m_root->SetName(L"DE.Grass.Root");
 
         ComPtr<ID3DBlob> ps;
-        if (!compileShaderFromContent("shaders/GrassGBuffer.hlsl", "PSMain", "ps_5_0", ps))
+        if (!compileShaderFromContent("shaders/GrassGBuffer.hlsl", "PSMain", ShaderStage::Pixel, ps))
             return fail("pixel shader");
         D3D_SHADER_MACRO thermalMacros[3];
         makeThermalMacros("0.40", thermalMacros);
         ComPtr<ID3DBlob> thermalPs;
-        if (!compileShaderFromContent("shaders/GrassGBuffer.hlsl", "PSMain", "ps_5_0", thermalPs, thermalMacros))
+        if (!compileShaderFromContent("shaders/GrassGBuffer.hlsl", "PSMain", ShaderStage::Pixel, thermalPs, thermalMacros))
             return fail("thermal pixel shader");
         D3D_SHADER_MACRO uvMacros[3];
         makeUvMacros("0.08", uvMacros);
         ComPtr<ID3DBlob> uvPs;
-        if (!compileShaderFromContent("shaders/GrassGBuffer.hlsl", "PSMain", "ps_5_0", uvPs, uvMacros))
+        if (!compileShaderFromContent("shaders/GrassGBuffer.hlsl", "PSMain", ShaderStage::Pixel, uvPs, uvMacros))
             return fail("ultraviolet pixel shader");
 
         D3D12_INPUT_ELEMENT_DESC inputLayout[] = {
@@ -161,7 +161,7 @@ namespace Dark
             macros[0].Definition = lodDefs[lod];
 
             ComPtr<ID3DBlob> vs;
-            if (!compileShaderFromContent("shaders/GrassGBuffer.hlsl", "VSMain", "vs_5_0", vs, macros))
+            if (!compileShaderFromContent("shaders/GrassGBuffer.hlsl", "VSMain", ShaderStage::Vertex, vs, macros))
                 return fail("vertex shader");
 
             D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc{};

@@ -3,7 +3,6 @@
 #include "Render/ShaderCompile.h"
 #include "Core/Log.h"
 
-#include <d3dcompiler.h>
 
 namespace Dark
 {
@@ -68,8 +67,8 @@ namespace Dark
             return false;
 
         ComPtr<ID3DBlob> vs, ps;
-        if (!compileShaderFromContent("shaders/Particle.hlsl", "VSMain", "vs_5_0", vs)
-            || !compileShaderFromContent("shaders/Particle.hlsl", "PSMain", "ps_5_0", ps))
+        if (!compileShaderFromContent("shaders/Particle.hlsl", "VSMain", ShaderStage::Vertex, vs)
+            || !compileShaderFromContent("shaders/Particle.hlsl", "PSMain", ShaderStage::Pixel, ps))
             return false;
 
         D3D12_INPUT_ELEMENT_DESC layout[] = {

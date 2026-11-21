@@ -10,7 +10,6 @@
 
 #include <cmath>
 #include <cstring>
-#include <d3dcompiler.h>
 
 namespace Dark
 {
@@ -404,11 +403,11 @@ namespace Dark
             { "CLOUD_LAYER", "1" },
             { nullptr, nullptr },
         };
-        if (!compileShaderFromContent("shaders/Ssr.hlsl", "VSMain", "vs_5_0", vs, ssrMacros)
-            || !compileShaderFromContent("shaders/Ssr.hlsl", "PSTrace", "ps_5_0", psTrace, ssrMacros)
-            || !compileShaderFromContent("shaders/Ssr.hlsl", "PSUpsampleTemporal", "ps_5_0", psUp, ssrMacros)
-            || !compileShaderFromContent("shaders/Ssr.hlsl", "PSDownsample", "ps_5_0", psDown, ssrMacros)
-            || !compileShaderFromContent("shaders/Ssr.hlsl", "PSDebugConf", "ps_5_0", psDebug, ssrMacros))
+        if (!compileShaderFromContent("shaders/Ssr.hlsl", "VSMain", ShaderStage::Vertex, vs, ssrMacros)
+            || !compileShaderFromContent("shaders/Ssr.hlsl", "PSTrace", ShaderStage::Pixel, psTrace, ssrMacros)
+            || !compileShaderFromContent("shaders/Ssr.hlsl", "PSUpsampleTemporal", ShaderStage::Pixel, psUp, ssrMacros)
+            || !compileShaderFromContent("shaders/Ssr.hlsl", "PSDownsample", ShaderStage::Pixel, psDown, ssrMacros)
+            || !compileShaderFromContent("shaders/Ssr.hlsl", "PSDebugConf", ShaderStage::Pixel, psDebug, ssrMacros))
         {
             m_rootSignature.Reset();
             return false;

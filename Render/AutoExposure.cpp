@@ -8,7 +8,6 @@
 
 #include <cmath>
 #include <cstring>
-#include <d3dcompiler.h>
 
 namespace Dark
 {
@@ -254,9 +253,9 @@ bool AutoExposurePipeline::createPsos(ID3D12Device* device)
     ComPtr<ID3DBlob> vs;
     ComPtr<ID3DBlob> psReduce;
     ComPtr<ID3DBlob> psDown;
-    if (!compileShaderFromContent("shaders/AutoExposure.hlsl", "VSMain", "vs_5_0", vs)
-        || !compileShaderFromContent("shaders/AutoExposure.hlsl", "PSReduce", "ps_5_0", psReduce, reduceMacros)
-        || !compileShaderFromContent("shaders/AutoExposure.hlsl", "PSDownsample", "ps_5_0", psDown))
+    if (!compileShaderFromContent("shaders/AutoExposure.hlsl", "VSMain", ShaderStage::Vertex, vs)
+        || !compileShaderFromContent("shaders/AutoExposure.hlsl", "PSReduce", ShaderStage::Pixel, psReduce, reduceMacros)
+        || !compileShaderFromContent("shaders/AutoExposure.hlsl", "PSDownsample", ShaderStage::Pixel, psDown))
     {
         m_rootReduce.Reset();
         m_rootDownsample.Reset();

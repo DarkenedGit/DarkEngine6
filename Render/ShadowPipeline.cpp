@@ -3,7 +3,6 @@
 #include "Render/ShaderCompile.h"
 #include "Core/Log.h"
 
-#include <d3dcompiler.h>
 
 namespace Dark
 {
@@ -60,7 +59,7 @@ bool ShadowPipeline::create(ID3D12Device* device)
     }
 
     ComPtr<ID3DBlob> vs;
-    if (!compileShaderFromContent("shaders/ShadowDepth.hlsl", "VSMain", "vs_5_0", vs))
+    if (!compileShaderFromContent("shaders/ShadowDepth.hlsl", "VSMain", ShaderStage::Vertex, vs))
         return false;
 
     D3D12_INPUT_ELEMENT_DESC layout[] = {

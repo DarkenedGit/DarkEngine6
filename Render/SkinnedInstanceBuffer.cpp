@@ -212,8 +212,8 @@ namespace Dark
 
         ComPtr<ID3DBlob> vs;
         ComPtr<ID3DBlob> ps;
-        if (!compileShaderFromContent("shaders/SkinnedMeshGBufferInstanced.hlsl", "VSMain", "vs_5_0", vs)
-            || !compileShaderFromContent("shaders/SkinnedMeshGBufferInstanced.hlsl", "PSMain", "ps_5_0", ps))
+        if (!compileShaderFromContent("shaders/SkinnedMeshGBufferInstanced.hlsl", "VSMain", ShaderStage::Vertex, vs)
+            || !compileShaderFromContent("shaders/SkinnedMeshGBufferInstanced.hlsl", "PSMain", ShaderStage::Pixel, ps))
             return false;
 
         D3D12_INPUT_ELEMENT_DESC colorLayout[] = {
@@ -258,7 +258,7 @@ namespace Dark
             D3D_SHADER_MACRO thermalMacros[3];
             makeThermalMacros("0.72", thermalMacros);
             ComPtr<ID3DBlob> thermalPs;
-            if (!compileShaderFromContent("shaders/SkinnedMeshGBufferInstanced.hlsl", "PSMain", "ps_5_0", thermalPs, thermalMacros))
+            if (!compileShaderFromContent("shaders/SkinnedMeshGBufferInstanced.hlsl", "PSMain", ShaderStage::Pixel, thermalPs, thermalMacros))
                 return false;
             D3D12_GRAPHICS_PIPELINE_STATE_DESC thermalDesc = gbPsoDesc;
             thermalDesc.PS = { thermalPs->GetBufferPointer(), thermalPs->GetBufferSize() };
@@ -267,7 +267,7 @@ namespace Dark
             D3D_SHADER_MACRO uvMacros[3];
             makeUvMacros("0.30", uvMacros);
             ComPtr<ID3DBlob> uvPs;
-            if (!compileShaderFromContent("shaders/SkinnedMeshGBufferInstanced.hlsl", "PSMain", "ps_5_1", uvPs, uvMacros))
+            if (!compileShaderFromContent("shaders/SkinnedMeshGBufferInstanced.hlsl", "PSMain", ShaderStage::Pixel, uvPs, uvMacros))
                 return false;
             D3D12_GRAPHICS_PIPELINE_STATE_DESC uvDesc = gbPsoDesc;
             uvDesc.PS = { uvPs->GetBufferPointer(), uvPs->GetBufferSize() };
@@ -309,7 +309,7 @@ namespace Dark
             return false;
 
         ComPtr<ID3DBlob> depthVs;
-        if (!compileShaderFromContent("shaders/SkinnedShadowDepthInstanced.hlsl", "VSMain", "vs_5_0", depthVs))
+        if (!compileShaderFromContent("shaders/SkinnedShadowDepthInstanced.hlsl", "VSMain", ShaderStage::Vertex, depthVs))
             return false;
 
         D3D12_INPUT_ELEMENT_DESC shadowLayout[] = {

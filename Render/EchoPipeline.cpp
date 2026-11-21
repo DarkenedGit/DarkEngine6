@@ -7,7 +7,6 @@
 #include "Render/ShaderCompile.h"
 
 #include <cstring>
-#include <d3dcompiler.h>
 
 namespace Dark
 {
@@ -121,9 +120,9 @@ bool EchoPipeline::create(ID3D12Device* device)
     ComPtr<ID3DBlob> snapPs;
     ComPtr<ID3DBlob> compositePs;
     D3D_SHADER_MACRO snapMacro[2] = { { "ECHO_SNAPSHOT", "1" }, { nullptr, nullptr } };
-    if (!compileShaderFromContent("shaders/Echo.hlsl", "VSMain", "vs_5_0", vs)
-        || !compileShaderFromContent("shaders/Echo.hlsl", "PSSnapshot", "ps_5_0", snapPs, snapMacro)
-        || !compileShaderFromContent("shaders/Echo.hlsl", "PSComposite", "ps_5_0", compositePs))
+    if (!compileShaderFromContent("shaders/Echo.hlsl", "VSMain", ShaderStage::Vertex, vs)
+        || !compileShaderFromContent("shaders/Echo.hlsl", "PSSnapshot", ShaderStage::Pixel, snapPs, snapMacro)
+        || !compileShaderFromContent("shaders/Echo.hlsl", "PSComposite", ShaderStage::Pixel, compositePs))
     {
         m_snapRoot.Reset();
         m_compositeRoot.Reset();

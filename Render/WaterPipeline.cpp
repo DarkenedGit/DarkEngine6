@@ -10,7 +10,6 @@
 
 #include <cmath>
 #include <cstring>
-#include <d3dcompiler.h>
 
 namespace Dark
 {
@@ -215,8 +214,8 @@ bool WaterPipeline::create(ID3D12Device* device, DXGI_FORMAT colorFormat)
         { "CLOUD_LAYER", "1" },
         { nullptr, nullptr },
     };
-    if (!compileShaderFromContent("shaders/Water.hlsl", "VSMain", "vs_5_0", vs, waterMacros)
-        || !compileShaderFromContent("shaders/Water.hlsl", "PSMain", "ps_5_0", ps, waterMacros))
+    if (!compileShaderFromContent("shaders/Water.hlsl", "VSMain", ShaderStage::Vertex, vs, waterMacros)
+        || !compileShaderFromContent("shaders/Water.hlsl", "PSMain", ShaderStage::Pixel, ps, waterMacros))
     {
         return false;
     }

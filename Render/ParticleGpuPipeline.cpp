@@ -3,7 +3,6 @@
 #include "Render/ShaderCompile.h"
 #include "Core/Log.h"
 
-#include <d3dcompiler.h>
 
 namespace Dark
 {
@@ -101,9 +100,9 @@ namespace Dark
         ComPtr<ID3DBlob> csCopy;
         ComPtr<ID3DBlob> csInPlace;
         ComPtr<ID3DBlob> csConsume;
-        if (!compileShaderFromContent("shaders/ParticleSimulate.hlsl", "CSSimulate", "cs_5_0", csCopy)
-            || !compileShaderFromContent("shaders/ParticleSimulate.hlsl", "CSInPlace", "cs_5_0", csInPlace)
-            || !compileShaderFromContent("shaders/ParticleSimulate.hlsl", "CSConsume", "cs_5_0", csConsume))
+        if (!compileShaderFromContent("shaders/ParticleSimulate.hlsl", "CSSimulate", ShaderStage::Compute, csCopy)
+            || !compileShaderFromContent("shaders/ParticleSimulate.hlsl", "CSInPlace", ShaderStage::Compute, csInPlace)
+            || !compileShaderFromContent("shaders/ParticleSimulate.hlsl", "CSConsume", ShaderStage::Compute, csConsume))
         {
             destroy();
             return false;
@@ -184,8 +183,8 @@ namespace Dark
 
         ComPtr<ID3DBlob> vs;
         ComPtr<ID3DBlob> ps;
-        if (!compileShaderFromContent("shaders/ParticleBillboard.hlsl", "VSMain", "vs_5_0", vs)
-            || !compileShaderFromContent("shaders/Particle.hlsl", "PSMain", "ps_5_0", ps))
+        if (!compileShaderFromContent("shaders/ParticleBillboard.hlsl", "VSMain", ShaderStage::Vertex, vs)
+            || !compileShaderFromContent("shaders/Particle.hlsl", "PSMain", ShaderStage::Pixel, ps))
         {
             destroy();
             return false;

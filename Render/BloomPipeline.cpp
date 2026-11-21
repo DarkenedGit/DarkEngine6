@@ -5,7 +5,6 @@
 #include "Core/Log.h"
 #include "Math/MathHelper.h"
 
-#include <d3dcompiler.h>
 
 namespace Dark
 {
@@ -140,11 +139,11 @@ namespace Dark
         ComPtr<ID3DBlob> psDown;
         ComPtr<ID3DBlob> psUp;
         ComPtr<ID3DBlob> psComp;
-        if (!compileShaderFromContent("shaders/Bloom.hlsl", "VSMain", "vs_5_0", vs)
-            || !compileShaderFromContent("shaders/Bloom.hlsl", "PSExtract", "ps_5_0", psExtract)
-            || !compileShaderFromContent("shaders/Bloom.hlsl", "PSDownsample", "ps_5_0", psDown)
-            || !compileShaderFromContent("shaders/Bloom.hlsl", "PSUpsample", "ps_5_0", psUp)
-            || !compileShaderFromContent("shaders/Bloom.hlsl", "PSComposite", "ps_5_0", psComp))
+        if (!compileShaderFromContent("shaders/Bloom.hlsl", "VSMain", ShaderStage::Vertex, vs)
+            || !compileShaderFromContent("shaders/Bloom.hlsl", "PSExtract", ShaderStage::Pixel, psExtract)
+            || !compileShaderFromContent("shaders/Bloom.hlsl", "PSDownsample", ShaderStage::Pixel, psDown)
+            || !compileShaderFromContent("shaders/Bloom.hlsl", "PSUpsample", ShaderStage::Pixel, psUp)
+            || !compileShaderFromContent("shaders/Bloom.hlsl", "PSComposite", ShaderStage::Pixel, psComp))
         {
             m_rootSignature.Reset();
             return false;

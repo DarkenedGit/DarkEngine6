@@ -13,7 +13,6 @@
 #include "Render/SkinningUploadRing.h"
 
 #include <cstring>
-#include <d3dcompiler.h>
 
 namespace Dark
 {
@@ -126,9 +125,9 @@ namespace Dark
         ComPtr<ID3DBlob> vsSkinned;
         ComPtr<ID3DBlob> vsStatic;
         ComPtr<ID3DBlob> ps;
-        if (!compileShaderFromContent("shaders/Camouflage.hlsl", "VSMain", "vs_5_0", vsSkinned)
-            || !compileShaderFromContent("shaders/Camouflage.hlsl", "VSMainStatic", "vs_5_0", vsStatic)
-            || !compileShaderFromContent("shaders/Camouflage.hlsl", "PSMain", "ps_5_0", ps))
+        if (!compileShaderFromContent("shaders/Camouflage.hlsl", "VSMain", ShaderStage::Vertex, vsSkinned)
+            || !compileShaderFromContent("shaders/Camouflage.hlsl", "VSMainStatic", ShaderStage::Vertex, vsStatic)
+            || !compileShaderFromContent("shaders/Camouflage.hlsl", "PSMain", ShaderStage::Pixel, ps))
         {
             m_rootSignature.Reset();
             return false;

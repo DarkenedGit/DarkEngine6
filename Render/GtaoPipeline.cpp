@@ -7,7 +7,6 @@
 #include "Math/MathHelper.h"
 
 #include <cstring>
-#include <d3dcompiler.h>
 
 namespace Dark
 {
@@ -279,10 +278,10 @@ namespace Dark
         ComPtr<ID3DBlob> psGtao;
         ComPtr<ID3DBlob> psUp;
         ComPtr<ID3DBlob> psComp;
-        if (!compileShaderFromContent("shaders/Gtao.hlsl", "VSMain", "vs_5_0", vs)
-            || !compileShaderFromContent("shaders/Gtao.hlsl", "PSGtao", "ps_5_0", psGtao)
-            || !compileShaderFromContent("shaders/Gtao.hlsl", "PSUpsampleTemporal", "ps_5_0", psUp)
-            || !compileShaderFromContent("shaders/Gtao.hlsl", "PSCompose", "ps_5_0", psComp))
+        if (!compileShaderFromContent("shaders/Gtao.hlsl", "VSMain", ShaderStage::Vertex, vs)
+            || !compileShaderFromContent("shaders/Gtao.hlsl", "PSGtao", ShaderStage::Pixel, psGtao)
+            || !compileShaderFromContent("shaders/Gtao.hlsl", "PSUpsampleTemporal", ShaderStage::Pixel, psUp)
+            || !compileShaderFromContent("shaders/Gtao.hlsl", "PSCompose", ShaderStage::Pixel, psComp))
         {
             m_rootSignature.Reset();
             return false;

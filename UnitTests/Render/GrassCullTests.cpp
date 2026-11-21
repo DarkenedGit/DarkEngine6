@@ -3,11 +3,11 @@
 #include "Render/DepthState.h"
 #include "Render/GrassPipeline.h"
 #include "Render/ShaderCompile.h"
+#include "Render/RhiDevice.h"
 
 #include <d3d11shader.h>
 #include <d3d12.h>
-#include <d3dcompiler.h>
-#include <dxgi1_4.h>
+#include <d3d12shader.h>
 
 #include <cstring>
 
@@ -20,31 +20,21 @@ namespace
 
 ComPtr<ID3D12Device> tryWarpDevice()
 {
-    ComPtr<ID3D12Device> device;
-    ComPtr<IDXGIFactory4> factory;
-    if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))))
-        return {};
-    ComPtr<IDXGIAdapter> warp;
-    if (SUCCEEDED(factory->EnumWarpAdapter(IID_PPV_ARGS(&warp))))
-    {
-        if (SUCCEEDED(D3D12CreateDevice(warp.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device))))
-            return device;
-    }
-    return {};
+    return Dark::createWarpTestDevice();
 }
 
 bool cbufferBytes(ID3DBlob* blob, const char* name, UINT& outBytes)
 {
-    ComPtr<ID3D11ShaderReflection> reflect;
-    if (!blob || FAILED(D3DReflect(blob->GetBufferPointer(), blob->GetBufferSize(), IID_PPV_ARGS(&reflect))))
+    ComPtr<ID3D12ShaderReflection> reflect;
+    if (!blob || !Dark::reflectShader(blob, reflect))
         return false;
-    D3D11_SHADER_DESC desc{};
+    D3D12_SHADER_DESC desc{};
     if (FAILED(reflect->GetDesc(&desc)))
         return false;
     for (UINT i = 0; i < desc.ConstantBuffers; ++i)
     {
-        ID3D11ShaderReflectionConstantBuffer* cb = reflect->GetConstantBufferByIndex(i);
-        D3D11_SHADER_BUFFER_DESC              cbDesc{};
+        ID3D12ShaderReflectionConstantBuffer* cb = reflect->GetConstantBufferByIndex(i);
+        D3D12_SHADER_BUFFER_DESC              cbDesc{};
         if (!cb || FAILED(cb->GetDesc(&cbDesc)) || !cbDesc.Name)
             return false;
         if (std::strcmp(cbDesc.Name, name) == 0)
@@ -61,7 +51,7 @@ bool cbufferBytes(ID3DBlob* blob, const char* name, UINT& outBytes)
 TEST(GrassCull, ShadersCompile)
 {
     ComPtr<ID3DBlob> ps;
-    ASSERT_TRUE(compileShaderFromContent("shaders/GrassGBuffer.hlsl", "PSMain", "ps_5_0", ps));
+    ASSERT_TRUE(compileShaderFromContent("shaders/GrassGBuffer.hlsl", "PSMain", ShaderStage::Pixel, ps));
 
     const char* lods[] = { "0", "1", "2", "3" };
     for (const char* lod : lods)
@@ -70,7 +60,7 @@ TEST(GrassCull, ShadersCompile)
         macros[0].Name       = "GRASS_LOD";
         macros[0].Definition = lod;
         ComPtr<ID3DBlob> vs;
-        ASSERT_TRUE(compileShaderFromContent("shaders/GrassGBuffer.hlsl", "VSMain", "vs_5_0", vs, macros));
+        ASSERT_TRUE(compileShaderFromContent("shaders/GrassGBuffer.hlsl", "VSMain", ShaderStage::Vertex, vs, macros));
 
         UINT drawBytes = 0;
         ASSERT_TRUE(cbufferBytes(vs.Get(), "GrassDrawConstants", drawBytes));
@@ -80,9 +70,9 @@ TEST(GrassCull, ShadersCompile)
         ASSERT_TRUE(cbufferBytes(vs.Get(), "GrassFrameConstants", frameBytes));
         EXPECT_EQ(frameBytes, Terrain::kGrassFrameCbBytes);
 
-        ComPtr<ID3D11ShaderReflection> reflect;
-        ASSERT_TRUE(SUCCEEDED(D3DReflect(vs->GetBufferPointer(), vs->GetBufferSize(), IID_PPV_ARGS(&reflect))));
-        D3D11_SHADER_INPUT_BIND_DESC bind{};
+        ComPtr<ID3D12ShaderReflection> reflect;
+        ASSERT_TRUE(Dark::reflectShader(vs.Get(), reflect));
+        D3D12_SHADER_INPUT_BIND_DESC bind{};
         EXPECT_TRUE(SUCCEEDED(reflect->GetResourceBindingDescByName("gIndices", &bind)));
         EXPECT_EQ(bind.BindPoint, 2u);
     }
@@ -132,8 +122,8 @@ TEST(GrassCull, GraphicsPsoAcceptsBaseConstant)
     macros[0].Definition = "0";
     ComPtr<ID3DBlob> vs;
     ComPtr<ID3DBlob> ps;
-    ASSERT_TRUE(compileShaderFromContent("shaders/GrassGBuffer.hlsl", "VSMain", "vs_5_0", vs, macros));
-    ASSERT_TRUE(compileShaderFromContent("shaders/GrassGBuffer.hlsl", "PSMain", "ps_5_0", ps));
+    ASSERT_TRUE(compileShaderFromContent("shaders/GrassGBuffer.hlsl", "VSMain", ShaderStage::Vertex, vs, macros));
+    ASSERT_TRUE(compileShaderFromContent("shaders/GrassGBuffer.hlsl", "PSMain", ShaderStage::Pixel, ps));
 
     D3D12_INPUT_ELEMENT_DESC inputLayout[] = {
         { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },

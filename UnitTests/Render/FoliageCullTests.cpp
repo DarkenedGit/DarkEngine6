@@ -6,11 +6,11 @@
 #include "Render/Camera3D.h"
 #include "Render/FoliagePipeline.h"
 #include "Render/ShaderCompile.h"
+#include "Render/RhiDevice.h"
 
 #include <d3d11shader.h>
 #include <d3d12.h>
-#include <d3dcompiler.h>
-#include <dxgi1_4.h>
+#include <d3d12shader.h>
 
 #include <algorithm>
 #include <cstring>
@@ -47,31 +47,21 @@ void copyPlanes(const Frustum3f& frustum, float planes[6][4])
 
 ComPtr<ID3D12Device> tryWarpDevice()
 {
-    ComPtr<ID3D12Device> device;
-    ComPtr<IDXGIFactory4> factory;
-    if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))))
-        return {};
-    ComPtr<IDXGIAdapter> warp;
-    if (SUCCEEDED(factory->EnumWarpAdapter(IID_PPV_ARGS(&warp))))
-    {
-        if (SUCCEEDED(D3D12CreateDevice(warp.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device))))
-            return device;
-    }
-    return {};
+    return Dark::createWarpTestDevice();
 }
 
 bool cbufferBytes(ID3DBlob* blob, const char* name, UINT& outBytes)
 {
-    ComPtr<ID3D11ShaderReflection> reflect;
-    if (!blob || FAILED(D3DReflect(blob->GetBufferPointer(), blob->GetBufferSize(), IID_PPV_ARGS(&reflect))))
+    ComPtr<ID3D12ShaderReflection> reflect;
+    if (!blob || !Dark::reflectShader(blob, reflect))
         return false;
-    D3D11_SHADER_DESC desc{};
+    D3D12_SHADER_DESC desc{};
     if (FAILED(reflect->GetDesc(&desc)))
         return false;
     for (UINT i = 0; i < desc.ConstantBuffers; ++i)
     {
-        ID3D11ShaderReflectionConstantBuffer* cb = reflect->GetConstantBufferByIndex(i);
-        D3D11_SHADER_BUFFER_DESC              cbDesc{};
+        ID3D12ShaderReflectionConstantBuffer* cb = reflect->GetConstantBufferByIndex(i);
+        D3D12_SHADER_BUFFER_DESC              cbDesc{};
         if (!cb || FAILED(cb->GetDesc(&cbDesc)) || !cbDesc.Name)
             return false;
         if (std::strcmp(cbDesc.Name, name) == 0)
@@ -167,10 +157,10 @@ TEST(FoliageCull, ShadersCompile)
     ComPtr<ID3DBlob> args;
     ComPtr<ID3DBlob> prefix;
     ComPtr<ID3DBlob> scatter;
-    ASSERT_TRUE(compileShaderFromContent("shaders/FoliageCull.hlsl", "CSCompact", "cs_5_0", compact));
-    ASSERT_TRUE(compileShaderFromContent("shaders/FoliageCull.hlsl", "CSPrefix", "cs_5_0", prefix));
-    ASSERT_TRUE(compileShaderFromContent("shaders/FoliageCull.hlsl", "CSScatter", "cs_5_0", scatter));
-    ASSERT_TRUE(compileShaderFromContent("shaders/FoliageCull.hlsl", "CSArgs", "cs_5_0", args));
+    ASSERT_TRUE(compileShaderFromContent("shaders/FoliageCull.hlsl", "CSCompact", ShaderStage::Compute, compact));
+    ASSERT_TRUE(compileShaderFromContent("shaders/FoliageCull.hlsl", "CSPrefix", ShaderStage::Compute, prefix));
+    ASSERT_TRUE(compileShaderFromContent("shaders/FoliageCull.hlsl", "CSScatter", ShaderStage::Compute, scatter));
+    ASSERT_TRUE(compileShaderFromContent("shaders/FoliageCull.hlsl", "CSArgs", ShaderStage::Compute, args));
     UINT compactBytes = 0;
     UINT prefixBytes  = 0;
     UINT scatterBytes = 0;
@@ -188,10 +178,10 @@ TEST(FoliageCull, ShadersCompile)
     ComPtr<ID3DBlob> foliagePs;
     ComPtr<ID3DBlob> depthVs;
     ComPtr<ID3DBlob> depthPs;
-    ASSERT_TRUE(compileShaderFromContent("shaders/FoliageGBuffer.hlsl", "VSMain", "vs_5_0", foliageVs));
-    ASSERT_TRUE(compileShaderFromContent("shaders/FoliageGBuffer.hlsl", "PSMain", "ps_5_0", foliagePs));
-    ASSERT_TRUE(compileShaderFromContent("shaders/FoliageDepth.hlsl", "VSMain", "vs_5_0", depthVs));
-    ASSERT_TRUE(compileShaderFromContent("shaders/FoliageDepth.hlsl", "PSMain", "ps_5_0", depthPs));
+    ASSERT_TRUE(compileShaderFromContent("shaders/FoliageGBuffer.hlsl", "VSMain", ShaderStage::Vertex, foliageVs));
+    ASSERT_TRUE(compileShaderFromContent("shaders/FoliageGBuffer.hlsl", "PSMain", ShaderStage::Pixel, foliagePs));
+    ASSERT_TRUE(compileShaderFromContent("shaders/FoliageDepth.hlsl", "VSMain", ShaderStage::Vertex, depthVs));
+    ASSERT_TRUE(compileShaderFromContent("shaders/FoliageDepth.hlsl", "PSMain", ShaderStage::Pixel, depthPs));
     UINT partBytes = 0;
     UINT viewBytes = 0;
     UINT depthPart = 0;

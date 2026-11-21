@@ -7,7 +7,6 @@
 #include "Render/Renderer.h"
 #include "Render/ShaderCompile.h"
 
-#include <d3dcompiler.h>
 #include <cstring>
 
 namespace Dark
@@ -95,7 +94,7 @@ namespace Dark
 
         Microsoft::WRL::ComPtr<ID3DBlob> vs;
         Microsoft::WRL::ComPtr<ID3DBlob> ps;
-        if (!compileShaderFromContent("shaders/Walkability.hlsl", "VSMain", "vs_5_0", vs) || !compileShaderFromContent("shaders/Walkability.hlsl", "PSMain", "ps_5_0", ps))
+        if (!compileShaderFromContent("shaders/Walkability.hlsl", "VSMain", ShaderStage::Vertex, vs) || !compileShaderFromContent("shaders/Walkability.hlsl", "PSMain", ShaderStage::Pixel, ps))
             return false;
 
         D3D12_INPUT_ELEMENT_DESC inputLayout[] = {

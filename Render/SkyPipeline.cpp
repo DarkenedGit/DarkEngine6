@@ -139,13 +139,13 @@ bool SkyPipeline::create(ID3D12Device* device, DXGI_FORMAT colorFormat)
     ComPtr<ID3DBlob> psCloud;
     const char* vsEntry = "VSMainDeferred";
     // VS stays on CLOUD_LAYER 0 so a broken deck cannot take the sun disc with it.
-    if (!compileShaderFromContent("shaders/Sky.hlsl", vsEntry, "vs_5_0", vs, plainMacros)
-        || !compileShaderFromContent("shaders/Sky.hlsl", "PSMain", "ps_5_0", ps, plainMacros))
+    if (!compileShaderFromContent("shaders/Sky.hlsl", vsEntry, ShaderStage::Vertex, vs, plainMacros)
+        || !compileShaderFromContent("shaders/Sky.hlsl", "PSMain", ShaderStage::Pixel, ps, plainMacros))
     {
         m_rootSignature.Reset();
         return false;
     }
-    if (!compileShaderFromContent("shaders/Sky.hlsl", "PSMain", "ps_5_0", psCloud, cloudMacros))
+    if (!compileShaderFromContent("shaders/Sky.hlsl", "PSMain", ShaderStage::Pixel, psCloud, cloudMacros))
     {
         DE_LOG_ERROR(LogCategory::Render, "SkyPipeline: cloud layer shader failed; analytic sky stays");
         psCloud.Reset();
