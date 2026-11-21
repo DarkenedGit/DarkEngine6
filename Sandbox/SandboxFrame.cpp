@@ -1486,7 +1486,7 @@ void SandboxFrame::render()
         app().m_hud.m_menu.draw(app().renderer());
     uint32_t tableCount = 0;
     const PassNode* table = deferred ? sandboxDeferredPasses(tableCount) : sandboxForwardPasses(tableCount);
-    (void)passSequenceOk(table, tableCount, playedPasses, playedCount);
+    (void)validateHostPassSequence("Sandbox", table, tableCount, playedPasses, playedCount);
     frameJoinRender(app().jobs(), app().renderer().frameIndex());
     app().renderer().endFrame();
 }
