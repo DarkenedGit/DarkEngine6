@@ -50,6 +50,8 @@ namespace Dark
         }
         UINT64 bytes = 0;
         m_device->GetCopyableFootprints(&desc, 0, 1, 0, &m_captureFootprint, nullptr, nullptr, &bytes);
+        // RowPitch * (Height - 1) + rowBytes: the last row's pitch padding is not part of the buffer.
+        m_captureBytes = bytes;
         D3D12_HEAP_PROPERTIES heap{};
         heap.Type = D3D12_HEAP_TYPE_READBACK;
         D3D12_RESOURCE_DESC buffer{};
@@ -119,15 +121,22 @@ namespace Dark
         const UINT width  = m_captureFootprint.Footprint.Width;
         const UINT height = m_captureFootprint.Footprint.Height;
         const UINT pitch  = m_captureFootprint.Footprint.RowPitch;
-        const uint64_t size = static_cast<uint64_t>(pitch) * height;
-        if (size > (std::numeric_limits<SIZE_T>::max)())
+        const UINT packedPitch = width * 4;
+        // GetCopyableFootprints' total already counts the footprint offset (BaseOffset 0 here).
+        if (width == 0 || height == 0 || pitch < packedPitch
+            || m_captureBytes < m_captureFootprint.Offset + static_cast<uint64_t>(pitch) * (height - 1) + packedPitch)
+        {
+            DE_LOG_ERROR(LogCategory::Render, "Frame capture: unexpected readback footprint (pitch {}, width {}, bytes {})", pitch, width, m_captureBytes);
             return;
-        D3D12_RANGE range{ static_cast<SIZE_T>(m_captureFootprint.Offset), static_cast<SIZE_T>(m_captureFootprint.Offset + size) };
+        }
+        const uint64_t end = m_captureBytes;
+        if (end > (std::numeric_limits<SIZE_T>::max)())
+            return;
+        D3D12_RANGE range{ static_cast<SIZE_T>(m_captureFootprint.Offset), static_cast<SIZE_T>(end) };
         void*      mapped = nullptr;
         if (!captureHr(m_captureReadback->Map(0, &range, &mapped), "map readback"))
             return;
         // Copy to packed rows and force opaque alpha: swap-chain blending need not preserve it.
-        const UINT packedPitch = width * 4;
         std::vector<uint8_t> pixels(static_cast<size_t>(packedPitch) * height);
         const uint8_t* src = static_cast<const uint8_t*>(mapped) + m_captureFootprint.Offset;
         for (UINT y = 0; y < height; ++y)

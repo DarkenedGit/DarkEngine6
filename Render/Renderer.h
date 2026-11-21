@@ -312,6 +312,7 @@ namespace Dark
         ComPtr<ID3D12Fence>               m_fence;
         ComPtr<ID3D12Resource>            m_captureReadback;
         D3D12_PLACED_SUBRESOURCE_FOOTPRINT m_captureFootprint{};
+        UINT64                             m_captureBytes = 0; // GetCopyableFootprints total; the Map range
         std::filesystem::path             m_capturePath;
         bool                              m_capturePending = false;
         bool                              m_captureRecorded = false;
