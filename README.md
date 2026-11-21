@@ -10,7 +10,7 @@ This engine is still in progress. This README covers only what is in the tree to
 |--------|------|------|
 | `DarkFoundation` | static lib | `Math`, `Collision`, `ECS`, foundation `Core` (`Log`, `Paths`, `ContentRoots`, `UUID`) |
 | `DarkAssets` | static lib | `Assets/*` (WIC image decode, glTF via cgltf) |
-| `DarkRender` | static lib | `Render/*` + D3D12 / DXGI / `d3dcompiler`; PIX + NVTX markers when `DE_ENABLE_GPU_MARKERS` is on |
+| `DarkRender` | static lib | `Render/*` + D3D12 (Agility SDK headers) / DXGI / DXC (loaded at runtime) / `d3dcompiler` (FXC fallback only); PIX + NVTX markers when `DE_ENABLE_GPU_MARKERS` is on |
 | `DarkNet` | static lib | `Network/*` (`ws2_32`) |
 | `DarkGameplay` | static lib | `Weapons/*`, `Gameplay/*`, `Combat/*` |
 | `DarkEngine` | static lib | Umbrella: `AI`, `Animation`, `Audio`, `Character`, `Debug`, `Input`, `Media`, `Particles`, `Physics`, `Play`, `Save`, `Scene`, `Sky`, `Sprite`, `Terrain`, `Water`, the content database (`content/Content*.cpp`, top-level only), plus `Application` / `Window` / `MemoryTracker` and `Ui/MainMenu`. PUBLIC-links every layer; PRIVATE-links Box3D |
@@ -22,7 +22,7 @@ This engine is still in progress. This README covers only what is in the tree to
 
 Hosts link only `DarkEngine`. Each engine `.cpp` compiles in exactly one target. One exception to the folder rule: `Render/GrassPipeline.cpp` is compiled into `DarkEngine` instead of `DarkRender`, because it calls terrain code and `DarkRender` cannot link back into `DarkEngine`. The layer graph is documented at the top of `cmake/DarkEngineTargets.cmake`.
 
-Runtime HLSL lives in `content/shaders/`. It shows up in the IDE but is compiled at runtime, not at build time (see [Shaders](#shaders)).
+HLSL lives in `content/shaders/`. Debug builds, the Editor and UnitTests compile it at runtime with DXC; Release game exes load DXIL baked at build time (see [Shaders](#shaders)).
 
 ## What is in the tree
 
@@ -171,10 +171,11 @@ A save root has `packages`: `{ "id", "version" }` for each enabled package. Load
 What the build files require:
 
 - Windows (Win32, D3D12, XAudio2, XInput, Winsock)
+- To run: **Windows 11** (build 22000+), a GPU with D3D12 feature level 12_1, Shader Model 6.6, Resource Binding Tier 3 and enhanced barriers (minimum **NVIDIA GeForce RTX 2080** or equivalent), and NVIDIA driver **572.16+**. Every host checks this at startup and exits with a message box naming the failed check (`Render/StartupGate.*`, plan §3.15).
 - CMake **3.22+**
 - An MSVC toolchain with **C++23** support. Flags include `/W4 /WX /permissive-`, so warnings fail the build.
 - Git (Dear ImGui and GoogleTest are fetched with `FetchContent` on first configure)
-- Network access on first configure when `DE_ENABLE_GPU_MARKERS` is on (default). CMake downloads the WinPixEventRuntime NuGet package (see [Profiling](#profiling-pix-and-nsight)).
+- Network access on first configure. CMake downloads the Agility SDK and DXC NuGet packages, plus WinPixEventRuntime when `DE_ENABLE_GPU_MARKERS` is on (default). Each download is SHA-256 checked.
 
 The repo does not pin a Visual Studio or Windows SDK version.
 
@@ -192,7 +193,7 @@ Build everything (Debug):
 cmake --build build --config Debug
 ```
 
-Executables land in `build/bin/<Config>/`. On each build, `content/` is copied next to `Sandbox.exe`, `Sandbox2D.exe`, `Editor.exe`, and `UnitTests.exe`. `WinPixEventRuntime.dll` is copied next to every executable when GPU markers are on.
+Executables land in `build/bin/<Config>/`. On each build, `content/` is copied next to `Sandbox.exe`, `Sandbox2D.exe`, `Editor.exe`, and `UnitTests.exe`. `WinPixEventRuntime.dll` is copied next to every executable when GPU markers are on. Every executable also gets the Agility runtime in `D3D12/` (`D3D12Core.dll`, plus `d3d12SDKLayers.dll` in Debug). Exes that compile shaders at runtime get `dxc/` (`dxcompiler.dll`, `dxil.dll`); game exes get the baked shaders in `shaders/`. The per-exe setup is `de_host_exe` in `cmake/HostExe.cmake`.
 
 ### CMake options
 
@@ -218,6 +219,8 @@ Example: `cmake -S . -B ./build -DDE_ENABLE_GPU_MARKERS=OFF`.
 | FreeType VER-2-13-3 | `FetchContent` at configure (when `DE_ENABLE_FREETYPE=ON`, default ON) |
 | GoogleTest v1.15.2 | `FetchContent` at configure (tests only) |
 | WinPixEventRuntime 1.0.240308001 | NuGet download at configure (SHA-256 checked), into `build/_deps/` |
+| DirectX 12 Agility SDK 1.620.2 (`Microsoft.Direct3D.D3D12`, `D3D12_SDK_VERSION` 620) | NuGet download at configure (SHA-256 checked), `cmake/AgilitySdk.cmake`. Microsoft DirectX SDK license; `D3D12Core.dll` / `d3d12SDKLayers.dll` are redistributable, headers MIT |
+| DXC 1.9.2609.5 (`Microsoft.Direct3D.DXC`, release v1.9.2609) | NuGet download at configure (SHA-256 checked), `cmake/Dxc.cmake`. LLVM (NCSA) + MIT; `dxil.dll` under the Microsoft license, redistributable |
 
 Some art folders are gitignored (for example `content/models/BirchTree`, `NaturePack`, `Grass`, `RockMoss`, and some `content/audio/` folders). If a foliage model is missing, the renderer logs a warning and uses a procedural prototype instead.
 
@@ -309,7 +312,20 @@ Sandbox and Sandbox2D show a two-phase boot splash (engine logo, then host) in a
 
 ## Shaders
 
-HLSL is compiled at runtime from `content/shaders/` with **FXC** (`D3DCompile`, linked from `d3dcompiler`) at **Shader Model 5.0** (`vs_5_0`, `ps_5_0`, `cs_5_0`). See `Render/ShaderCompile.*`. Debug builds add `D3DCOMPILE_DEBUG` and skip optimization. Includes resolve relative to the shader file. Nothing is precompiled at build time, and DXC is not used. Compute passes (terrain erosion, instance cull, foliage cull) are also `cs_5_0`.
+HLSL lives in `content/shaders/`. Every permutation the engine compiles is listed in `content/shaders/shaders.manifest` (`<file> <entry> <vs|ps|cs> [NAME=VALUE,...]`, defines sorted by name). Call sites use `compileShaderFromContent(path, entry, ShaderStage::Pixel, blob, defines)`; the backend is chosen once per process (`Render/ShaderCompile.*`):
+
+- **DXC at runtime** (Debug builds of every exe, Editor and UnitTests in every config): `IDxcCompiler3` at **Shader Model 6.0** (`kShaderModelDxc` in `Render/ShaderKey.h`), HLSL 2021, strict (`-Ges`). Debug adds `-Od -Zi -Qembed_debug` so PIX and Nsight show HLSL source. DXC is loaded from `<exe dir>/dxc/` with `LoadLibrary`. Results are cached in `%LOCALAPPDATA%/DarkEngine6/ShaderCache/`, keyed by source, includes, entry, profile, defines, arguments and compiler version.
+- **Baked DXIL** (Release / RelWithDebInfo / MinSizeRel of Sandbox, Sandbox2D and VisualDebugger): the `de_shaders` target runs `dxc.exe` over the manifest at build time into `build/shaders/`, which is copied to `<exe dir>/shaders/`. These builds have no DXC DLLs. A permutation missing from the manifest fails with an error naming it (Debug logs a warning the first time code asks for one).
+- **FXC fallback** (`DE_SHADER_FXC=1`): `D3DCompile` at Shader Model 5.1, kept for DXC A/B comparison until the end of render-graph Phase 2.
+
+The boot splash shaders are embedded in the exe as byte arrays generated at build time (`cmake/EmbedShaders.cmake`).
+
+| Environment variable | Effect |
+|----------------------|--------|
+| `DE_SHADER_FXC=1` | Runtime-compiling exes use FXC instead of DXC |
+| `DE_SHADER_BAKED=1` | Load baked DXIL from `<exe dir>/shaders/` even where runtime DXC is available (exercises the Release path in Debug) |
+| `DE_SHADER_CACHE=0` | Turns off the DXC shader cache |
+| `DE_STARTUP_GATE_FAKE=<check>` | Fakes one startup-check failure to see its message: `os`, `agility`, `fl`, `sm`, `binding`, `barriers`, `driver` |
 
 ## Profiling (PIX and Nsight)
 
@@ -328,7 +344,7 @@ To capture, launch a host (for example `Sandbox.exe`) under PIX on Windows, Nsig
 | `DE_STABLE_GPU_POWER=1` | Calls `ID3D12Device::SetStablePowerState(TRUE)` to lock GPU clocks. Requires Windows Developer Mode. |
 | `DE_D3D12_DEBUG=0` | Skips the D3D12 debug layer in Debug builds |
 
-Debug builds also skip the debug layer by themselves when they detect a PIX or Nsight capture module. If no D3D12 hardware adapter is found, the renderer falls back to WARP.
+Debug builds also skip the debug layer by themselves when they detect a PIX or Nsight capture module. There is no WARP fallback: a machine that fails the startup check (see [Requirements](#requirements)) exits with a message. Unit tests use WARP at feature level 12_1.
 
 ### In-engine profiler
 
@@ -349,7 +365,7 @@ or through CTest:
 ctest --test-dir build -C Debug --output-on-failure
 ```
 
-Tests live under `UnitTests/<Module>/` (including `UnitTests/Play/`) and use GoogleTest (discovered with `gtest_discover_tests`, label `unit`). GPU tests (GTAO, SSR, terrain erosion, local shadows, profiling, draw lists and instancing, skinned instancing, foliage and grass, cloud layer, shader compile) create a D3D12 device on hardware or WARP, and skip when neither is available.
+Tests live under `UnitTests/<Module>/` (including `UnitTests/Play/`) and use GoogleTest (discovered with `gtest_discover_tests`, label `unit`). GPU tests (GTAO, SSR, terrain erosion, local shadows, profiling, draw lists and instancing, skinned instancing, foliage and grass, cloud layer, shader compile) create a WARP device at feature level 12_1 (`Dark::createWarpTestDevice`) and skip when WARP is not available. `ShaderManifestTests` checks that the manifest parses, covers every `.hlsl`, and that every line compiles with the runtime DXC.
 
 ## Layout
 
@@ -367,7 +383,7 @@ VisualDebugger/   remote perf / debug viewer
 UnitTests/        GoogleTest suite, one folder per module
 content/          runtime data and the content database. Top-level Content*.cpp is compiled into DarkEngine. Subfolders are data: shaders, scenes, archetypes, entities, input files, models, terrain, ai, skills, audio, items, quests, movies, ...
 third_party/      box2d, box3d, cgltf, nlohmann, nvtx
-cmake/            compiler options, layered targets, content copy, Version.h, WinPixEventRuntime
+cmake/            compiler options, layered targets, content copy, Version.h, NuGet packages (WinPixEventRuntime, Agility SDK, DXC), shader bake, de_host_exe
 docs/plans/       feature plans and notes
 scripts/          format, no-exceptions check, Sourcetrail setup, asset generators
 Pref/             Nsight Graphics project file
@@ -409,7 +425,7 @@ Full rules are in [`AGENTS.md`](AGENTS.md). Short version:
 
 ## Roadmap (planned, not implemented)
 
-- **Shader compiler:** move from FXC / SM 5.0 to DXC / SM 6.x. Today all shaders go through `D3DCompile`.
+- **Shader compiler:** DXC compiles at SM 6.0 today; the move to SM 6.6 and removing the FXC fallback come after the Windows A/B (render-graph plan Phase 2).
 - **Scripted behaviors:** Lua or Luau behaviors on archetypes. Mods today are data only (archetypes, items, statuses, loadouts, upgrades). A new component, status effect, or upgrade verb is still C++.
 - Open design drafts in the tree cover more work, for example `Render/DESIGN-pbr-roadmap.md`, `Render/DESIGN-color-management.md`, and `Audio/DESIGN-audio-system.md`. Check each doc's status line before assuming its state.
 
