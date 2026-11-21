@@ -154,27 +154,7 @@ const PassNode* sandboxDeferredPasses(uint32_t& count)
         makeNode(PassId::Clouds, nullptr, true, {}, { RenderResource::Hdr }),
         makeNode(PassId::Camouflage, nullptr, true, {}, { RenderResource::Hdr }),
         makeNode(PassId::Translucent, "Translucent", false, { RenderResource::Depth }, { RenderResource::Hdr }),
-        // GPU particles read this frame's Depth and, on HybridDeferred Bounce, Attrib. Lists stay empty so passSequenceOk is unchanged.
-        makeNode(PassId::Particles, "Particles", true, {}, { RenderResource::Hdr }),
-        makeNode(PassId::Underwater, "Underwater", true, { RenderResource::Hdr, RenderResource::Depth }, { RenderResource::Hdr }),
-        makeNode(PassId::Post, nullptr, false, { RenderResource::Hdr }, { RenderResource::Swap }),
-        makeNode(PassId::Overlay, nullptr, true, {}, { RenderResource::Swap }),
-    };
-    count = static_cast<uint32_t>(sizeof(kTable) / sizeof(kTable[0]));
-    return kTable;
-}
-
-const PassNode* sandboxForwardPasses(uint32_t& count)
-{
-    static const PassNode kTable[] = {
-        makeNode(PassId::Shadows, nullptr, true, {}, { RenderResource::Shadow }),
-        makeNode(PassId::LocalShadows, nullptr, true, {}, { RenderResource::LocalShadow }),
-        makeNode(PassId::Sky, nullptr, true, { RenderResource::Depth }, { RenderResource::Hdr }),
-        makeNode(PassId::SsrCapture, nullptr, true, { RenderResource::Hdr }, { RenderResource::Post }),
-        makeNode(PassId::Water, "Water", true, { RenderResource::Depth }, { RenderResource::Hdr }),
-        makeNode(PassId::Camouflage, nullptr, true, {}, { RenderResource::Hdr }),
-        makeNode(PassId::Translucent, "Translucent", false, { RenderResource::Depth }, { RenderResource::Hdr }),
-        // GPU particles read this frame's Depth. Forward has no Attrib. Lists stay empty so passSequenceOk is unchanged.
+        // GPU particles read this frame's Depth and, on Bounce, Attrib. Lists stay empty so passSequenceOk is unchanged.
         makeNode(PassId::Particles, "Particles", true, {}, { RenderResource::Hdr }),
         makeNode(PassId::Underwater, "Underwater", true, { RenderResource::Hdr, RenderResource::Depth }, { RenderResource::Hdr }),
         makeNode(PassId::Post, nullptr, false, { RenderResource::Hdr }, { RenderResource::Swap }),
@@ -202,25 +182,7 @@ const PassNode* editorDeferredPasses(uint32_t& count)
         makeNode(PassId::EditorGrid, "Editor Grid", true, {}, { RenderResource::Hdr }),
         makeNode(PassId::EditorGizmos, "Light Gizmos", true, {}, { RenderResource::Hdr }),
         makeNode(PassId::Translucent, "Translucent", false, { RenderResource::Depth }, { RenderResource::Hdr }),
-        // GPU particles read this frame's Depth and, on HybridDeferred Bounce, Attrib. Lists stay empty so passSequenceOk is unchanged.
-        makeNode(PassId::Particles, "Particles", true, {}, { RenderResource::Hdr }),
-        makeNode(PassId::Underwater, "Underwater", true, { RenderResource::Hdr, RenderResource::Depth }, { RenderResource::Hdr }),
-        makeNode(PassId::Post, nullptr, false, { RenderResource::Hdr }, { RenderResource::Swap }),
-        makeNode(PassId::Overlay, nullptr, true, {}, { RenderResource::Swap }),
-    };
-    count = static_cast<uint32_t>(sizeof(kTable) / sizeof(kTable[0]));
-    return kTable;
-}
-
-const PassNode* editorForwardPasses(uint32_t& count)
-{
-    static const PassNode kTable[] = {
-        makeNode(PassId::Shadows, nullptr, true, {}, { RenderResource::Shadow }),
-        makeNode(PassId::LocalShadows, nullptr, true, {}, { RenderResource::LocalShadow }),
-        makeNode(PassId::EditorGrid, "Editor Grid", true, {}, { RenderResource::Hdr }),
-        makeNode(PassId::EditorGizmos, "Light Gizmos", true, {}, { RenderResource::Hdr }),
-        makeNode(PassId::Translucent, "Translucent", false, { RenderResource::Depth }, { RenderResource::Hdr }),
-        // GPU particles read this frame's Depth. Forward has no Attrib. Lists stay empty so passSequenceOk is unchanged.
+        // GPU particles read this frame's Depth and, on Bounce, Attrib. Lists stay empty so passSequenceOk is unchanged.
         makeNode(PassId::Particles, "Particles", true, {}, { RenderResource::Hdr }),
         makeNode(PassId::Underwater, "Underwater", true, { RenderResource::Hdr, RenderResource::Depth }, { RenderResource::Hdr }),
         makeNode(PassId::Post, nullptr, false, { RenderResource::Hdr }, { RenderResource::Swap }),

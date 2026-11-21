@@ -7,7 +7,6 @@
 #include "Render/Renderer.h"
 #include "Render/ShadowCascades.h"
 #include "Render/TerrainPipeline.h"
-#include "Sky/Environment.h"
 #include "Terrain/TerrainLodFile.h"
 #include "Terrain/TerrainMaterial.h"
 
@@ -1339,30 +1338,6 @@ AABox3f TerrainGrid::shadowBounds(const Camera3D& camera) const
     return AABox3f(
         Vector3f(p.x - half, yMin, p.z - half),
         Vector3f(p.x + half, yMax, p.z + half));
-}
-
-void TerrainGrid::draw(
-    ID3D12GraphicsCommandList* cmd,
-    const TerrainPipeline& pipeline,
-    const TerrainMaterial& material,
-    const Camera3D& camera,
-    const Frustum3f* frustum,
-    const Sky::Environment* env,
-    const ShadowSystem* shadows,
-    const DebugRenderState* debug) const
-{
-    if (!m_valid || !cmd)
-        return;
-    for (int tz = 0; tz < static_cast<int>(m_tilesZ); ++tz)
-    {
-        for (int tx = 0; tx < static_cast<int>(m_tilesX); ++tx)
-        {
-            const TileSlot& slot = m_slots[tz][tx];
-            if (!slot.resident || !slot.heapPacked)
-                continue;
-            slot.world.draw(cmd, pipeline, material, camera, frustum, env, shadows, debug, &slot.heap);
-        }
-    }
 }
 
 void TerrainGrid::drawGBuffer(

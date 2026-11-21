@@ -25,17 +25,15 @@ bool FailedHr(HRESULT hr, const char* what)
     return true;
 }
 
-void makeSkyMacros(bool encodeSrgb, const char* cloudLayer, D3D_SHADER_MACRO out[3])
+void makeSkyMacros(const char* cloudLayer, D3D_SHADER_MACRO out[2])
 {
-    out[0].Name       = "ENCODE_SRGB";
-    out[0].Definition = encodeSrgb ? "1" : "0";
-    out[1].Name       = "CLOUD_LAYER";
-    out[1].Definition = cloudLayer;
-    out[2].Name       = nullptr;
-    out[2].Definition = nullptr;
+    out[0].Name       = "CLOUD_LAYER";
+    out[0].Definition = cloudLayer;
+    out[1].Name       = nullptr;
+    out[1].Definition = nullptr;
 }
 
-bool createSkyPso(ID3D12Device* device, ID3D12RootSignature* root, ID3DBlob* vs, ID3DBlob* ps, bool deferredLast, DXGI_FORMAT colorFormat, ComPtr<ID3D12PipelineState>& out)
+bool createSkyPso(ID3D12Device* device, ID3D12RootSignature* root, ID3DBlob* vs, ID3DBlob* ps, DXGI_FORMAT colorFormat, ComPtr<ID3D12PipelineState>& out)
 {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc{};
     psoDesc.pRootSignature = root;
@@ -48,9 +46,9 @@ bool createSkyPso(ID3D12Device* device, ID3D12RootSignature* root, ID3DBlob* vs,
     psoDesc.RasterizerState.CullMode        = D3D12_CULL_MODE_NONE;
     psoDesc.RasterizerState.DepthClipEnable = TRUE;
 
-    psoDesc.DepthStencilState.DepthEnable    = deferredLast ? TRUE : FALSE;
+    psoDesc.DepthStencilState.DepthEnable    = TRUE;
     psoDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
-    psoDesc.DepthStencilState.DepthFunc      = deferredLast ? skyDepthFunc() : D3D12_COMPARISON_FUNC_ALWAYS;
+    psoDesc.DepthStencilState.DepthFunc      = skyDepthFunc();
 
     psoDesc.InputLayout           = { nullptr, 0 };
     psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
@@ -64,7 +62,7 @@ bool createSkyPso(ID3D12Device* device, ID3D12RootSignature* root, ID3DBlob* vs,
 
 } // namespace
 
-bool SkyPipeline::create(ID3D12Device* device, SkyPass pass, DXGI_FORMAT colorFormat)
+bool SkyPipeline::create(ID3D12Device* device, DXGI_FORMAT colorFormat)
 {
     m_rootSignature.Reset();
     m_pso.Reset();
@@ -79,7 +77,6 @@ bool SkyPipeline::create(ID3D12Device* device, SkyPass pass, DXGI_FORMAT colorFo
         DE_LOG_ERROR(LogCategory::Render, "SkyPipeline::create: null device");
         return false;
     }
-    const bool deferredLast = pass == SkyPass::DeferredLast;
 
     D3D12_DESCRIPTOR_RANGE shadowRange{};
     shadowRange.RangeType                         = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
@@ -132,16 +129,15 @@ bool SkyPipeline::create(ID3D12Device* device, SkyPass pass, DXGI_FORMAT colorFo
     if (FailedHr(device->CreateRootSignature(0, rsBlob->GetBufferPointer(), rsBlob->GetBufferSize(), IID_PPV_ARGS(&m_rootSignature)), "CreateRootSignature (sky)"))
         return false;
 
-    const bool encode = encodeSrgbForColorFormat(colorFormat);
-    D3D_SHADER_MACRO plainMacros[3];
-    D3D_SHADER_MACRO cloudMacros[3];
-    makeSkyMacros(encode, "0", plainMacros);
-    makeSkyMacros(encode, "1", cloudMacros);
+    D3D_SHADER_MACRO plainMacros[2];
+    D3D_SHADER_MACRO cloudMacros[2];
+    makeSkyMacros("0", plainMacros);
+    makeSkyMacros("1", cloudMacros);
 
     ComPtr<ID3DBlob> vs;
     ComPtr<ID3DBlob> ps;
     ComPtr<ID3DBlob> psCloud;
-    const char* vsEntry = deferredLast ? "VSMainDeferred" : "VSMain";
+    const char* vsEntry = "VSMainDeferred";
     // VS stays on CLOUD_LAYER 0 so a broken deck cannot take the sun disc with it.
     if (!compileShaderFromContent("shaders/Sky.hlsl", vsEntry, "vs_5_0", vs, plainMacros)
         || !compileShaderFromContent("shaders/Sky.hlsl", "PSMain", "ps_5_0", ps, plainMacros))
@@ -155,13 +151,13 @@ bool SkyPipeline::create(ID3D12Device* device, SkyPass pass, DXGI_FORMAT colorFo
         psCloud.Reset();
     }
 
-    if (!createSkyPso(device, m_rootSignature.Get(), vs.Get(), ps.Get(), deferredLast, colorFormat, m_pso))
+    if (!createSkyPso(device, m_rootSignature.Get(), vs.Get(), ps.Get(), colorFormat, m_pso))
     {
         m_rootSignature.Reset();
         m_pso.Reset();
         return false;
     }
-    if (psCloud && !createSkyPso(device, m_rootSignature.Get(), vs.Get(), psCloud.Get(), deferredLast, colorFormat, m_psoCloud))
+    if (psCloud && !createSkyPso(device, m_rootSignature.Get(), vs.Get(), psCloud.Get(), colorFormat, m_psoCloud))
     {
         DE_LOG_ERROR(LogCategory::Render, "SkyPipeline: cloud layer PSO failed; analytic sky stays");
         m_psoCloud.Reset();
@@ -216,7 +212,7 @@ bool SkyPipeline::create(ID3D12Device* device, SkyPass pass, DXGI_FORMAT colorFo
     std::memset(m_skyMapped, 0, static_cast<size_t>(kSkySlotBytes) * kFrameCount);
     m_skyGpu = m_skyCb->GetGPUVirtualAddress();
 
-    DE_LOG_INFO(LogCategory::Render, "SkyPipeline: ready ({}, deck {})", deferredLast ? "DeferredLast" : "ForwardFirst", m_psoCloud ? "on" : "off");
+    DE_LOG_INFO(LogCategory::Render, "SkyPipeline: ready (DeferredLast, deck {})", m_psoCloud ? "on" : "off");
     return true;
 }
 

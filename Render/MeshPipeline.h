@@ -14,16 +14,9 @@ namespace Dark
 
     enum class MeshPass : uint8_t
     {
-        ForwardUnorm = 0,
-        GBuffer,
-        ForwardTransparent, // HDR or UNORM, alpha blend, depth write off
+        GBuffer = 0,
+        ForwardTransparent, // HDR scene color, alpha blend, depth write off, after deferred lighting
     };
-
-    inline DXGI_FORMAT meshPassColorFormat(MeshPass pass)
-    {
-        (void)pass;
-        return DXGI_FORMAT_R8G8B8A8_UNORM;
-    }
 
     // PSO + root signature for MeshGen meshes (pos/normal/uv/tangent) with a 5-slot material heap.
     class MeshPipeline
@@ -38,7 +31,7 @@ namespace Dark
         MeshPipeline() = default;
 
         // Build root signature + PSO. Returns false on failure (no exceptions).
-        bool create(ID3D12Device* device, MeshPass pass = MeshPass::ForwardUnorm, DXGI_FORMAT colorFormat = DXGI_FORMAT_R8G8B8A8_UNORM);
+        bool create(ID3D12Device* device, MeshPass pass, DXGI_FORMAT colorFormat = DXGI_FORMAT_R16G16B16A16_FLOAT);
 
         void bind(ID3D12GraphicsCommandList* cmd, DebugFill fill = DebugFill::Solid) const;
         void setThermal(bool on) { m_thermal = on; }

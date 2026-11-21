@@ -289,7 +289,7 @@ namespace Dark
             else if (tokenEq(tok, "-no-debug-levels"))
                 cfg.cliNoDebugLevels = true;
             else if (tokenEq(tok, "-forward"))
-                cfg.cliForward = true;
+                DE_LOG_WARN(LogCategory::Render, "parseAppCommandLine: -forward was removed; the 3D frame is always deferred");
             else if (tokenEq(tok, "-no-vsync"))
                 cfg.vsync = false;
             else if (tokenEq(tok, "-window"))
@@ -331,11 +331,6 @@ namespace Dark
             cfg.cliNoMenu   = true;
         }
         return true;
-    }
-
-    void applyDeferredScenePath(AppConfig& cfg, ScenePath whenEnabled)
-    {
-        cfg.scenePath = cfg.cliForward ? ScenePath::SwapChainForward : whenEnabled;
     }
 
     bool shouldShowSplash(const AppConfig& cfg, bool jsonEnabled)
@@ -828,6 +823,17 @@ namespace Dark
         }
 
         onShutdown();
+    }
+
+    bool Application::createSceneTargets()
+    {
+        if (m_renderer.createSceneTargets())
+            return true;
+        DE_LOG_FATAL(LogCategory::Render, "Required 3D scene targets could not be created; quitting");
+        MessageBoxW(nullptr, L"DarkEngine6 could not create the required 3D scene targets.\nSee DarkEngine6.log for details.",
+                    L"DarkEngine6 - renderer initialization failed", MB_OK | MB_ICONERROR);
+        requestQuit();
+        return false;
     }
 
     bool Application::loadCapturePreset()

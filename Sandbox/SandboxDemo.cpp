@@ -13,7 +13,6 @@
 #include "Render/MeshGen.h"
 #include "Render/ModelDraw.h"
 #include "Render/Profile.h"
-#include "Render/ScenePath.h"
 #include "Save/PersistentId.h"
 #include "Scene/EntityMaster.h"
 
@@ -344,9 +343,6 @@ void SandboxDemo::drawSkeletonOverlay(ID3D12GraphicsCommandList* cmd, const Matr
 
 void SandboxDemo::spawnHybridLocalLights()
 {
-    if (app().renderer().scenePath() != ScenePath::HybridDeferred)
-        return;
-
     app().m_play.muzzle() = app().world().createEntity();
     app().world().emplace<TagComponent>(app().m_play.muzzle(), "Muzzle");
     app().world().emplace<TransformComponent>(app().m_play.muzzle(), Vector3f{}, Quaternion::IDENTITY, Vector3f{ 1.0f, 1.0f, 1.0f });

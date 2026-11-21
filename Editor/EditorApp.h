@@ -225,8 +225,8 @@ private:
     void   ensurePlayReticle();
     WeaponLoadout* playWeapons();
     void   submitPlayProjectiles(std::vector<int>& rejected);
-    void   drawPlayProjectiles(ID3D12GraphicsCommandList* cmd, const Math::Matrix4f& viewProj, const Math::Matrix4f& prevViewProj, bool gbuffer, bool instanced,
-                               const MeshForwardBatchConstants* forwardBatch, const MeshFrameConstants* forwardLit, const std::vector<int>* rejectedShots);
+    void   drawPlayProjectiles(ID3D12GraphicsCommandList* cmd, const Math::Matrix4f& viewProj, const Math::Matrix4f& prevViewProj, bool instanced,
+                               const std::vector<int>* rejectedShots);
     void   spawnPlayPickups();
     void   releasePlayPickups();
     static void onPlayWeaponHitThunk(void* user, const Dark::WeaponHit& hit);

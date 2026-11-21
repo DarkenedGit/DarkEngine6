@@ -653,7 +653,7 @@ void EditorApp::handleEditorCommands(float dt)
             m_scene.localShadows().setDebugEnabled(shadowsOn);
             DE_LOG_INFO("Editor: shadows = {}", shadowsOn);
         }
-        if (input().actionPressed("debug_gbuffer") && renderer().hasGBuffer())
+        if (input().actionPressed("debug_gbuffer"))
         {
             m_showGBuffer = !m_showGBuffer;
             DE_LOG_INFO("Editor: G-buffer overlay = {}", m_showGBuffer);

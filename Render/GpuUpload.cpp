@@ -85,7 +85,7 @@ namespace Dark
             bindDummyIbl(renderer);
             return false;
         }
-        if (!renderer.hasGBuffer())
+        if (!renderer.hasSceneBuffers())
             return false;
 
         AssetRef<Image> img = assets.loadImage(ibl.virtualPath);

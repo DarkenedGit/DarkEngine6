@@ -21,7 +21,7 @@ namespace Dark
 
     } // namespace
 
-    bool TerrainPipeline::create(ID3D12Device* device, TerrainPass pass)
+    bool TerrainPipeline::create(ID3D12Device* device)
     {
         m_rootSignature.Reset();
         m_psoSolid.Reset();
@@ -38,22 +38,19 @@ namespace Dark
             return false;
         }
 
-        const bool gbuffer = pass == TerrainPass::GBuffer;
-
         D3D12_DESCRIPTOR_RANGE srvRange{};
         srvRange.RangeType                         = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-        srvRange.NumDescriptors                    = gbuffer ? kMapSrvCount : kSrvCount;
+        srvRange.NumDescriptors                    = kMapSrvCount;
         srvRange.BaseShaderRegister                = 0;
         srvRange.RegisterSpace                     = 0;
         srvRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-        D3D12_ROOT_PARAMETER rootParams[3]{};
+        D3D12_ROOT_PARAMETER rootParams[2]{};
         rootParams[kRootConstants].ParameterType            = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
         rootParams[kRootConstants].ShaderVisibility         = D3D12_SHADER_VISIBILITY_ALL;
         rootParams[kRootConstants].Constants.ShaderRegister = 0;
         rootParams[kRootConstants].Constants.RegisterSpace  = 0;
-        rootParams[kRootConstants].Constants.Num32BitValues =
-            gbuffer ? static_cast<UINT>(sizeof(TerrainGBufferConstants) / 4) : static_cast<UINT>(sizeof(TerrainFrameConstants) / 4);
+        rootParams[kRootConstants].Constants.Num32BitValues = static_cast<UINT>(sizeof(TerrainGBufferConstants) / 4);
 
         rootParams[kRootSrvTable].ParameterType                       = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
         rootParams[kRootSrvTable].ShaderVisibility                    = D3D12_SHADER_VISIBILITY_PIXEL;
@@ -87,16 +84,8 @@ namespace Dark
         samps[2].ShaderRegister   = 2;
         samps[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
-        UINT paramCount = 2;
-        UINT sampCount  = 3; // s0 wrap albedo, s1 shadow cmp, s2 clamp splat
-        if (!gbuffer)
-        {
-            rootParams[kRootShadowCbv].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_CBV;
-            rootParams[kRootShadowCbv].ShaderVisibility          = D3D12_SHADER_VISIBILITY_PIXEL;
-            rootParams[kRootShadowCbv].Descriptor.ShaderRegister = 1;
-            rootParams[kRootShadowCbv].Descriptor.RegisterSpace  = 0;
-            paramCount = 3;
-        }
+        const UINT paramCount = 2;
+        const UINT sampCount  = 3; // s0 wrap albedo, s1 shadow cmp, s2 clamp splat
 
         D3D12_ROOT_SIGNATURE_DESC rsDesc{};
         rsDesc.NumParameters     = paramCount;
@@ -119,13 +108,10 @@ namespace Dark
             return false;
         }
 
-        const char* shader = gbuffer ? "shaders/TerrainGBuffer.hlsl" : "shaders/Terrain.hlsl";
-        D3D_SHADER_MACRO encodeMacros[2];
-        makeEncodeSrgbMacros(!gbuffer && encodeSrgbForColorFormat(terrainPassColorFormat(pass)), encodeMacros);
-        const D3D_SHADER_MACRO* defines = gbuffer ? nullptr : encodeMacros;
+        const char* shader = "shaders/TerrainGBuffer.hlsl";
         ComPtr<ID3DBlob> vs;
         ComPtr<ID3DBlob> ps;
-        if (!compileShaderFromContent(shader, "VSMain", "vs_5_0", vs, defines) || !compileShaderFromContent(shader, "PSMain", "ps_5_0", ps, defines))
+        if (!compileShaderFromContent(shader, "VSMain", "vs_5_0", vs) || !compileShaderFromContent(shader, "PSMain", "ps_5_0", ps))
         {
             return false;
         }
@@ -156,21 +142,13 @@ namespace Dark
 
         psoDesc.InputLayout           = { inputLayout, _countof(inputLayout) };
         psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-        if (gbuffer)
-        {
-            psoDesc.NumRenderTargets = 4;
-            psoDesc.RTVFormats[0]    = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
-            psoDesc.RTVFormats[1]    = DXGI_FORMAT_R8G8B8A8_UNORM;
-            psoDesc.RTVFormats[2]    = DXGI_FORMAT_R16G16_FLOAT;
-            psoDesc.RTVFormats[3]    = DXGI_FORMAT_R8_UNORM;
-            psoDesc.BlendState.RenderTarget[2].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
-            psoDesc.BlendState.RenderTarget[3].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
-        }
-        else
-        {
-            psoDesc.NumRenderTargets = 1;
-            psoDesc.RTVFormats[0]    = terrainPassColorFormat(pass);
-        }
+        psoDesc.NumRenderTargets = 4;
+        psoDesc.RTVFormats[0]    = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+        psoDesc.RTVFormats[1]    = DXGI_FORMAT_R8G8B8A8_UNORM;
+        psoDesc.RTVFormats[2]    = DXGI_FORMAT_R16G16_FLOAT;
+        psoDesc.RTVFormats[3]    = DXGI_FORMAT_R8_UNORM;
+        psoDesc.BlendState.RenderTarget[2].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+        psoDesc.BlendState.RenderTarget[3].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
         psoDesc.DSVFormat             = DXGI_FORMAT_D32_FLOAT;
         psoDesc.SampleDesc            = { 1, 0 };
 
@@ -180,42 +158,38 @@ namespace Dark
             return false;
         }
 
-        if (gbuffer)
+        D3D_SHADER_MACRO thermalMacros[3];
+        makeThermalMacros("0.41", thermalMacros);
+        ComPtr<ID3DBlob> thermalPs;
+        if (!compileShaderFromContent(shader, "PSMain", "ps_5_0", thermalPs, thermalMacros))
         {
-            D3D_SHADER_MACRO thermalMacros[3];
-            makeThermalMacros("0.41", thermalMacros);
-            ComPtr<ID3DBlob> thermalPs;
-            if (!compileShaderFromContent(shader, "PSMain", "ps_5_0", thermalPs, thermalMacros))
-            {
-                m_rootSignature.Reset();
-                return false;
-            }
-            D3D12_GRAPHICS_PIPELINE_STATE_DESC thermalDesc = psoDesc;
-            thermalDesc.PS = { thermalPs->GetBufferPointer(), thermalPs->GetBufferSize() };
-            if (FailedHr(device->CreateGraphicsPipelineState(&thermalDesc, IID_PPV_ARGS(&m_psoThermal)), "CreateGraphicsPipelineState (terrain thermal)"))
-            {
-                m_rootSignature.Reset();
-                return false;
-            }
-            D3D_SHADER_MACRO uvMacros[3];
-            makeUvMacros("0.12", uvMacros);
-            ComPtr<ID3DBlob> uvPs;
-            if (!compileShaderFromContent(shader, "PSMain", "ps_5_0", uvPs, uvMacros))
-            {
-                m_rootSignature.Reset();
-                return false;
-            }
-            D3D12_GRAPHICS_PIPELINE_STATE_DESC uvDesc = psoDesc;
-            uvDesc.PS = { uvPs->GetBufferPointer(), uvPs->GetBufferSize() };
-            if (FailedHr(device->CreateGraphicsPipelineState(&uvDesc, IID_PPV_ARGS(&m_psoUv)), "CreateGraphicsPipelineState (terrain ultraviolet)"))
-            {
-                m_rootSignature.Reset();
-                return false;
-            }
+            m_rootSignature.Reset();
+            return false;
+        }
+        D3D12_GRAPHICS_PIPELINE_STATE_DESC thermalDesc = psoDesc;
+        thermalDesc.PS = { thermalPs->GetBufferPointer(), thermalPs->GetBufferSize() };
+        if (FailedHr(device->CreateGraphicsPipelineState(&thermalDesc, IID_PPV_ARGS(&m_psoThermal)), "CreateGraphicsPipelineState (terrain thermal)"))
+        {
+            m_rootSignature.Reset();
+            return false;
+        }
+        D3D_SHADER_MACRO uvMacros[3];
+        makeUvMacros("0.12", uvMacros);
+        ComPtr<ID3DBlob> uvPs;
+        if (!compileShaderFromContent(shader, "PSMain", "ps_5_0", uvPs, uvMacros))
+        {
+            m_rootSignature.Reset();
+            return false;
+        }
+        D3D12_GRAPHICS_PIPELINE_STATE_DESC uvDesc = psoDesc;
+        uvDesc.PS = { uvPs->GetBufferPointer(), uvPs->GetBufferSize() };
+        if (FailedHr(device->CreateGraphicsPipelineState(&uvDesc, IID_PPV_ARGS(&m_psoUv)), "CreateGraphicsPipelineState (terrain ultraviolet)"))
+        {
+            m_rootSignature.Reset();
+            return false;
         }
 
-        const char* passName = pass == TerrainPass::GBuffer ? "GBuffer" : "UNORM";
-        DE_LOG_INFO(LogCategory::Render, "TerrainPipeline: ready (14-slot metal-rough, solid/wire/point, {})", passName);
+        DE_LOG_INFO(LogCategory::Render, "TerrainPipeline: ready (13-slot metal-rough, solid/wire/point, GBuffer)");
         return true;
     }
 
@@ -229,13 +203,6 @@ namespace Dark
             return;
         cmd->SetGraphicsRootSignature(m_rootSignature.Get());
         cmd->SetPipelineState(pso);
-    }
-
-    void TerrainPipeline::setConstants(ID3D12GraphicsCommandList* cmd, const TerrainFrameConstants& constants) const
-    {
-        if (!cmd || !m_rootSignature)
-            return;
-        cmd->SetGraphicsRoot32BitConstants(kRootConstants, static_cast<UINT>(sizeof(TerrainFrameConstants) / 4), &constants, 0);
     }
 
     void TerrainPipeline::setGBufferConstants(ID3D12GraphicsCommandList* cmd, const TerrainGBufferConstants& constants) const

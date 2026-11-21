@@ -321,7 +321,7 @@ void EchoPipeline::transitionCopy(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE
 
 bool EchoPipeline::capture(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const EchoSnapshotFrame& frame)
 {
-    if (!cmd || !m_snapPso || !m_snapRoot || !renderer.hasGBuffer())
+    if (!cmd || !m_snapPso || !m_snapRoot || !renderer.hasSceneBuffers())
         return false;
     if (!ensureSnapshot(renderer))
         return false;
@@ -382,7 +382,7 @@ bool EchoPipeline::capture(ID3D12GraphicsCommandList* cmd, Renderer& renderer, c
 
 void EchoPipeline::composite(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const EchoCompositeFrame& frame)
 {
-    if (!cmd || !m_compositePso || !m_compositeRoot || !hasSnapshot() || !renderer.hasGBuffer())
+    if (!cmd || !m_compositePso || !m_compositeRoot || !hasSnapshot() || !renderer.hasSceneBuffers())
         return;
 
     ID3D12Device* device = renderer.device();

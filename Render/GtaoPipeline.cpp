@@ -528,7 +528,7 @@ namespace Dark
             }
             return;
         }
-        if (!renderer.hasGBuffer())
+        if (!renderer.hasSceneBuffers())
             return;
 
         ID3D12Device* device = renderer.device();

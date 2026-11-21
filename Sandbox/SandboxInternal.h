@@ -34,7 +34,6 @@ void attachSandboxCubeModel(Dark::World& world, Dark::AssetPinTable& pins, Dark:
 void copyMatrix(float dst[16], const Dark::Math::Matrix4f& m);
 Dark::Math::Matrix4f makeWorldMatrix(const Dark::TransformComponent& xf);
 bool useAcesTonemap(const Dark::Renderer& renderer);
-void fillForwardLighting(Dark::MeshForwardBatchConstants& dst, const Dark::MeshFrameConstants& src);
 void fillMeshGBufferXforms(Dark::MeshGBufferConstants& cb, const Dark::Math::Matrix4f& world, const Dark::Math::Matrix4f& viewProj, const Dark::Math::Matrix4f& prevViewProj, const Dark::Math::Matrix4f& prevWorld);
 void unpackRgba8(uint32_t rgba, float out[4]);
 const Dark::Mesh* sandboxPrimitiveMesh(Dark::PrimitiveMesh primitive, const Dark::Mesh& cube, const Dark::Mesh& cross);

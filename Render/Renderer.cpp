@@ -544,8 +544,7 @@ namespace Dark
 
         if (m_sceneBuffers)
         {
-            const bool gbuffer = m_scenePath == ScenePath::HybridDeferred;
-            if (!m_sceneBuffers->create(m_device.Get(), m_width, m_height, gbuffer, m_depthSrvCpu, m_clearColor))
+            if (!m_sceneBuffers->create(m_device.Get(), m_width, m_height, m_depthSrvCpu, m_clearColor))
             {
                 DE_LOG_ERROR(LogCategory::Render, "Renderer: SceneBuffers resize failed");
                 m_sceneBuffers.reset();
@@ -656,19 +655,6 @@ namespace Dark
         m_clearColor[1] = g;
         m_clearColor[2] = b;
         m_clearColor[3] = a;
-    }
-
-    void Renderer::bindSceneTargets()
-    {
-        if (!m_commandList)
-            return;
-        m_commandList->RSSetViewports(1, &m_viewport);
-        m_commandList->RSSetScissorRects(1, &m_scissor);
-
-        D3D12_CPU_DESCRIPTOR_HANDLE rtv = m_rtvHeap->GetCPUDescriptorHandleForHeapStart();
-        rtv.ptr += static_cast<SIZE_T>(m_frameIndex) * m_rtvDescriptorSize;
-        D3D12_CPU_DESCRIPTOR_HANDLE dsv = m_dsvHeap->GetCPUDescriptorHandleForHeapStart();
-        m_commandList->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
     }
 
     void Renderer::bindColorTargetOnly()
@@ -1213,40 +1199,26 @@ namespace Dark
         return hasSceneBuffers() ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_R8G8B8A8_UNORM;
     }
 
-    bool Renderer::enableSceneBuffers(ScenePath path)
+    bool Renderer::createSceneTargets()
     {
         if (!m_valid || !m_device)
         {
-            DE_LOG_ERROR(LogCategory::Render, "enableSceneBuffers: device not initialized");
+            DE_LOG_ERROR(LogCategory::Render, "createSceneTargets: device not initialized");
             return false;
         }
 
-        if (path == ScenePath::SwapChainForward)
-        {
-            if (m_sceneBuffers)
-            {
-                waitForGpu();
-                m_sceneBuffers.reset();
-            }
-            m_scenePath = ScenePath::SwapChainForward;
-            return true;
-        }
-
-        const bool gbuffer = path == ScenePath::HybridDeferred;
-        if (m_sceneBuffers && m_scenePath == path && m_sceneBuffers->matches(m_width, m_height, gbuffer))
+        if (m_sceneBuffers && m_sceneBuffers->matches(m_width, m_height))
             return true;
 
         waitForGpu();
         auto buffers = std::make_unique<SceneBuffers>();
-        if (!buffers->create(m_device.Get(), m_width, m_height, gbuffer, m_depthSrvCpu, m_clearColor))
+        if (!buffers->create(m_device.Get(), m_width, m_height, m_depthSrvCpu, m_clearColor))
         {
-            DE_LOG_ERROR(LogCategory::Render, "enableSceneBuffers: SceneBuffers create failed");
+            DE_LOG_ERROR(LogCategory::Render, "createSceneTargets: SceneBuffers create failed");
             m_sceneBuffers.reset();
-            m_scenePath = ScenePath::SwapChainForward;
             return false;
         }
         m_sceneBuffers = std::move(buffers);
-        m_scenePath    = path;
         m_sceneBuffers->setLightingAlbedoRaw(m_device.Get(), m_debugState.showAlbedoRaw);
         if (!m_fogHeightDummy)
             m_fogHeightDummy = std::make_unique<Texture2D>();
@@ -1259,9 +1231,8 @@ namespace Dark
         applyIblSrvs();
         ensureSsrDummyResources();
         setLightingSsrSrv(ssrDummyCpu());
-        if (path == ScenePath::HybridDeferred)
-            ensureIblBrdfLut();
-        DE_LOG_INFO(LogCategory::Render, "enableSceneBuffers: path={} {}x{}", static_cast<unsigned>(path), m_width, m_height);
+        ensureIblBrdfLut();
+        DE_LOG_INFO(LogCategory::Render, "createSceneTargets: {}x{}", m_width, m_height);
         return true;
     }
 
@@ -1366,11 +1337,6 @@ namespace Dark
         applyIblSrvs();
     }
 
-    bool Renderer::hasGBuffer() const
-    {
-        return m_sceneBuffers && m_sceneBuffers->hasGBuffer();
-    }
-
     void Renderer::setShadowSrv(D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu)
     {
         if (m_sceneBuffers)
@@ -1410,7 +1376,7 @@ namespace Dark
 
     void Renderer::bindGBuffer()
     {
-        if (!m_commandList || !m_sceneBuffers || !m_sceneBuffers->hasGBuffer())
+        if (!m_commandList || !m_sceneBuffers || !m_sceneBuffers->valid())
         {
             DE_LOG_ERROR(LogCategory::Render, "bindGBuffer: G-buffer not allocated");
             return;
@@ -1439,7 +1405,7 @@ namespace Dark
             return;
         }
 
-        if (!bindDepth && m_sceneBuffers->hasGBuffer())
+        if (!bindDepth)
         {
             m_sceneBuffers->transitionAlbedo(m_commandList.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
             m_sceneBuffers->transitionAttrib(m_commandList.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
@@ -1464,7 +1430,6 @@ namespace Dark
             m_commandList->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
 #if defined(_DEBUG)
             DE_ASSERT(m_depthState == D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-            if (m_sceneBuffers->hasGBuffer())
             {
                 DE_ASSERT(m_sceneBuffers->albedoState() == D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
                 DE_ASSERT(m_sceneBuffers->attribState() == D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
@@ -1514,38 +1479,19 @@ namespace Dark
         m_commandList->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
     }
 
-    void Renderer::bindSwapChainDepthCompute()
-    {
-        if (!m_commandList || !m_depthStencil || !m_dsvHeap || !m_rtvHeap)
-        {
-            DE_LOG_ERROR(LogCategory::Render, "bindSwapChainDepthCompute: no depth");
-            return;
-        }
-
-        transitionDepth(m_commandList.Get(), D3D12_RESOURCE_STATE_DEPTH_READ | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-        m_commandList->RSSetViewports(1, &m_viewport);
-        m_commandList->RSSetScissorRects(1, &m_scissor);
-
-        D3D12_CPU_DESCRIPTOR_HANDLE rtv = m_rtvHeap->GetCPUDescriptorHandleForHeapStart();
-        rtv.ptr += static_cast<SIZE_T>(m_frameIndex) * m_rtvDescriptorSize;
-        D3D12_CPU_DESCRIPTOR_HANDLE dsv = m_dsvHeap->GetCPUDescriptorHandleForHeapStart();
-        dsv.ptr += m_dsvDescriptorSize;
-        m_commandList->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
-    }
-
     ID3D12Resource* Renderer::albedoResource() const
     {
-        return (m_sceneBuffers && m_sceneBuffers->hasGBuffer()) ? m_sceneBuffers->albedo() : nullptr;
+        return (m_sceneBuffers && m_sceneBuffers->valid()) ? m_sceneBuffers->albedo() : nullptr;
     }
 
     ID3D12Resource* Renderer::attribResource() const
     {
-        return (m_sceneBuffers && m_sceneBuffers->hasGBuffer()) ? m_sceneBuffers->attrib() : nullptr;
+        return (m_sceneBuffers && m_sceneBuffers->valid()) ? m_sceneBuffers->attrib() : nullptr;
     }
 
     void Renderer::bindDecalTargets()
     {
-        if (!m_commandList || !m_sceneBuffers || !m_sceneBuffers->hasGBuffer() || !m_dsvHeap)
+        if (!m_commandList || !m_sceneBuffers || !m_sceneBuffers->valid() || !m_dsvHeap)
         {
             DE_LOG_ERROR(LogCategory::Render, "bindDecalTargets: no G-buffer");
             return;
@@ -1572,8 +1518,7 @@ namespace Dark
             return;
         }
         m_sceneBuffers->transitionHdr(m_commandList.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-        if (m_sceneBuffers->hasGBuffer())
-            m_sceneBuffers->transitionVelocity(m_commandList.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        m_sceneBuffers->transitionVelocity(m_commandList.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
         transitionDepth(m_commandList.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
         m_sceneBuffers->transitionPost(m_commandList.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
         m_commandList->RSSetViewports(1, &m_viewport);
@@ -1590,8 +1535,7 @@ namespace Dark
             return;
         }
         m_sceneBuffers->transitionPost(m_commandList.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-        if (m_sceneBuffers->hasGBuffer())
-            m_sceneBuffers->transitionVelocity(m_commandList.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        m_sceneBuffers->transitionVelocity(m_commandList.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
         transitionDepth(m_commandList.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
         m_sceneBuffers->transitionHdr(m_commandList.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
         m_commandList->RSSetViewports(1, &m_viewport);
@@ -1620,7 +1564,7 @@ namespace Dark
 
     void Renderer::clearGBuffer()
     {
-        if (!m_commandList || !m_sceneBuffers || !m_sceneBuffers->hasGBuffer())
+        if (!m_commandList || !m_sceneBuffers || !m_sceneBuffers->valid())
             return;
         m_commandList->ClearRenderTargetView(m_sceneBuffers->albedoRtv(), SceneBuffers::kAlbedoClear, 0, nullptr);
         m_commandList->ClearRenderTargetView(m_sceneBuffers->attribRtv(), SceneBuffers::kAttribClear, 0, nullptr);

@@ -14,21 +14,6 @@ namespace Dark
 {
 namespace
 {
-MeshPass liveMeshPass(const Renderer& r)
-{
-    return r.scenePath() == ScenePath::HybridDeferred ? MeshPass::GBuffer : MeshPass::ForwardUnorm;
-}
-
-TerrainPass liveTerrainPass(const Renderer& r)
-{
-    return r.scenePath() == ScenePath::HybridDeferred ? TerrainPass::GBuffer : TerrainPass::ForwardUnorm;
-}
-
-SkyPass liveSkyPass(const Renderer& r)
-{
-    return r.scenePath() == ScenePath::HybridDeferred ? SkyPass::DeferredLast : SkyPass::ForwardFirst;
-}
-
 void copyMatrix(float dst[16], const Math::Matrix4f& m)
 {
     m.store(dst);
@@ -84,7 +69,7 @@ void decalVolumeColor(DecalKind kind, float color[3])
 
 bool SceneRenderer::createCorePipelines(Renderer& renderer, const char* tag)
 {
-    if (!m_meshPipeline.create(renderer.device(), liveMeshPass(renderer)))
+    if (!m_meshPipeline.create(renderer.device(), MeshPass::GBuffer))
     {
         DE_LOG_FATAL("{}: MeshPipeline create failed", tag);
         return false;
@@ -95,9 +80,7 @@ bool SceneRenderer::createCorePipelines(Renderer& renderer, const char* tag)
         return false;
     }
 
-    const SkinnedMeshPass skinnedPass =
-        renderer.scenePath() == ScenePath::HybridDeferred ? SkinnedMeshPass::GBuffer : SkinnedMeshPass::Forward;
-    if (!m_skinnedPipeline.create(renderer.device(), skinnedPass))
+    if (!m_skinnedPipeline.create(renderer.device(), SkinnedMeshPass::GBuffer))
         DE_LOG_ERROR(LogCategory::Render, "{}: SkinnedMeshPipeline create failed; skinned parts skipped", tag);
     if (!m_skinnedTransparentPipeline.create(renderer.device(), SkinnedMeshPass::ForwardTransparent, renderer.sceneColorFormat()))
         DE_LOG_ERROR(LogCategory::Render, "{}: skinned transparent pipeline create failed", tag);
@@ -122,9 +105,6 @@ bool SceneRenderer::createCorePipelines(Renderer& renderer, const char* tag)
 
 bool SceneRenderer::createPostPipelines(Renderer& renderer, const char* tag)
 {
-    if (!renderer.hasSceneBuffers())
-        return true;
-
     if (!m_tonemap.create(renderer.device()))
     {
         DE_LOG_FATAL("{}: TonemapPipeline create failed", tag);
@@ -137,9 +117,6 @@ bool SceneRenderer::createPostPipelines(Renderer& renderer, const char* tag)
         m_ssrW = renderer.width();
         m_ssrH = renderer.height();
     }
-    if (renderer.scenePath() != ScenePath::HybridDeferred)
-        return true;
-
     if (!m_lighting.create(renderer.device()))
     {
         DE_LOG_FATAL("{}: DeferredLightingPipeline create failed", tag);
@@ -198,7 +175,7 @@ bool SceneRenderer::createPostPipelines(Renderer& renderer, const char* tag)
 
 bool SceneRenderer::createTerrainPipelineOnly(Renderer& renderer, const char* tag)
 {
-    if (!m_terrainPipeline.create(renderer.device(), liveTerrainPass(renderer)))
+    if (!m_terrainPipeline.create(renderer.device()))
     {
         DE_LOG_FATAL("{}: TerrainPipeline create failed", tag);
         return false;
@@ -219,7 +196,7 @@ bool SceneRenderer::createWorldEnvPipelines(Renderer& renderer, const char* tag)
         DE_LOG_FATAL("{}: WaterPipeline create failed", tag);
         return false;
     }
-    if (!m_skyPipeline.create(renderer.device(), liveSkyPass(renderer), renderer.sceneColorFormat()))
+    if (!m_skyPipeline.create(renderer.device(), renderer.sceneColorFormat()))
     {
         DE_LOG_FATAL("{}: SkyPipeline create failed", tag);
         return false;
@@ -231,6 +208,12 @@ bool SceneRenderer::createWorldEnvPipelines(Renderer& renderer, const char* tag)
 bool SceneRenderer::init(Renderer& renderer, const SceneRendererDesc& desc)
 {
     const char* tag = desc.logTag ? desc.logTag : "SceneRenderer";
+    // The 3D frame is always deferred (D2). Hosts create the scene targets first and quit if that fails.
+    if (!renderer.hasSceneBuffers())
+    {
+        DE_LOG_FATAL("{}: scene targets missing; call Renderer::createSceneTargets() before SceneRenderer::init", tag);
+        return false;
+    }
     m_autoExposureEnabled = desc.createAutoExposure;
     if (!createCorePipelines(renderer, tag))
         return false;
@@ -340,13 +323,11 @@ void SceneRenderer::shutdown()
 
 bool SceneRenderer::wantsTaa(const Renderer& renderer) const
 {
-    return renderer.scenePath() == ScenePath::HybridDeferred && renderer.debugState().taa && m_taa.isValid();
+    return renderer.debugState().taa && m_taa.isValid();
 }
 
 void SceneRenderer::ensureGtaoSize(Renderer& renderer, ID3D12GraphicsCommandList* cmd)
 {
-    if (renderer.scenePath() != ScenePath::HybridDeferred)
-        return;
     const uint32_t w = renderer.width();
     const uint32_t h = renderer.height();
     if (w == m_gtaoW && h == m_gtaoH)
@@ -413,7 +394,7 @@ void SceneRenderer::applyGtao(ID3D12GraphicsCommandList* cmd, Renderer& renderer
     GtaoSettings drawSettings = settings;
     drawSettings.enabled      = settings.enabled && renderer.debugState().ssaoEnabled;
 
-    const bool skip = !cmd || renderer.scenePath() != ScenePath::HybridDeferred || !renderer.hasGBuffer() || !drawSettings.enabled || !m_gtao.isValid()
+    const bool skip = !cmd || !drawSettings.enabled || !m_gtao.isValid()
         || renderer.device() == nullptr || renderer.depthSrvCpu().ptr == 0 || renderer.attribSrvCpu().ptr == 0 || renderer.velocitySrvCpu().ptr == 0
         || renderer.aoSrvCpu().ptr == 0;
     if (skip)
@@ -451,7 +432,7 @@ void SceneRenderer::applySsr(ID3D12GraphicsCommandList* cmd, Renderer& renderer,
     SsrSettings drawSettings = settings;
     drawSettings.enabled     = settings.enabled && renderer.debugState().ssrEnabled;
 
-    const bool skip = !cmd || renderer.scenePath() != ScenePath::HybridDeferred || !renderer.hasGBuffer() || !drawSettings.enabled || !m_ssr.isValid()
+    const bool skip = !cmd || !drawSettings.enabled || !m_ssr.isValid()
         || renderer.device() == nullptr || renderer.depthSrvCpu().ptr == 0 || renderer.attribSrvCpu().ptr == 0 || renderer.velocitySrvCpu().ptr == 0;
     if (skip)
     {
@@ -496,7 +477,7 @@ void SceneRenderer::resolveDeferred(ID3D12GraphicsCommandList* cmd, Renderer& re
     applyGtao(cmd, renderer, camera, *in.prevViewProj, *in.gtao);
     applySsr(cmd, renderer, camera, *in.prevViewProj, *in.ssr, in.ssrEnv);
     // applySsr may resize the history. Sample the enable bit after that.
-    fillSsrLightingConstants(lc, *in.ssr, renderer.debugState().ssrEnabled, m_ssr.isValid() && renderer.hasGBuffer());
+    fillSsrLightingConstants(lc, *in.ssr, renderer.debugState().ssrEnabled, m_ssr.isValid());
     drawDeferredLighting(cmd, renderer, lc);
     // A flashlight pool is visible light. Heat is already in the emissive meshes.
     if (!(lc.thermal > 1.0e-4f))
@@ -567,9 +548,8 @@ void SceneRenderer::storeDecalStats(uint32_t drawn, uint32_t culled, uint32_t in
 
 void SceneRenderer::drawDecals(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, const Math::Matrix4f& viewProj)
 {
-    // Off or forward: no marker and no UAV.
-    const bool deferred = renderer.scenePath() == ScenePath::HybridDeferred && renderer.hasGBuffer();
-    if (!cmd || !renderer.debugState().decalsEnabled || !deferred)
+    // Off: no marker and no UAV.
+    if (!cmd || !renderer.debugState().decalsEnabled)
     {
         storeDecalStats(0, 0, 0, 0);
         return;
@@ -717,10 +697,8 @@ bool SceneRenderer::syncAutoExposureSize(Renderer& renderer)
 void SceneRenderer::applyPost(Renderer& renderer, ID3D12GraphicsCommandList* cmd, const Math::Matrix4f& viewProj, TonemapSettings tonemap, bool meterAutoExposure,
                               bool holdTemporal)
 {
-    const bool deferred = renderer.scenePath() == ScenePath::HybridDeferred;
     const Math::Matrix4f prevViewProj = m_havePrevViewProj ? m_prevViewProj : viewProj;
 
-    if (deferred)
     {
         ensureGtaoSize(renderer, cmd);
         const uint32_t bw = renderer.width();
@@ -739,7 +717,6 @@ void SceneRenderer::applyPost(Renderer& renderer, ID3D12GraphicsCommandList* cmd
 
     // Resize waits stay outside so a CPU stall is not recorded as post GPU work.
     const GpuScope post(cmd, "Post", ProfileColor::Post);
-    if (deferred)
     {
         if (meterAutoExposure && m_autoExposure.isValid())
             m_autoExposure.meter(cmd, renderer);
@@ -768,7 +745,7 @@ void SceneRenderer::applyPost(Renderer& renderer, ID3D12GraphicsCommandList* cmd
         usedPostHdr       = true;
     }
 
-    const bool useMb = !holdTemporal && deferred && renderer.debugState().motionBlur && m_motionBlur.isValid();
+    const bool useMb = !holdTemporal && renderer.debugState().motionBlur && m_motionBlur.isValid();
     if (useMb)
     {
         MotionBlurSettings mb{};
@@ -781,12 +758,9 @@ void SceneRenderer::applyPost(Renderer& renderer, ID3D12GraphicsCommandList* cmd
         usedPostHdr = !useTaa;
     }
 
-    if (renderer.hasSceneBuffers())
-    {
-        renderer.bindColorTargetOnly();
-        tonemap.usePostHdr = usedPostHdr;
-        m_tonemap.draw(cmd, renderer, tonemap);
-    }
+    renderer.bindColorTargetOnly();
+    tonemap.usePostHdr = usedPostHdr;
+    m_tonemap.draw(cmd, renderer, tonemap);
 }
 
 } // namespace Dark

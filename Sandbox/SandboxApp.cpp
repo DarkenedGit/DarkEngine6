@@ -39,7 +39,6 @@
 #include "Network/Replication.h"
 #include "Render/DebugRenderState.h"
 #include "Render/Frustum3f.h"
-#include "Render/ScenePath.h"
 #include "Render/Fog.h"
 #include "Render/PassTable.h"
 #include "Render/Underwater.h"
@@ -133,7 +132,7 @@ static float sandboxSceneGroundY(void* user, float x, float z)
 
 bool useAcesTonemap(const Renderer& r)
 {
-    return r.hasSceneBuffers() && r.debugState().aces && r.debugState().lightingActive();
+    return r.debugState().aces && r.debugState().lightingActive();
 }
 
 AssetRef<Image> loadTerrainLayerMap(AssetManager& assets, const std::string& virtualPath, Dark::Color::ColorSpace space)
@@ -181,22 +180,6 @@ constexpr float kEchoBlendSeconds        = 0.5f;
 void copyMatrix(float dst[16], const Math::Matrix4f& m)
 {
     m.store(dst);
-}
-
-void fillForwardLighting(MeshForwardBatchConstants& dst, const MeshFrameConstants& src)
-{
-    dst.lightDirWS[0] = src.lightDirWS[0];
-    dst.lightDirWS[1] = src.lightDirWS[1];
-    dst.lightDirWS[2] = src.lightDirWS[2];
-    dst.ambientScale  = src.ambientScale;
-    dst.lightColor[0] = src.lightColor[0];
-    dst.lightColor[1] = src.lightColor[1];
-    dst.lightColor[2] = src.lightColor[2];
-    dst.padLight      = src.pad1;
-    dst.cameraPos[0]  = src.cameraPos[0];
-    dst.cameraPos[1]  = src.cameraPos[1];
-    dst.cameraPos[2]  = src.cameraPos[2];
-    dst.lighting      = src.lighting;
 }
 
 void fillMeshGBufferXforms(MeshGBufferConstants& cb, const Matrix4f& world, const Matrix4f& viewProj, const Matrix4f& prevViewProj, const Matrix4f& prevWorld)
@@ -593,7 +576,7 @@ void SandboxApp::registerDefaultActions()
         "Input: quit(Esc/Back) pause(F3/Start) freeze gameplay + fly cam  step(O)  reset(R/Y) speed(+/- / RB) "
         "possessed WASD/arrows/LS move, double-tap a direction to dodge, mouse+RS look, Space/A jump (tap again quickly for a higher jump), LMB/F/B attack, 1 melee  2 rifle, "
         "hold attack to charge, release to swing (tap = normal). Hold RMB/V/LT shield; hold longer then release to parry-slam. Ctrl crouch, C camouflage, G pickup / carry body, E takedown from behind, L flashlight, N night sight, H infrared, U ultraviolet, B echolocation, Shift/LB sprint, swim in water, "
-        "Y/R3 walk the wiggle demo  T talk  F2 lighting  F5 quicksave  F9 quickload  M dev tools  P profiler  -forward linear albedo + sRGB encode (legacyUnormAlbedo restores old sampling)  -no-menu skip the front menu  -no-debug-levels hides jump to level");
+        "Y/R3 walk the wiggle demo  T talk  F2 lighting  F5 quicksave  F9 quickload  M dev tools  P profiler  -no-menu skip the front menu  -no-debug-levels hides jump to level");
 }
 
 void SandboxApp::populateMainMenu()
@@ -1850,15 +1833,14 @@ void SandboxApp::onInit()
     registerDefaultActions();
     audio().setMasterVolume(loadMasterVolume(0.85f));
 
-    if (!renderer().enableSceneBuffers(config().scenePath))
-        DE_LOG_ERROR(LogCategory::Render, "SandboxApp: SceneBuffers enable failed; SwapChainForward");
-    if (renderer().scenePath() == ScenePath::HybridDeferred)
-        renderer().debugState().decalsEnabled = true;
+    if (!createSceneTargets())
+        return;
+    renderer().debugState().decalsEnabled = true;
 
     {
         SceneRendererDesc sceneDesc{};
         sceneDesc.createWorldEnvironment = true;
-        sceneDesc.createAutoExposure     = renderer().scenePath() == ScenePath::HybridDeferred;
+        sceneDesc.createAutoExposure     = true;
         sceneDesc.logTag = "SandboxApp";
         if (!m_frame.scene().init(renderer(), sceneDesc))
         {
@@ -2046,7 +2028,7 @@ void SandboxApp::onUpdate(float dt)
             tickSoundEmitters(world(), audio(), assets());
         m_frame.scene().tickDecals(world(), m_simDt);
     }
-    if (!m_movie.blocksWorld() && renderer().scenePath() == ScenePath::HybridDeferred)
+    if (!m_movie.blocksWorld())
         syncPlayerFlashlight(world(), possessedBody(), m_sceneWorld.camera.GetPosition(), m_sceneWorld.camera.GetLook(), m_sceneWorld.camera.GetRight(), m_sceneWorld.camera.GetUp(), m_play.runtime().offhand.lightOn);
 
     setViewAudioListener(audio(), m_sceneWorld.camera, &world(), possessedBody(), skillCatalog().enabled());

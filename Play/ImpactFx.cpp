@@ -9,7 +9,6 @@
 #include "Render/DecalBasis.h"
 #include "Render/DecalTypes.h"
 #include "Render/Renderer.h"
-#include "Render/ScenePath.h"
 #include "Render/SceneRenderer.h"
 #include "Terrain/TerrainGrid.h"
 #include "Terrain/TerrainGround.h"
@@ -21,7 +20,7 @@ namespace Dark
 
     bool impactDecalsReady(const ImpactFxHost& host)
     {
-        return host.renderer && host.scene && host.renderer->scenePath() == ScenePath::HybridDeferred && host.renderer->debugState().decalsEnabled && host.scene->decalsReady();
+        return host.renderer && host.scene && host.renderer->debugState().decalsEnabled && host.scene->decalsReady();
     }
 
     bool impactIsStepCue(const ImpactFxHost& host, Entity e, const char* cue)

@@ -70,8 +70,6 @@ uint32_t hostPassSequenceFailures();
 const char* passName(PassId id);
 
 const PassNode* sandboxDeferredPasses(uint32_t& count);
-const PassNode* sandboxForwardPasses(uint32_t& count);
 const PassNode* editorDeferredPasses(uint32_t& count);
-const PassNode* editorForwardPasses(uint32_t& count);
 
 } // namespace Dark

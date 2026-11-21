@@ -68,10 +68,8 @@ namespace Dark
             return false;
 
         ComPtr<ID3DBlob> vs, ps;
-        D3D_SHADER_MACRO encodeMacros[2];
-        makeEncodeSrgbMacros(encodeSrgbForColorFormat(colorFormat), encodeMacros);
-        if (!compileShaderFromContent("shaders/Particle.hlsl", "VSMain", "vs_5_0", vs, encodeMacros)
-            || !compileShaderFromContent("shaders/Particle.hlsl", "PSMain", "ps_5_0", ps, encodeMacros))
+        if (!compileShaderFromContent("shaders/Particle.hlsl", "VSMain", "vs_5_0", vs)
+            || !compileShaderFromContent("shaders/Particle.hlsl", "PSMain", "ps_5_0", ps))
             return false;
 
         D3D12_INPUT_ELEMENT_DESC layout[] = {

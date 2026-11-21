@@ -1038,7 +1038,7 @@ namespace Dark
                 const bool reacts = desc.collision != ParticleCollisionReaction::None;
                 // Orthographic skip: reverse-Z reconstruct is perspective. Integrate and draw still run.
                 job.collide = reacts && !ortho;
-                job.useAttrib = job.collide && desc.collision == ParticleCollisionReaction::Bounce && renderer.scenePath() == ScenePath::HybridDeferred && renderer.hasGBuffer() && !lateDepthWrite;
+                job.useAttrib = job.collide && desc.collision == ParticleCollisionReaction::Bounce && renderer.hasSceneBuffers() && !lateDepthWrite;
                 job.secondary = wantsSecondary(desc) && pool->descSlot >= 0 && pool->events[0] && pool->events[1] && pool->counters[0] && pool->counters[1] && pool->child[0] && pool->child[1] && pool->childHead;
                 job.childAdditive = desc.secondary.additiveBlend;
                 if (ortho && reacts && markOnce(m_loggedOrtho, id))
@@ -1081,10 +1081,7 @@ namespace Dark
         // Depth sample is this frame's R32_FLOAT. The binds stay transitions and OM only.
         if (!g_testHook)
         {
-            if (renderer.hasSceneBuffers())
-                renderer.bindHdrDepthCompute();
-            else
-                renderer.bindSwapChainDepthCompute();
+            renderer.bindHdrDepthCompute();
         }
 
         bool anyAttrib = false;

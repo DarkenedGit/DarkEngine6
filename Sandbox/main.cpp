@@ -22,7 +22,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR lpCmdLine, int)
     cfg.debugLevelJump  = true;
     Dark::parseNetCommandLine(lpCmdLine, cfg);
     Dark::parseAppCommandLine(lpCmdLine, cfg);
-    Dark::applyDeferredScenePath(cfg, Dark::ScenePath::HybridDeferred);
 
     SandboxApp app{cfg};
     if (!app.initOk())

@@ -36,7 +36,6 @@
 #include "Render/GpuResourceCache.h"
 #include "Render/PassTable.h"
 #include "Render/Profile.h"
-#include "Render/ScenePath.h"
 #include "Sky/Environment.h"
 
 #include "Ui/Icons.h"
@@ -1270,8 +1269,6 @@ void SandboxHud::drawDevTools()
     DebugRenderState& dbg = app().renderer().debugState();
     const float elevDeg   = app().m_sceneWorld.env.sunElevation() * 57.2957795f;
 
-    ImGui::TextUnformatted(app().renderer().scenePath() == ScenePath::HybridDeferred ? "Path: hybrid deferred" : "Path: forward");
-    ImGui::SameLine(0.0f, 16.0f);
     ImGui::Text("%.0f fps", static_cast<double>(ImGui::GetIO().Framerate));
     ImGui::Text("Draws %u  tris %u  sun %.1f deg", app().renderer().stats().drawCalls, app().renderer().stats().triangles, static_cast<double>(elevDeg));
     ImGui::Separator();
@@ -1305,7 +1302,6 @@ void SandboxHud::drawDevTools()
             DE_LOG_INFO("Sandbox: lighting = {}", dbg.lighting);
         ImGui::SameLine();
         ImGui::TextDisabled("F2");
-        if (app().renderer().hasGBuffer())
         {
             if (Dark::PropCheckbox("Local lights", &dbg.localLights))
                 DE_LOG_INFO("Sandbox: local lights = {}", dbg.localLights);
@@ -1342,14 +1338,12 @@ void SandboxHud::drawDevTools()
         }
         if (Dark::PropCheckbox("Depth tile", &app().m_showDepth))
             DE_LOG_INFO("Sandbox: depth overlay = {}", app().m_showDepth);
-        if (app().renderer().hasGBuffer())
         {
             if (Dark::PropCheckbox("G-buffer tiles", &app().m_showGBuffer))
                 DE_LOG_INFO("Sandbox: G-buffer overlay = {}", app().m_showGBuffer);
             if (Dark::PropCheckbox("Velocity tile", &app().m_showVelocity))
                 DE_LOG_INFO("Sandbox: velocity overlay = {}", app().m_showVelocity);
         }
-        if (app().renderer().hasSceneBuffers())
         {
             if (Dark::PropCheckbox("ACES tonemap", &dbg.aces))
                 DE_LOG_INFO("Sandbox: ACES = {}", dbg.aces);
@@ -1361,7 +1355,6 @@ void SandboxHud::drawDevTools()
                 app().m_frame.terrainMaterial().setLayerSamplingRaw(app().renderer().device(), dbg.legacyUnormAlbedo);
             DE_LOG_INFO("Sandbox: legacy UNORM albedo = {}", dbg.legacyUnormAlbedo);
         }
-        if (app().renderer().hasGBuffer())
         {
             if (Dark::PropCheckbox("Show albedo (linear)", &dbg.showAlbedoLinear))
                 DE_LOG_INFO("Sandbox: show albedo linear = {}", dbg.showAlbedoLinear);
@@ -1371,7 +1364,6 @@ void SandboxHud::drawDevTools()
                 DE_LOG_INFO("Sandbox: show albedo raw = {}", dbg.showAlbedoRaw);
             }
         }
-        if (app().renderer().hasGBuffer())
         {
             if (Dark::PropCheckbox("Bloom", &dbg.bloom))
                 DE_LOG_INFO("Sandbox: bloom = {}", dbg.bloom);
@@ -1426,7 +1418,7 @@ void SandboxHud::drawDevTools()
         ImGui::TextDisabled("C");
     }
 
-    if (app().renderer().hasGBuffer() && ImGui::CollapsingHeader("IBL", ImGuiTreeNodeFlags_DefaultOpen))
+    if (ImGui::CollapsingHeader("IBL", ImGuiTreeNodeFlags_DefaultOpen))
     {
         DebugRenderState& iblDbg = app().renderer().debugState();
         if (Dark::PropCheckbox("Enabled", &iblDbg.iblEnabled))
@@ -1448,7 +1440,7 @@ void SandboxHud::drawDevTools()
         ImGui::TextDisabled("Bake %s", app().m_sceneWorld.ibl.enabled ? "ready" : "off / failed");
     }
 
-    if (app().renderer().hasGBuffer() && ImGui::CollapsingHeader("SSAO", ImGuiTreeNodeFlags_DefaultOpen))
+    if (ImGui::CollapsingHeader("SSAO", ImGuiTreeNodeFlags_DefaultOpen))
     {
         ImGui::PushID("SSAO");
         DebugRenderState& ssaoDbg = app().renderer().debugState();
@@ -1472,14 +1464,9 @@ void SandboxHud::drawDevTools()
         ImGui::PopID();
     }
 
-    if (ImGui::CollapsingHeader("SSR", app().renderer().hasGBuffer() ? ImGuiTreeNodeFlags_DefaultOpen : 0))
+    if (ImGui::CollapsingHeader("SSR", ImGuiTreeNodeFlags_DefaultOpen))
     {
         ImGui::PushID("SSR");
-        if (!app().renderer().hasGBuffer())
-        {
-            ImGui::TextDisabled("HybridDeferred only");
-        }
-        else
         {
             DebugRenderState& ssrDbg = app().renderer().debugState();
             if (Dark::PropCheckbox("Enabled", &ssrDbg.ssrEnabled))
@@ -1547,7 +1534,7 @@ void SandboxHud::drawDevTools()
         ImGui::Text("Cover %.0f%%  exposure %.2f", static_cast<double>(app().m_sceneWorld.env.weather.cloudCoverage * 100.0f), static_cast<double>(app().m_sceneWorld.env.exposure()));
     }
 
-    if (app().renderer().hasGBuffer() && ImGui::CollapsingHeader("Exposure", ImGuiTreeNodeFlags_DefaultOpen))
+    if (ImGui::CollapsingHeader("Exposure", ImGuiTreeNodeFlags_DefaultOpen))
     {
         ImGui::PushID("Exposure");
         bool autoOn = app().m_frame.autoExposure().mode == ExposureMode::Auto;
@@ -1574,7 +1561,7 @@ void SandboxHud::drawDevTools()
         ImGui::PopID();
     }
 
-    if (app().renderer().hasGBuffer() && ImGui::CollapsingHeader("Cloud LOD", ImGuiTreeNodeFlags_DefaultOpen))
+    if (ImGui::CollapsingHeader("Cloud LOD", ImGuiTreeNodeFlags_DefaultOpen))
     {
         ImGui::PushID("CloudLOD");
         CloudLodSettings& lod = app().m_frame.cloudLod();

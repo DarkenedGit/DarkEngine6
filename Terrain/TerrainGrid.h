@@ -24,14 +24,8 @@ class Renderer;
 class Camera3D;
 class TerrainPipeline;
 class TerrainMaterial;
-class ShadowSystem;
 class Frustum3f;
 class GpuResourceCache;
-
-namespace Sky
-{
-class Environment;
-}
 
 namespace Terrain
 {
@@ -116,16 +110,6 @@ public:
     // Coarse R32F for fog/water setHeightSrv. Never a per-tile height SRV.
     const Texture2D& heightTexture() const { return m_heightTexture; }
     bool uploadCoarseHeightTexture(Renderer& renderer);
-
-    void draw(
-        ID3D12GraphicsCommandList* cmd,
-        const TerrainPipeline& pipeline,
-        const TerrainMaterial& material,
-        const Camera3D& camera,
-        const Frustum3f* frustum = nullptr,
-        const Sky::Environment* env = nullptr,
-        const ShadowSystem* shadows = nullptr,
-        const DebugRenderState* debug = nullptr) const;
 
     void drawGBuffer(
         ID3D12GraphicsCommandList* cmd,

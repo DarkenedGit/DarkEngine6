@@ -15,12 +15,6 @@ class ShadowSystem;
 
 using Microsoft::WRL::ComPtr;
 
-enum class SkyPass : uint8_t
-{
-    ForwardFirst = 0, // depth off, z=0, draw first (today / PR1)
-    DeferredLast,     // PR2: EQUAL, z=w, after lighting
-};
-
 struct SkyFrameConstants
 {
     float cameraPos[3];
@@ -77,11 +71,12 @@ public:
 
     SkyPipeline() = default;
 
-    bool create(ID3D12Device* device, SkyPass pass = SkyPass::ForwardFirst, DXGI_FORMAT colorFormat = DXGI_FORMAT_R8G8B8A8_UNORM);
+    // Sky draws last, after deferred lighting: depth EQUAL against the cleared far plane, into HDR scene color.
+    bool create(ID3D12Device* device, DXGI_FORMAT colorFormat);
     void setShadowSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu);
 
     void bind(ID3D12GraphicsCommandList* cmd) const;
-    // Writes slot frameIndex % 2. exposure < 0 uses Environment::exposure(). Pass 1 on HybridDeferred.
+    // Writes slot frameIndex % 2. exposure < 0 uses Environment::exposure(). Hosts pass 1: tonemap owns exposure.
     void upload(uint32_t frameIndex, const Camera3D& camera, const Sky::Environment& env, float exposure = -1.0f, float waterLevel = 0.0f, float fogScale = 1.0f, float thermal = 0.0f, float ultraviolet = 0.0f);
     void draw(ID3D12GraphicsCommandList* cmd, uint32_t frameIndex, const ShadowSystem* shadows = nullptr) const;
 

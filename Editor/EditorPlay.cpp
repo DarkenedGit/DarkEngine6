@@ -638,8 +638,7 @@ void EditorApp::setPlayMode(bool play)
         ensurePlayGear();
         m_gizmoDragAxis    = EditorDetail::TranslateGizmoAxis::None;
         m_dragging         = false;
-        if (renderer().scenePath() == ScenePath::HybridDeferred)
-            ensurePlayMuzzle(world(), m_play.muzzle(), m_play.feedback().muzzleTimer);
+        ensurePlayMuzzle(world(), m_play.muzzle(), m_play.feedback().muzzleTimer);
         bindPlayFeedback();
         m_playMode = true;
         ensurePhysicsWorld();

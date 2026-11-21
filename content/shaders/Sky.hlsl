@@ -3,9 +3,6 @@
 #pragma pack_matrix(row_major)
 
 #include "Color.hlsli"
-#ifndef ENCODE_SRGB
-#define ENCODE_SRGB 0
-#endif
 
 #define SHADOW_T t0
 #include "Shadow.hlsli"
@@ -71,11 +68,6 @@ PSInput VSCommon(uint id, float clipZ)
     return o;
 }
 
-PSInput VSMain(uint id : SV_VertexID)
-{
-    return VSCommon(id, 0.0f);
-}
-
 PSInput VSMainDeferred(uint id : SV_VertexID)
 {
     return VSCommon(id, 0.0f);
@@ -131,5 +123,5 @@ float4 PSMain(PSInput input) : SV_TARGET
         float disk = smoothstep(0.9995f, 0.99985f, saturate(dot(dir, sun)));
         sky = lerp(sky, thermalFalseColor(lerp(kThermalSky, 1.0f, disk)), saturate(thermal));
     }
-    return float4(encodeSceneRgb(sky), 1.0f);
+    return float4(sky, 1.0f);
 }

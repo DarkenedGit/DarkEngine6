@@ -55,7 +55,7 @@ void fillSkyEval(SkyEvalParams& out, const Sky::Environment* env)
     out.windDir[0]    = env->weather.windDir.x;
     out.windDir[1]    = env->weather.windDir.y;
     out.sunElevation  = env->sunElevation();
-    out.exposure      = 1.0f; // HybridDeferred sky pass: tonemap owns exposure
+    out.exposure      = 1.0f; // deferred sky pass: tonemap owns exposure
     out.cloudTime     = env->timeOfDay;
     Sky::CloudLayerGpu layer{};
     Sky::writeCloudLayer(layer, *env);
@@ -211,9 +211,7 @@ bool WaterPipeline::create(ID3D12Device* device, DXGI_FORMAT colorFormat)
 
     ComPtr<ID3DBlob> vs;
     ComPtr<ID3DBlob> ps;
-    const bool encode = encodeSrgbForColorFormat(colorFormat);
-    D3D_SHADER_MACRO waterMacros[3] = {
-        { "ENCODE_SRGB", encode ? "1" : "0" },
+    D3D_SHADER_MACRO waterMacros[2] = {
         { "CLOUD_LAYER", "1" },
         { nullptr, nullptr },
     };

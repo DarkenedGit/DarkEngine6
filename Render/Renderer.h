@@ -1,7 +1,6 @@
 #pragma once
 #include "Render/DebugRenderState.h"
 #include "Render/DepthState.h"
-#include "Render/ScenePath.h"
 #include "Core/UiPalette.h"
 
 #include <cstdint>
@@ -187,7 +186,6 @@ namespace Dark
             return m_stats;
         }
 
-        void bindSceneTargets();
         void bindColorTargetOnly();
         void setClearColor(float r, float g, float b, float a = 1.0f);
         const float* clearColor() const { return m_clearColor; }
@@ -204,18 +202,17 @@ namespace Dark
         const D3D12_VIEWPORT& viewport() const { return m_viewport; }
         const D3D12_RECT&     scissor() const { return m_scissor; }
 
-        bool      enableSceneBuffers(ScenePath path);
-        ScenePath scenePath() const { return m_scenePath; }
-        bool      hasSceneBuffers() const;
+        // HDR + G-buffer targets for the 3D hosts (Sandbox, Editor). A 3D host treats failure as a fatal init error.
+        // 2D hosts never call it and draw straight to the swap chain.
+        bool        createSceneTargets();
+        bool        hasSceneBuffers() const;
         DXGI_FORMAT sceneColorFormat() const;
 
         void bindGBuffer();
         void bindHdr(bool bindDepth);
         void bindHdrDepthRead();
-        // OM only. HybridDeferred HDR target, read-only scene depth. No particle arguments.
+        // OM only. HDR target, read-only scene depth. No particle arguments.
         void bindHdrDepthCompute();
-        // OM only. Keeps the swap-chain RTV. No particle arguments.
-        void bindSwapChainDepthCompute();
         void bindDecalTargets();
         void bindPostHdr();
         void bindHdrColorTarget();
@@ -257,7 +254,6 @@ namespace Dark
         D3D12_GPU_DESCRIPTOR_HANDLE ssrTableGpu() const;
         D3D12_GPU_DESCRIPTOR_HANDLE localShadowTableGpu() const;
         ID3D12DescriptorHeap*       lightingHeap() const;
-        bool hasGBuffer() const;
 
         DebugRenderState&       debugState() { return m_debugState; }
         const DebugRenderState& debugState() const { return m_debugState; }
@@ -346,7 +342,6 @@ namespace Dark
         bool             m_shadowListRecorded  = false;
         bool             m_frameSubmitted      = false;
         bool             m_profileFrame    = false;
-        ScenePath        m_scenePath       = ScenePath::SwapChainForward;
         std::unique_ptr<SceneBuffers>     m_sceneBuffers;
         std::unique_ptr<Texture2D>        m_fogHeightDummy;
         std::unique_ptr<Texture2D>        m_iblBrdfLut;

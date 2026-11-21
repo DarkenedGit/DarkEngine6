@@ -48,16 +48,16 @@ namespace Dark
         static constexpr float kAoClear[4]       = { 1.0f, 0.0f, 0.0f, 0.0f };
 
         // hdrClear is display-referred (same space as Renderer::setClearColor / swapchain). RGB is converted to linear for the HDR target.
-        bool create(ID3D12Device* device, uint32_t width, uint32_t height, bool gbuffer, D3D12_CPU_DESCRIPTOR_HANDLE depthSrvCpu, const float hdrClear[4]);
+        // HDR, G-buffer, velocity, post, AO and TAA history. There is no HDR-only mode (forward path removed, D2).
+        bool create(ID3D12Device* device, uint32_t width, uint32_t height, D3D12_CPU_DESCRIPTOR_HANDLE depthSrvCpu, const float hdrClear[4]);
         void reset();
 
-        bool     valid() const { return m_hdr != nullptr; }
-        bool     hasGBuffer() const { return m_albedo != nullptr && m_ao != nullptr; }
+        bool     valid() const { return m_hdr != nullptr && m_albedo != nullptr && m_ao != nullptr; }
         uint32_t width() const { return m_width; }
         uint32_t height() const { return m_height; }
-        bool     matches(uint32_t width, uint32_t height, bool gbuffer) const
+        bool     matches(uint32_t width, uint32_t height) const
         {
-            return valid() && m_width == width && m_height == height && hasGBuffer() == gbuffer;
+            return valid() && m_width == width && m_height == height;
         }
 
         ID3D12Resource*             hdr() const { return m_hdr.Get(); }

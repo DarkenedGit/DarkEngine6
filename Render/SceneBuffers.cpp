@@ -174,7 +174,7 @@ namespace Dark
         return true;
     }
 
-    bool SceneBuffers::create(ID3D12Device* device, uint32_t width, uint32_t height, bool gbuffer, D3D12_CPU_DESCRIPTOR_HANDLE depthSrvCpu, const float hdrClear[4])
+    bool SceneBuffers::create(ID3D12Device* device, uint32_t width, uint32_t height, D3D12_CPU_DESCRIPTOR_HANDLE depthSrvCpu, const float hdrClear[4])
     {
         const D3D12_CPU_DESCRIPTOR_HANDLE savedShadow = m_shadowCpu;
         const D3D12_CPU_DESCRIPTOR_HANDLE savedLocalShadow = m_localShadowCpu;
@@ -209,7 +209,7 @@ namespace Dark
         m_srvIncr = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
         D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc{};
-        rtvHeapDesc.NumDescriptors = gbuffer ? kRtvCountGBuffer : 1u;
+        rtvHeapDesc.NumDescriptors = kRtvCountGBuffer;
         rtvHeapDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
         rtvHeapDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
         if (!checkHr(device->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&m_rtvHeap)), "SceneBuffers CreateDescriptorHeap RTV"))
@@ -242,7 +242,6 @@ namespace Dark
         hdrSrv.Texture2D.MipLevels     = 1;
         device->CreateShaderResourceView(m_hdr.Get(), &hdrSrv, m_hdrSrvCpu);
 
-        if (gbuffer)
         {
             if (!createColorTarget(device, width, height, DXGI_FORMAT_R8G8B8A8_TYPELESS, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, kAlbedoClear, L"DE.GBuffer.Albedo", m_albedo, m_albedoState, rtUav)
                 || !createColorTarget(device, width, height, DXGI_FORMAT_R8G8B8A8_TYPELESS, DXGI_FORMAT_R8G8B8A8_UNORM, kAttribClear, L"DE.GBuffer.Attrib", m_attrib, m_attribState, rtUav)
@@ -331,7 +330,7 @@ namespace Dark
 
         m_width  = width;
         m_height = height;
-        DE_LOG_INFO(LogCategory::Render, "SceneBuffers: HDR {}x{}{}", width, height, gbuffer ? " + G-buffer + velocity + TAA history" : "");
+        DE_LOG_INFO(LogCategory::Render, "SceneBuffers: HDR {}x{} + G-buffer + velocity + TAA history", width, height);
         return true;
     }
 
