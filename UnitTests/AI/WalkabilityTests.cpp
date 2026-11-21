@@ -147,3 +147,30 @@ TEST(Walkability, SteepRampUnwalkable)
     ASSERT_TRUE(w.bake(d));
     EXPECT_FALSE(w.walkable(2, 2));
 }
+
+TEST(Walkability, EachBakeAdvancesSerialByOne)
+{
+    HeightMap       hm = MakeFlat(5, 1.0f, 10.0f);
+    Walkability     w;
+    WalkabilityDesc d;
+    d.heightMap  = &hm;
+    d.waterLevel = -10.0f;
+    ASSERT_TRUE(w.bake(d));
+    EXPECT_EQ(w.bakeSerial(), 1u);
+    ASSERT_TRUE(w.bake(d));
+    EXPECT_EQ(w.bakeSerial(), 2u);
+
+    // Nothing to invalidate: a failed first bake leaves the serial alone.
+    Walkability     empty;
+    WalkabilityDesc bad;
+    EXPECT_FALSE(empty.bake(bad));
+    EXPECT_EQ(empty.bakeSerial(), 0u);
+
+    // A failed bake drops the old one (one bump), and clear() is one bump.
+    EXPECT_FALSE(w.bake(bad));
+    EXPECT_FALSE(w.valid());
+    EXPECT_EQ(w.bakeSerial(), 3u);
+    ASSERT_TRUE(w.bake(d));
+    w.clear();
+    EXPECT_EQ(w.bakeSerial(), 5u);
+}

@@ -28,21 +28,26 @@ namespace Dark::AI
 
     bool Walkability::bake(const WalkabilityDesc& desc)
     {
+        // One bump per bake: on success below, or here when a failure drops an old bake.
+        const bool hadBake = valid();
         m_walk.clear();
         m_island.clear();
         m_cellsX    = 0;
         m_cellsZ    = 0;
         m_heightMap = nullptr;
-        ++m_bakeSerial; // a failed bake still invalidates the old one
 
         if (!desc.heightMap || !desc.heightMap->valid())
         {
             DE_LOG_ERROR(LogCategory::AI, "Walkability::bake: height map is invalid");
+            if (hadBake)
+                ++m_bakeSerial;
             return false;
         }
         if (desc.heightMap->width() < 2 || desc.heightMap->height() < 2)
         {
             DE_LOG_ERROR(LogCategory::AI, "Walkability::bake: height map too small");
+            if (hadBake)
+                ++m_bakeSerial;
             return false;
         }
 
