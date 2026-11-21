@@ -177,34 +177,16 @@ namespace Dark
         if (!checkHr(CreateDXGIFactory2(dxgiFactoryFlags, IID_PPV_ARGS(&factory)), "CreateDXGIFactory2"))
             return false;
 
-        // Prefer a hardware adapter that supports D3D12 feature level 11_0+.
-        ComPtr<IDXGIAdapter1> adapter;
-        for (UINT i = 0; factory->EnumAdapterByGpuPreference(i, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, IID_PPV_ARGS(&adapter)) != DXGI_ERROR_NOT_FOUND; ++i)
+        // Platform minimum (plan D5/D9/D13): hardware adapter at FL 12_1 with the startup gate. No WARP or
+        // lower-tier fallback; a failed check is a message box, a log line and a non-zero exit.
+        RhiDeviceResult rhi;
+        if (!createRhiDevice(factory.Get(), rhi))
         {
-            DXGI_ADAPTER_DESC1 desc{};
-            adapter->GetDesc1(&desc);
-            if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE)
-                continue;
-
-            if (SUCCEEDED(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0, _uuidof(ID3D12Device), nullptr)))
-                break;
-
-            adapter.Reset();
-        }
-
-        if (!adapter)
-        {
-            // Fallback: WARP (software) for machines without a D3D12 GPU.
-            ComPtr<IDXGIAdapter> warp;
-            if (!checkHr(factory->EnumWarpAdapter(IID_PPV_ARGS(&warp)), "EnumWarpAdapter"))
-                return false;
-            if (!checkHr(warp.As(&adapter), "WARP As IDXGIAdapter1"))
-                return false;
-            DE_LOG_WARN(LogCategory::Render, "Renderer: using WARP software adapter");
-        }
-
-        if (!checkHr(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&m_device)), "D3D12CreateDevice"))
+            reportStartupGateFailure(rhi.gate);
             return false;
+        }
+        m_device = rhi.device;
+        m_caps   = rhi.caps;
         nameObject(m_device.Get(), L"DE.Device");
         attachDebugMessageLog();
 
@@ -218,14 +200,6 @@ namespace Dark
                 else
                     DE_LOG_INFO(LogCategory::Render, "GPU clocks locked (DE_STABLE_GPU_POWER)");
             }
-        }
-
-        {
-            DXGI_ADAPTER_DESC1 desc{};
-            adapter->GetDesc1(&desc);
-            char name[128]{};
-            WideCharToMultiByte(CP_UTF8, 0, desc.Description, -1, name, sizeof(name), nullptr, nullptr);
-            DE_LOG_INFO(LogCategory::Render, "D3D12 device: {}", name);
         }
 
         D3D12_COMMAND_QUEUE_DESC queueDesc{};

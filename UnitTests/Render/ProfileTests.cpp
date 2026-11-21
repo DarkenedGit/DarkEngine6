@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "Render/Profile.h"
+#include "Render/RhiDevice.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -11,7 +12,6 @@
 #include <Windows.h>
 
 #include <d3d12.h>
-#include <dxgi1_6.h>
 #include <wrl/client.h>
 
 #include <cstdio>
@@ -24,20 +24,7 @@ namespace
 
 ComPtr<ID3D12Device> tryCreateDevice()
 {
-    ComPtr<ID3D12Device> device;
-    ComPtr<IDXGIFactory4> factory;
-    if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))))
-        return {};
-    ComPtr<IDXGIAdapter> warp;
-    if (SUCCEEDED(factory->EnumWarpAdapter(IID_PPV_ARGS(&warp))))
-    {
-        if (SUCCEEDED(D3D12CreateDevice(warp.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device))))
-            return device;
-    }
-    device.Reset();
-    if (SUCCEEDED(D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device))))
-        return device;
-    return {};
+    return Dark::createWarpTestDevice();
 }
 
 } // namespace

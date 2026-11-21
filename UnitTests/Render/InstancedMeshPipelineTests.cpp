@@ -6,9 +6,8 @@
 #include "Math/Matrix4f.h"
 #include "Math/Vector3f.h"
 #include "Math/Vector4f.h"
+#include "Render/RhiDevice.h"
 
-#include <d3dcompiler.h>
-#include <dxgi1_4.h>
 
 #include <cmath>
 #include <cstddef>
@@ -23,17 +22,7 @@ namespace
 
 ComPtr<ID3D12Device> tryCreateWarpDevice()
 {
-    ComPtr<ID3D12Device>  device;
-    ComPtr<IDXGIFactory4> factory;
-    if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))))
-        return {};
-    ComPtr<IDXGIAdapter> warp;
-    if (SUCCEEDED(factory->EnumWarpAdapter(IID_PPV_ARGS(&warp))))
-    {
-        if (SUCCEEDED(D3D12CreateDevice(warp.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device))))
-            return device;
-    }
-    return {};
+    return Dark::createWarpTestDevice();
 }
 
 Vector4f immediateClip(const Matrix4f& world, const Matrix4f& viewProj, const Vector4f& point)

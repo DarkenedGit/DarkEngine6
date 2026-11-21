@@ -1,6 +1,7 @@
 #pragma once
 #include "Render/DebugRenderState.h"
 #include "Render/DepthState.h"
+#include "Render/RhiDevice.h"
 #include "Core/UiPalette.h"
 
 #include <cstdint>
@@ -57,6 +58,8 @@ namespace Dark
         Renderer& operator=(const Renderer&) = delete;
 
         bool isValid() const { return m_valid; }
+        // Device caps filled at startup (plan §3.15). Zeroed for the RendererTestDevice shell.
+        const RhiCaps& caps() const { return m_caps; }
 
         bool beginFrame();
         bool endFrame();
@@ -277,6 +280,7 @@ namespace Dark
         void detachDebugMessageLog(); // logs the message totals
 
         ComPtr<ID3D12Device>              m_device;
+        RhiCaps                           m_caps;
         ComPtr<ID3D12CommandQueue>        m_commandQueue;
         ComPtr<ID3D12CommandQueue>        m_copyQueue;
         ComPtr<ID3D12Fence>               m_copyFence;
