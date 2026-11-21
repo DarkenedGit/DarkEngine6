@@ -59,7 +59,7 @@
 #include "Render/Underwater.h"
 #include "Render/PbrLighting.h"
 #include "Render/ModelDraw.h"
-#include "Render/PassTable.h"
+#include "Render/FrameComposer.h"
 #include "Render/Profile.h"
 #include "Render/MaterialSurface.h"
 #include "Render/GpuResourceCache.h"
@@ -283,19 +283,11 @@ void SandboxFrame::render()
     if (app().m_hud.m_imgui.isReady())
         app().m_hud.m_imgui.beginFrame();
 
-    auto* cmd = app().renderer().commandList();
     GpuResourceCache& gpu = app().renderer().gpuResources();
     if (m_skinRing.isValid())
         m_skinRing.beginFrame(app().renderer().frameIndex());
     if (m_skinnedInstances.isValid())
         m_skinnedInstances.beginFrame(app().renderer().frameIndex());
-
-    PassId   playedPasses[24]{};
-    uint32_t playedCount = 0;
-    auto markPass = [&](PassId id) {
-        if (playedCount < 24)
-            playedPasses[playedCount++] = id;
-    };
 
     const Frustum3f cameraCull(app().m_sceneWorld.camera.GetCullViewProj());
     const bool selectLocalShadows = app().renderer().debugState().localLights
@@ -476,8 +468,6 @@ void SandboxFrame::render()
         }
     }
 
-    if (m_shadows.isValid())
-        markPass(PassId::Shadows);
     ShadowCasterHost shadowHost{};
     shadowHost.renderer          = &app().renderer();
     shadowHost.world             = &app().world();
@@ -506,449 +496,494 @@ void SandboxFrame::render()
     shadowHost.drawPrimitives    = &SandboxApp::drawPrimitiveShadowCasters;
     SandboxShadowUser shadowUser{ &app(), &acceptedMesh };
     shadowHost.user = &shadowUser;
-    ensureDirectionalShadowModels(shadowHost);
-    recordDirectionalShadows(shadowHost, cmd, shadowViewIndex);
+
+    // The frame graph drives the frame (render-graph plan Phase 4): every step is an opaque pass on
+    // the main list, set here in recording order and run by frame.execute() below in feature-list
+    // order, which is also the order check. A pass body runs after this setup code, so it captures
+    // only function-scope state; values that cross passes are declared here and filled in order.
+    uint32_t           featureCount = 0;
+    const FeaturePass* featureList  = sandboxFeatures(featureCount);
+    FrameComposer&     frame        = m_frameComposer;
+    frame.begin(app().renderer(), featureList, featureCount, m_shadows.resource(), m_scene.localShadows().resource());
+
+    frame.set(PassId::Shadows, [&](Rg::PassContext& pass) {
+        ID3D12GraphicsCommandList* const cmd = pass.cmd();
+        ensureDirectionalShadowModels(shadowHost);
+        recordDirectionalShadows(shadowHost, cmd, shadowViewIndex);
+    });
 
     LocalShadowSystem& localShadows = m_scene.localShadows();
     if (localShadows.faceCountThisFrame() > 0 || localShadows.isValid())
-        markPass(PassId::LocalShadows);
-    if (localShadows.faceCountThisFrame() > 0)
     {
-        localShadows.beginCapture(cmd);
-        for (int f = 0; f < localShadows.faceCountThisFrame(); ++f)
-        {
-            localShadows.beginFace(cmd, f);
-            const LocalShadowFaceDraw& face = localShadows.face(f);
-            Sphere3f pointSphere;
-            const Sphere3f* foliageSphere = nullptr;
-            if (face.firstFace)
+        frame.set(PassId::LocalShadows, [&](Rg::PassContext& pass) {
+            ID3D12GraphicsCommandList* const cmd = pass.cmd();
+            if (localShadows.faceCountThisFrame() > 0)
             {
-                const LocalLightComponent* light = app().world().get<LocalLightComponent>(face.light);
-                const TransformComponent* xf = app().world().get<TransformComponent>(face.light);
-                if (light && xf && light->type == LocalLightType::Point)
+                localShadows.beginCapture(cmd);
+                for (int f = 0; f < localShadows.faceCountThisFrame(); ++f)
                 {
-                    pointSphere = Sphere3f(xf->position, Min(light->range, 80.0f));
-                    foliageSphere = &pointSphere;
+                    localShadows.beginFace(cmd, f);
+                    const LocalShadowFaceDraw& face = localShadows.face(f);
+                    Sphere3f pointSphere;
+                    const Sphere3f* foliageSphere = nullptr;
+                    if (face.firstFace)
+                    {
+                        const LocalLightComponent* light = app().world().get<LocalLightComponent>(face.light);
+                        const TransformComponent* xf = app().world().get<TransformComponent>(face.light);
+                        if (light && xf && light->type == LocalLightType::Point)
+                        {
+                            pointSphere = Sphere3f(xf->position, Min(light->range, 80.0f));
+                            foliageSphere = &pointSphere;
+                        }
+                    }
+                    recordShadowCasterView(shadowHost, cmd, face.viewProj, face.frustum, foliageSphere, face.firstFace, true, shadowViewIndex);
                 }
+                localShadows.endCapture(cmd);
             }
-            recordShadowCasterView(shadowHost, cmd, face.viewProj, face.frustum, foliageSphere, face.firstFace, true, shadowViewIndex);
-        }
-        localShadows.endCapture(cmd);
-    }
-    else if (localShadows.isValid())
-    {
-        // An idle frame still has to leave this half of the array as a shader resource.
-        localShadows.endCapture(cmd);
+            else if (localShadows.isValid())
+            {
+                // An idle frame still has to leave this half of the array as a shader resource.
+                localShadows.endCapture(cmd);
+            }
+        });
     }
 
     const bool visionPicture = app().m_vision.infrared > 0.0f || app().m_vision.ultraviolet > 0.0f || app().m_vision.echo > 0.0f;
     const float underDraw = !visionPicture ? Math::Clamp(app().m_play.runtime().underAmount, 0.0f, 1.0f) : 0.0f;
     const bool instanceColor = instanceStatic;
-    const Matrix4f viewProjEarly = m_scene.beginCameraFrame(app().m_sceneWorld.camera, app().renderer());
-    (void)viewProjEarly;
-    {
-        markPass(PassId::GBuffer);
-        app().renderer().bindGBuffer();
-        app().renderer().clearGBuffer();
-        const bool uvDraw = app().m_vision.ultraviolet > 0.0f;
-        const bool thermalDraw = !uvDraw && app().m_vision.infrared > 0.0f;
-        m_meshPipeline.setUltraviolet(uvDraw);
-        m_skinnedPipeline.setUltraviolet(uvDraw);
-        m_terrainPipeline.setUltraviolet(uvDraw);
-        app().m_frame.foliagePipeline().setUltraviolet(uvDraw);
-        app().m_frame.grassPipeline().setUltraviolet(uvDraw);
-        m_drawList.setUltraviolet(uvDraw);
-        m_skinnedInstances.setUltraviolet(uvDraw);
-        m_meshPipeline.setThermal(thermalDraw);
-        m_skinnedPipeline.setThermal(thermalDraw);
-        m_terrainPipeline.setThermal(thermalDraw);
-        app().m_frame.foliagePipeline().setThermal(thermalDraw);
-        app().m_frame.grassPipeline().setThermal(thermalDraw);
-        m_drawList.setThermal(thermalDraw);
-        m_skinnedInstances.setThermal(thermalDraw);
-    }
-
-    const Matrix4f  viewProj = app().m_sceneWorld.camera.GetViewProj();
-    const Matrix4f  prevViewProj = m_scene.havePrevViewProj() ? m_scene.prevViewProj() : viewProj;
-    const Frustum3f frustum(app().m_sceneWorld.camera.GetCullViewProj());
-    const DebugFill fill     = app().renderer().debugState().fill;
-    const Vector3f  camPos   = app().m_sceneWorld.camera.GetPosition();
-    uint32_t        meshDraws = 0;
-
-    const float skyExposure = 1.0f; // tonemap owns exposure
-    const float fogScale    = (app().renderer().debugState().lightingActive() ? 1.0f : 0.0f) * (1.0f - underDraw);
-    const float ultraviolet = app().m_vision.ultraviolet > 0.0f ? app().m_vision.ultraviolet : 0.0f;
-    const float thermal     = !(app().m_vision.ultraviolet > 0.0f) ? app().m_vision.infrared : 0.0f;
-    m_skyPipeline.upload(app().renderer().frameIndex(), app().m_sceneWorld.camera, app().m_sceneWorld.env, skyExposure, app().m_sceneWorld.water.params().waterLevel, fogScale, thermal, ultraviolet);
-    const Material* material = nullptr;
-    if (app().m_demo.cube().valid())
-    {
-        if (auto* meshComp = app().world().get<MeshComponent>(app().m_demo.cube()))
-            material = app().assets().find<Material>(meshComp->matAssetID);
-        else if (const ModelComponent* mo = app().world().get<ModelComponent>(app().m_demo.cube()))
+    Matrix4f             viewProj;
+    Matrix4f             prevViewProj;
+    Frustum3f            frustum;
+    DebugFill            fill        = DebugFill::Solid;
+    Vector3f             camPos;
+    uint32_t             meshDraws   = 0;
+    float                ultraviolet = 0.0f;
+    float                thermal     = 0.0f;
+    LightingConstants    lc{};
+    DeferredResolveInput resolve;
+    frame.set(PassId::GBuffer, [&](Rg::PassContext& pass) {
+        ID3D12GraphicsCommandList* const cmd = pass.cmd();
+        const Matrix4f viewProjEarly = m_scene.beginCameraFrame(app().m_sceneWorld.camera, app().renderer());
+        (void)viewProjEarly;
         {
-            if (const Model* model = app().assets().find<Model>(mo->modelAssetID))
+            app().renderer().bindGBuffer();
+            app().renderer().clearGBuffer();
+            const bool uvDraw = app().m_vision.ultraviolet > 0.0f;
+            const bool thermalDraw = !uvDraw && app().m_vision.infrared > 0.0f;
+            m_meshPipeline.setUltraviolet(uvDraw);
+            m_skinnedPipeline.setUltraviolet(uvDraw);
+            m_terrainPipeline.setUltraviolet(uvDraw);
+            app().m_frame.foliagePipeline().setUltraviolet(uvDraw);
+            app().m_frame.grassPipeline().setUltraviolet(uvDraw);
+            m_drawList.setUltraviolet(uvDraw);
+            m_skinnedInstances.setUltraviolet(uvDraw);
+            m_meshPipeline.setThermal(thermalDraw);
+            m_skinnedPipeline.setThermal(thermalDraw);
+            m_terrainPipeline.setThermal(thermalDraw);
+            app().m_frame.foliagePipeline().setThermal(thermalDraw);
+            app().m_frame.grassPipeline().setThermal(thermalDraw);
+            m_drawList.setThermal(thermalDraw);
+            m_skinnedInstances.setThermal(thermalDraw);
+        }
+
+        viewProj     = app().m_sceneWorld.camera.GetViewProj();
+        prevViewProj = m_scene.havePrevViewProj() ? m_scene.prevViewProj() : viewProj;
+        frustum      = Frustum3f(app().m_sceneWorld.camera.GetCullViewProj());
+        fill         = app().renderer().debugState().fill;
+        camPos       = app().m_sceneWorld.camera.GetPosition();
+
+        const float skyExposure = 1.0f; // tonemap owns exposure
+        const float fogScale    = (app().renderer().debugState().lightingActive() ? 1.0f : 0.0f) * (1.0f - underDraw);
+        ultraviolet = app().m_vision.ultraviolet > 0.0f ? app().m_vision.ultraviolet : 0.0f;
+        thermal     = !(app().m_vision.ultraviolet > 0.0f) ? app().m_vision.infrared : 0.0f;
+        m_skyPipeline.upload(app().renderer().frameIndex(), app().m_sceneWorld.camera, app().m_sceneWorld.env, skyExposure, app().m_sceneWorld.water.params().waterLevel, fogScale, thermal, ultraviolet);
+        const Material* material = nullptr;
+        if (app().m_demo.cube().valid())
+        {
+            if (auto* meshComp = app().world().get<MeshComponent>(app().m_demo.cube()))
+                material = app().assets().find<Material>(meshComp->matAssetID);
+            else if (const ModelComponent* mo = app().world().get<ModelComponent>(app().m_demo.cube()))
             {
-                if (const Model::Part* part = model->partAt(0))
-                    material = part->material.get();
+                if (const Model* model = app().assets().find<Model>(mo->modelAssetID))
+                {
+                    if (const Model::Part* part = model->partAt(0))
+                        material = part->material.get();
+                }
             }
         }
-    }
 
-    // Opaque G-buffer, deferred resolve, then sky last.
-    {
+        // Opaque G-buffer, then the deferred resolve and sky as their own passes.
         {
-            const GpuScope gbuffer(cmd, "GBuffer", ProfileColor::GBuffer);
-            if (app().m_sceneWorld.showTerrain)
-                app().m_sceneWorld.terrain.drawGBuffer(cmd, m_terrainPipeline, app().m_frame.terrainMaterial(), app().m_sceneWorld.camera, &frustum, &app().renderer().debugState(), &prevViewProj);
-            if (app().m_frame.grassPipeline().isValid() && app().m_sceneWorld.grassField.params().enabled)
             {
-                const GpuScope      grassScope(cmd, "Grass", ProfileColor::Grass);
-                GrassFrameConstants grassFrame{};
-                copyMatrix(grassFrame.viewProj, viewProj);
-                copyMatrix(grassFrame.prevViewProj, prevViewProj);
-                grassFrame.heightMetres = app().m_sceneWorld.grassField.params().heightMetres;
-                grassFrame.flexibility  = app().m_sceneWorld.grassField.params().flexibility;
-                grassFrame.faceEdge     = app().m_sceneWorld.grassField.params().faceEdge;
-                grassFrame.faceYaw      = app().m_sceneWorld.grassField.params().faceYaw;
-                grassFrame.faceLean     = app().m_sceneWorld.grassField.params().faceLean;
-                grassFrame.faceSteep    = app().m_sceneWorld.grassField.params().faceSteep;
-                grassFrame.cameraPos[0]   = camPos.x;
-                grassFrame.cameraPos[1]   = camPos.y;
-                grassFrame.cameraPos[2]   = camPos.z;
-                grassFrame.cameraRight[0] = app().m_sceneWorld.camera.GetRight().x;
-                grassFrame.cameraRight[1] = app().m_sceneWorld.camera.GetRight().y;
-                grassFrame.cameraRight[2] = app().m_sceneWorld.camera.GetRight().z;
-                grassFrame.cameraLook[0]  = app().m_sceneWorld.camera.GetLook().x;
-                grassFrame.cameraLook[1]  = app().m_sceneWorld.camera.GetLook().y;
-                grassFrame.cameraLook[2]  = app().m_sceneWorld.camera.GetLook().z;
-                app().m_sceneWorld.grassField.writeFrameInteraction(grassFrame);
-                GrassLodSpan grassLods[kGrassLodCount]{};
-                for (int lod = 0; lod < kGrassLodCount; ++lod)
+                const GpuScope gbuffer(cmd, "GBuffer", ProfileColor::GBuffer);
+                if (app().m_sceneWorld.showTerrain)
+                    app().m_sceneWorld.terrain.drawGBuffer(cmd, m_terrainPipeline, app().m_frame.terrainMaterial(), app().m_sceneWorld.camera, &frustum, &app().renderer().debugState(), &prevViewProj);
+                if (app().m_frame.grassPipeline().isValid() && app().m_sceneWorld.grassField.params().enabled)
                 {
-                    const GrassField::BladeSpan span = app().m_sceneWorld.grassField.blades(lod);
-                    grassLods[lod].blades            = span.data;
-                    grassLods[lod].count             = span.count;
-                    grassLods[lod].staleMask         = app().m_sceneWorld.grassField.lodStaleMask(lod);
-                }
-                const uint32_t residentTiles = grassRegionBudget().residentTiles;
-                std::vector<GrassTileDraw> grassTiles(residentTiles);
-                const uint32_t grassDraws = app().m_sceneWorld.grassField.visibleTiles(frustum, grassTiles.data(), residentTiles);
-                // This slot has seen the CPU blades. Leave the other slot stale until its fence.
-                if (app().m_frame.grassPipeline().draw(cmd, app().renderer(), grassLods, app().m_sceneWorld.grassField.tileWind(), app().m_sceneWorld.grassField.tileWindCount(), grassFrame, grassTiles.data(), grassDraws))
-                {
-                    const uint32_t slot = app().renderer().frameIndex() % kGrassFrameSlots;
+                    const GpuScope      grassScope(cmd, "Grass", ProfileColor::Grass);
+                    GrassFrameConstants grassFrame{};
+                    copyMatrix(grassFrame.viewProj, viewProj);
+                    copyMatrix(grassFrame.prevViewProj, prevViewProj);
+                    grassFrame.heightMetres = app().m_sceneWorld.grassField.params().heightMetres;
+                    grassFrame.flexibility  = app().m_sceneWorld.grassField.params().flexibility;
+                    grassFrame.faceEdge     = app().m_sceneWorld.grassField.params().faceEdge;
+                    grassFrame.faceYaw      = app().m_sceneWorld.grassField.params().faceYaw;
+                    grassFrame.faceLean     = app().m_sceneWorld.grassField.params().faceLean;
+                    grassFrame.faceSteep    = app().m_sceneWorld.grassField.params().faceSteep;
+                    grassFrame.cameraPos[0]   = camPos.x;
+                    grassFrame.cameraPos[1]   = camPos.y;
+                    grassFrame.cameraPos[2]   = camPos.z;
+                    grassFrame.cameraRight[0] = app().m_sceneWorld.camera.GetRight().x;
+                    grassFrame.cameraRight[1] = app().m_sceneWorld.camera.GetRight().y;
+                    grassFrame.cameraRight[2] = app().m_sceneWorld.camera.GetRight().z;
+                    grassFrame.cameraLook[0]  = app().m_sceneWorld.camera.GetLook().x;
+                    grassFrame.cameraLook[1]  = app().m_sceneWorld.camera.GetLook().y;
+                    grassFrame.cameraLook[2]  = app().m_sceneWorld.camera.GetLook().z;
+                    app().m_sceneWorld.grassField.writeFrameInteraction(grassFrame);
+                    GrassLodSpan grassLods[kGrassLodCount]{};
                     for (int lod = 0; lod < kGrassLodCount; ++lod)
-                        app().m_sceneWorld.grassField.clearLodStale(lod, slot);
+                    {
+                        const GrassField::BladeSpan span = app().m_sceneWorld.grassField.blades(lod);
+                        grassLods[lod].blades            = span.data;
+                        grassLods[lod].count             = span.count;
+                        grassLods[lod].staleMask         = app().m_sceneWorld.grassField.lodStaleMask(lod);
+                    }
+                    const uint32_t residentTiles = grassRegionBudget().residentTiles;
+                    std::vector<GrassTileDraw> grassTiles(residentTiles);
+                    const uint32_t grassDraws = app().m_sceneWorld.grassField.visibleTiles(frustum, grassTiles.data(), residentTiles);
+                    // This slot has seen the CPU blades. Leave the other slot stale until its fence.
+                    if (app().m_frame.grassPipeline().draw(cmd, app().renderer(), grassLods, app().m_sceneWorld.grassField.tileWind(), app().m_sceneWorld.grassField.tileWindCount(), grassFrame, grassTiles.data(), grassDraws))
+                    {
+                        const uint32_t slot = app().renderer().frameIndex() % kGrassFrameSlots;
+                        for (int lod = 0; lod < kGrassLodCount; ++lod)
+                            app().m_sceneWorld.grassField.clearLodStale(lod, slot);
+                    }
                 }
-            }
-            if (instanceColor && !m_drawList.gpuCullActive())
-            {
-                float drawVp[16];
-                float drawPrev[16];
-                copyMatrix(drawVp, viewProj);
-                copyMatrix(drawPrev, prevViewProj);
-                m_drawList.buildView(frustum, drawVp, drawPrev, RenderPassKind::GBuffer, ViewId{ 0 });
-            }
-            {
-                const GpuScope meshes(cmd, "Opaque Meshes", ProfileColor::OpaqueMeshes);
-                if (instanceColor)
-                    m_drawList.recordOpaque(cmd, gpu, ViewId{ 0 }, StaticPopulation::OpaqueMeshes);
-                m_meshPipeline.bind(cmd, fill);
-        if (material && material->isValid())
-            app().renderer().gpuResources().bindMaterial(cmd, *material, MeshPipeline::kRootAlbedoSrv);
-        MeshGBufferConstants gcb{};
-        if (material)
-            applyMaterialSurface(*material, gcb);
-        else
-        {
-            gcb.color[0] = 1.0f;
-            gcb.color[1] = 1.0f;
-            gcb.color[2] = 1.0f;
-            gcb.color[3] = 0.0f;
-        }
-        app().world().each<MeshComponent>([&](Entity e, MeshComponent& mc) {
-            if (app().world().has<ModelComponent>(e))
-                return;
-            if (const HealthComponent* hp = app().world().get<HealthComponent>(e); hp && !hp->health.alive())
-                return;
-            const Mesh* gpuMesh = sandboxPrimitiveMesh(mc.primitive, app().m_demo.cubeMesh(), app().m_demo.crossMesh());
-            if (!gpuMesh)
-                return;
-            const TransformComponent* xf = app().world().get<TransformComponent>(e);
-            if (!xf)
-                return;
-            if (const Material* mat = app().assets().find<Material>(mc.matAssetID))
-            {
-                gpu.retainMaterial(app().assets(), *mat);
-                gpu.bindMaterial(cmd, *mat, MeshPipeline::kRootAlbedoSrv);
-                applyMaterialSurface(*mat, gcb);
-            }
-            const Matrix4f worldMat  = makeWorldMatrix(*xf);
-            if (instanceColor && acceptedMesh.contains(e.id()))
-            {
-                m_prevWorldByEntity[e.id()] = worldMat;
-                return;
-            }
-            const Matrix4f prevWorld = m_prevWorldByEntity.count(e.id()) ? m_prevWorldByEntity[e.id()] : worldMat;
-            fillMeshGBufferXforms(gcb, worldMat, viewProj, prevViewProj, prevWorld);
-            if (const NetworkedComponent* nc = app().world().get<NetworkedComponent>(e))
-                unpackRgba8(nc->colorRgba8, gcb.color);
-            gcb.color[3] = mc.emissive;
-            m_meshPipeline.setGBufferConstants(cmd, gcb);
-            gpuMesh->draw(cmd, fill == DebugFill::Points);
-            m_prevWorldByEntity[e.id()] = worldMat;
-            ++meshDraws;
-        });
-            }
-            drawProjectilesGBuffer(cmd, viewProj, prevViewProj, instanceColor, &rejectedShots);
-            {
-                const GpuScope models(cmd, "Opaque Models", ProfileColor::OpaqueModels);
-                if (instanceColor)
-                    m_drawList.recordOpaque(cmd, gpu, ViewId{ 0 }, StaticPopulation::OpaqueModels);
-                if (instanceSkinned)
+                if (instanceColor && !m_drawList.gpuCullActive())
                 {
                     float drawVp[16];
                     float drawPrev[16];
                     copyMatrix(drawVp, viewProj);
                     copyMatrix(drawPrev, prevViewProj);
-                    m_skinnedInstances.recordGBuffer(cmd, gpu, StaticPopulation::OpaqueModels, drawVp, drawPrev);
+                    m_drawList.buildView(frustum, drawVp, drawPrev, RenderPassKind::GBuffer, ViewId{ 0 });
                 }
-                app().world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
-            if (!mc.visible || app().camouflageHides(e))
-                return;
-            const TransformComponent* xf = app().world().get<TransformComponent>(e);
-            const Model* model = app().assets().find<Model>(mc.modelAssetID);
-            if (!xf || xf->scale.MagnitudeSqrd() < 1.0e-12f || !model || !model->hasOpaque() || !gpu.retainModel(app().assets(), *model))
-                return;
-            const Matrix4f worldMat = makeWorldMatrix(*xf);
-            const bool accepted = instanceColor && acceptedModel.contains(e.id());
-            if (model->skinned())
-            {
-                AnimGraphComponent* ag = app().world().get<AnimGraphComponent>(e);
-                const AnimPose* pose = skinnedPose(*model, ag);
-                if (!pose)
-                    return;
-                Matrix4f prevW = worldMat;
-                if (ag)
                 {
-                    if (ag->prevWorldValid)
-                        prevW = ag->prevWorld;
-                    ag->prevWorld = worldMat;
-                    ag->prevWorldValid = true;
-                }
-                const bool skinnedListed = instanceSkinned && acceptedSkinned.contains(e.id());
-                if (accepted && skinnedListed)
+                    const GpuScope meshes(cmd, "Opaque Meshes", ProfileColor::OpaqueMeshes);
+                    if (instanceColor)
+                        m_drawList.recordOpaque(cmd, gpu, ViewId{ 0 }, StaticPopulation::OpaqueMeshes);
+                    m_meshPipeline.bind(cmd, fill);
+            if (material && material->isValid())
+                app().renderer().gpuResources().bindMaterial(cmd, *material, MeshPipeline::kRootAlbedoSrv);
+            MeshGBufferConstants gcb{};
+            if (material)
+                applyMaterialSurface(*material, gcb);
+            else
+            {
+                gcb.color[0] = 1.0f;
+                gcb.color[1] = 1.0f;
+                gcb.color[2] = 1.0f;
+                gcb.color[3] = 0.0f;
+            }
+            app().world().each<MeshComponent>([&](Entity e, MeshComponent& mc) {
+                if (app().world().has<ModelComponent>(e))
                     return;
-                if (accepted)
-                    drawSkinnedModelOpaqueGBufferSkinnedOnly(cmd, gpu, m_skinnedPipeline, m_meshPipeline, m_skinRing, *model, *pose, worldMat, prevW, viewProj, prevViewProj, fill);
-                else if (skinnedListed)
+                if (const HealthComponent* hp = app().world().get<HealthComponent>(e); hp && !hp->health.alive())
+                    return;
+                const Mesh* gpuMesh = sandboxPrimitiveMesh(mc.primitive, app().m_demo.cubeMesh(), app().m_demo.crossMesh());
+                if (!gpuMesh)
+                    return;
+                const TransformComponent* xf = app().world().get<TransformComponent>(e);
+                if (!xf)
+                    return;
+                if (const Material* mat = app().assets().find<Material>(mc.matAssetID))
+                {
+                    gpu.retainMaterial(app().assets(), *mat);
+                    gpu.bindMaterial(cmd, *mat, MeshPipeline::kRootAlbedoSrv);
+                    applyMaterialSurface(*mat, gcb);
+                }
+                const Matrix4f worldMat  = makeWorldMatrix(*xf);
+                if (instanceColor && acceptedMesh.contains(e.id()))
+                {
+                    m_prevWorldByEntity[e.id()] = worldMat;
+                    return;
+                }
+                const Matrix4f prevWorld = m_prevWorldByEntity.count(e.id()) ? m_prevWorldByEntity[e.id()] : worldMat;
+                fillMeshGBufferXforms(gcb, worldMat, viewProj, prevViewProj, prevWorld);
+                if (const NetworkedComponent* nc = app().world().get<NetworkedComponent>(e))
+                    unpackRgba8(nc->colorRgba8, gcb.color);
+                gcb.color[3] = mc.emissive;
+                m_meshPipeline.setGBufferConstants(cmd, gcb);
+                gpuMesh->draw(cmd, fill == DebugFill::Points);
+                m_prevWorldByEntity[e.id()] = worldMat;
+                ++meshDraws;
+            });
+                }
+                drawProjectilesGBuffer(cmd, viewProj, prevViewProj, instanceColor, &rejectedShots);
+                {
+                    const GpuScope models(cmd, "Opaque Models", ProfileColor::OpaqueModels);
+                    if (instanceColor)
+                        m_drawList.recordOpaque(cmd, gpu, ViewId{ 0 }, StaticPopulation::OpaqueModels);
+                    if (instanceSkinned)
+                    {
+                        float drawVp[16];
+                        float drawPrev[16];
+                        copyMatrix(drawVp, viewProj);
+                        copyMatrix(drawPrev, prevViewProj);
+                        m_skinnedInstances.recordGBuffer(cmd, gpu, StaticPopulation::OpaqueModels, drawVp, drawPrev);
+                    }
+                    app().world().each<ModelComponent>([&](Entity e, ModelComponent& mc) {
+                if (!mc.visible || app().camouflageHides(e))
+                    return;
+                const TransformComponent* xf = app().world().get<TransformComponent>(e);
+                const Model* model = app().assets().find<Model>(mc.modelAssetID);
+                if (!xf || xf->scale.MagnitudeSqrd() < 1.0e-12f || !model || !model->hasOpaque() || !gpu.retainModel(app().assets(), *model))
+                    return;
+                const Matrix4f worldMat = makeWorldMatrix(*xf);
+                const bool accepted = instanceColor && acceptedModel.contains(e.id());
+                if (model->skinned())
+                {
+                    AnimGraphComponent* ag = app().world().get<AnimGraphComponent>(e);
+                    const AnimPose* pose = skinnedPose(*model, ag);
+                    if (!pose)
+                        return;
+                    Matrix4f prevW = worldMat;
+                    if (ag)
+                    {
+                        if (ag->prevWorldValid)
+                            prevW = ag->prevWorld;
+                        ag->prevWorld = worldMat;
+                        ag->prevWorldValid = true;
+                    }
+                    const bool skinnedListed = instanceSkinned && acceptedSkinned.contains(e.id());
+                    if (accepted && skinnedListed)
+                        return;
+                    if (accepted)
+                        drawSkinnedModelOpaqueGBufferSkinnedOnly(cmd, gpu, m_skinnedPipeline, m_meshPipeline, m_skinRing, *model, *pose, worldMat, prevW, viewProj, prevViewProj, fill);
+                    else if (skinnedListed)
+                        drawModelOpaqueGBuffer(cmd, gpu, m_meshPipeline, *model, worldMat, viewProj, prevViewProj, fill);
+                    else
+                        drawSkinnedModelOpaqueGBuffer(cmd, gpu, m_skinnedPipeline, m_meshPipeline, m_skinRing, *model, *pose, worldMat, prevW, viewProj, prevViewProj, fill);
+                }
+                else if (!accepted)
                     drawModelOpaqueGBuffer(cmd, gpu, m_meshPipeline, *model, worldMat, viewProj, prevViewProj, fill);
-                else
-                    drawSkinnedModelOpaqueGBuffer(cmd, gpu, m_skinnedPipeline, m_meshPipeline, m_skinRing, *model, *pose, worldMat, prevW, viewProj, prevViewProj, fill);
+            });
+                }
+                if (app().m_sceneWorld.terrain.valid())
+                    app().m_frame.foliagePipeline().drawGBuffer(cmd, app().renderer(), app().assets(), app().m_frame.foliagePrototypes(), app().m_sceneWorld.terrain, app().m_sceneWorld.foliage.empty() ? nullptr : &app().m_sceneWorld.foliage, app().m_sceneWorld.foliageDensity, app().m_sceneWorld.camera, viewProj, prevViewProj, frustum);
             }
-            else if (!accepted)
-                drawModelOpaqueGBuffer(cmd, gpu, m_meshPipeline, *model, worldMat, viewProj, prevViewProj, fill);
-        });
+
+            m_meshPipeline.setUltraviolet(false);
+            m_skinnedPipeline.setUltraviolet(false);
+            m_terrainPipeline.setUltraviolet(false);
+            app().m_frame.foliagePipeline().setUltraviolet(false);
+            app().m_frame.grassPipeline().setUltraviolet(false);
+            m_drawList.setUltraviolet(false);
+            m_skinnedInstances.setUltraviolet(false);
+            m_meshPipeline.setThermal(false);
+            m_skinnedPipeline.setThermal(false);
+            m_terrainPipeline.setThermal(false);
+            app().m_frame.foliagePipeline().setThermal(false);
+            app().m_frame.grassPipeline().setThermal(false);
+            m_drawList.setThermal(false);
+            m_skinnedInstances.setThermal(false);
+
+            copyMatrix(lc.invViewProj, viewProj.Inverse());
+            lc.cameraPos[0]     = camPos.x;
+            lc.cameraPos[1]     = camPos.y;
+            lc.cameraPos[2]     = camPos.z;
+            lc.lightDirWS[0]    = app().m_sceneWorld.env.lightDir().x;
+            lc.lightDirWS[1]    = app().m_sceneWorld.env.lightDir().y;
+            lc.lightDirWS[2]    = app().m_sceneWorld.env.lightDir().z;
+            lc.lighting         = app().renderer().debugState().lightingActive() ? 1.0f : 0.0f;
+            lc.lightColor[0]    = app().m_sceneWorld.env.lightColor().x;
+            lc.lightColor[1]    = app().m_sceneWorld.env.lightColor().y;
+            lc.lightColor[2]    = app().m_sceneWorld.env.lightColor().z;
+            {
+                const Vector3f pbrSun = pbrSunLightColor(app().m_sceneWorld.env.lightColor());
+                lc.pbrLightColor[0]   = pbrSun.x;
+                lc.pbrLightColor[1]   = pbrSun.y;
+                lc.pbrLightColor[2]   = pbrSun.z;
             }
-            if (app().m_sceneWorld.terrain.valid())
-                app().m_frame.foliagePipeline().drawGBuffer(cmd, app().renderer(), app().assets(), app().m_frame.foliagePrototypes(), app().m_sceneWorld.terrain, app().m_sceneWorld.foliage.empty() ? nullptr : &app().m_sceneWorld.foliage, app().m_sceneWorld.foliageDensity, app().m_sceneWorld.camera, viewProj, prevViewProj, frustum);
+            lc.emissiveGain     = 4.0f;
+            lc.ambientColor[0]  = app().m_sceneWorld.env.ambientColor().x;
+            lc.ambientColor[1]  = app().m_sceneWorld.env.ambientColor().y;
+            lc.ambientColor[2]  = app().m_sceneWorld.env.ambientColor().z;
+            FogGpu fog = makeFogGpu(&app().m_sceneWorld.env, app().m_sceneWorld.water.params().waterLevel, lc.lighting > 0.5f);
+            const float air = 1.0f - underDraw;
+            fog.fogDensity *= air;
+            fog.heightFogDensity *= air;
+            fog.volumetricFogDensity *= air;
+            fillFogHeightMap(fog, &app().m_sceneWorld.terrain.coarse());
+            applyFogToLighting(lc, fog);
+            fillIblLightingConstants(lc, app().m_sceneWorld.ibl, app().renderer().debugState().iblEnabled, app().renderer().debugState().iblDebug, iblGpuReady(app().renderer().gpuResources(), app().m_sceneWorld.iblImageId));
+            lc.iblNight = 1.0f - app().m_sceneWorld.env.dayFactor();
+            lc.thermal  = app().m_vision.ultraviolet > 0.0f ? -app().m_vision.ultraviolet : app().m_vision.infrared;
+            fillSsrLightingConstants(lc, app().m_sceneWorld.ssr, app().renderer().debugState().ssrEnabled, m_scene.ssr().isValid());
+            resolve.viewProj     = &viewProj;
+            resolve.prevViewProj = &prevViewProj;
+            resolve.gtao         = &app().m_sceneWorld.ssao;
+            resolve.ssr          = &app().m_sceneWorld.ssr;
+            resolve.ssrEnv       = &app().m_sceneWorld.env;
+            resolve.lighting     = &lc;
+            {
+                const FacilityState& facility = app().m_play.facility();
+                m_scene.setFogOccluders(facility.blocks, facility.blockCount);
+            }
         }
+    });
 
-        m_meshPipeline.setUltraviolet(false);
-        m_skinnedPipeline.setUltraviolet(false);
-        m_terrainPipeline.setUltraviolet(false);
-        app().m_frame.foliagePipeline().setUltraviolet(false);
-        app().m_frame.grassPipeline().setUltraviolet(false);
-        m_drawList.setUltraviolet(false);
-        m_skinnedInstances.setUltraviolet(false);
-        m_meshPipeline.setThermal(false);
-        m_skinnedPipeline.setThermal(false);
-        m_terrainPipeline.setThermal(false);
-        app().m_frame.foliagePipeline().setThermal(false);
-        app().m_frame.grassPipeline().setThermal(false);
-        m_drawList.setThermal(false);
-        m_skinnedInstances.setThermal(false);
-
-        LightingConstants lc{};
-        copyMatrix(lc.invViewProj, viewProj.Inverse());
-        lc.cameraPos[0]     = camPos.x;
-        lc.cameraPos[1]     = camPos.y;
-        lc.cameraPos[2]     = camPos.z;
-        lc.lightDirWS[0]    = app().m_sceneWorld.env.lightDir().x;
-        lc.lightDirWS[1]    = app().m_sceneWorld.env.lightDir().y;
-        lc.lightDirWS[2]    = app().m_sceneWorld.env.lightDir().z;
-        lc.lighting         = app().renderer().debugState().lightingActive() ? 1.0f : 0.0f;
-        lc.lightColor[0]    = app().m_sceneWorld.env.lightColor().x;
-        lc.lightColor[1]    = app().m_sceneWorld.env.lightColor().y;
-        lc.lightColor[2]    = app().m_sceneWorld.env.lightColor().z;
-        {
-            const Vector3f pbrSun = pbrSunLightColor(app().m_sceneWorld.env.lightColor());
-            lc.pbrLightColor[0]   = pbrSun.x;
-            lc.pbrLightColor[1]   = pbrSun.y;
-            lc.pbrLightColor[2]   = pbrSun.z;
-        }
-        lc.emissiveGain     = 4.0f;
-        lc.ambientColor[0]  = app().m_sceneWorld.env.ambientColor().x;
-        lc.ambientColor[1]  = app().m_sceneWorld.env.ambientColor().y;
-        lc.ambientColor[2]  = app().m_sceneWorld.env.ambientColor().z;
-        FogGpu fog = makeFogGpu(&app().m_sceneWorld.env, app().m_sceneWorld.water.params().waterLevel, lc.lighting > 0.5f);
-        const float air = 1.0f - underDraw;
-        fog.fogDensity *= air;
-        fog.heightFogDensity *= air;
-        fog.volumetricFogDensity *= air;
-        fillFogHeightMap(fog, &app().m_sceneWorld.terrain.coarse());
-        applyFogToLighting(lc, fog);
-        fillIblLightingConstants(lc, app().m_sceneWorld.ibl, app().renderer().debugState().iblEnabled, app().renderer().debugState().iblDebug, iblGpuReady(app().renderer().gpuResources(), app().m_sceneWorld.iblImageId));
-        lc.iblNight = 1.0f - app().m_sceneWorld.env.dayFactor();
-        lc.thermal  = app().m_vision.ultraviolet > 0.0f ? -app().m_vision.ultraviolet : app().m_vision.infrared;
-        fillSsrLightingConstants(lc, app().m_sceneWorld.ssr, app().renderer().debugState().ssrEnabled, m_scene.ssr().isValid());
-        // The pass list is an order check after the frame. These five run inside resolveDeferred in this order.
-        markPass(PassId::Decals);
-        markPass(PassId::Gtao);
-        markPass(PassId::Ssr);
-        markPass(PassId::Lighting);
-        markPass(PassId::LocalVolumes);
-        DeferredResolveInput resolve;
-        resolve.viewProj     = &viewProj;
-        resolve.prevViewProj = &prevViewProj;
-        resolve.gtao         = &app().m_sceneWorld.ssao;
-        resolve.ssr          = &app().m_sceneWorld.ssr;
-        resolve.ssrEnv       = &app().m_sceneWorld.env;
-        resolve.lighting     = &lc;
-        {
-            const FacilityState& facility = app().m_play.facility();
-            m_scene.setFogOccluders(facility.blocks, facility.blockCount);
-        }
-        m_scene.resolveDeferred(cmd, app().renderer(), app().world(), app().m_sceneWorld.camera, resolve);
-
+    // resolveDeferred runs these five in this order with the same input (lc filled by GBuffer).
+    frame.set(PassId::Decals, [&](Rg::PassContext& pass) {
+        ID3D12GraphicsCommandList* const cmd = pass.cmd();
+        m_scene.resolveDeferred(SceneRenderer::DeferredStep::Decals, cmd, app().renderer(), app().world(), app().m_sceneWorld.camera, resolve);
+    });
+    frame.set(PassId::Gtao, [&](Rg::PassContext& pass) {
+        ID3D12GraphicsCommandList* const cmd = pass.cmd();
+        m_scene.resolveDeferred(SceneRenderer::DeferredStep::Gtao, cmd, app().renderer(), app().world(), app().m_sceneWorld.camera, resolve);
+    });
+    frame.set(PassId::Ssr, [&](Rg::PassContext& pass) {
+        ID3D12GraphicsCommandList* const cmd = pass.cmd();
+        m_scene.resolveDeferred(SceneRenderer::DeferredStep::Ssr, cmd, app().renderer(), app().world(), app().m_sceneWorld.camera, resolve);
+    });
+    frame.set(PassId::Lighting, [&](Rg::PassContext& pass) {
+        ID3D12GraphicsCommandList* const cmd = pass.cmd();
+        m_scene.resolveDeferred(SceneRenderer::DeferredStep::Lighting, cmd, app().renderer(), app().world(), app().m_sceneWorld.camera, resolve);
+    });
+    frame.set(PassId::LocalVolumes, [&](Rg::PassContext& pass) {
+        ID3D12GraphicsCommandList* const cmd = pass.cmd();
+        m_scene.resolveDeferred(SceneRenderer::DeferredStep::LocalVolumes, cmd, app().renderer(), app().world(), app().m_sceneWorld.camera, resolve);
         app().renderer().bindHdr(true);
-        markPass(PassId::Sky);
+    });
+    frame.set(PassId::Sky, [&](Rg::PassContext& pass) {
+        ID3D12GraphicsCommandList* const cmd = pass.cmd();
         m_skyPipeline.draw(cmd, app().renderer().frameIndex(), &m_shadows);
-    }
+    });
 
     D3D12_GPU_VIRTUAL_ADDRESS waterLightsVa   = m_localLightGpu.isValid() ? m_localLightGpu.dummyGpuVa() : 0;
     uint32_t                  waterLightCount = 0;
     uint32_t                  waterIndex[kWaterLocalLightMax]{};
-    if (app().renderer().debugState().localLights && app().renderer().debugState().lightingActive() && m_localLightGpu.isValid())
-    {
-        LocalLightCullInput in{};
-        in.frustum    = &frustum;
-        in.cameraPos  = camPos;
-        in.cameraLook = app().m_sceneWorld.camera.GetLook();
-        in.nearZ      = app().m_sceneWorld.camera.GetNearZ();
-        in.viewportW  = app().renderer().width();
-        in.viewportH  = app().renderer().height();
-        in.viewProj      = &viewProj;
-        in.localShadows  = &m_scene.localShadows();
-        in.fogBoxes      = m_scene.fogOccluders();
-        in.fogBoxCount   = m_scene.fogOccluderCount();
-        LocalLightDrawLists lists{};
-        if (gatherLocalLights(app().world(), in, lists) && lists.count > 0)
-        {
-            m_localLightGpu.upload(app().renderer().frameIndex(), lists);
-            waterLightCount = lists.waterCount;
-            std::memcpy(waterIndex, lists.waterIndex, sizeof(waterIndex));
-            waterLightsVa = m_localLightGpu.lightsGpuVa();
-        }
-    }
-
-    ID3D12DescriptorHeap*         heightHeap = nullptr;
-    D3D12_GPU_DESCRIPTOR_HANDLE   heightGpu{};
-    if (app().m_sceneWorld.terrain.heightTexture().valid())
-    {
-        heightHeap = app().m_sceneWorld.terrain.heightTexture().srvHeap();
-        heightGpu  = app().m_sceneWorld.terrain.heightTexture().gpuHandle();
-    }
-    else if (app().renderer().lightingHeap())
-    {
-        heightHeap = app().renderer().lightingHeap();
-        heightGpu  = app().renderer().heightTableGpu();
-    }
-    markPass(PassId::SsrCapture);
-    m_scene.captureSsrSceneColor(cmd, app().renderer());
+    ID3D12DescriptorHeap*       heightHeap = nullptr;
+    D3D12_GPU_DESCRIPTOR_HANDLE heightGpu{};
     D3D12_CPU_DESCRIPTOR_HANDLE waterSceneColor{};
     D3D12_CPU_DESCRIPTOR_HANDLE waterDepth{};
     const SsrSettings*          waterSsr = nullptr;
-    if (m_scene.ssr().hasSceneColor())
-    {
-        waterSceneColor = m_scene.ssr().sceneColorSrvCpu();
-        waterDepth      = app().renderer().depthSrvCpu();
-        waterSsr        = &app().m_sceneWorld.ssr;
-    }
+    frame.set(PassId::SsrCapture, [&](Rg::PassContext& pass) {
+        ID3D12GraphicsCommandList* const cmd = pass.cmd();
+        if (app().renderer().debugState().localLights && app().renderer().debugState().lightingActive() && m_localLightGpu.isValid())
+        {
+            LocalLightCullInput in{};
+            in.frustum    = &frustum;
+            in.cameraPos  = camPos;
+            in.cameraLook = app().m_sceneWorld.camera.GetLook();
+            in.nearZ      = app().m_sceneWorld.camera.GetNearZ();
+            in.viewportW  = app().renderer().width();
+            in.viewportH  = app().renderer().height();
+            in.viewProj      = &viewProj;
+            in.localShadows  = &m_scene.localShadows();
+            in.fogBoxes      = m_scene.fogOccluders();
+            in.fogBoxCount   = m_scene.fogOccluderCount();
+            LocalLightDrawLists lists{};
+            if (gatherLocalLights(app().world(), in, lists) && lists.count > 0)
+            {
+                m_localLightGpu.upload(app().renderer().frameIndex(), lists);
+                waterLightCount = lists.waterCount;
+                std::memcpy(waterIndex, lists.waterIndex, sizeof(waterIndex));
+                waterLightsVa = m_localLightGpu.lightsGpuVa();
+            }
+        }
+        if (app().m_sceneWorld.terrain.heightTexture().valid())
+        {
+            heightHeap = app().m_sceneWorld.terrain.heightTexture().srvHeap();
+            heightGpu  = app().m_sceneWorld.terrain.heightTexture().gpuHandle();
+        }
+        else if (app().renderer().lightingHeap())
+        {
+            heightHeap = app().renderer().lightingHeap();
+            heightGpu  = app().renderer().heightTableGpu();
+        }
+        m_scene.captureSsrSceneColor(cmd, app().renderer());
+        if (m_scene.ssr().hasSceneColor())
+        {
+            waterSceneColor = m_scene.ssr().sceneColorSrvCpu();
+            waterDepth      = app().renderer().depthSrvCpu();
+            waterSsr        = &app().m_sceneWorld.ssr;
+        }
+    });
     const bool waterSheet = app().m_sceneWorld.water.wetChunkCount() > 0;
     if (waterSheet || !app().m_sceneWorld.water.ribbons().empty())
     {
-        markPass(PassId::Water);
-        const GpuScope waterScope(cmd, "Water", ProfileColor::Water);
-        uint32_t drawIndex = 0;
-        if (waterSheet)
-        {
-            app().m_sceneWorld.water.draw(
-                cmd,
-                m_waterPipeline,
-                app().m_sceneWorld.camera,
-                &frustum,
-                &app().m_sceneWorld.env,
-                &app().renderer().debugState(),
-                waterLightsVa,
-                waterLightCount,
-                waterIndex,
-                app().renderer().frameIndex(),
-                heightHeap,
-                heightGpu,
-                &m_shadows,
-                waterSceneColor,
-                waterDepth,
-                waterSsr,
-                drawIndex,
-                thermal,
-                ultraviolet,
-                underDraw);
-            drawIndex = 1;
-        }
-        for (const WaterWorld::WaterRibbon& stream : app().m_sceneWorld.water.ribbons())
-        {
-            if (drawIndex >= WaterPipeline::kMaxWaterDrawsPerFrame)
+        frame.set(PassId::Water, [&](Rg::PassContext& pass) {
+            ID3D12GraphicsCommandList* const cmd = pass.cmd();
+            const GpuScope waterScope(cmd, "Water", ProfileColor::Water);
+            uint32_t drawIndex = 0;
+            if (waterSheet)
             {
-                static bool s_warned = false;
-                if (!s_warned)
-                {
-                    s_warned = true;
-                    DE_LOG_WARN(LogCategory::Render, "SandboxApp: water draw cap {} reached; the rest of the streams in view are not drawn (warns once)", WaterPipeline::kMaxWaterDrawsPerFrame);
-                }
-                break;
-            }
-            WaterParams streamParams = app().m_sceneWorld.water.params();
-            streamParams.flowSpeed = stream.flowSpeed;
-            if (drawStreamRibbon(
+                app().m_sceneWorld.water.draw(
                     cmd,
                     m_waterPipeline,
-                    stream.mesh,
-                    stream.bounds,
-                    streamParams,
                     app().m_sceneWorld.camera,
                     &frustum,
+                    &app().m_sceneWorld.env,
                     &app().renderer().debugState(),
-                    app().m_sceneWorld.water.time(),
+                    waterLightsVa,
+                    waterLightCount,
+                    waterIndex,
                     app().renderer().frameIndex(),
-                    drawIndex,
                     heightHeap,
                     heightGpu,
                     &m_shadows,
                     waterSceneColor,
                     waterDepth,
                     waterSsr,
-                    &app().m_sceneWorld.terrain.coarse(),
-                    &app().m_sceneWorld.env,
+                    drawIndex,
                     thermal,
-                    ultraviolet))
-                ++drawIndex;
-        }
+                    ultraviolet,
+                    underDraw);
+                drawIndex = 1;
+            }
+            for (const WaterWorld::WaterRibbon& stream : app().m_sceneWorld.water.ribbons())
+            {
+                if (drawIndex >= WaterPipeline::kMaxWaterDrawsPerFrame)
+                {
+                    static bool s_warned = false;
+                    if (!s_warned)
+                    {
+                        s_warned = true;
+                        DE_LOG_WARN(LogCategory::Render, "SandboxApp: water draw cap {} reached; the rest of the streams in view are not drawn (warns once)", WaterPipeline::kMaxWaterDrawsPerFrame);
+                    }
+                    break;
+                }
+                WaterParams streamParams = app().m_sceneWorld.water.params();
+                streamParams.flowSpeed = stream.flowSpeed;
+                if (drawStreamRibbon(
+                        cmd,
+                        m_waterPipeline,
+                        stream.mesh,
+                        stream.bounds,
+                        streamParams,
+                        app().m_sceneWorld.camera,
+                        &frustum,
+                        &app().renderer().debugState(),
+                        app().m_sceneWorld.water.time(),
+                        app().renderer().frameIndex(),
+                        drawIndex,
+                        heightHeap,
+                        heightGpu,
+                        &m_shadows,
+                        waterSceneColor,
+                        waterDepth,
+                        waterSsr,
+                        &app().m_sceneWorld.terrain.coarse(),
+                        &app().m_sceneWorld.env,
+                        thermal,
+                        ultraviolet))
+                    ++drawIndex;
+            }
+        });
     }
 
-    {
-        markPass(PassId::Clouds);
+    frame.set(PassId::Clouds, [&](Rg::PassContext& pass) {
+        ID3D12GraphicsCommandList* const cmd = pass.cmd();
         app().renderer().bindHdrDepthRead();
         CloudVolumeFrame cf{};
         cf.sunDir       = app().m_sceneWorld.env.lightDir();
@@ -957,32 +992,34 @@ void SandboxFrame::render()
         cf.time         = app().m_sceneWorld.cloudTime;
         cf.lod          = app().m_frame.cloudLod();
         m_scene.drawCloudVolumes(cmd, app().renderer(), app().world(), app().m_sceneWorld.camera, viewProj, cf);
-    }
+    });
 
     bool lateDepthWrite = false;
     if (app().m_vision.camouflage && m_scene.camouflage().isValid())
     {
-        markPass(PassId::Camouflage);
-        const Entity body = app().possessedBody();
-        const TransformComponent* xf = body.valid() ? app().world().get<TransformComponent>(body) : nullptr;
-        const ModelComponent* mc = body.valid() ? app().world().get<ModelComponent>(body) : nullptr;
-        const Model* model = (mc && xf) ? app().assets().find<Model>(mc->modelAssetID) : nullptr;
-        if (xf && model && gpu.retainModel(app().assets(), *model))
-        {
-            const Matrix4f worldMat = makeWorldMatrix(*xf);
-            AnimGraphComponent* ag = app().world().get<AnimGraphComponent>(body);
-            const AnimPose* pose = model->skinned() ? skinnedPose(*model, ag) : nullptr;
-            if (ag)
+        frame.set(PassId::Camouflage, [&](Rg::PassContext& pass) {
+            ID3D12GraphicsCommandList* const cmd = pass.cmd();
+            const Entity body = app().possessedBody();
+            const TransformComponent* xf = body.valid() ? app().world().get<TransformComponent>(body) : nullptr;
+            const ModelComponent* mc = body.valid() ? app().world().get<ModelComponent>(body) : nullptr;
+            const Model* model = (mc && xf) ? app().assets().find<Model>(mc->modelAssetID) : nullptr;
+            if (xf && model && gpu.retainModel(app().assets(), *model))
             {
-                ag->prevWorld      = worldMat;
-                ag->prevWorldValid = true;
+                const Matrix4f worldMat = makeWorldMatrix(*xf);
+                AnimGraphComponent* ag = app().world().get<AnimGraphComponent>(body);
+                const AnimPose* pose = model->skinned() ? skinnedPose(*model, ag) : nullptr;
+                if (ag)
+                {
+                    ag->prevWorld      = worldMat;
+                    ag->prevWorldValid = true;
+                }
+                lateDepthWrite = m_scene.camouflage().drawModel(cmd, app().renderer(), gpu, m_skinRing, *model, pose, worldMat, viewProj, camPos, app().m_sceneWorld.cloudTime, fill);
             }
-            lateDepthWrite = m_scene.camouflage().drawModel(cmd, app().renderer(), gpu, m_skinRing, *model, pose, worldMat, viewProj, camPos, app().m_sceneWorld.cloudTime, fill);
-        }
+        });
     }
 
-    {
-        markPass(PassId::Translucent);
+    frame.set(PassId::Translucent, [&](Rg::PassContext& pass) {
+        ID3D12GraphicsCommandList* const cmd = pass.cmd();
         const GpuScope translucent(cmd, "Translucent", ProfileColor::Translucent);
         MeshFrameConstants lit{};
         lit.lightDirWS[0] = app().m_sceneWorld.env.lightDir().x;
@@ -1037,19 +1074,22 @@ void SandboxFrame::render()
             else
                 drawModelForward(cmd, gpu, m_meshTransparentPipeline, m_shadows, *model, true, worldMat, viewProj, lit, fill);
         }
-    }
+    });
 
-    if (app().m_chaseOk && (app().m_demo.demoScene() || app().m_showDevTools))
-    {
-        const GpuScope paths(cmd, "Path Debug", ProfileColor::DebugOverlay);
-        app().m_chase.drawPaths(cmd, app().renderer(), viewProj);
-    }
-    m_walkDebug.draw(cmd, app().renderer(), AI::walkabilityMeshSource(&app().m_chase.ai().walkability()), viewProj);
-    app().m_demo.drawSkeletonOverlay(cmd, viewProj);
-    m_scene.drawDecalVolumes(cmd, app().renderer(), app().m_chase.linePipeline(), viewProj);
+    frame.set(PassId::DebugOverlays, [&](Rg::PassContext& pass) {
+        ID3D12GraphicsCommandList* const cmd = pass.cmd();
+        if (app().m_chaseOk && (app().m_demo.demoScene() || app().m_showDevTools))
+        {
+            const GpuScope paths(cmd, "Path Debug", ProfileColor::DebugOverlay);
+            app().m_chase.drawPaths(cmd, app().renderer(), viewProj);
+        }
+        m_walkDebug.draw(cmd, app().renderer(), AI::walkabilityMeshSource(&app().m_chase.ai().walkability()), viewProj);
+        app().m_demo.drawSkeletonOverlay(cmd, viewProj);
+        m_scene.drawDecalVolumes(cmd, app().renderer(), app().m_chase.linePipeline(), viewProj);
+    });
 
-    {
-        markPass(PassId::Particles);
+    frame.set(PassId::Particles, [&](Rg::PassContext& pass) {
+        ID3D12GraphicsCommandList* const cmd = pass.cmd();
         const GpuScope particles(cmd, "Particles", ProfileColor::Particles);
         app().m_frame.gpuParticles().simulateAndDraw(cmd, app().renderer(), app().m_sceneWorld.camera, app().world(), app().assets(), lateDepthWrite);
         app().m_frame.particles().beginFrame(app().renderer().frameIndex());
@@ -1069,48 +1109,51 @@ void SandboxFrame::render()
     if (WeaponLoadout* wFx = app().localWeapons(); wFx && wFx->projectile().impactEmitter().aliveCount() > 0)
         app().m_frame.particles().draw(cmd, app().m_sceneWorld.camera, wFx->projectile().impactEmitter(), true);
     app().m_frame.leafRenderer().draw(cmd, app().m_sceneWorld.camera, app().m_sceneWorld.leafField);
-    }
 
-    if (!app().deferredDecals())
-        app().m_play.feedback().splats.draw(cmd, app().m_sceneWorld.camera);
+        if (!app().deferredDecals())
+            app().m_play.feedback().splats.draw(cmd, app().m_sceneWorld.camera);
+    });
 
     if (underDraw > 0.0f && m_scene.underwater().isValid())
     {
-        markPass(PassId::Underwater);
-        UnderwaterFrame under{};
-        copyMatrix(under.invViewProj, viewProj.Inverse());
-        under.cameraPos[0] = camPos.x;
-        under.cameraPos[1] = camPos.y;
-        under.cameraPos[2] = camPos.z;
-        under.waterLevel   = app().m_sceneWorld.water.params().waterLevel;
-        under.amount       = underDraw;
-        m_scene.underwater().draw(cmd, app().renderer(), under);
-        app().renderer().bindHdr(true);
-        app().m_sceneWorld.water.draw(
-            cmd,
-            m_waterPipeline,
-            app().m_sceneWorld.camera,
-            &frustum,
-            &app().m_sceneWorld.env,
-            &app().renderer().debugState(),
-            waterLightsVa,
-            waterLightCount,
-            waterIndex,
-            app().renderer().frameIndex(),
-            heightHeap,
-            heightGpu,
-            &m_shadows,
-            waterSceneColor,
-            waterDepth,
-            waterSsr,
-            0,
-            thermal,
-            ultraviolet,
-            underDraw,
-            true);
+        frame.set(PassId::Underwater, [&](Rg::PassContext& pass) {
+            ID3D12GraphicsCommandList* const cmd = pass.cmd();
+            UnderwaterFrame under{};
+            copyMatrix(under.invViewProj, viewProj.Inverse());
+            under.cameraPos[0] = camPos.x;
+            under.cameraPos[1] = camPos.y;
+            under.cameraPos[2] = camPos.z;
+            under.waterLevel   = app().m_sceneWorld.water.params().waterLevel;
+            under.amount       = underDraw;
+            m_scene.underwater().draw(cmd, app().renderer(), under);
+            app().renderer().bindHdr(true);
+            app().m_sceneWorld.water.draw(
+                cmd,
+                m_waterPipeline,
+                app().m_sceneWorld.camera,
+                &frustum,
+                &app().m_sceneWorld.env,
+                &app().renderer().debugState(),
+                waterLightsVa,
+                waterLightCount,
+                waterIndex,
+                app().renderer().frameIndex(),
+                heightHeap,
+                heightGpu,
+                &m_shadows,
+                waterSceneColor,
+                waterDepth,
+                waterSsr,
+                0,
+                thermal,
+                ultraviolet,
+                underDraw,
+                true);
+        });
     }
 
-    {
+    frame.set(PassId::Post, [&](Rg::PassContext& pass) {
+        ID3D12GraphicsCommandList* const cmd = pass.cmd();
         const bool aces = useAcesTonemap(app().renderer());
         TonemapSettings post = app().playerPostFx();
         post.mode            = aces ? 1.0f : 0.0f;
@@ -1132,7 +1175,6 @@ void SandboxFrame::render()
             exposure             = app().m_frame.autoExposureResult().finalExposure;
         }
         post.exposure = exposure;
-        markPass(PassId::Post);
         const bool echoImage = app().m_vision.echo > 0.0f && m_scene.echo().isValid();
         if (echoImage)
         {
@@ -1173,14 +1215,22 @@ void SandboxFrame::render()
         }
         const bool holdExposure = app().m_vision.infrared > 0.0f || app().m_vision.ultraviolet > 0.0f || app().m_vision.echo > 0.0f || app().m_play.runtime().underAmount > 0.0f;
         m_scene.applyPost(app().renderer(), cmd, viewProj, post, deferredMeter && app().m_frame.autoExposure().mode == ExposureMode::Auto && !holdExposure, app().m_vision.echo > 0.0f);
-    }
 
-    m_scene.endCameraFrame(app().m_sceneWorld.camera, viewProj);
+        m_scene.endCameraFrame(app().m_sceneWorld.camera, viewProj);
+    });
+
+    const bool movieBlocks = app().m_movie.blocksWorld();
+    const bool ssaoTile = app().renderer().debugState().ssaoDebug == 1;
+    const bool ssrTile  = app().renderer().debugState().ssrDebug != 0;
+    if (!movieBlocks && m_debugOverlay.isValid()
+        && (app().m_showShadowMaps || app().renderer().debugState().shadowMapTiles || app().m_showDepth || app().m_showGBuffer || app().m_showVelocity || ssaoTile || ssrTile))
+        frame.set(PassId::Overlay, [&](Rg::PassContext& pass) { drawDebugOverlays(pass.cmd()); });
+    // ImGui, the movie and the HUD stay after the graph until Phase 7; endFrame still presents.
+    (void)frame.execute("Sandbox");
 
     Health* hudHp = app().localHealth();
     const Entity hudBody = app().possessedBody();
     const HudTagComponent* hudTag = hudBody.valid() ? app().world().get<HudTagComponent>(hudBody) : nullptr;
-    const bool movieBlocks = app().m_movie.blocksWorld();
     const bool showHealth = !movieBlocks && !app().m_hud.m_menu.visible() && hudHp && hudTag && hudTag->kind == HudKind::HealthBar;
     const bool showCrosshair = !movieBlocks && !app().m_hud.m_menu.visible() && hudHp && hudHp->alive() && !app().m_play.simPaused() && !app().m_dialogue.locksWorld();
 
@@ -1188,15 +1238,6 @@ void SandboxFrame::render()
     app().renderer().stats().triangles =
         app().m_sceneWorld.terrain.lastTriangles() + app().m_sceneWorld.water.lastTriangles() + meshDraws * (app().m_demo.cubeMesh().indexCount() / 3);
 
-    const bool ssaoTile = app().renderer().debugState().ssaoDebug == 1;
-    const bool ssrTile  = app().renderer().debugState().ssrDebug != 0;
-    if (!movieBlocks)
-    {
-        if (cmd && m_debugOverlay.isValid()
-            && (app().m_showShadowMaps || app().renderer().debugState().shadowMapTiles || app().m_showDepth || app().m_showGBuffer || app().m_showVelocity || ssaoTile || ssrTile))
-            markPass(PassId::Overlay);
-        drawDebugOverlays(cmd);
-    }
     app().m_movie.draw(app().renderer());
     if (app().m_hud.m_imgui.isReady() && app().m_hud.m_menu.visible())
     {
@@ -1254,9 +1295,6 @@ void SandboxFrame::render()
     }
     else
         app().m_hud.m_menu.draw(app().renderer());
-    uint32_t tableCount = 0;
-    const PassNode* table = sandboxDeferredPasses(tableCount);
-    (void)validateHostPassSequence("Sandbox", table, tableCount, playedPasses, playedCount);
     frameJoinRender(app().jobs(), app().renderer().frameIndex());
     app().renderer().endFrame();
 }

@@ -40,7 +40,7 @@
 #include "Render/DebugRenderState.h"
 #include "Render/Frustum3f.h"
 #include "Render/Fog.h"
-#include "Render/PassTable.h"
+#include "Render/FrameFeatures.h"
 #include "Render/Underwater.h"
 #include "Render/ModelDraw.h"
 #include "Render/GpuResourceCache.h"

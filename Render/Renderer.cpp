@@ -1463,6 +1463,26 @@ namespace Dark
         return (m_sceneBuffers && m_sceneBuffers->valid()) ? m_sceneBuffers->attrib() : nullptr;
     }
 
+    ID3D12Resource* Renderer::backBufferResource() const
+    {
+        return m_frameIndex < kFrameCount ? m_renderTargets[m_frameIndex].Get() : nullptr;
+    }
+
+    ID3D12Resource* Renderer::velocityResource() const
+    {
+        return (m_sceneBuffers && m_sceneBuffers->valid()) ? m_sceneBuffers->velocity() : nullptr;
+    }
+
+    ID3D12Resource* Renderer::aoResource() const
+    {
+        return (m_sceneBuffers && m_sceneBuffers->valid()) ? m_sceneBuffers->ao() : nullptr;
+    }
+
+    ID3D12Resource* Renderer::postResource() const
+    {
+        return (m_sceneBuffers && m_sceneBuffers->valid()) ? m_sceneBuffers->post() : nullptr;
+    }
+
     void Renderer::bindDecalTargets()
     {
         if (!m_commandList || !m_sceneBuffers || !m_sceneBuffers->valid() || !m_dsvHeap)

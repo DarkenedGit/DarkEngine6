@@ -32,7 +32,7 @@
 #include "Render/GpuResourceCache.h"
 #include "Render/GpuUpload.h"
 #include "Render/SkyPipeline.h"
-#include "Render/PassTable.h"
+#include "Render/FrameFeatures.h"
 #include "Assets/Material.h"
 #include "Assets/Model.h"
 #include "Animation/AnimGraphTick.h"

@@ -101,7 +101,8 @@ namespace Dark
             (void)preset;
             (void)firstFrame;
         }
-        // Frames whose recorded pass order failed the host's pass table (Render/PassTable.h).
+        // Frames whose compiled pass order failed the host's feature list, or whose frame graph did not
+        // compile (Render/FrameFeatures.h).
         // The report marks the baseline invalid when this is nonzero.
         virtual uint32_t capturePassSequenceFailures() const { return 0; }
         // Hosts hide HUD and tool panels while this is true so the PNG is the 3D frame only.
