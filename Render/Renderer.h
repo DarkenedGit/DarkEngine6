@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <d3d12.h>
+#include <filesystem>
 #include <dxgi1_6.h>
 #include <memory>
 #include <unknwn.h>
@@ -109,6 +110,17 @@ namespace Dark
         // then PIXEL_SHADER_RESOURCE, then signal m_texUpdateFence. Does not signal
         // m_fenceValues, does not CreateCommandAllocator, and does not wait on the CPU.
         bool submitTextureUpdate(ID3D12Resource* dst, D3D12_RESOURCE_STATES before, ID3D12Resource* upload, const D3D12_PLACED_SUBRESOURCE_FOOTPRINT& footprint);
+
+        // Frame capture: the next endFrame copies the back buffer (after every pass, ImGui
+        // included) to a readback buffer, drains the queue once, and writes an opaque PNG.
+        // One shot; a second request before endFrame replaces the path.
+        void requestBackBufferCapture(const std::filesystem::path& png);
+        // True when the last requested capture was written. Clears the result.
+        bool takeBackBufferCaptureResult();
+
+        // Logs the removed reason and, when DRED was on at device creation, the auto-breadcrumb
+        // trail and the page-fault allocations. Once per device. Safe with no device.
+        void logDeviceRemoved(const char* where);
 
         // Adapter the device was created on. Zero if the device is not up.
         LUID adapterLuid() const;
@@ -262,6 +274,12 @@ namespace Dark
         void ensureSsrDummyResources();
         void applyIblSrvs();
 
+        void recordBackBufferCapture();
+        void writeBackBufferCapture();
+        void configureDiagnostics(); // before CreateDXGIFactory / D3D12CreateDevice
+        void attachDebugMessageLog(); // after D3D12CreateDevice: debug-layer and GBV messages -> DarkEngine6.log
+        void detachDebugMessageLog(); // logs the message totals
+
         ComPtr<ID3D12Device>              m_device;
         ComPtr<ID3D12CommandQueue>        m_commandQueue;
         ComPtr<ID3D12CommandQueue>        m_copyQueue;
@@ -292,6 +310,17 @@ namespace Dark
         ComPtr<ID3D12Fence>               m_texUpdateFence;
         UINT64                            m_texUpdateFenceValue = 0;
         ComPtr<ID3D12Fence>               m_fence;
+        ComPtr<ID3D12Resource>            m_captureReadback;
+        D3D12_PLACED_SUBRESOURCE_FOOTPRINT m_captureFootprint{};
+        std::filesystem::path             m_capturePath;
+        bool                              m_capturePending = false;
+        bool                              m_captureRecorded = false;
+        bool                              m_captureWritten = false;
+        ComPtr<IUnknown>                  m_infoQueue; // ID3D12InfoQueue1 when the runtime has it
+        DWORD                             m_infoQueueCookie = 0;
+        bool                              m_debugLayerEnabled = false;
+        bool                              m_dredEnabled = false;
+        bool                              m_removedLogged = false;
 
         UINT64 m_fenceValues[kFrameCount] = {};
         HANDLE m_fenceEvent               = nullptr;

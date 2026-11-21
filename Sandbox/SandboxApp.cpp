@@ -41,6 +41,8 @@
 #include "Render/Frustum3f.h"
 #include "Render/ScenePath.h"
 #include "Render/Fog.h"
+#include "Render/PassTable.h"
+#include "Render/Underwater.h"
 #include "Render/ModelDraw.h"
 #include "Render/GpuResourceCache.h"
 #include "Render/GpuUpload.h"
@@ -249,15 +251,10 @@ MeshData makeGrassPatch(float sizeX, float sizeZ, uint32_t seed)
     return m;
 }
 
-std::string sceneFileArg()
+// -scene:<file>, parsed once into AppConfig::cliScene.
+std::string sceneFileArg(const AppConfig& cfg)
 {
-    const std::string cmd = ::GetCommandLineA();
-    const size_t      at  = cmd.find("-scene:");
-    if (at == std::string::npos)
-        return "level.json";
-    const size_t start = at + 7;
-    const size_t end   = cmd.find(' ', start);
-    return cmd.substr(start, end == std::string::npos ? std::string::npos : end - start);
+    return cfg.cliScene.empty() ? std::string("level.json") : cfg.cliScene;
 }
 
 AssetID loadSandboxClip(Audio::AudioSystem& audio, AssetManager& assets, const char* path, float freq, float dur, float amp)
@@ -617,7 +614,7 @@ void SandboxApp::populateMainMenu()
         for (const SceneFileInfo& s : scenes)
             m_hud.m_menu.addScene(s.fileName, s.displayName, s.path, s.fileName, MainMenuRole::Level);
     }
-    const std::string sceneArg = sceneFileArg();
+    const std::string sceneArg = sceneFileArg(config());
     bool jumped = false;
     if (sceneArg != "level.json")
     {
@@ -693,7 +690,7 @@ void SandboxApp::handleRuntimeCommands(float wallDt, bool allowScale)
             {
                 if (m_bootPolling)
                     break;
-                std::filesystem::path path = defaultScenePath(sceneFileArg());
+                std::filesystem::path path = defaultScenePath(sceneFileArg(config()));
                 if (picked)
                 {
                     if (picked->id == "new_game")
@@ -1927,7 +1924,7 @@ void SandboxApp::onInit()
 
     // Menu keys are polled in the main loop, after onInit returns. Load now only
     // when the picker will not be shown (-no-menu, net host, or menu GPU failed).
-    prepareBoot(!m_hud.m_menu.visible(), defaultScenePath(sceneFileArg()));
+    prepareBoot(!m_hud.m_menu.visible(), defaultScenePath(sceneFileArg(config())));
     if (!bootSceneLoop())
         return;
 }
@@ -2100,4 +2097,77 @@ void SandboxApp::onShutdown()
     m_frame.leafRenderer().destroy(renderer());
     m_play.feedback().splats.destroy(renderer());
     DE_LOG_INFO("SandboxApp: shutdown");
+}
+
+// Frame capture (render graph Phase 0 baselines). The world is held with the gameplay pause so
+// frame N is the same image on every run, and the preset is re-applied after each update so
+// the fly camera, input and fades cannot move it.
+bool SandboxApp::captureSceneReady() const
+{
+    return m_sceneStarted && !m_bootPolling && m_bootSlice == BootSlice::Done && !m_hud.m_menu.visible();
+}
+
+uint32_t SandboxApp::capturePassSequenceFailures() const
+{
+    return hostPassSequenceFailures();
+}
+
+void SandboxApp::applyCapturePreset(const CapturePreset& preset, bool firstFrame)
+{
+    if (firstFrame)
+    {
+        m_play.setSimPaused(true);
+        m_showDevTools        = false;
+        m_showInventory       = false;
+        m_showProfiler        = false;
+        m_hud.m_showJournal   = false;
+        m_hud.m_showUpgrades  = false;
+        m_vision.camouflage    = preset.camouflage;
+        m_vision.nightSightOn  = preset.vision == CaptureVision::NightSight;
+        m_vision.infraredOn    = preset.vision == CaptureVision::Infrared;
+        m_vision.ultravioletOn = preset.vision == CaptureVision::Ultraviolet;
+        m_vision.echoOn        = preset.vision == CaptureVision::Echo;
+        m_vision.echoHaveChirp = false;
+        m_vision.echoCapture   = m_vision.echoOn;
+        m_frame.scene().discardTemporalHistory();
+    }
+
+    Vector3f eye{ preset.eye[0], preset.eye[1], preset.eye[2] };
+    Vector3f target{ preset.target[0], preset.target[1], preset.target[2] };
+    if (preset.anchor == CaptureAnchor::Player)
+    {
+        const Entity body = possessedBody();
+        if (const TransformComponent* xf = body.valid() ? world().get<TransformComponent>(body) : nullptr)
+        {
+            eye    = eye + xf->position;
+            target = target + xf->position;
+        }
+        else if (firstFrame)
+            DE_LOG_WARN(LogCategory::Render, "Frame capture: preset '{}' is player-anchored but there is no possessed body; using world positions", preset.name);
+    }
+    const float waterLevel = m_sceneWorld.water.params().waterLevel;
+    if (preset.underwater)
+    {
+        // Heights are relative to the water surface, whatever the anchor.
+        eye.y    = preset.eye[1] + waterLevel;
+        target.y = preset.target[1] + waterLevel;
+    }
+
+    Camera3D& camera = m_sceneWorld.camera;
+    if (preset.fovYDegrees > 0.0f)
+        camera.SetLens(preset.fovYDegrees * (Math::Pi / 180.0f), camera.GetAspect(), camera.GetNearZ(), camera.GetFarZ());
+    camera.LookAt(eye, target, Vector3f::Y_AXIS);
+    if (auto* xf = world().get<TransformComponent>(m_play.cameraEntity()))
+        xf->position = camera.GetPosition();
+
+    const float amount     = preset.visionAmount;
+    m_vision.nightSight    = preset.vision == CaptureVision::NightSight ? amount : 0.0f;
+    m_vision.infrared      = preset.vision == CaptureVision::Infrared ? amount : 0.0f;
+    m_vision.ultraviolet   = preset.vision == CaptureVision::Ultraviolet ? amount : 0.0f;
+    m_vision.echo          = preset.vision == CaptureVision::Echo ? amount : 0.0f;
+    if (preset.vision == CaptureVision::Echo)
+        m_vision.echoChirpAge = preset.echoAgeSeconds;
+    m_vision.camouflage = preset.camouflage;
+    if (preset.underwater)
+        m_play.runtime().underAmount = underwaterAmount(true, eye.y, waterLevel);
 }

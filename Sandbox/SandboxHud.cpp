@@ -34,6 +34,7 @@
 #include "Math/MathDefines.h"
 #include "Render/DebugRenderState.h"
 #include "Render/GpuResourceCache.h"
+#include "Render/PassTable.h"
 #include "Render/Profile.h"
 #include "Render/ScenePath.h"
 #include "Sky/Environment.h"
@@ -1141,6 +1142,18 @@ void SandboxHud::drawProfiler()
     else
         ImGui::TextUnformatted("GPU --");
     ImGui::TextDisabled("PIX groups. GPU time lags by a frame or two. P hides.");
+    if (const uint32_t bad = hostPassSequenceFailures(); bad > 0)
+        ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.3f, 1.0f), "Pass order failed on %u frames (see log)", bad);
+    if (ImGui::SmallButton("Log camera as capture preset"))
+    {
+        // Paste into content/perf/capture_cameras.json. eye/target are world positions.
+        const Camera3D& cam  = app().m_sceneWorld.camera;
+        const Vector3f  eye  = cam.GetPosition();
+        const Vector3f  look = cam.GetLook();
+        DE_LOG_INFO(LogCategory::Render,
+                    "Capture preset: {{ \"name\": \"new_view\", \"host\": \"sandbox\", \"eye\": [{:.3f}, {:.3f}, {:.3f}], \"target\": [{:.3f}, {:.3f}, {:.3f}], \"fovYDegrees\": {:.2f} }}",
+                    eye.x, eye.y, eye.z, eye.x + look.x * 10.0f, eye.y + look.y * 10.0f, eye.z + look.z * 10.0f, cam.GetFovY() * (180.0f / Math::Pi));
+    }
     ImGui::Separator();
 
     const ImGuiTableFlags tableFlags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp

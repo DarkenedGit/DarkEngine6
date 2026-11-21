@@ -3,6 +3,7 @@
 #include "Core/Log.h"
 
 #include <initializer_list>
+#include <string>
 
 namespace Dark
 {
@@ -77,6 +78,63 @@ bool passSequenceOk(const PassNode* table, uint32_t tableCount, const PassId* pl
         ++tableIndex;
     }
     return true;
+}
+
+namespace
+{
+uint32_t g_hostSequenceFailures = 0;
+}
+
+const char* passName(PassId id)
+{
+    static const char* const kNames[] = {
+        "Shadows", "LocalShadows", "GBuffer", "Decals", "GTAO", "SSR", "Lighting", "LocalVolumes", "Sky", "SsrCapture",
+        "Water", "Clouds", "Camouflage", "Translucent", "Particles", "Underwater", "Post", "Overlay", "EditorGrid", "EditorGizmos",
+    };
+    const auto i = static_cast<uint32_t>(id);
+    return i < sizeof(kNames) / sizeof(kNames[0]) ? kNames[i] : "Unknown";
+}
+
+uint32_t hostPassSequenceFailures()
+{
+    return g_hostSequenceFailures;
+}
+
+bool validateHostPassSequence(const char* host, const PassNode* table, uint32_t tableCount, const PassId* played, uint32_t playedCount)
+{
+    if (passSequenceOk(table, tableCount, played, playedCount))
+        return true;
+    ++g_hostSequenceFailures;
+    static const PassNode* loggedTables[8]{};
+    for (const PassNode* seen : loggedTables)
+    {
+        if (seen == table && seen != nullptr)
+            return false;
+    }
+    for (const PassNode*& slot : loggedTables)
+    {
+        if (!slot)
+        {
+            slot = table;
+            break;
+        }
+    }
+    std::string expected;
+    std::string actual;
+    for (uint32_t i = 0; table && i < tableCount; ++i)
+    {
+        if (!expected.empty()) expected += " -> ";
+        expected += passName(table[i].id);
+        if (table[i].optional) expected += "?";
+    }
+    for (uint32_t i = 0; played && i < playedCount; ++i)
+    {
+        if (!actual.empty()) actual += " -> ";
+        actual += passName(played[i]);
+    }
+    DE_LOG_ERROR(LogCategory::Render, "{}: PASS SEQUENCE FAILED — BASELINE INVALID. Expected (? = optional): {}. Played: {}", host ? host : "host",
+                 expected, actual);
+    return false;
 }
 
 const PassNode* sandboxDeferredPasses(uint32_t& count)

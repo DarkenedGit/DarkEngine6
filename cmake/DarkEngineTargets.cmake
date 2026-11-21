@@ -82,6 +82,8 @@ set(DE_FOUNDATION_CORE_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/Core/Log.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/Core/Json.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/Core/Json.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Core/FrameCapture.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Core/FrameCapture.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/Core/Paths.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/Core/Paths.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/Core/ContentRoots.cpp"

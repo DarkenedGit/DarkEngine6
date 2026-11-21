@@ -1,6 +1,7 @@
 #include "Core/Application.h"
 #include "Combat/StatusDef.h"
 #include "Content/ContentDb.h"
+#include "Core/ContentRoots.h"
 #include "Core/Log.h"
 #include "Gameplay/Item.h"
 #include "Core/MainThread.h"
@@ -17,6 +18,10 @@
 
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
+#include <fstream>
+#include <iterator>
+#include <system_error>
 #include <stdlib.h>
 
 namespace Dark
@@ -74,6 +79,42 @@ namespace Dark
                 ++p;
             }
             out = static_cast<uint16_t>(v);
+            return true;
+        }
+
+        // "2560x1440" -> 2560, 1440. Each side 64..16384.
+        bool parseWindowSize(const char* s, uint32_t& w, uint32_t& h)
+        {
+            if (!s)
+                return false;
+            uint32_t    side[2]{};
+            const char* q = s;
+            for (int i = 0; i < 2; ++i)
+            {
+                uint32_t v      = 0;
+                int      digits = 0;
+                while (*q >= '0' && *q <= '9')
+                {
+                    v = v * 10u + static_cast<uint32_t>(*q - '0');
+                    if (v > 16384u)
+                        return false;
+                    ++q;
+                    ++digits;
+                }
+                if (digits == 0 || v < 64u)
+                    return false;
+                side[i] = v;
+                if (i == 0)
+                {
+                    if (*q != 'x' && *q != 'X')
+                        return false;
+                    ++q;
+                }
+            }
+            if (*q != 0)
+                return false;
+            w = side[0];
+            h = side[1];
             return true;
         }
 
@@ -249,6 +290,45 @@ namespace Dark
                 cfg.cliNoDebugLevels = true;
             else if (tokenEq(tok, "-forward"))
                 cfg.cliForward = true;
+            else if (tokenEq(tok, "-no-vsync"))
+                cfg.vsync = false;
+            else if (tokenEq(tok, "-window"))
+            {
+                char     size[32];
+                uint32_t w = 0;
+                uint32_t h = 0;
+                if (nextToken(p, size, sizeof(size)) && parseWindowSize(size, w, h))
+                {
+                    cfg.width  = w;
+                    cfg.height = h;
+                }
+                else
+                    DE_LOG_ERROR(LogCategory::Render, "parseAppCommandLine: -window needs WIDTHxHEIGHT (e.g. 2560x1440)");
+            }
+        }
+
+        // Substring match, as Sandbox always did: "-scene:" up to the next space.
+        if (const char* at = std::strstr(lpCmdLine ? lpCmdLine : "", "-scene:"))
+        {
+            const char* start = at + 7;
+            const char* end   = start;
+            while (*end && !isAsciiSpace(static_cast<unsigned char>(*end)))
+                ++end;
+            cfg.cliScene.assign(start, end);
+        }
+
+        FrameCaptureArgs capture{};
+        if (!parseFrameCaptureArgs(lpCmdLine, capture))
+        {
+            cfg.capture = FrameCaptureArgs{};
+            return false;
+        }
+        cfg.capture = std::move(capture);
+        if (cfg.capture.enabled)
+        {
+            // A capture boots straight into the scene.
+            cfg.cliNoSplash = true;
+            cfg.cliNoMenu   = true;
         }
         return true;
     }
@@ -537,6 +617,8 @@ namespace Dark
             return;
 
         mountDefaultContentRoots();
+        if (m_config.capture.enabled && !loadCapturePreset())
+            return;
         // Scene and terrain CPU reads use the IO lane. The flag off leaves those reads on the caller.
         if (m_config.asyncSceneLoad)
             m_jobs.start();
@@ -644,6 +726,23 @@ namespace Dark
             if (dt < 0.0f || dt > 0.25f)
                 dt = 1.0f / 60.0f;
 
+            CaptureFrameAction capture{};
+            if (m_config.capture.enabled && !m_captureSchedule.finished())
+            {
+                capture = m_captureSchedule.step(captureSceneReady(), now);
+                if (capture.timedOut)
+                {
+                    DE_LOG_ERROR(LogCategory::Render, "Frame capture: the scene was not ready after {:.0f} s; quitting",
+                                 FrameCaptureSchedule::kReadyTimeoutSeconds);
+                    finishCapture(false);
+                    break;
+                }
+                m_captureActive = m_captureSchedule.armed();
+            }
+            // A fixed step makes frame N land on the same simulation time on every run.
+            if (m_captureActive)
+                dt = 1.0f / 60.0f;
+
             // CPU time stops before Present so a vsync wait is not counted as CPU work.
             // frameDt is the real interval, including the previous Present.
             profileFrameBegin();
@@ -661,6 +760,8 @@ namespace Dark
             {
                 CpuScope ecs("ECS Update", ProfileColor::EcsUpdate);
                 onUpdate(dt);
+                if (capture.applyPreset)
+                    applyCapturePreset(m_capturePreset, capture.firstFrame);
             }
             m_debug.perf().add(PerfSlot::Update, m_window.getTime() - t0);
 
@@ -671,6 +772,9 @@ namespace Dark
             t0 = m_window.getTime();
             m_network.flush(m_world, dt);
             m_debug.perf().add(PerfSlot::NetFlush, m_window.getTime() - t0);
+
+            if (capture.shoot)
+                m_renderer.requestBackBufferCapture(m_captureDir / (captureFileStem(m_config.hostId ? m_config.hostId : "app", m_capturePreset.name) + ".png"));
 
             t0 = m_window.getTime();
             onRender();
@@ -692,9 +796,139 @@ namespace Dark
             const float rtt = (m_network.role() == NetRole::Idle) ? 0.0f : m_network.rttMs(m_network.localClientId());
             m_debug.perf().endFrame(dt, fs, m_network.packetsIn(), m_network.packetsOut(), rtt);
             m_debug.flush(&m_world, fs, m_network.packetsIn(), m_network.packetsOut(), rtt, dt);
+
+            if (capture.record)
+            {
+                // GPU columns are the newest resolved frame, one or two frames behind this one.
+                const ProfileSnapshot& snap = profileSnapshot();
+                CaptureFrameSample     sample;
+                sample.frameMs   = snap.frameMs;
+                sample.cpuMs     = snap.cpuMs;
+                sample.gpuMs     = snap.gpuMs;
+                sample.gpuValid  = snap.gpuValid;
+                sample.drawCalls = m_renderer.stats().drawCalls;
+                sample.triangles = m_renderer.stats().triangles;
+                sample.ranges.reserve(snap.rangeCount);
+                for (uint32_t i = 0; i < snap.rangeCount && i < kProfileMaxRanges; ++i)
+                    sample.ranges.push_back(CaptureRangeSample{ snap.ranges[i].name, snap.ranges[i].depth, snap.ranges[i].cpuMs, snap.ranges[i].gpuMs });
+                m_captureTimings.add(sample);
+            }
+            if (capture.shoot)
+            {
+                finishCapture(m_renderer.takeBackBufferCaptureResult());
+                m_captureActive = false;
+                if (!m_config.capture.stay)
+                    m_running = false;
+            }
         }
 
         onShutdown();
+    }
+
+    bool Application::loadCapturePreset()
+    {
+        const FrameCaptureArgs& args = m_config.capture;
+        const char*             host = m_config.hostId ? m_config.hostId : "app";
+        std::filesystem::path   file;
+        for (const std::filesystem::path& root : contentRootCandidates())
+        {
+            std::error_code ec;
+            const std::filesystem::path candidate = root / "perf" / "capture_cameras.json";
+            if (std::filesystem::is_regular_file(candidate, ec) && !ec)
+            {
+                file = candidate;
+                break;
+            }
+        }
+        if (file.empty())
+        {
+            DE_LOG_FATAL(LogCategory::Render, "Frame capture: content/perf/capture_cameras.json was not found");
+            return false;
+        }
+        std::ifstream in(file, std::ios::binary);
+        const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        std::vector<CapturePreset> presets;
+        std::string                error;
+        if (!in.good() && !in.eof())
+        {
+            DE_LOG_FATAL(LogCategory::Render, "Frame capture: cannot read '{}'", file.string());
+            return false;
+        }
+        if (!parseCapturePresets(text, presets, &error))
+        {
+            DE_LOG_FATAL(LogCategory::Render, "Frame capture: '{}': {}", file.string(), error);
+            return false;
+        }
+        const CapturePreset* preset = findCapturePreset(presets, args.camera, host);
+        if (!preset)
+        {
+            std::string names;
+            for (const CapturePreset& p : presets)
+            {
+                if (!p.host.empty() && p.host != host)
+                    continue;
+                if (!names.empty())
+                    names += ", ";
+                names += p.name;
+            }
+            DE_LOG_FATAL(LogCategory::Render, "Frame capture: no camera preset '{}' for host '{}'. Presets for this host: {}", args.camera, host,
+                         names.empty() ? std::string("(none)") : names);
+            return false;
+        }
+        m_capturePreset = *preset;
+
+        std::error_code ec;
+        m_captureDir = args.outDir.empty() ? std::filesystem::current_path(ec) / "captures" : std::filesystem::path(args.outDir);
+        std::filesystem::create_directories(m_captureDir, ec);
+        if (ec)
+        {
+            DE_LOG_FATAL(LogCategory::Render, "Frame capture: cannot create '{}' ({})", m_captureDir.string(), ec.message());
+            return false;
+        }
+        m_captureSchedule.configure(args.frame, args.averageCount);
+        m_captureTimings.clear();
+        DE_LOG_INFO(LogCategory::Render, "Frame capture: {} preset '{}', shot at ready frame {}, timings over frames {}..{}, output '{}'", host,
+                    m_capturePreset.name, args.frame, m_captureSchedule.firstRecordedFrame(), args.frame - 1, m_captureDir.string());
+        return true;
+    }
+
+    void Application::finishCapture(bool shotOk)
+    {
+        const char*       host = m_config.hostId ? m_config.hostId : "app";
+        const std::string stem = captureFileStem(host, m_capturePreset.name);
+
+        CaptureReportInfo info;
+        info.host           = host;
+        info.preset         = m_capturePreset.name;
+        info.png            = shotOk ? stem + ".png" : std::string{};
+        info.shotOk         = shotOk;
+        info.passSequenceFailures = capturePassSequenceFailures();
+#if defined(_DEBUG)
+        info.build = "Debug";
+#else
+        info.build = "Release";
+#endif
+        info.version        = kEngineVersion;
+        info.git            = kEngineGit;
+        info.shaderCompiler = "FXC";
+        info.frame          = m_config.capture.frame;
+        info.width          = m_renderer.width();
+        info.height         = m_renderer.height();
+        info.vsync          = m_config.vsync;
+
+        const std::filesystem::path report = m_captureDir / (stem + ".json");
+        std::ofstream               out(report, std::ios::binary | std::ios::trunc);
+        if (out)
+            out << captureReportJson(info, m_captureTimings) << '\n';
+        if (!out)
+        {
+            DE_LOG_ERROR(LogCategory::Render, "Frame capture: cannot write '{}'", report.string());
+            return;
+        }
+        const CaptureStat gpu = m_captureTimings.gpuStat();
+        const CaptureStat cpu = m_captureTimings.cpuStat();
+        DE_LOG_INFO(LogCategory::Render, "Frame capture: {} '{}' {} — GPU {:.3f} ms, CPU {:.3f} ms (mean of {} frames) → {}", host, m_capturePreset.name,
+                    shotOk ? "shot" : "NO SHOT", gpu.mean, cpu.mean, m_captureTimings.frames(), report.string());
     }
 
     void Application::releaseUnreferencedAssets()

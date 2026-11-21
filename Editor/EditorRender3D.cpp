@@ -1181,7 +1181,7 @@ void EditorApp::renderScene3D(ID3D12GraphicsCommandList* cmd)
     renderer().stats().drawCalls = draws;
     uint32_t tableCount = 0;
     const PassNode* table = deferred ? editorDeferredPasses(tableCount) : editorForwardPasses(tableCount);
-    (void)passSequenceOk(table, tableCount, playedPasses, playedCount);
+    (void)validateHostPassSequence("Editor 3D", table, tableCount, playedPasses, playedCount);
     m_movie.draw(renderer());
 }
 

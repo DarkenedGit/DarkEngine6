@@ -128,7 +128,7 @@ Same shadow capture + `bindSceneTargets`, then ground mesh, grid `LinePipeline`,
 
 The Sandbox already has opaque terrain + meshes, a separate transparent water pass, unlit FX, a HUD, and a debug depth sampler that unbinds the DSV. That **is** a hybrid frame; lighting is just in the wrong shader stage.
 
-Full deferred including water is a bad fit (alpha, Gerstner, Fresnel). Deferred+MSAA is a bad fit (the engine is 1× and will stay 1×; TAA is the future AA). A frame graph is a bad fit (one graphics queue, one list, hosts already own pass order).
+Full deferred including water is a bad fit (alpha, Gerstner, Fresnel). Deferred+MSAA is a bad fit (the engine is 1× and will stay 1×; TAA is the future AA). ~~A frame graph is a bad fit (one graphics queue, one list, hosts already own pass order).~~ **Reversed 2026-11-20 (D1):** the frame graph is in; see [DarkEngine6-render-graph-plan.md](../docs/plans/DarkEngine6-render-graph-plan.md).
 
 ---
 
@@ -158,7 +158,7 @@ Full deferred including water is a bad fit (alpha, Gerstner, Fresnel). Deferred+
 - Clustered / tiled point lights, light culling, shadow maps per point light.
 - SSAO, SSR, bloom, auto-exposure, color grading.
 - Deferred decals (blood stays forward `BloodSplatPool`).
-- A frame graph, render-graph compiler, or async compute.
+- ~~A frame graph, render-graph compiler, or async compute.~~ **Reversed 2026-11-20 (D1, D6):** both are planned in [DarkEngine6-render-graph-plan.md](../docs/plans/DarkEngine6-render-graph-plan.md). This RFC still does not add them.
 - Changing `Texture2D` to `_SRGB` / a linear working space (follow-up).
 - Lit particles or fogged water.
 - Changing 2D, splash, or VisualDebugger.
@@ -173,7 +173,7 @@ These are the proposed defaults. Remaining ties are in [Open Questions](#open-qu
 
 | ID | Decision | Rationale |
 |----|----------|-----------|
-| **K1** | **`Renderer` owns optional `SceneBuffers`.** No `DeferredRenderer` class, no frame graph. Hosts still sequence the frame (`SandboxApp::onRender`, `EditorApp::renderScene3D`). New PSO objects: `DeferredLightingPipeline`, `TonemapPipeline`. | Matches `ShadowSystem` (resources) + `SkyPipeline` (fullscreen PSO). `Renderer` already owns depth, resize, `bindSceneTargets`. A second renderer would duplicate device/resize/fence. `Render/Pipeline.h` is a stub — do not revive it. |
+| **K1** | **Superseded in part (D1, 2026-11-20).** The "no frame graph" half is reversed: the render graph in [DarkEngine6-render-graph-plan.md](../docs/plans/DarkEngine6-render-graph-plan.md) takes over pass order from the hosts, phase by phase. Until that lands the text below describes the code. **`Renderer` owns optional `SceneBuffers`.** No `DeferredRenderer` class, ~~no frame graph~~. Hosts still sequence the frame (`SandboxApp::onRender`, `EditorApp::renderScene3D`). New PSO objects: `DeferredLightingPipeline`, `TonemapPipeline`. | Matches `ShadowSystem` (resources) + `SkyPipeline` (fullscreen PSO). `Renderer` already owns depth, resize, `bindSceneTargets`. A second renderer would duplicate device/resize/fence. `Render/Pipeline.h` is a stub — do not revive it. |
 | **K2** | **`ScenePath` is opt-in per process.** Default `SwapChainForward`. 3D hosts call `renderer().enableSceneBuffers(config().scenePath)` in `onInit`. **`config().scenePath` is a request; the live path is `renderer().scenePath()`.** After enable (success or fail), every PSO `create` / `SkyPass` / `sceneColorFormat()` branches on the renderer, not the config. 2D/splash/debugger never call enable. | LoadingScreen and Sandbox2D rely on `beginFrame` binding the swap chain. Create **only the live 3D path** (K24). Exception: Editor dual Line PSOs (K22). Enable failure leaves the renderer on `SwapChainForward` while config may still say HybridDeferred. |
 | **K3** | **G-buffer is 2 color targets + existing depth. No world-position RT.** | 12 B/px with depth. Position is `invViewProj` × `(ndc.xy, depth, 1)`. `Matrix4f::Inverse()` already exists. |
 | **K4** | **Superseded** by [DESIGN-color-management.md](./DESIGN-color-management.md) **C0/C2** (RT0 TYPELESS + `_SRGB` RTV/lighting SRV). ~~**RT0 = `R8G8B8A8_UNORM` (not `_SRGB`).**~~ Historical: RGB = albedo × tint (same working space as today’s `Texture2D`). A unused (write 1). | `Texture2D` SRVs are UNORM. An `_SRGB` RT0 would hardware-encode values that are already gamma, double-sRGB, and mismatch the current look. Linear/sRGB is a follow-up with texture format changes. |
@@ -299,7 +299,7 @@ Then `onInit` requests `enableSceneBuffers(config().scenePath)` but compiles PSO
 
 `SceneBuffers` is **not** a second `Renderer`. It does not record command lists. It exposes bind/clear/SRV helpers.
 
-Why not a `DeferredRenderer` that owns the 3D frame: Sandbox and Editor **disagree** on what they draw (sky/terrain/water vs ground/grid/ImGui). A god class would grow every Sandbox-only pass. Why not a frame graph: one list, ~8 passes, no async compute, no reuse across hosts worth the abstraction.
+Why not a `DeferredRenderer` that owns the 3D frame: Sandbox and Editor **disagree** on what they draw (sky/terrain/water vs ground/grid/ImGui). A god class would grow every Sandbox-only pass. ~~Why not a frame graph: one list, ~8 passes, no async compute, no reuse across hosts worth the abstraction.~~ **Reversed 2026-11-20 (D1).** The frame now has 15+ passes, history and async-compute plans, and both hosts repeat the same pass order; see [DarkEngine6-render-graph-plan.md](../docs/plans/DarkEngine6-render-graph-plan.md). Phase 0 makes `passSequenceOk` failures visible (`validateHostPassSequence`) so the baselines can trust the current order.
 
 ### SceneBuffers resource table
 

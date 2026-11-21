@@ -33,6 +33,7 @@
 #include "Render/GpuUpload.h"
 #include "Render/SkyPipeline.h"
 #include "Render/ScenePath.h"
+#include "Render/PassTable.h"
 #include "Assets/Material.h"
 #include "Assets/Model.h"
 #include "Animation/AnimGraphTick.h"
@@ -284,6 +285,13 @@ void EditorApp::onInit()
     m_camera2D.SetClipPlanes(0.0f, 80.0f);
 
     newScene3D();
+    if (!config().cliScene.empty() && !m_cliJoin)
+    {
+        // -scene:<file>, the same argument Sandbox reads. Async when the IO lane is on.
+        m_pendingScenePath = defaultScenePath(config().cliScene);
+        DE_LOG_INFO("Editor: opening '{}' from -scene:", m_pendingScenePath.string());
+        loadScene();
+    }
     if (m_cliJoin)
         DE_LOG_INFO(LogCategory::Networking, "Editor: CLI join — starting with empty 3D scene");
     if (m_sceneMode == SceneMode::Scene3D)
@@ -465,4 +473,29 @@ void EditorApp::onShutdown()
     m_sfxDelete.reset();
     m_sfxSave.reset();
     DE_LOG_INFO("EditorApp: shutdown");
+}
+
+// Frame capture (render graph Phase 0 baselines). Edit mode only; the preset re-pins the
+// fly camera after updateCamera, and onRender skips the tool panels while it runs.
+bool EditorApp::captureSceneReady() const
+{
+    return !m_sceneLoadPending && m_sceneMode == SceneMode::Scene3D && !m_playMode;
+}
+
+uint32_t EditorApp::capturePassSequenceFailures() const
+{
+    return hostPassSequenceFailures();
+}
+
+void EditorApp::applyCapturePreset(const CapturePreset& preset, bool firstFrame)
+{
+    if (firstFrame)
+    {
+        m_scene.discardTemporalHistory();
+        if (preset.anchor != CaptureAnchor::World || preset.vision != CaptureVision::None || preset.camouflage || preset.underwater)
+            DE_LOG_WARN(LogCategory::Render, "Frame capture: Editor uses only eye, target and fovYDegrees of preset '{}'", preset.name);
+    }
+    if (preset.fovYDegrees > 0.0f)
+        m_camera.SetLens(preset.fovYDegrees * (Math::Pi / 180.0f), m_camera.GetAspect(), m_camera.GetNearZ(), m_camera.GetFarZ());
+    m_camera.LookAt(Vector3f(preset.eye[0], preset.eye[1], preset.eye[2]), Vector3f(preset.target[0], preset.target[1], preset.target[2]), Vector3f::Y_AXIS);
 }

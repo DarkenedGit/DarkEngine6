@@ -659,4 +659,55 @@ namespace Dark
         m_colorSpaceDefaulted = false;
     }
 
+    bool writeRgbaPng(const std::filesystem::path& path, const uint8_t* rgba, uint32_t width, uint32_t height, uint32_t rowPitchBytes)
+    {
+        if (!rgba || width == 0 || height == 0 || rowPitchBytes < width * 4u)
+            return false;
+        const uint64_t byteCount = static_cast<uint64_t>(rowPitchBytes) * height;
+        if (byteCount > 0xFFFFFFFFull)
+            return false;
+
+        std::error_code ec;
+        if (path.has_parent_path())
+        {
+            std::filesystem::create_directories(path.parent_path(), ec);
+            if (ec)
+            {
+                DE_LOG_ERROR("Image: failed to create directory for '{}' ({})", path.string(), ec.message());
+                return false;
+            }
+        }
+
+        EnsureCom();
+        ComPtr<IWICImagingFactory>    factory;
+        ComPtr<IWICStream>            stream;
+        ComPtr<IWICBitmapEncoder>     encoder;
+        ComPtr<IWICBitmapFrameEncode> frame;
+        if (FailedHr(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory)), "CoCreateInstance WICImagingFactory")
+            || FailedHr(factory->CreateStream(&stream), "WIC CreateStream"))
+            return false;
+        if (FailedHr(stream->InitializeFromFilename(path.c_str(), GENERIC_WRITE), "WIC open PNG for write"))
+        {
+            DE_LOG_ERROR("Image: failed to open '{}' for writing", path.string());
+            return false;
+        }
+        if (FailedHr(factory->CreateEncoder(GUID_ContainerFormatPng, nullptr, &encoder), "WIC CreateEncoder PNG")
+            || FailedHr(encoder->Initialize(stream.Get(), WICBitmapEncoderNoCache), "WIC encoder Initialize")
+            || FailedHr(encoder->CreateNewFrame(&frame, nullptr), "WIC CreateNewFrame")
+            || FailedHr(frame->Initialize(nullptr), "WIC frame Initialize")
+            || FailedHr(frame->SetSize(width, height), "WIC frame SetSize"))
+            return false;
+        WICPixelFormatGUID format = GUID_WICPixelFormat32bppRGBA;
+        if (FailedHr(frame->SetPixelFormat(&format), "WIC frame SetPixelFormat"))
+            return false;
+        if (!IsEqualGUID(format, GUID_WICPixelFormat32bppRGBA))
+        {
+            DE_LOG_ERROR("Image: PNG encoder did not accept RGBA8 for '{}'", path.string());
+            return false;
+        }
+        return !FailedHr(frame->WritePixels(height, rowPitchBytes, static_cast<UINT>(byteCount), const_cast<BYTE*>(rgba)), "WIC WritePixels")
+            && !FailedHr(frame->Commit(), "WIC frame Commit")
+            && !FailedHr(encoder->Commit(), "WIC encoder Commit");
+    }
+
 } // namespace Dark

@@ -1,5 +1,6 @@
 #pragma once
 #include "Core/Log.h"
+#include "Core/FrameCapture.h"
 #include "Core/JobSystem.h"
 #include "Core/Window.h"
 #include "ECS/World.h"
@@ -11,6 +12,9 @@
 #include "Render/Renderer.h"
 #include "Render/LoadingScreen.h"
 #include "Input/Input.h"
+
+#include <filesystem>
+#include <string>
 
 namespace Dark
 {
@@ -46,6 +50,10 @@ namespace Dark
         ScenePath   scenePath     = ScenePath::SwapChainForward; // request; live path is Renderer::scenePath()
         // Off keeps loadSceneFromJson on the caller and does not start the scheduler.
         bool        asyncSceneLoad = true;
+        // -scene:<file> (Sandbox and Editor open it at startup). Empty = the host default.
+        std::string cliScene;
+        // -capture-frame N -camera <preset> ... (Core/FrameCapture.h). Turns the splash and the menu off.
+        FrameCaptureArgs capture{};
     };
 
     bool parseNetCommandLine(const char* lpCmdLine, AppConfig& cfg);
@@ -82,6 +90,21 @@ namespace Dark
         virtual void onShutdown() {}
         virtual void onSplashFinished() {}
 
+        // Frame capture (-capture-frame). Frames are counted from the first frame this returns true.
+        virtual bool captureSceneReady() const { return true; }
+        // Every frame of a capture, after onUpdate and before onRender. Pin the camera and any
+        // per-preset state here so input and simulation cannot move it. firstFrame resets history.
+        virtual void applyCapturePreset(const CapturePreset& preset, bool firstFrame)
+        {
+            (void)preset;
+            (void)firstFrame;
+        }
+        // Frames whose recorded pass order failed the host's pass table (Render/PassTable.h).
+        // The report marks the baseline invalid when this is nonzero.
+        virtual uint32_t capturePassSequenceFailures() const { return 0; }
+        // Hosts hide HUD and tool panels while this is true so the PNG is the 3D frame only.
+        bool frameCaptureActive() const { return m_captureActive; }
+
         World&         world()    { return m_world; }
         AssetManager&  assets()   { return m_assets; }
         AssetPinTable&       pins() { return m_pins; }
@@ -105,6 +128,8 @@ namespace Dark
         void runFadeLoop();
         bool skipPressed() const;
         LoadingDrawState makeDrawState() const;
+        bool loadCapturePreset();
+        void finishCapture(bool shotOk);
 
         LogSession m_logSession;
 
@@ -127,6 +152,12 @@ namespace Dark
         bool          m_bootPresenting = false;
         bool          m_splashActive   = false;
         float         m_bootFade       = 1.0f;
+
+        FrameCaptureSchedule     m_captureSchedule;
+        CaptureTimingAccumulator m_captureTimings;
+        CapturePreset            m_capturePreset;
+        std::filesystem::path    m_captureDir;
+        bool                     m_captureActive = false;
     };
 
 } // namespace Dark
