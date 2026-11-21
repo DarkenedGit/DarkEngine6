@@ -212,7 +212,7 @@ add_custom_command(TARGET Sandbox POST_BUILD
             -P ${CMAKE_SOURCE_DIR}/cmake/CopyContent.cmake
     COMMENT "Copying content/ next to Sandbox.exe"
 )
-de_copy_pix_dll(Sandbox)
+de_host_exe(Sandbox SHADERS BAKED_RELEASE)
 
 # --- Sandbox2D executable (side-scrolling 2D template) -----------------------------
 add_executable(Sandbox2D WIN32 ${DE_SANDBOX2D_SOURCES})
@@ -237,7 +237,7 @@ add_custom_command(TARGET Sandbox2D POST_BUILD
             -P ${CMAKE_SOURCE_DIR}/cmake/CopyContent.cmake
     COMMENT "Copying content/ next to Sandbox2D.exe"
 )
-de_copy_pix_dll(Sandbox2D)
+de_host_exe(Sandbox2D SHADERS BAKED_RELEASE)
 
 # --- Dear ImGui (Editor UI) --------------------------------------------------------
 option(DE_ENABLE_FREETYPE "Build ImGui with FreeType (sharper UI fonts)" ON)
@@ -271,6 +271,7 @@ target_include_directories(imgui_editor PUBLIC
 )
 target_compile_definitions(imgui_editor PUBLIC IMGUI_DEFINE_MATH_OPERATORS)
 target_link_libraries(imgui_editor PUBLIC d3d12 dxgi)
+target_include_directories(imgui_editor BEFORE PRIVATE "${DE_AGILITY_INCLUDE}")
 
 if(DE_ENABLE_FREETYPE)
     set(FT_DISABLE_ZLIB ON CACHE BOOL "" FORCE)
@@ -327,7 +328,7 @@ add_custom_command(TARGET Editor POST_BUILD
             -P ${CMAKE_SOURCE_DIR}/cmake/CopyContent.cmake
     COMMENT "Copying content/ next to Editor.exe"
 )
-de_copy_pix_dll(Editor)
+de_host_exe(Editor SHADERS RUNTIME)
 
 # --- Visual Debugger executable ----------------------------------------------------
 add_executable(VisualDebugger WIN32 ${DE_VISUALDEBUGGER_SOURCES})
@@ -349,7 +350,7 @@ endif()
 set_target_properties(VisualDebugger PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
 )
-de_copy_pix_dll(VisualDebugger)
+de_host_exe(VisualDebugger SHADERS BAKED_RELEASE)
 
 # --- Unit tests --------------------------------------------------------------------
 if (DE_BUILD_TESTS)

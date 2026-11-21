@@ -3,6 +3,7 @@
 #include "Render/AutoExposure.h"
 #include "Render/BloomPipeline.h"
 #include "Render/ShaderCompile.h"
+#include "Render/RhiDevice.h"
 
 #include <cmath>
 #include <d3d12.h>
@@ -16,6 +17,7 @@ using Dark::adaptExposure;
 using Dark::bloomKneeForExposure;
 using Dark::bloomThresholdForExposure;
 using Dark::compileShaderFromContent;
+using Dark::ShaderStage;
 using Dark::logAverageLuma;
 using Dark::measuredLumaFromSums;
 using Dark::resetAutoExposure;
@@ -159,9 +161,9 @@ TEST(AutoExp, BloomThreshold)
 
 TEST(AutoExp, PipelineCreates)
 {
-    ComPtr<ID3D12Device> device;
-    if (FAILED(D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device))))
-        GTEST_SKIP() << "no D3D12 device";
+    ComPtr<ID3D12Device> device = Dark::createWarpTestDevice();
+    if (!device)
+        GTEST_SKIP() << "no WARP device at FL 12_1";
 
     Dark::AutoExposurePipeline pipeline;
     ASSERT_TRUE(pipeline.create(device.Get(), 1280, 720));
@@ -185,9 +187,9 @@ TEST(AutoExp, ShaderCompiles)
     ComPtr<ID3DBlob> vs;
     ComPtr<ID3DBlob> reduce;
     ComPtr<ID3DBlob> down;
-    ASSERT_TRUE(compileShaderFromContent("shaders/AutoExposure.hlsl", "VSMain", "vs_5_0", vs));
-    ASSERT_TRUE(compileShaderFromContent("shaders/AutoExposure.hlsl", "PSReduce", "ps_5_0", reduce, reduceMacros));
-    ASSERT_TRUE(compileShaderFromContent("shaders/AutoExposure.hlsl", "PSDownsample", "ps_5_0", down));
+    ASSERT_TRUE(compileShaderFromContent("shaders/AutoExposure.hlsl", "VSMain", ShaderStage::Vertex, vs));
+    ASSERT_TRUE(compileShaderFromContent("shaders/AutoExposure.hlsl", "PSReduce", ShaderStage::Pixel, reduce, reduceMacros));
+    ASSERT_TRUE(compileShaderFromContent("shaders/AutoExposure.hlsl", "PSDownsample", ShaderStage::Pixel, down));
     EXPECT_NE(vs.Get(), nullptr);
     EXPECT_NE(reduce.Get(), nullptr);
     EXPECT_NE(down.Get(), nullptr);

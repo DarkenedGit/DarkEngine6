@@ -14,7 +14,6 @@
 #include "ECS/World.h"
 
 #include <cstring>
-#include <d3dcompiler.h>
 
 namespace Dark
 {
@@ -152,9 +151,9 @@ namespace Dark
         ComPtr<ID3DBlob> vsMesh;
         ComPtr<ID3DBlob> vsFs;
         ComPtr<ID3DBlob> ps;
-        if (!compileShaderFromContent("shaders/LocalLightVolume.hlsl", "VSMain", "vs_5_0", vsMesh)
-            || !compileShaderFromContent("shaders/LocalLightVolume.hlsl", "VSFullscreen", "vs_5_0", vsFs)
-            || !compileShaderFromContent("shaders/LocalLightVolume.hlsl", "PSMain", "ps_5_0", ps))
+        if (!compileShaderFromContent("shaders/LocalLightVolume.hlsl", "VSMain", ShaderStage::Vertex, vsMesh)
+            || !compileShaderFromContent("shaders/LocalLightVolume.hlsl", "VSFullscreen", ShaderStage::Vertex, vsFs)
+            || !compileShaderFromContent("shaders/LocalLightVolume.hlsl", "PSMain", ShaderStage::Pixel, ps))
         {
             m_rootSignature.Reset();
             return false;

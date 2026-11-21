@@ -11,10 +11,10 @@
 #include "Render/LocalShadowMath.h"
 #include "Render/LocalShadowSystem.h"
 #include "Render/SkinningUploadRing.h"
+#include "Render/RhiDevice.h"
 
 #include <cmath>
 #include <d3d12.h>
-#include <dxgi1_6.h>
 #include <limits>
 #include <vector>
 #include <wrl/client.h>
@@ -58,20 +58,7 @@ Entity addShadowLight(World& world, LocalLightType type, float intensity)
 
 Microsoft::WRL::ComPtr<ID3D12Device> tryCreateDevice()
 {
-    Microsoft::WRL::ComPtr<ID3D12Device> device;
-    Microsoft::WRL::ComPtr<IDXGIFactory4> factory;
-    if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))))
-        return {};
-    Microsoft::WRL::ComPtr<IDXGIAdapter> warp;
-    if (SUCCEEDED(factory->EnumWarpAdapter(IID_PPV_ARGS(&warp))))
-    {
-        if (SUCCEEDED(D3D12CreateDevice(warp.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device))))
-            return device;
-    }
-    device.Reset();
-    if (SUCCEEDED(D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device))))
-        return device;
-    return {};
+    return Dark::createWarpTestDevice();
 }
 
 } // namespace

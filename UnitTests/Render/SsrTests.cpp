@@ -10,11 +10,11 @@
 #include "Render/SceneBuffers.h"
 #include "Render/SsrPipeline.h"
 #include "Render/SsrSettings.h"
+#include "Render/RhiDevice.h"
 
 #include <cmath>
 #include <cstddef>
 #include <d3d12.h>
-#include <dxgi1_6.h>
 #include <type_traits>
 #include <utility>
 #include <wrl/client.h>
@@ -69,20 +69,7 @@ namespace
 
     ComPtr<ID3D12Device> TryCreateDevice()
     {
-        ComPtr<ID3D12Device>  device;
-        ComPtr<IDXGIFactory4> factory;
-        if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))))
-            return {};
-        ComPtr<IDXGIAdapter> warp;
-        if (SUCCEEDED(factory->EnumWarpAdapter(IID_PPV_ARGS(&warp))))
-        {
-            if (SUCCEEDED(D3D12CreateDevice(warp.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device))))
-                return device;
-        }
-        device.Reset();
-        if (SUCCEEDED(D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device))))
-            return device;
-        return {};
+        return Dark::createWarpTestDevice();
     }
 } // namespace
 

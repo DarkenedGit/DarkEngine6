@@ -48,6 +48,8 @@ endfunction()
 
 # Shared includes / defs / warnings for every engine layer (and the umbrella).
 function(de_engine_target_common target)
+    # Agility SDK headers first, so d3d12.h/d3dcommon.h are the Agility versions (cmake/AgilitySdk.cmake).
+    target_include_directories(${target} BEFORE PUBLIC "${DE_AGILITY_INCLUDE}")
     target_include_directories(${target}
         PUBLIC
             ${CMAKE_CURRENT_SOURCE_DIR}
@@ -225,6 +227,10 @@ if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CompilerOptions.cmake")
 endif()
 
 include(cmake/WinPixEventRuntime.cmake)
+include(cmake/AgilitySdk.cmake)
+include(cmake/Dxc.cmake)
+include(cmake/ShaderBake.cmake)
+include(cmake/HostExe.cmake)
 
 # --- Layered engine libraries ------------------------------------------------------
 # Target graph (STATIC; each .cpp compiled exactly once):
@@ -277,6 +283,8 @@ target_link_libraries(DarkRender
         dxguid
         d3dcompiler
 )
+# dxcapi.h for Render/ShaderDxc.cpp. DXC itself is loaded at runtime (no import library).
+target_include_directories(DarkRender PRIVATE "${DE_DXC_INCLUDE}")
 if(DE_ENABLE_GPU_MARKERS)
     target_compile_definitions(DarkRender PRIVATE DE_GPU_MARKERS=1)
     target_include_directories(DarkRender PRIVATE
@@ -320,6 +328,11 @@ de_engine_target_common(DarkEngine)
 target_sources(DarkEngine PRIVATE "${DE_GENERATED_DIR}/Core/Version.h")
 set_source_files_properties("${DE_GENERATED_DIR}/Core/Version.h" PROPERTIES HEADER_FILE_ONLY TRUE)
 source_group("generated" FILES "${DE_GENERATED_DIR}/Core/Version.h")
+
+# Render/LoadingScreen.cpp (compiled here) includes the generated splash shader bytes (cmake/ShaderBake.cmake).
+target_sources(DarkEngine PRIVATE "${DE_LOADING_SCREEN_SHADERS_H}")
+set_source_files_properties("${DE_LOADING_SCREEN_SHADERS_H}" PROPERTIES HEADER_FILE_ONLY TRUE)
+source_group("generated" FILES "${DE_LOADING_SCREEN_SHADERS_H}")
 
 target_link_libraries(DarkEngine
     PUBLIC

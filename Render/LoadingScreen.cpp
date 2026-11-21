@@ -1,14 +1,13 @@
 #include "Render/LoadingScreen.h"
 #include "Render/Profile.h"
 #include "Render/Renderer.h"
+#include "Render/LoadingScreenShaders.h"
 #include "Render/ShaderCompile.h"
 #include "Core/Application.h"
 #include "Core/Log.h"
 #include "Media/MoviePath.h"
 #include "Media/MoviePlayer.h"
 #include "Media/MovieStatus.h"
-
-#include <d3dcompiler.h>
 
 #include <chrono>
 #include <filesystem>
@@ -21,109 +20,11 @@ namespace Dark
     namespace
     {
 
-        // Embedded copy of content/shaders/LoadingScreen.hlsl so create() does not need content/.
-        static const char kLoadingScreenHlsl[] = R"HLSL(
-#pragma pack_matrix(row_major)
-
-cbuffer LoadingScreenConstants : register(b0)
-{
-    float  timeSec;
-    float  fade;
-    float  phase;
-    float  reducedMotion;
-    float4 background;
-    float3 spinnerColor;
-    float  drawPass; // C++ LoadingScreenConstants::pass (HLSL 'pass' is reserved)
-    float2 resolution;
-    float  logoAspect;
-    float  spinnerOpacity;
-};
-
-Texture2D    gLogo : register(t0);
-Texture2D    gFont : register(t1);
-SamplerState gSamp : register(s0);
-
-struct PSInput
-{
-    float4 position : SV_POSITION;
-    float2 uv       : TEXCOORD0;
-};
-
-PSInput VSMain(uint id : SV_VertexID)
-{
-    PSInput o;
-    float2 uv = float2((id << 1) & 2, id & 2);
-    o.position = float4(uv * float2(2.0f, -2.0f) + float2(-1.0f, 1.0f), 0.0f, 1.0f);
-    o.uv       = uv;
-    return o;
-}
-
-float2 letterboxUv(float2 uv, float2 res, float aspect)
-{
-    float la = max(aspect, 1.0e-4);
-    float sa = res.x / max(res.y, 1.0);
-    float2 size = (sa > la) ? float2(la / sa, 1.0) : float2(1.0, sa / la);
-    return (uv - 0.5) / size + 0.5;
-}
-
-float4 PSMain(PSInput input) : SV_TARGET
-{
-    if (drawPass > 0.5)
-    {
-        float g = gFont.Sample(gSamp, input.uv).r;
-        return float4(1.0, 1.0, 1.0, g * fade);
-    }
-
-    float2 logoUv = letterboxUv(input.uv, resolution, logoAspect);
-    float  inLogo = (logoUv.x >= 0.0 && logoUv.x <= 1.0 && logoUv.y >= 0.0 && logoUv.y <= 1.0) ? 1.0 : 0.0;
-    float4 logo   = gLogo.Sample(gSamp, saturate(logoUv));
-    logo.a *= inLogo;
-
-    float4 color = lerp(background, logo, logo.a * fade);
-
-    color.a = 1.0;
-    return color;
-}
-)HLSL";
-
         bool FailedHr(HRESULT hr, const char* what)
         {
             if (SUCCEEDED(hr))
                 return false;
             DE_LOG_ERROR(LogCategory::Render, "{} failed (HRESULT 0x{:08X})", what, static_cast<unsigned>(hr));
-            return true;
-        }
-
-        bool compileEmbedded(const char* entry, const char* target, ComPtr<ID3DBlob>& outBytecode)
-        {
-            outBytecode.Reset();
-
-            ComPtr<ID3DBlob> errors;
-            UINT             flags = D3DCOMPILE_ENABLE_STRICTNESS;
-#if defined(_DEBUG)
-            flags |= D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
-#endif
-
-            const HRESULT hr = D3DCompile(
-                kLoadingScreenHlsl,
-                sizeof(kLoadingScreenHlsl) - 1,
-                "LoadingScreen.hlsl",
-                nullptr,
-                nullptr,
-                entry,
-                target,
-                flags,
-                0,
-                &outBytecode,
-                &errors);
-
-            if (FAILED(hr))
-            {
-                const char* msg = errors ? static_cast<const char*>(errors->GetBufferPointer()) : "unknown";
-                DE_LOG_ERROR(LogCategory::Render, "LoadingScreen compile failed ({} {}): {}", entry, target, msg);
-                outBytecode.Reset();
-                return false;
-            }
             return true;
         }
 
@@ -370,7 +271,9 @@ float4 PSMain(PSInput input) : SV_TARGET
 
         ComPtr<ID3DBlob> vs;
         ComPtr<ID3DBlob> ps;
-        if (!compileEmbedded("VSMain", "vs_5_0", vs) || !compileEmbedded("PSMain", "ps_5_0", ps))
+        // Baked at build time from content/shaders/LoadingScreen.hlsl (cmake/EmbedShaders.cmake), so the splash needs no files or compiler.
+        if (!makeShaderBlob(LoadingScreenShaders::kVSMain, sizeof(LoadingScreenShaders::kVSMain), vs)
+            || !makeShaderBlob(LoadingScreenShaders::kPSMain, sizeof(LoadingScreenShaders::kPSMain), ps))
         {
             shutdown(renderer);
             return false;
@@ -777,7 +680,7 @@ float4 PSMain(PSInput input) : SV_TARGET
         {
             ComPtr<ID3DBlob> vs;
             ComPtr<ID3DBlob> ps;
-            if (compileShaderFromFile(hlsl, "VSMain", "vs_5_0", vs) && compileShaderFromFile(hlsl, "PSMain", "ps_5_0", ps))
+            if (compileShaderFromFile(hlsl, "VSMain", ShaderStage::Vertex, vs) && compileShaderFromFile(hlsl, "PSMain", ShaderStage::Pixel, ps))
             {
                 renderer.waitForGpu();
                 ComPtr<ID3D12PipelineState> diskPso;

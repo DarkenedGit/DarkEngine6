@@ -5,7 +5,6 @@
 #include "Core/Log.h"
 
 #include <cstddef>
-#include <d3dcompiler.h>
 
 namespace Dark
 {
@@ -110,8 +109,8 @@ namespace Dark
 
         ComPtr<ID3DBlob> vs;
         ComPtr<ID3DBlob> ps;
-        if (!compileShaderFromContent("shaders/BasicMeshGBufferInstanced.hlsl", "VSMain", "vs_5_0", vs)
-            || !compileShaderFromContent("shaders/BasicMeshGBufferInstanced.hlsl", "PSMain", "ps_5_0", ps))
+        if (!compileShaderFromContent("shaders/BasicMeshGBufferInstanced.hlsl", "VSMain", ShaderStage::Vertex, vs)
+            || !compileShaderFromContent("shaders/BasicMeshGBufferInstanced.hlsl", "PSMain", ShaderStage::Pixel, ps))
         {
             reset();
             return false;
@@ -160,7 +159,7 @@ namespace Dark
             D3D_SHADER_MACRO thermalMacros[3];
             makeThermalMacros("0.41", thermalMacros);
             ComPtr<ID3DBlob> thermalPs;
-            if (!compileShaderFromContent("shaders/BasicMeshGBufferInstanced.hlsl", "PSMain", "ps_5_0", thermalPs, thermalMacros))
+            if (!compileShaderFromContent("shaders/BasicMeshGBufferInstanced.hlsl", "PSMain", ShaderStage::Pixel, thermalPs, thermalMacros))
             {
                 reset();
                 return false;
@@ -175,7 +174,7 @@ namespace Dark
             D3D_SHADER_MACRO uvMacros[3];
             makeUvMacros("0.00", uvMacros);
             ComPtr<ID3DBlob> uvPs;
-            if (!compileShaderFromContent("shaders/BasicMeshGBufferInstanced.hlsl", "PSMain", "ps_5_1", uvPs, uvMacros))
+            if (!compileShaderFromContent("shaders/BasicMeshGBufferInstanced.hlsl", "PSMain", ShaderStage::Pixel, uvPs, uvMacros))
             {
                 reset();
                 return false;
@@ -225,7 +224,7 @@ namespace Dark
         }
 
         ComPtr<ID3DBlob> depthVs;
-        if (!compileShaderFromContent("shaders/BasicMeshDepthInstanced.hlsl", "VSMain", "vs_5_0", depthVs))
+        if (!compileShaderFromContent("shaders/BasicMeshDepthInstanced.hlsl", "VSMain", ShaderStage::Vertex, depthVs))
         {
             reset();
             return false;

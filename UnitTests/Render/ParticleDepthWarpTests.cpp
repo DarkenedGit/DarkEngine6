@@ -8,11 +8,11 @@
 #include "Render/Camera3D.h"
 #include "Render/ParticleGpuPipeline.h"
 #include "Render/ShaderCompile.h"
+#include "Render/RhiDevice.h"
 
 #include <d3d11shader.h>
 #include <d3d12.h>
-#include <d3dcompiler.h>
-#include <dxgi1_4.h>
+#include <d3d12shader.h>
 #include <wrl/client.h>
 
 #include <cstring>
@@ -28,31 +28,21 @@ namespace
 
 ComPtr<ID3D12Device> tryWarpDevice()
 {
-    ComPtr<ID3D12Device>  device;
-    ComPtr<IDXGIFactory4> factory;
-    if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))))
-        return {};
-    ComPtr<IDXGIAdapter> warp;
-    if (SUCCEEDED(factory->EnumWarpAdapter(IID_PPV_ARGS(&warp))))
-    {
-        if (SUCCEEDED(D3D12CreateDevice(warp.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device))))
-            return device;
-    }
-    return {};
+    return Dark::createWarpTestDevice();
 }
 
 bool cbufferBytes(ID3DBlob* blob, const char* name, UINT& outBytes)
 {
-    ComPtr<ID3D11ShaderReflection> reflect;
-    if (!blob || FAILED(D3DReflect(blob->GetBufferPointer(), blob->GetBufferSize(), IID_PPV_ARGS(&reflect))))
+    ComPtr<ID3D12ShaderReflection> reflect;
+    if (!blob || !Dark::reflectShader(blob, reflect))
         return false;
-    D3D11_SHADER_DESC desc{};
+    D3D12_SHADER_DESC desc{};
     if (FAILED(reflect->GetDesc(&desc)))
         return false;
     for (UINT i = 0; i < desc.ConstantBuffers; ++i)
     {
-        ID3D11ShaderReflectionConstantBuffer* cb = reflect->GetConstantBufferByIndex(i);
-        D3D11_SHADER_BUFFER_DESC              cbDesc{};
+        ID3D12ShaderReflectionConstantBuffer* cb = reflect->GetConstantBufferByIndex(i);
+        D3D12_SHADER_BUFFER_DESC              cbDesc{};
         if (!cb || FAILED(cb->GetDesc(&cbDesc)) || !cbDesc.Name)
             return false;
         if (std::strcmp(cbDesc.Name, name) == 0)
@@ -131,7 +121,7 @@ Vector3f particleVel(const GpuParticle& particle)
 TEST(ParticleDepthWarp, FiniteDifferenceMatchesCpu)
 {
     ComPtr<ID3DBlob> cs;
-    ASSERT_TRUE(compileShaderFromContent("shaders/ParticleSimulate.hlsl", "CSSimulate", "cs_5_0", cs));
+    ASSERT_TRUE(compileShaderFromContent("shaders/ParticleSimulate.hlsl", "CSSimulate", ShaderStage::Compute, cs));
     UINT cbBytes   = 0;
     UINT stepBytes = 0;
     ASSERT_TRUE(cbufferBytes(cs.Get(), "GpuParticleCb", cbBytes));

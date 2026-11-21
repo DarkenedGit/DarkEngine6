@@ -3,7 +3,6 @@
 #include "Render/ShaderCompile.h"
 #include "Core/Log.h"
 
-#include <d3dcompiler.h>
 
 namespace Dark
 {
@@ -82,8 +81,8 @@ namespace Dark
 
         ComPtr<ID3DBlob> vs;
         ComPtr<ID3DBlob> ps;
-        if (!compileShaderFromContent("shaders/Sprite.hlsl", "VSMain", "vs_5_0", vs)
-            || !compileShaderFromContent("shaders/Sprite.hlsl", "PSMain", "ps_5_0", ps))
+        if (!compileShaderFromContent("shaders/Sprite.hlsl", "VSMain", ShaderStage::Vertex, vs)
+            || !compileShaderFromContent("shaders/Sprite.hlsl", "PSMain", ShaderStage::Pixel, ps))
         {
             return false;
         }

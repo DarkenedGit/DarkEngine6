@@ -6,7 +6,6 @@
 #include "Math/MathHelper.h"
 
 #include <cstring>
-#include <d3dcompiler.h>
 
 namespace Dark
 {
@@ -78,7 +77,7 @@ namespace Dark
 
         ComPtr<ID3DBlob> vs;
         ComPtr<ID3DBlob> ps;
-        if (!compileShaderFromContent("shaders/MotionBlur.hlsl", "VSMain", "vs_5_0", vs) || !compileShaderFromContent("shaders/MotionBlur.hlsl", "PSMain", "ps_5_0", ps))
+        if (!compileShaderFromContent("shaders/MotionBlur.hlsl", "VSMain", ShaderStage::Vertex, vs) || !compileShaderFromContent("shaders/MotionBlur.hlsl", "PSMain", ShaderStage::Pixel, ps))
             return false;
 
         D3D12_GRAPHICS_PIPELINE_STATE_DESC pso{};

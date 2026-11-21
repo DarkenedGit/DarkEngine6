@@ -6,7 +6,6 @@
 #include "Render/ShaderCompile.h"
 
 #include <cstring>
-#include <d3dcompiler.h>
 
 namespace Dark
 {
@@ -307,7 +306,7 @@ namespace Dark
 
         ComPtr<ID3DBlob> compact;
         ComPtr<ID3DBlob> args;
-        if (!compileShaderFromContent("shaders/InstanceCull.hlsl", "CSCompact", "cs_5_0", compact) || !compileShaderFromContent("shaders/InstanceCull.hlsl", "CSArgs", "cs_5_0", args))
+        if (!compileShaderFromContent("shaders/InstanceCull.hlsl", "CSCompact", ShaderStage::Compute, compact) || !compileShaderFromContent("shaders/InstanceCull.hlsl", "CSArgs", ShaderStage::Compute, args))
             return false;
 
         D3D12_COMPUTE_PIPELINE_STATE_DESC pso{};
@@ -721,7 +720,7 @@ namespace Dark
 
         ComPtr<ID3DBlob> compact;
         ComPtr<ID3DBlob> args;
-        if (!compileShaderFromContent("shaders/InstanceCull.hlsl", "CSCompact", "cs_5_0", compact) || !compileShaderFromContent("shaders/InstanceCull.hlsl", "CSArgs", "cs_5_0", args))
+        if (!compileShaderFromContent("shaders/InstanceCull.hlsl", "CSCompact", ShaderStage::Compute, compact) || !compileShaderFromContent("shaders/InstanceCull.hlsl", "CSArgs", ShaderStage::Compute, args))
             return false;
 
         D3D12_COMPUTE_PIPELINE_STATE_DESC pso{};

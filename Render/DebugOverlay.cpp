@@ -2,7 +2,6 @@
 #include "Render/ShaderCompile.h"
 #include "Core/Log.h"
 
-#include <d3dcompiler.h>
 
 namespace Dark
 {
@@ -113,11 +112,11 @@ namespace Dark
         ComPtr<ID3DBlob> psArr;
         ComPtr<ID3DBlob> psColor;
         ComPtr<ID3DBlob> psVel;
-        if (!compileShaderFromContent("shaders/DebugOverlay2D.hlsl", "VSMain", "vs_5_0", vs)
-            || !compileShaderFromContent("shaders/DebugOverlay2D.hlsl", "PSMain", "ps_5_0", ps2d)
-            || !compileShaderFromContent("shaders/DebugOverlayArray.hlsl", "PSMain", "ps_5_0", psArr)
-            || !compileShaderFromContent("shaders/DebugOverlayColor.hlsl", "PSMain", "ps_5_0", psColor)
-            || !compileShaderFromContent("shaders/DebugOverlayVelocity.hlsl", "PSMain", "ps_5_0", psVel))
+        if (!compileShaderFromContent("shaders/DebugOverlay2D.hlsl", "VSMain", ShaderStage::Vertex, vs)
+            || !compileShaderFromContent("shaders/DebugOverlay2D.hlsl", "PSMain", ShaderStage::Pixel, ps2d)
+            || !compileShaderFromContent("shaders/DebugOverlayArray.hlsl", "PSMain", ShaderStage::Pixel, psArr)
+            || !compileShaderFromContent("shaders/DebugOverlayColor.hlsl", "PSMain", ShaderStage::Pixel, psColor)
+            || !compileShaderFromContent("shaders/DebugOverlayVelocity.hlsl", "PSMain", ShaderStage::Pixel, psVel))
         {
             return false;
         }

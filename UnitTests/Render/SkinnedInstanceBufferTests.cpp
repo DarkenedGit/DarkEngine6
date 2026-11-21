@@ -15,9 +15,9 @@
 #include "Math/AABox3f.h"
 #include "Math/Matrix4f.h"
 #include "Math/Vector4f.h"
+#include "Render/RhiDevice.h"
 
-#include <d3dcompiler.h>
-#include <dxgi1_4.h>
+#include <d3d12shader.h>
 
 #include <cmath>
 #include <cstring>
@@ -33,17 +33,7 @@ namespace
 
 ComPtr<ID3D12Device> tryCreateWarpDevice()
 {
-    ComPtr<ID3D12Device>  device;
-    ComPtr<IDXGIFactory4> factory;
-    if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))))
-        return {};
-    ComPtr<IDXGIAdapter> warp;
-    if (SUCCEEDED(factory->EnumWarpAdapter(IID_PPV_ARGS(&warp))))
-    {
-        if (SUCCEEDED(D3D12CreateDevice(warp.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device))))
-            return device;
-    }
-    return {};
+    return Dark::createWarpTestDevice();
 }
 
 SkinnedPartSubmit partOf(const Mesh* mesh, const AnimPose* pose, AssetID material, StaticPopulation population, bool castShadow, bool alphaMask)
@@ -60,16 +50,16 @@ SkinnedPartSubmit partOf(const Mesh* mesh, const AnimPose* pose, AssetID materia
 
 bool cbufferBytes(ID3DBlob* blob, const char* name, UINT& outBytes)
 {
-    ComPtr<ID3D11ShaderReflection> reflect;
-    if (!blob || FAILED(D3DReflect(blob->GetBufferPointer(), blob->GetBufferSize(), IID_PPV_ARGS(&reflect))))
+    ComPtr<ID3D12ShaderReflection> reflect;
+    if (!blob || !Dark::reflectShader(blob, reflect))
         return false;
-    D3D11_SHADER_DESC desc{};
+    D3D12_SHADER_DESC desc{};
     if (FAILED(reflect->GetDesc(&desc)))
         return false;
     for (UINT i = 0; i < desc.ConstantBuffers; ++i)
     {
-        ID3D11ShaderReflectionConstantBuffer* cb = reflect->GetConstantBufferByIndex(i);
-        D3D11_SHADER_BUFFER_DESC              cbDesc{};
+        ID3D12ShaderReflectionConstantBuffer* cb = reflect->GetConstantBufferByIndex(i);
+        D3D12_SHADER_BUFFER_DESC              cbDesc{};
         if (!cb || FAILED(cb->GetDesc(&cbDesc)) || !cbDesc.Name)
             return false;
         if (std::strcmp(cbDesc.Name, name) == 0)
@@ -83,20 +73,20 @@ bool cbufferBytes(ID3DBlob* blob, const char* name, UINT& outBytes)
 
 bool variableOffset(ID3DBlob* blob, const char* cbName, const char* varName, UINT& outOffset)
 {
-    ComPtr<ID3D11ShaderReflection> reflect;
-    if (!blob || FAILED(D3DReflect(blob->GetBufferPointer(), blob->GetBufferSize(), IID_PPV_ARGS(&reflect))))
+    ComPtr<ID3D12ShaderReflection> reflect;
+    if (!blob || !Dark::reflectShader(blob, reflect))
         return false;
-    D3D11_SHADER_DESC desc{};
+    D3D12_SHADER_DESC desc{};
     if (FAILED(reflect->GetDesc(&desc)))
         return false;
     for (UINT i = 0; i < desc.ConstantBuffers; ++i)
     {
-        ID3D11ShaderReflectionConstantBuffer* cb = reflect->GetConstantBufferByIndex(i);
-        D3D11_SHADER_BUFFER_DESC              cbDesc{};
+        ID3D12ShaderReflectionConstantBuffer* cb = reflect->GetConstantBufferByIndex(i);
+        D3D12_SHADER_BUFFER_DESC              cbDesc{};
         if (!cb || FAILED(cb->GetDesc(&cbDesc)) || !cbDesc.Name || std::strcmp(cbDesc.Name, cbName) != 0)
             continue;
-        ID3D11ShaderReflectionVariable* var = cb->GetVariableByName(varName);
-        D3D11_SHADER_VARIABLE_DESC      varDesc{};
+        ID3D12ShaderReflectionVariable* var = cb->GetVariableByName(varName);
+        D3D12_SHADER_VARIABLE_DESC      varDesc{};
         if (!var || FAILED(var->GetDesc(&varDesc)))
             return false;
         outOffset = varDesc.StartOffset;
@@ -107,23 +97,37 @@ bool variableOffset(ID3DBlob* blob, const char* cbName, const char* varName, UIN
 
 bool bindPoint(ID3DBlob* blob, const char* name, UINT& outPoint)
 {
-    ComPtr<ID3D11ShaderReflection> reflect;
-    if (!blob || FAILED(D3DReflect(blob->GetBufferPointer(), blob->GetBufferSize(), IID_PPV_ARGS(&reflect))))
+    ComPtr<ID3D12ShaderReflection> reflect;
+    if (!blob || !Dark::reflectShader(blob, reflect))
         return false;
-    D3D11_SHADER_INPUT_BIND_DESC desc{};
+    D3D12_SHADER_INPUT_BIND_DESC desc{};
     if (FAILED(reflect->GetResourceBindingDescByName(name, &desc)))
         return false;
     outPoint = desc.BindPoint;
     return true;
 }
 
-bool disassemblyHas(ID3DBlob* blob, const char* needle)
+// Structured buffer bound at t<slot> (SRV) or u<slot> (UAV) with the given stride. Reflection reports a
+// structured buffer's stride in NumSamples for both DXBC and DXIL.
+bool structuredBinding(ID3DBlob* blob, bool uav, UINT slot, UINT stride)
 {
-    ComPtr<ID3DBlob> dump;
-    if (!blob || !needle || FAILED(D3DDisassemble(blob->GetBufferPointer(), blob->GetBufferSize(), 0, nullptr, &dump)) || !dump)
+    ComPtr<ID3D12ShaderReflection> reflect;
+    if (!blob || !Dark::reflectShader(blob, reflect))
         return false;
-    const std::string text(static_cast<const char*>(dump->GetBufferPointer()));
-    return text.find(needle) != std::string::npos;
+    D3D12_SHADER_DESC shader{};
+    if (FAILED(reflect->GetDesc(&shader)))
+        return false;
+    for (UINT i = 0; i < shader.BoundResources; ++i)
+    {
+        D3D12_SHADER_INPUT_BIND_DESC desc{};
+        if (FAILED(reflect->GetResourceBindingDesc(i, &desc)) || desc.BindPoint != slot || desc.Space != 0)
+            continue;
+        const bool isUav = desc.Type == D3D_SIT_UAV_RWSTRUCTURED;
+        const bool isSrv = desc.Type == D3D_SIT_STRUCTURED;
+        if ((uav ? isUav : isSrv) && desc.NumSamples == stride)
+            return true;
+    }
+    return false;
 }
 
 } // namespace
@@ -308,9 +312,9 @@ TEST(SkinnedInstance, ShadersKeepPaletteAndBatchLayout)
     ComPtr<ID3DBlob> vs;
     ComPtr<ID3DBlob> ps;
     ComPtr<ID3DBlob> depth;
-    ASSERT_TRUE(compileShaderFromContent("shaders/SkinnedMeshGBufferInstanced.hlsl", "VSMain", "vs_5_0", vs));
-    ASSERT_TRUE(compileShaderFromContent("shaders/SkinnedMeshGBufferInstanced.hlsl", "PSMain", "ps_5_0", ps));
-    ASSERT_TRUE(compileShaderFromContent("shaders/SkinnedShadowDepthInstanced.hlsl", "VSMain", "vs_5_0", depth));
+    ASSERT_TRUE(compileShaderFromContent("shaders/SkinnedMeshGBufferInstanced.hlsl", "VSMain", ShaderStage::Vertex, vs));
+    ASSERT_TRUE(compileShaderFromContent("shaders/SkinnedMeshGBufferInstanced.hlsl", "PSMain", ShaderStage::Pixel, ps));
+    ASSERT_TRUE(compileShaderFromContent("shaders/SkinnedShadowDepthInstanced.hlsl", "VSMain", ShaderStage::Vertex, depth));
 
     UINT vsBytes = 0;
     UINT psBytes = 0;
@@ -359,10 +363,10 @@ TEST(SkinnedInstance, ShadersKeepPaletteAndBatchLayout)
     ASSERT_TRUE(bindPoint(ps.Get(), "gAlbedo", albedo));
     EXPECT_EQ(albedo, 0u);
 
-    EXPECT_TRUE(disassemblyHas(vs.Get(), "dcl_resource_structured t4, 160"));
-    EXPECT_TRUE(disassemblyHas(vs.Get(), "dcl_resource_structured t6, 2048"));
-    EXPECT_TRUE(disassemblyHas(depth.Get(), "dcl_resource_structured t4, 160"));
-    EXPECT_TRUE(disassemblyHas(depth.Get(), "dcl_resource_structured t6, 2048"));
+    EXPECT_TRUE(structuredBinding(vs.Get(), false, 4, 160));
+    EXPECT_TRUE(structuredBinding(vs.Get(), false, 6, 2048));
+    EXPECT_TRUE(structuredBinding(depth.Get(), false, 4, 160));
+    EXPECT_TRUE(structuredBinding(depth.Get(), false, 6, 2048));
 }
 
 TEST(SkinnedInstance, BoneThenPartWorld)
@@ -564,8 +568,8 @@ TEST(SkinnedInstance, CullShaderKeepsTheStaticLayout)
 
     ComPtr<ID3DBlob> compact;
     ComPtr<ID3DBlob> args;
-    ASSERT_TRUE(compileShaderFromContent("shaders/InstanceCull.hlsl", "CSCompact", "cs_5_0", compact));
-    ASSERT_TRUE(compileShaderFromContent("shaders/InstanceCull.hlsl", "CSArgs", "cs_5_0", args));
+    ASSERT_TRUE(compileShaderFromContent("shaders/InstanceCull.hlsl", "CSCompact", ShaderStage::Compute, compact));
+    ASSERT_TRUE(compileShaderFromContent("shaders/InstanceCull.hlsl", "CSArgs", ShaderStage::Compute, args));
     UINT bytes = 0;
     ASSERT_TRUE(cbufferBytes(compact.Get(), "CullConstants", bytes));
     EXPECT_EQ(bytes, 128u);
@@ -585,8 +589,8 @@ TEST(SkinnedInstance, CullShaderKeepsTheStaticLayout)
     EXPECT_EQ(indices, 0u);
     EXPECT_EQ(counters, 1u);
     EXPECT_EQ(argReg, 2u);
-    EXPECT_TRUE(disassemblyHas(compact.Get(), "dcl_resource_structured t0, 48"));
-    EXPECT_TRUE(disassemblyHas(args.Get(), "dcl_uav_structured u2, 4"));
+    EXPECT_TRUE(structuredBinding(compact.Get(), false, 0, 48));
+    EXPECT_TRUE(structuredBinding(args.Get(), true, 2, 4));
 }
 
 TEST(SkinnedInstance, GpuCullMatchesTheFrustumOnItsOwnBuffers)

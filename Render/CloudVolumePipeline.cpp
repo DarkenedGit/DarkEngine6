@@ -10,7 +10,6 @@
 #include "Sky/CloudVolume.h"
 
 #include <cstring>
-#include <d3dcompiler.h>
 
 namespace Dark
 {
@@ -85,8 +84,8 @@ namespace Dark
 
         ComPtr<ID3DBlob> vs;
         ComPtr<ID3DBlob> ps;
-        if (!compileShaderFromContent("shaders/CloudVolume.hlsl", "VSMain", "vs_5_0", vs)
-            || !compileShaderFromContent("shaders/CloudVolume.hlsl", "PSMain", "ps_5_0", ps))
+        if (!compileShaderFromContent("shaders/CloudVolume.hlsl", "VSMain", ShaderStage::Vertex, vs)
+            || !compileShaderFromContent("shaders/CloudVolume.hlsl", "PSMain", ShaderStage::Pixel, ps))
         {
             m_rootSignature.Reset();
             return false;

@@ -158,9 +158,9 @@ namespace Dark
         ComPtr<ID3DBlob> vsMesh;
         ComPtr<ID3DBlob> vsFs;
         ComPtr<ID3DBlob> ps;
-        if (!compileShaderFromContent("shaders/Decal.hlsl", "VSMain", "vs_5_0", vsMesh)
-            || !compileShaderFromContent("shaders/Decal.hlsl", "VSFullscreen", "vs_5_0", vsFs)
-            || !compileShaderFromContent("shaders/Decal.hlsl", "PSMain", "ps_5_0", ps))
+        if (!compileShaderFromContent("shaders/Decal.hlsl", "VSMain", ShaderStage::Vertex, vsMesh)
+            || !compileShaderFromContent("shaders/Decal.hlsl", "VSFullscreen", ShaderStage::Vertex, vsFs)
+            || !compileShaderFromContent("shaders/Decal.hlsl", "PSMain", ShaderStage::Pixel, ps))
         {
             reset();
             return false;

@@ -901,8 +901,8 @@ TEST(ParticleSimMode, GpuBillboardShadersCompile)
     Microsoft::WRL::ComPtr<ID3DBlob> csInPlace;
     Microsoft::WRL::ComPtr<ID3DBlob> vs;
     Microsoft::WRL::ComPtr<ID3DBlob> ps;
-    ASSERT_TRUE(compileShaderFromContent("shaders/ParticleSimulate.hlsl", "CSSimulate", "cs_5_0", csCopy));
-    ASSERT_TRUE(compileShaderFromContent("shaders/ParticleSimulate.hlsl", "CSInPlace", "cs_5_0", csInPlace));
-    ASSERT_TRUE(compileShaderFromContent("shaders/ParticleBillboard.hlsl", "VSMain", "vs_5_0", vs));
-    ASSERT_TRUE(compileShaderFromContent("shaders/Particle.hlsl", "PSMain", "ps_5_0", ps));
+    ASSERT_TRUE(compileShaderFromContent("shaders/ParticleSimulate.hlsl", "CSSimulate", ShaderStage::Compute, csCopy));
+    ASSERT_TRUE(compileShaderFromContent("shaders/ParticleSimulate.hlsl", "CSInPlace", ShaderStage::Compute, csInPlace));
+    ASSERT_TRUE(compileShaderFromContent("shaders/ParticleBillboard.hlsl", "VSMain", ShaderStage::Vertex, vs));
+    ASSERT_TRUE(compileShaderFromContent("shaders/Particle.hlsl", "PSMain", ShaderStage::Pixel, ps));
 }

@@ -215,7 +215,7 @@ namespace Dark
             m_root->SetName(L"DE.MovieNv12Root");
 
             ComPtr<ID3DBlob> cs;
-            if (!compileShaderFromContent("shaders/MovieNv12Convert.hlsl", "CSMain", "cs_5_0", cs))
+            if (!compileShaderFromContent("shaders/MovieNv12Convert.hlsl", "CSMain", ShaderStage::Compute, cs))
             {
                 clear();
                 return false;
