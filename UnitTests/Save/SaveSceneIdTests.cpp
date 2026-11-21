@@ -48,3 +48,21 @@ TEST(SaveSceneId, OtherSceneIsRejected)
     load.setWorldIdentity("scenes/arena.json", "", "unit");
     EXPECT_EQ(load.applyPayloadText(world, json), Save::SaveResult::SceneMismatch);
 }
+
+TEST(SaveSceneId, LegacyModPathNeverLoadsAsDefaultLevel)
+{
+    World                  world;
+    const std::string      modJson = capturedWithIdentity(world, "D:/Old/Install/mods/frost/scenes/level.json");
+    nlohmann::ordered_json root;
+    ASSERT_TRUE(parseSave(modJson, root));
+    EXPECT_EQ(root["scene"]["path"].get<std::string>(), "frost:scenes/level.json");
+
+    Save::SaveSystem core;
+    core.setHost(testHost());
+    core.setWorldIdentity("scenes/level.json", "", "unit");
+    EXPECT_EQ(core.applyPayloadText(world, modJson), Save::SaveResult::SceneMismatch);
+
+    // A custom path from another install has no portable identity; it is rejected, not defaulted.
+    const std::string customJson = capturedWithIdentity(world, "D:/Old/Custom/frost/scenes/level.json");
+    EXPECT_EQ(core.applyPayloadText(world, customJson), Save::SaveResult::SceneMismatch);
+}

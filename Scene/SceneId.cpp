@@ -2,6 +2,7 @@
 
 #include "Content/ContentDb.h"
 #include "Core/ContentRoots.h"
+#include "Core/Log.h"
 
 #include <cctype>
 #include <string_view>
@@ -68,6 +69,17 @@ namespace Dark
             return "scenes/" + std::string(name);
         }
 
+        // An unresolved identity matches only the same unresolved path (same file, same install).
+        // It never matches a core or package id, so it cannot load as the default level.
+        bool gateIds(const std::string& file, const std::string& ours, const std::string& fileIdentity)
+        {
+            if (file == ours)
+                return true;
+            if (file.starts_with(kUnresolvedScenePrefix))
+                DE_LOG_WARN(LogCategory::Core, "Save: scene identity '{}' has no content root or mods/<package> folder here; not loading it as '{}'", fileIdentity, ours);
+            return false;
+        }
+
     } // namespace
 
     std::string sceneContentId(const std::filesystem::path& scenePath, const std::vector<SceneIdRoot>& roots)
@@ -76,12 +88,12 @@ namespace Dark
         if (path.empty())
             return {};
 
+        // An identity already marked unresolved stays exactly as it is.
+        if (path.starts_with(kUnresolvedScenePrefix))
+            return path;
         // Already an id: "scenes/x.json" or "<package>:scenes/x.json".
-        if (const size_t colon = path.find(':'); colon != std::string::npos && packageIdChars(path.substr(0, colon)))
-        {
-            const std::string tail = sceneTail(path.substr(colon + 1));
-            return tail.empty() ? std::string{} : path.substr(0, colon) + ":" + tail;
-        }
+        if (const size_t colon = path.find(':'); colon != std::string::npos && packageIdChars(path.substr(0, colon)) && path.compare(colon + 1, 7, "scenes/") == 0)
+            return path.substr(0, colon) + ":" + sceneTail(path.substr(colon + 1));
 
         size_t           best = 0;
         std::string      package;
@@ -96,12 +108,42 @@ namespace Dark
             rest    = tail;
             package = lowerSlashes(root.package);
         }
-        const std::string tail = sceneTail(best > 0 ? rest : std::string_view(path));
-        if (tail.empty())
-            return {};
-        if (package.empty() || package == "core")
-            return tail;
-        return package + ":" + tail;
+        if (best > 0 && !package.empty() && package != "core")
+            return package + ":" + sceneTail(rest);
+
+        // Core content, or no current root at all (a save from another install). Decide from the
+        // folders right above "scenes/", never from the file name alone:
+        //   <...>/content/scenes/x.json      core (legacy install layout)
+        //   <...>/mods/<folder>/scenes/x.json package <folder> (or the current package rooted at that folder)
+        //   anything else                    unresolved: kept verbatim, matches only itself
+        const std::string_view search = best > 0 ? rest : std::string_view(path);
+        const size_t           at     = search.starts_with("scenes/") ? 0 : search.rfind("/scenes/");
+        if (at == std::string_view::npos)
+        {
+            if (best > 0 || search.find('/') != std::string_view::npos)
+                return std::string(kUnresolvedScenePrefix) + path;
+            return "scenes/" + std::string(search); // bare "level.json"
+        }
+        const std::string_view tail   = search.substr(at == 0 ? 0 : at + 1);
+        const std::string_view prefix = search.substr(0, at);
+        const size_t           cut    = prefix.rfind('/');
+        const std::string_view parent = cut == std::string_view::npos ? prefix : prefix.substr(cut + 1);
+        const std::string_view above  = cut == std::string_view::npos ? std::string_view{} : prefix.substr(0, cut);
+        const bool             inMods = above == "mods" || above.ends_with("/mods");
+        if (inMods && packageIdChars(parent) && parent != "core")
+        {
+            // A current package whose root folder has this name keeps its real id after a move.
+            for (const SceneIdRoot& root : roots)
+            {
+                const std::string id = lowerSlashes(root.package);
+                if (!id.empty() && id != "core" && lowerSlashes(root.root.filename().generic_string()) == parent)
+                    return id + ":" + std::string(tail);
+            }
+            return std::string(parent) + ":" + std::string(tail);
+        }
+        if (at == 0 || (best == 0 && parent == "content" && !inMods) || (best > 0 && prefix.empty()))
+            return std::string(tail);
+        return std::string(kUnresolvedScenePrefix) + path;
     }
 
     std::string sceneContentId(const std::filesystem::path& scenePath)
@@ -139,7 +181,7 @@ namespace Dark
         const std::string ours = sceneContentId(ourId, roots);
         if (fileIdentity.empty())
             return ours.empty() || ours == kDefaultSceneId;
-        return sceneContentId(fileIdentity, roots) == ours;
+        return gateIds(sceneContentId(fileIdentity, roots), ours, fileIdentity);
     }
 
     bool sceneIdAccepts(const std::string& fileIdentity, const std::string& ourId)
@@ -147,7 +189,7 @@ namespace Dark
         const std::string ours = sceneContentId(ourId);
         if (fileIdentity.empty())
             return ours.empty() || ours == kDefaultSceneId;
-        return sceneContentId(fileIdentity) == ours;
+        return gateIds(sceneContentId(fileIdentity), ours, fileIdentity);
     }
 
 } // namespace Dark

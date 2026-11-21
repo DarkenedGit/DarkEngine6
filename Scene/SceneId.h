@@ -17,12 +17,17 @@ namespace Dark
 
     // Content-relative scene id: lower-case, '/' separators, e.g. "scenes/level.json".
     // A file under a non-core package root is "<package>:scenes/x.json". The longest matching
-    // root wins. With no matching root the id starts at the last "scenes" folder in the path,
-    // else it is "scenes/<file name>". An id already in this form comes back unchanged, so an
-    // absolute path from an older save normalizes to the same id. Empty path gives "".
+    // root wins. With no matching root (an older save from another install) the folders above
+    // "scenes/" decide: ".../content/scenes/x" is core, ".../mods/<folder>/scenes/x" is that package
+    // (the current package rooted at <folder> when there is one), anything else is
+    // kUnresolvedScenePrefix + the path. A bare file name is "scenes/<name>". Ids are idempotent. Empty gives "".
     std::string sceneContentId(const std::filesystem::path& scenePath, const std::vector<SceneIdRoot>& roots);
     // Roots are the enabled content packages plus contentRootCandidates() as core.
     std::string sceneContentId(const std::filesystem::path& scenePath);
+
+    // Prefix of an identity that could not be tied to a content root or a mods/<package> folder
+    // (e.g. a custom absolute path from another install). It is kept verbatim and matches only itself.
+    inline constexpr std::string_view kUnresolvedScenePrefix = "unresolved:";
 
     // The level Sandbox boots by default. Saves from before scene ids (identity "") load only here.
     inline constexpr std::string_view kDefaultSceneId = "scenes/level.json";
