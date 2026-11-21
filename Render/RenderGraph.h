@@ -18,9 +18,11 @@
 // assigns queues (everything on Graphics unless CompileOptions::asyncCompute), computes the minimal
 // cross-queue sync points, plans enhanced barriers as data (queue-legal, merged per pass), resource
 // lifetimes and a transient alias plan. Errors are returned as false plus errors() and logged once;
-// nothing throws. No D3D12 calls: the rhi executor (Phase 4) turns the records into
-// ID3D12GraphicsCommandList7::Barrier and fence Signal/Wait calls. The graph does not drive the
-// frame yet (Phase 4).
+// nothing throws. No D3D12 calls here. Phase 4 uses RgExecutor on the main list with opaque passes;
+// enhanced barrier emission and target allocation remain in Phases 6 and 5 respectively.
+
+struct ID3D12GraphicsCommandList;
+struct ID3D12Resource;
 
 namespace Dark::Rg
 {
@@ -190,6 +192,11 @@ namespace Dark::Rg
     {
     public:
         virtual ~Executor() = default;
+        // The open list for a queue; PassContext::cmd() returns it. Null in CPU-only executors.
+        virtual ID3D12GraphicsCommandList* commandList(Queue) const
+        {
+            return nullptr;
+        }
         virtual void barriers(const BarrierBatch& batch, const BarrierRec* records)
         {
             (void)batch, (void)records;
@@ -212,10 +219,15 @@ namespace Dark::Rg
         }
     };
 
-    // Execute-time view of a pass (§3.3). Phase 4 adds the command list and descriptor helpers.
+    // Execute-time view of a pass (§3.3). cmd() is the executor's list for the pass's queue (null without an
+    // executor); the descriptor helpers (rtv/srvTable/uav) arrive with the Phase 6 descriptor ring.
     class PassContext
     {
     public:
+        ID3D12GraphicsCommandList* cmd() const
+        {
+            return m_executor ? m_executor->commandList(queue()) : nullptr;
+        }
         uint32_t passIndex() const
         {
             return m_pass;
@@ -233,8 +245,8 @@ namespace Dark::Rg
         uint32_t           width(TextureHandle h) const;
         uint32_t           height(TextureHandle h) const;
         const TextureDesc* desc(TextureHandle h) const;
-        void*              native(TextureHandle h) const; // imported resources only
-        void*              native(BufferHandle h) const;
+        ID3D12Resource*    resource(TextureHandle h) const; // imported resources only (transients get memory in Phases 5/9)
+        ID3D12Resource*    resource(BufferHandle h) const;
         uint32_t           aliasSlot(TextureHandle h) const; // transient memory slot (kNoPass when not aliased)
         uint32_t           aliasSlot(BufferHandle h) const;
         uint32_t           historyId(TextureHandle h) const; // persistent slot id of a history texture
@@ -250,6 +262,95 @@ namespace Dark::Rg
         const RenderGraph& m_graph;
         uint32_t           m_pass;
         Executor*          m_executor;
+    };
+
+    // Executor base for real queues (Phase 3 decision): a queue's command list is split at every
+    // cross-queue wait and signal. Before a signal, the signalling queue's recorded work is closed and
+    // submitted so the fence value covers it; before a wait, the waiting queue's recorded work is
+    // submitted first so the wait holds back only the commands after it. finish() submits whatever is
+    // still open (call it after RenderGraph::execute). Derived classes record barriers and passes and
+    // implement the three queue operations.
+    class SplitExecutor : public Executor
+    {
+    public:
+        void barriers(const BarrierBatch& batch, const BarrierRec* records) final
+        {
+            m_recorded[static_cast<uint32_t>(batch.queue)] = true;
+            recordBarriers(batch, records);
+        }
+        void signal(Queue queue, uint32_t value) final
+        {
+            flush(queue);
+            queueSignal(queue, value);
+        }
+        void wait(Queue waitQueue, Queue signalQueue, uint32_t value) final
+        {
+            flush(waitQueue);
+            queueWait(waitQueue, signalQueue, value);
+        }
+        void beginPass(const PassContext& ctx) final
+        {
+            m_recorded[static_cast<uint32_t>(ctx.queue())] = true;
+            passBegin(ctx);
+        }
+        void endPass(const PassContext& ctx) final
+        {
+            passEnd(ctx);
+        }
+        // Submits the lists still holding recorded work. Returns false if a submit failed this frame.
+        bool finish()
+        {
+            for (uint32_t q = 0; q < kQueueCount; ++q)
+                flush(static_cast<Queue>(q));
+            return m_ok;
+        }
+        // Start of a frame: nothing recorded, no list submitted yet.
+        void resetSplits()
+        {
+            for (uint32_t q = 0; q < kQueueCount; ++q)
+            {
+                m_recorded[q]  = false;
+                m_submitted[q] = 0;
+            }
+            m_ok = true;
+        }
+        uint32_t listsSubmitted(Queue queue) const
+        {
+            return m_submitted[static_cast<uint32_t>(queue)];
+        }
+
+    protected:
+        virtual void recordBarriers(const BarrierBatch& batch, const BarrierRec* records)
+        {
+            (void)batch, (void)records;
+        }
+        virtual void passBegin(const PassContext& ctx)
+        {
+            (void)ctx;
+        }
+        virtual void passEnd(const PassContext& ctx)
+        {
+            (void)ctx;
+        }
+        // Close the queue's open list, submit it and open the next one. False on failure.
+        virtual bool submitList(Queue queue)                                       = 0;
+        virtual void queueSignal(Queue queue, uint32_t value)                      = 0;
+        virtual void queueWait(Queue waitQueue, Queue signalQueue, uint32_t value) = 0;
+
+    private:
+        void flush(Queue queue)
+        {
+            const uint32_t q = static_cast<uint32_t>(queue);
+            if (!m_recorded[q])
+                return;
+            m_recorded[q] = false;
+            ++m_submitted[q];
+            if (!submitList(queue))
+                m_ok = false;
+        }
+        bool     m_recorded[kQueueCount]  = { false, false };
+        uint32_t m_submitted[kQueueCount] = { 0, 0 };
+        bool     m_ok                     = true;
     };
 
     // Compiled facts about one resource.
@@ -324,10 +425,10 @@ namespace Dark::Rg
             return *data;
         }
 
-        TextureHandle importTexture(const char* name, const TextureDesc& desc, void* native, Layout initial, Layout finalLayout);
-        BufferHandle  importBuffer(const char* name, const BufferDesc& desc, void* native);
+        TextureHandle importTexture(const char* name, const TextureDesc& desc, ID3D12Resource* native, Layout initial, Layout finalLayout);
+        BufferHandle  importBuffer(const char* name, const BufferDesc& desc, ID3D12Resource* native);
         // Imported every frame; starts and ends in PRESENT. Writing it makes the writer a sink.
-        TextureHandle importBackBuffer(void* native, uint32_t width, uint32_t height, uint32_t dxgiFormat);
+        TextureHandle importBackBuffer(ID3D12Resource* native, uint32_t width, uint32_t height, uint32_t dxgiFormat);
 
         HistoryPair history(const char* name, const TextureDesc& desc); // §3.6
         void        invalidateHistory();                                // camera cut / scene change; affects history() calls after it
@@ -469,7 +570,7 @@ namespace Dark::Rg
             TextureDesc              tex;
             BufferDesc               buf;
             uint32_t                 width = 0, height = 0;
-            void*                    native      = nullptr;
+            ID3D12Resource*          native      = nullptr;
             Layout                   initial     = Layout::Undefined;
             Layout                   finalLayout = Layout::Undefined;
             bool                     hasFinal    = false;
