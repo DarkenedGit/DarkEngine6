@@ -10,7 +10,7 @@ Deferred on purpose, and not started here:
 
 - Splitting `PlayHost` into `PlayServices` / `PlayFrameInput` / `IPlayEvents`.
 - A `GameData` registry, or moving items, statuses, and sound cues to JSON.
-- Renderer modernization: bindless descriptors, DXC, D3D12MA, a render graph, a job pool, an asset cooker, Tracy, CI.
+- Renderer modernization: bindless descriptors, DXC, D3D12MA, a render graph, a job pool, an asset cooker, Tracy, CI. **Update 2026-11-20 (D1):** the render graph, DXC, D3D12MA and bindless are now planned in [DarkEngine6-render-graph-plan.md](DarkEngine6-render-graph-plan.md). They remain out of scope for this follow-up.
 
 ## Locked behavior
 
@@ -49,7 +49,7 @@ Deferred on purpose, and not started here:
 | Upload ring, D3D12MA, committed-resource strategy | One allocator and one list per upload, and 64 KB minimum committed allocations, stay as they are. |
 | Runtime GPU stalls besides particles | Camouflage, echo, and underwater resizes can still `waitForGpu` mid-frame. Particle pools no longer do (P3-1). |
 | ECS `unordered_map` sparse set | `get` / `has` stay hash lookups. A paged sparse array is deferred. The iteration assert (R5) does not change storage. |
-| Modernization table (section 4) and the suggested order (section 5) | Job pool, render graph, bindless heap, DXC, PSO library, cooker, Tracy, CI. None of this is in scope. |
+| Modernization table (section 4) and the suggested order (section 5) | Job pool, render graph, bindless heap, DXC, PSO library, cooker, Tracy, CI. None of this is in scope here. The render graph and its platform work (DXC, D3D12MA, bindless) moved to [DarkEngine6-render-graph-plan.md](DarkEngine6-render-graph-plan.md) on 2026-11-20 (D1). |
 | Host lifetime tokens | Hosts stay non-owning pointer structs filled each pull. No generation token on the host. |
 
 ## Part B — divergences and incidental findings
@@ -121,6 +121,6 @@ Sandbox and Editor were confirmed working after the parity pass. This pass does 
 
 `onUpdate` stays the Sandbox schedule. `tickLeaves` was not merged with the Editor.
 
-Still deferred, and not started here: `FrameComposer`, the `PlayHost` split, `ScenePlaySetup`, `GameData`, Editor vision modes, `D3D12Util`, and renderer modernization (bindless descriptors, DXC, D3D12MA, a render graph, a job pool, an asset cooker, Tracy, CI). Also still deferred: resize and particle-capacity `waitForGpu`, the shadow worker (R1), descriptor `Reset` (R3), generation width (R4), the job condvar (R8), log I/O under the mutex (R9), `SPF_ASYNC` speech, `Ui/` as a library, and `imgui_demo.cpp`.
+Still deferred, and not started here: `FrameComposer`, the `PlayHost` split, `ScenePlaySetup`, `GameData`, Editor vision modes, `D3D12Util`, and renderer modernization (bindless descriptors, DXC, D3D12MA, a render graph, a job pool, an asset cooker, Tracy, CI). The render graph is no longer "not started": it has its own plan, [DarkEngine6-render-graph-plan.md](DarkEngine6-render-graph-plan.md) (D1, 2026-11-20), and Phase 0 (baselines, GBV/DRED, `-capture-frame`) is under way. Also still deferred: resize and particle-capacity `waitForGpu`, the shadow worker (R1), descriptor `Reset` (R3), generation width (R4), the job condvar (R8), log I/O under the mutex (R9), `SPF_ASYNC` speech, `Ui/` as a library, and `imgui_demo.cpp`.
 
 No in-game check was run for this split. Sandbox boot, play, the dev HUD, and one rendered frame still need a look. The move is the same calls in new types.

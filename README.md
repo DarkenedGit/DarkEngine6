@@ -241,11 +241,16 @@ Editor opens a blank 3D scene: the grid on Y=0 at the origin, with no terrain. F
 | `-join <ipv4>` / `-join:<ipv4>` | Sandbox, Sandbox2D, Editor | Join a session |
 | `-debug [port]` / `-debug:<port>` | Sandbox, Sandbox2D, Editor | Start the debug server (default TCP 26162) |
 | `-join <ipv4>` | VisualDebugger | Connect to a host's debug server (default port 26162) |
-| `-scene:<file>` | Sandbox | Load `content/scenes/<file>` instead of `level.json` (colon form only) |
+| `-scene:<file>` | Sandbox, Editor | Load `content/scenes/<file>` instead of `level.json` (colon form only). The Editor opens it on start. |
 | `-forward` | Sandbox, Editor | Use the forward swap-chain path instead of hybrid deferred |
 | `-menu` / `-no-menu` | Sandbox, Sandbox2D | Force the main menu on or off. Env `DE_NO_MENU` also turns it off, and `-host` / `-join` skip it. |
 | `-debug-levels` / `-no-debug-levels` | Sandbox | Show or hide the right-side jump-to-level list. Sandbox defaults to on. Env `DE_NO_DEBUG_LEVELS` also hides it. |
 | `-splash` / `-no-splash` | all | Force the boot splash on or off |
+| `-no-vsync` | all | Present without vsync (timing runs) |
+| `-window WxH` | all | Window size, e.g. `-window 2560x1440` |
+| `-capture-frame N -camera <preset>` | Sandbox, Editor | Shoot frame N from a camera preset in `content/perf/capture_cameras.json`, write a PNG and timing JSON, then quit. Also `-capture-avg K`, `-capture-out <dir>`, `-capture-stay`. See [docs/perf/README.md](docs/perf/README.md). |
+
+D3D12 diagnostics env vars: `DE_D3D12_DEBUG=0` (debug layer off in Debug), `DE_D3D12_GBV=1` (GPU-based validation, Debug), `DE_D3D12_DRED=0|1` (DRED, on by default in Debug). See [docs/perf/README.md](docs/perf/README.md#d3d12-diagnostics-switches).
 
 ### Input and config files
 
