@@ -1,5 +1,4 @@
 #include "Render/AutoExposure.h"
-#include "Render/Profile.h"
 
 #include "Core/Log.h"
 #include "Math/MathHelper.h"
@@ -189,10 +188,6 @@ void AutoExposurePipeline::resetTargets()
             m_targets->unregisterTarget(level);
         level = {};
     }
-    m_srvHeap.Reset();
-    m_srvCpu       = {};
-    m_srvGpu       = {};
-    m_viewsWritten = false;
 }
 
 bool AutoExposurePipeline::isValid() const
@@ -224,45 +219,47 @@ uint32_t AutoExposurePipeline::levelHeight(UINT index) const
     return m_targets->height(m_levels[index].id);
 }
 
-void AutoExposurePipeline::refreshViews() const
+bool AutoExposurePipeline::prepare() const
 {
-    // Level SRVs sit at fixed slots of the shader-visible table; a new generation only happens
-    // inside Renderer::resize's drained window, so rewriting them here races no in-flight list.
-    bool recreated = false;
+    if (!isValid())
+    {
+        if (!m_loggedSkip)
+        {
+            DE_LOG_ERROR(LogCategory::Render, "AutoExposurePipeline: not valid — metering skipped");
+            m_loggedSkip = true;
+        }
+        return false;
+    }
+    // A recreated level (new generation) only happens inside Renderer::resize's drained window.
     for (GraphTarget& level : m_levels)
-        recreated = m_targets->refresh(level) || recreated;
-    if (!recreated && m_viewsWritten)
-        return;
-    ID3D12Device* device = m_targets->device();
-    for (UINT i = 0; i < kMaxLevels; ++i)
-        device->CopyDescriptorsSimple(1, srvCpu(kFrameSrv + i), m_targets->srv(m_levels[i].id), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-    m_viewsWritten = true;
+        m_targets->refresh(level);
+    return levelCount() > 0;
+}
+
+const char* AutoExposurePipeline::levelName(UINT index)
+{
+    return index < kMaxLevels ? kLevelNames[index] : "DE.AutoExposure.?";
+}
+
+ID3D12Resource* AutoExposurePipeline::levelResource(UINT index) const
+{
+    return m_targets && index < kMaxLevels ? m_targets->resource(m_levels[index].id) : nullptr;
+}
+
+D3D12_CPU_DESCRIPTOR_HANDLE AutoExposurePipeline::levelSrv(UINT index) const
+{
+    return m_targets && index < kMaxLevels ? m_targets->srv(m_levels[index].id) : D3D12_CPU_DESCRIPTOR_HANDLE{};
+}
+
+D3D12_CPU_DESCRIPTOR_HANDLE AutoExposurePipeline::levelRtv(UINT index) const
+{
+    return m_targets && index < kMaxLevels ? m_targets->rtv(m_levels[index].id) : D3D12_CPU_DESCRIPTOR_HANDLE{};
 }
 
 void AutoExposurePipeline::invalidateReadback()
 {
     m_slotWritten[0] = false;
     m_slotWritten[1] = false;
-}
-
-D3D12_CPU_DESCRIPTOR_HANDLE AutoExposurePipeline::srvCpu(UINT index) const
-{
-    D3D12_CPU_DESCRIPTOR_HANDLE h = m_srvCpu;
-    h.ptr += static_cast<SIZE_T>(index) * m_srvIncr;
-    return h;
-}
-
-D3D12_GPU_DESCRIPTOR_HANDLE AutoExposurePipeline::srvGpu(UINT index) const
-{
-    D3D12_GPU_DESCRIPTOR_HANDLE h = m_srvGpu;
-    h.ptr += static_cast<SIZE_T>(index) * m_srvIncr;
-    return h;
-}
-
-void AutoExposurePipeline::transitionLevel(ID3D12GraphicsCommandList* cmd, UINT index, D3D12_RESOURCE_STATES after) const
-{
-    if (index < kMaxLevels)
-        m_targets->transition(cmd, m_levels[index], after);
 }
 
 bool AutoExposurePipeline::createPsos(ID3D12Device* device)
@@ -327,21 +324,6 @@ bool AutoExposurePipeline::createTargets(ID3D12Device* device)
         return false;
     }
 
-    m_srvIncr = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-
-    D3D12_DESCRIPTOR_HEAP_DESC srvDesc{};
-    srvDesc.NumDescriptors = kFrameSrv + kMaxLevels;
-    srvDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    srvDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    if (FailedHr(device->CreateDescriptorHeap(&srvDesc, IID_PPV_ARGS(&m_srvHeap)), "CreateDescriptorHeap auto exposure SRV"))
-    {
-        resetTargets();
-        return false;
-    }
-    m_srvHeap->SetName(L"DE.AutoExposure.Tables");
-    m_srvCpu = m_srvHeap->GetCPUDescriptorHandleForHeapStart();
-    m_srvGpu = m_srvHeap->GetGPUDescriptorHandleForHeapStart();
-
     // Every level is registered (output-relative, max(floor(w / (4 * 2^k)), 1)) so a resize never
     // changes the registry; levels past the first 1x1 stay 1x1 and are not drawn.
     const float zero4[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
@@ -380,7 +362,6 @@ bool AutoExposurePipeline::createTargets(ID3D12Device* device)
         }
         std::memset(m_readbackMapped[i], 0, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
     }
-    refreshViews();
     return true;
 }
 
@@ -434,56 +415,30 @@ void AutoExposurePipeline::drawLevel(ID3D12GraphicsCommandList* cmd, ID3D12RootS
     cmd->DrawInstanced(3, 1, 0, 0);
 }
 
-bool AutoExposurePipeline::meter(ID3D12GraphicsCommandList* cmd, Renderer& renderer)
+void AutoExposurePipeline::drawReduce(ID3D12GraphicsCommandList* cmd, D3D12_GPU_DESCRIPTOR_HANDLE hdrDepth, uint32_t srcW, uint32_t srcH) const
 {
-    if (!cmd || !isValid())
-    {
-        if (!isValid() && !m_loggedSkip)
-        {
-            DE_LOG_ERROR(LogCategory::Render, "AutoExposurePipeline::meter: not valid — skipping");
-            m_loggedSkip = true;
-        }
-        return false;
-    }
-
-    ID3D12Device* device = renderer.device();
-    const D3D12_CPU_DESCRIPTOR_HANDLE hdrSrv   = renderer.hdrSrvCpu();
-    const D3D12_CPU_DESCRIPTOR_HANDLE depthSrv = renderer.depthSrvCpu();
-    if (!device || hdrSrv.ptr == 0 || depthSrv.ptr == 0)
-        return false;
-
-    refreshViews();
-    const uint32_t levels = levelCount();
-    if (levels == 0)
-        return false;
-    const GpuScope meterScope(cmd, "Auto Exposure", ProfileColor::AutoExposure);
-    const UINT frame = renderer.frameIndex() % kFrameCount;
-    device->CopyDescriptorsSimple(1, srvCpu(frame * 2u), hdrSrv, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-    device->CopyDescriptorsSimple(1, srvCpu(frame * 2u + 1u), depthSrv, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-
-    ID3D12DescriptorHeap* heaps[] = { m_srvHeap.Get() };
-    cmd->SetDescriptorHeaps(1, heaps);
+    if (!cmd || !m_psoReduce || hdrDepth.ptr == 0 || !m_targets)
+        return;
     cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    drawLevel(cmd, m_rootReduce.Get(), m_psoReduce.Get(), hdrDepth, levelRtv(0), levelWidth(0), levelHeight(0), srcW, srcH);
+}
 
-    renderer.transitionHdr(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-    renderer.transitionDepth(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+void AutoExposurePipeline::drawDownsample(ID3D12GraphicsCommandList* cmd, UINT dst, D3D12_GPU_DESCRIPTOR_HANDLE src) const
+{
+    if (!cmd || !m_psoDownsample || src.ptr == 0 || !m_targets || dst == 0 || dst >= kMaxLevels)
+        return;
+    cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    drawLevel(cmd, m_rootDownsample.Get(), m_psoDownsample.Get(), src, levelRtv(dst), levelWidth(dst), levelHeight(dst), levelWidth(dst - 1), levelHeight(dst - 1));
+}
 
-    transitionLevel(cmd, 0, D3D12_RESOURCE_STATE_RENDER_TARGET);
-    drawLevel(cmd, m_rootReduce.Get(), m_psoReduce.Get(), srvGpu(frame * 2u), m_targets->rtv(m_levels[0].id), levelWidth(0), levelHeight(0), renderer.width(),
-              renderer.height());
-
-    for (UINT i = 0; i + 1 < levels; ++i)
-    {
-        transitionLevel(cmd, i, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-        transitionLevel(cmd, i + 1, D3D12_RESOURCE_STATE_RENDER_TARGET);
-        drawLevel(cmd, m_rootDownsample.Get(), m_psoDownsample.Get(), srvGpu(kFrameSrv + i), m_targets->rtv(m_levels[i + 1].id), levelWidth(i + 1), levelHeight(i + 1),
-                  levelWidth(i), levelHeight(i));
-    }
-
-    // The 1×1 cannot be copied while it is still bound as a render target.
+void AutoExposurePipeline::copyToReadback(ID3D12GraphicsCommandList* cmd, uint32_t frameIndex)
+{
+    const uint32_t levels = m_targets ? levelCount() : 0;
+    const UINT     frame  = frameIndex % kFrameCount;
+    if (!cmd || levels == 0 || !m_readback[frame])
+        return;
+    // The 1x1 was the downsample's render target; leave nothing bound to it.
     cmd->OMSetRenderTargets(0, nullptr, FALSE, nullptr);
-    const UINT last = levels - 1;
-    transitionLevel(cmd, last, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
     D3D12_TEXTURE_COPY_LOCATION dst{};
     dst.pResource       = m_readback[frame].get();
@@ -495,7 +450,7 @@ bool AutoExposurePipeline::meter(ID3D12GraphicsCommandList* cmd, Renderer& rende
     dst.PlacedFootprint.Footprint.RowPitch = D3D12_TEXTURE_DATA_PITCH_ALIGNMENT;
 
     D3D12_TEXTURE_COPY_LOCATION src{};
-    src.pResource        = m_targets->resource(m_levels[last].id);
+    src.pResource        = levelResource(levels - 1);
     src.Type             = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
     src.SubresourceIndex = 0;
 
@@ -505,9 +460,6 @@ bool AutoExposurePipeline::meter(ID3D12GraphicsCommandList* cmd, Renderer& rende
     box.back   = 1;
     cmd->CopyTextureRegion(&dst, 0, 0, 0, &src, &box);
     m_slotWritten[frame] = true;
-
-    renderer.transitionHdr(cmd, D3D12_RESOURCE_STATE_RENDER_TARGET);
-    return true;
 }
 
 float AutoExposurePipeline::readMeasuredLuma(uint32_t frameIndex) const

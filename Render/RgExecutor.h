@@ -16,7 +16,9 @@ namespace Dark
     // until the compute queue lands (Phase 10) there is only the graphics queue: a split, a signal
     // or a wait is an error. Barrier batches go through the EnhancedBarrierEmitter, which takes the
     // before-state of tracked resources from the frame ResourceStateTracker (Phase 6). A pass with a
-    // GPU scope gets a profiler scope around its execute.
+    // GPU scope gets a profiler scope around its execute. A converted pass (no OwnBarriers) starts
+    // with the renderer's descriptor ring bound and gets its tables from it (PassContext::srvTable,
+    // Phase 6 part 2); opaque passes keep binding their own heaps.
     class RgExecutor final : public Rg::SplitExecutor
     {
     public:
@@ -36,6 +38,8 @@ namespace Dark
         {
             return m_emitter.mismatches();
         }
+
+        uint64_t descriptorTable(const uint64_t* cpu, uint32_t count) override;
 
     protected:
         void recordBarriers(const Rg::BarrierBatch& batch, const Rg::BarrierRec* records) override;

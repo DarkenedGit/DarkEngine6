@@ -9,9 +9,17 @@
 namespace Dark
 {
 
-    class Renderer;
-
     using Microsoft::WRL::ComPtr;
+
+    // One draw of the chain. Each is its own graph pass (render-graph plan Phase 6 part 2): a mip is
+    // a render target in one step and read in the next, so the graph places the barriers between.
+    enum class BloomStep : uint8_t
+    {
+        Extract,    // scene HDR -> mip 0
+        Downsample, // mip i -> mip i + 1
+        Upsample,   // mip i -> mip i - 1, additive
+        Composite,  // mip 0 -> scene HDR, additive
+    };
 
     class BloomPipeline
     {
@@ -30,29 +38,32 @@ namespace Dark
         BloomPipeline& operator=(const BloomPipeline&) = delete;
 
         // Graph targets (render-graph plan Phase 5): the mip chain is registered output-relative and
-        // Renderer::resize recreates it; draw() rewrites the static mip SRVs on a new generation.
+        // Renderer::resize recreates it.
         bool create(GraphTargets& targets);
         void release();
-        // exposure scales kThreshold and kKnee by 1/exposure. Exposure 1 keeps those scene-luminance defaults.
-        void draw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, float strength, float exposure) const;
-
         bool isValid() const;
 
+        // Once per frame before the mips are imported into the graph: picks up recreated mips.
+        bool prepare() const;
+        ID3D12Resource*             mipResource(UINT index) const;
+        D3D12_CPU_DESCRIPTOR_HANDLE mipSrv(UINT index) const;
+        D3D12_CPU_DESCRIPTOR_HANDLE mipRtv(UINT index) const;
+        uint32_t                    mipWidth(UINT index) const;
+        uint32_t                    mipHeight(UINT index) const;
+        static const char*          mipName(UINT index); // the registered target's name
+
+        // Records one step into `rtv` (dstW x dstH) from the one-SRV ring table `src` (srcW x srcH).
+        // exposure scales kThreshold and kKnee by 1/exposure. Exposure 1 keeps those scene-luminance
+        // defaults. No barriers: the graph pass declared the mips and HDR.
+        void drawStep(ID3D12GraphicsCommandList* cmd, BloomStep step, D3D12_GPU_DESCRIPTOR_HANDLE src, D3D12_CPU_DESCRIPTOR_HANDLE rtv, uint32_t dstW, uint32_t dstH,
+                      uint32_t srcW, uint32_t srcH, float strength, float exposure) const;
+
     private:
-        static constexpr UINT kHdrSlots      = 2;
         static constexpr UINT kConstantCount = 8;
-        static constexpr UINT kSrvCount      = kHdrSlots + kMipCount;
 
         bool createPsos(ID3D12Device* device);
-        bool createTargets(ID3D12Device* device);
+        bool createTargets();
         void resetTargets();
-        void refreshViews() const;
-        uint32_t mipWidth(UINT index) const;
-        uint32_t mipHeight(UINT index) const;
-        void transitionMip(ID3D12GraphicsCommandList* cmd, UINT index, D3D12_RESOURCE_STATES after) const;
-        D3D12_GPU_DESCRIPTOR_HANDLE srvGpu(UINT slot) const;
-        void drawFullscreen(ID3D12GraphicsCommandList* cmd, ID3D12PipelineState* pso, D3D12_GPU_DESCRIPTOR_HANDLE srcGpu,
-                            D3D12_CPU_DESCRIPTOR_HANDLE rtv, uint32_t dstW, uint32_t dstH, uint32_t srcW, uint32_t srcH, float strength, float exposure) const;
 
         GraphTargets*                m_targets = nullptr;
         ComPtr<ID3D12RootSignature>  m_rootSignature;
@@ -60,13 +71,7 @@ namespace Dark
         ComPtr<ID3D12PipelineState>  m_psoDownsample;
         ComPtr<ID3D12PipelineState>  m_psoUpsample;
         ComPtr<ID3D12PipelineState>  m_psoComposite;
-        ComPtr<ID3D12DescriptorHeap> m_srvHeap;
-        D3D12_CPU_DESCRIPTOR_HANDLE  m_srvCpu{};
-        D3D12_GPU_DESCRIPTOR_HANDLE  m_srvGpu{};
-        UINT                         m_srvIncr = 0;
         mutable GraphTarget          m_mips[kMipCount]{};
-        mutable bool                 m_viewsWritten = false;
-        mutable bool                 m_loggedSkip = false;
     };
 
 // A pixel that is bright after exposure is the pixel that blooms. Exposure 1 keeps 1.0 and 0.5.

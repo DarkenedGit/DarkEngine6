@@ -215,6 +215,7 @@ namespace Dark
         ID3D12Resource*             attribResource() const;
         // Frame graph imports (render-graph plan Phase 4). Null when the target does not exist.
         ID3D12Resource*             backBufferResource() const;
+        D3D12_CPU_DESCRIPTOR_HANDLE backBufferRtv() const; // this frame's back buffer
         ID3D12Resource*             velocityResource() const;
         ID3D12Resource*             aoResource() const;
         ID3D12Resource*             postResource() const;
@@ -234,10 +235,7 @@ namespace Dark
         // OM only. HDR target, read-only scene depth. No particle arguments.
         void bindHdrDepthCompute();
         void bindDecalTargets();
-        void bindPostHdr();
         void bindHdrColorTarget();
-        // Post HDR + the TAA history RTV (graph history, current slot) as MRT.
-        void bindTaaTargets(D3D12_CPU_DESCRIPTOR_HANDLE historyRtv);
         void clearGBuffer();
         void clearHdr();
         void setShadowSrv(D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu);
@@ -261,6 +259,7 @@ namespace Dark
         D3D12_CPU_DESCRIPTOR_HANDLE hdrRtv() const;
         D3D12_CPU_DESCRIPTOR_HANDLE hdrSrvCpu() const;
         D3D12_CPU_DESCRIPTOR_HANDLE postHdrSrvCpu() const;
+        D3D12_CPU_DESCRIPTOR_HANDLE postRtv() const;
         D3D12_CPU_DESCRIPTOR_HANDLE velocitySrvCpu() const;
         D3D12_CPU_DESCRIPTOR_HANDLE albedoSrvCpu() const;
         D3D12_CPU_DESCRIPTOR_HANDLE attribSrvCpu() const;

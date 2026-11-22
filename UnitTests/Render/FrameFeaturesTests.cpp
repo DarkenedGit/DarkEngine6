@@ -2,6 +2,7 @@
 
 #include "Render/FrameFeatures.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <string>
@@ -353,4 +354,161 @@ TEST(FrameFeatures, AHistoryWithoutItsWriterNeverSwaps)
     ASSERT_TRUE(f.run(list, count, listIds(list, count), "Sandbox"));
     EXPECT_FALSE(f.taa.prev.valid());
     EXPECT_TRUE(f.graph.historySlots("Gtao").prevValid);
+}
+
+// ---------------------------------------------------------------- converted entries (Phase 6 part 2)
+
+namespace
+{
+    // The Sandbox list with Post converted: Bloom-like declared passes on a target the entry imports,
+    // then a tonemap-like pass to the back buffer, with the TAA history through the builder.
+    struct DeclaredPostFrame
+    {
+        HostFrame              host;
+        std::vector<std::string> ran;
+        Rg::TextureHandle      mip;
+
+        bool run(bool withEcho)
+        {
+            uint32_t           count = 0;
+            const FeaturePass* list  = sandboxFeatures(count);
+            ran.clear();
+            Rg::RenderGraph& g = host.graph;
+            g.beginFrame(1280, 720);
+            host.features.begin(list, count);
+            for (uint32_t r = 0; r < kRenderResourceCount; ++r)
+            {
+                const auto     res = static_cast<RenderResource>(r);
+                const uint32_t fmt = res == RenderResource::Swap ? kBgra8 : (res == RenderResource::Depth ? kD32 : kRgba);
+                host.features.importResource(g, res, fakeResource(r), absDesc(1280, 720, fmt), Rg::Layout::RenderTarget);
+            }
+            const Rg::HistoryPair taa = g.history("Taa", absDesc(1280, 720, kRgba));
+            host.features.setHistory(RenderResource::TaaHistory, taa);
+            for (const PassId id : without(listIds(list, count), { PassId::Post, PassId::Overlay }))
+                host.features.set(id, [this, id](Rg::PassContext&) { ran.push_back(passName(id)); });
+            host.features.declare(PassId::Post,
+                                  [this, withEcho](FeatureBuilder& fb)
+                                  {
+                                      Rg::RenderGraph& graph = fb.graph();
+                                      if (withEcho)
+                                          fb.opaque("Post.Echo", { RenderResource::Depth }, { RenderResource::Hdr }, [this](Rg::PassContext&) { ran.push_back("Post.Echo"); });
+                                      mip = graph.importTexture("Bloom.Mip0", absDesc(640, 360, kRgba), fakeResource(40), Rg::Layout::ShaderResource, Rg::Layout::Undefined);
+                                      fb.addPass<Rg::NoData>(
+                                          "Bloom.Extract",
+                                          [&](Rg::PassBuilder& b, Rg::NoData&)
+                                          {
+                                              b.read(fb.handle(RenderResource::Hdr), Rg::Use::PixelSrv);
+                                              mip = b.write(mip, Rg::Use::RenderTarget);
+                                          },
+                                          [this](Rg::PassContext&, const Rg::NoData&) { ran.push_back("Bloom.Extract"); });
+                                      fb.addPass<Rg::NoData>(
+                                          "Bloom.Composite",
+                                          [&](Rg::PassBuilder& b, Rg::NoData&)
+                                          {
+                                              b.read(mip, Rg::Use::PixelSrv);
+                                              fb.set(RenderResource::Hdr, b.readWrite(fb.handle(RenderResource::Hdr), Rg::Use::RenderTarget));
+                                          },
+                                          [this](Rg::PassContext&, const Rg::NoData&) { ran.push_back("Bloom.Composite"); });
+                                      fb.addPass<Rg::NoData>(
+                                          "Taa",
+                                          [&](Rg::PassBuilder& b, Rg::NoData&)
+                                          {
+                                              b.read(fb.handle(RenderResource::Hdr), Rg::Use::PixelSrv);
+                                              if (fb.prev(RenderResource::TaaHistory).valid())
+                                                  b.read(fb.prev(RenderResource::TaaHistory), Rg::Use::PixelSrv);
+                                              fb.set(RenderResource::Post, b.write(fb.handle(RenderResource::Post), Rg::Use::RenderTarget));
+                                              fb.set(RenderResource::TaaHistory, b.write(fb.handle(RenderResource::TaaHistory), Rg::Use::RenderTarget));
+                                          },
+                                          [this](Rg::PassContext&, const Rg::NoData&) { ran.push_back("Taa"); });
+                                      fb.addPass<Rg::NoData>(
+                                          "Tonemap",
+                                          [&](Rg::PassBuilder& b, Rg::NoData&)
+                                          {
+                                              b.read(fb.handle(RenderResource::Post), Rg::Use::PixelSrv);
+                                              fb.set(RenderResource::Swap, b.write(fb.handle(RenderResource::Swap), Rg::Use::RenderTarget));
+                                          },
+                                          [this](Rg::PassContext&, const Rg::NoData&) { ran.push_back("Tonemap"); });
+                                  });
+            host.features.set(PassId::Overlay, [this](Rg::PassContext&) { ran.push_back("Overlay"); });
+            if (!host.features.compileFrame(g, "test"))
+                return false;
+            return g.execute();
+        }
+    };
+
+    std::vector<Rg::BarrierRec> recordsOn(const Rg::RenderGraph& g, const char* name)
+    {
+        std::vector<Rg::BarrierRec> out;
+        const uint16_t              r = g.findResource(name);
+        for (const Rg::BarrierRec& b : g.barriers())
+            if (b.resource == r)
+                out.push_back(b);
+        return out;
+    }
+} // namespace
+
+TEST(FrameFeatures, DeclaredEntryAddsItsPassesInListOrderAndCountsAsOneEntry)
+{
+    DeclaredPostFrame f;
+    ASSERT_TRUE(f.run(true));
+    EXPECT_TRUE(f.host.features.orderOk());
+    EXPECT_TRUE(f.host.features.isDeclared(PassId::Post));
+    const std::vector<PassId>& order = f.host.features.compiledOrder();
+    EXPECT_EQ(std::count(order.begin(), order.end(), PassId::Post), 1);
+    // Every list pass, then the converted Post passes in setup order, then Overlay.
+    const auto at = [&](const char* n) { return std::find(f.ran.begin(), f.ran.end(), std::string(n)) - f.ran.begin(); };
+    EXPECT_LT(at("Underwater"), at("Post.Echo"));
+    EXPECT_LT(at("Post.Echo"), at("Bloom.Extract"));
+    EXPECT_LT(at("Bloom.Extract"), at("Bloom.Composite"));
+    EXPECT_LT(at("Bloom.Composite"), at("Taa"));
+    EXPECT_LT(at("Taa"), at("Tonemap"));
+    EXPECT_LT(at("Tonemap"), at("Overlay"));
+    EXPECT_EQ(static_cast<size_t>(at("Overlay")), f.ran.size() - 1);
+}
+
+TEST(FrameFeatures, DeclaredPassesGetPlannedBarriersAndTrackedOnesAfterOpaquePasses)
+{
+    DeclaredPostFrame f;
+    ASSERT_TRUE(f.run(false));
+    const Rg::RenderGraph& g = f.host.graph;
+    // The bloom mip is only used by declared passes: plain planned barriers (not tracked).
+    const std::vector<Rg::BarrierRec> mip = recordsOn(g, "Bloom.Mip0");
+    ASSERT_EQ(mip.size(), 2u);
+    EXPECT_FALSE(mip[0].tracked);
+    EXPECT_EQ(mip[0].before.layout, Rg::Layout::ShaderResource); // the import's layout
+    EXPECT_EQ(mip[0].after.layout, Rg::Layout::RenderTarget);
+    EXPECT_EQ(mip[1].after.layout, Rg::Layout::ShaderResource);
+    // HDR was last written by an opaque pass (Underwater): the first declared reader gets one
+    // tracked barrier, whose before-state comes from the frame tracker at execute time.
+    const std::vector<Rg::BarrierRec> hdr = recordsOn(g, "Hdr");
+    ASSERT_FALSE(hdr.empty());
+    EXPECT_TRUE(hdr[0].tracked);
+    EXPECT_EQ(hdr[0].after.layout, Rg::Layout::ShaderResource);
+    EXPECT_EQ(g.passName(hdr[0].pass), std::string("Bloom.Extract"));
+    // The back buffer goes from the declared Tonemap to the opaque Overlay with no graph barrier
+    // (the opaque pass moves it itself), and none for the import (the tracker already has it).
+    for (const Rg::BarrierRec& b : recordsOn(g, "backbuffer"))
+        EXPECT_NE(g.passName(b.pass), std::string("Overlay"));
+}
+
+TEST(FrameFeatures, DeclaredEntryWritesTheHistorySoTheGraphSwapsIt)
+{
+    DeclaredPostFrame f;
+    ASSERT_TRUE(f.run(false));
+    f.host.graph.beginFrame(1280, 720);
+    EXPECT_TRUE(f.host.graph.history("Taa", absDesc(1280, 720, kRgba)).prev.valid());
+}
+
+TEST(FrameFeatures, DeclareAndSetReplaceEachOther)
+{
+    uint32_t           count = 0;
+    const FeaturePass* list  = sandboxFeatures(count);
+    FeatureFrame       features;
+    features.begin(list, count);
+    EXPECT_TRUE(features.declare(PassId::Post, [](FeatureBuilder&) {}));
+    EXPECT_TRUE(features.isDeclared(PassId::Post));
+    EXPECT_TRUE(features.set(PassId::Post, [](Rg::PassContext&) {}));
+    EXPECT_TRUE(features.isSet(PassId::Post));
+    EXPECT_FALSE(features.isDeclared(PassId::Post));
+    EXPECT_FALSE(features.declare(PassId::EditorGrid, [](FeatureBuilder&) {})); // not in the Sandbox list
 }

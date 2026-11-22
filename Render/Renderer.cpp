@@ -286,11 +286,15 @@ namespace Dark
         if (!createDepthResources())
             return false;
 
-        // One shader-visible CBV/SRV/UAV heap for converted pipelines (Phase 6). Nothing requires it
-        // yet, so a failure is logged and the renderer carries on without it.
+        // One shader-visible CBV/SRV/UAV heap for converted pipelines (Phase 6): the post passes bind
+        // only it, so the renderer cannot run without it (262144 descriptors; D5's Tier 3 allows 1M).
         m_descriptorRing = std::make_unique<DescriptorRingHeap>();
         if (!m_descriptorRing->init(m_device.Get()))
+        {
+            DE_LOG_ERROR(LogCategory::Render, "Renderer: descriptor ring init failed");
             m_descriptorRing.reset();
+            return false;
+        }
 
         if (!checkHr(m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_commandAllocators[m_frameIndex].Get(), nullptr, IID_PPV_ARGS(&m_commandList)), "CreateCommandList"))
             return false;
@@ -1454,6 +1458,20 @@ namespace Dark
         return m_frameIndex < kFrameCount ? m_renderTargets[m_frameIndex].Get() : nullptr;
     }
 
+    D3D12_CPU_DESCRIPTOR_HANDLE Renderer::backBufferRtv() const
+    {
+        if (!m_rtvHeap || m_frameIndex >= kFrameCount)
+            return {};
+        D3D12_CPU_DESCRIPTOR_HANDLE rtv = m_rtvHeap->GetCPUDescriptorHandleForHeapStart();
+        rtv.ptr += static_cast<SIZE_T>(m_frameIndex) * m_rtvDescriptorSize;
+        return rtv;
+    }
+
+    D3D12_CPU_DESCRIPTOR_HANDLE Renderer::postRtv() const
+    {
+        return m_sceneBuffers && m_sceneBuffers->post() ? m_sceneBuffers->postRtv() : D3D12_CPU_DESCRIPTOR_HANDLE{};
+    }
+
     ID3D12Resource* Renderer::velocityResource() const
     {
         return (m_sceneBuffers && m_sceneBuffers->valid()) ? m_sceneBuffers->velocity() : nullptr;
@@ -1489,23 +1507,6 @@ namespace Dark
         m_commandList->OMSetRenderTargets(0, nullptr, FALSE, &dsv);
     }
 
-    void Renderer::bindPostHdr()
-    {
-        if (!m_commandList || !m_sceneBuffers || !m_sceneBuffers->post())
-        {
-            DE_LOG_ERROR(LogCategory::Render, "bindPostHdr: no post target");
-            return;
-        }
-        m_sceneBuffers->transitionHdr(m_commandList.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-        m_sceneBuffers->transitionVelocity(m_commandList.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-        transitionDepth(m_commandList.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-        m_sceneBuffers->transitionPost(m_commandList.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
-        m_commandList->RSSetViewports(1, &m_viewport);
-        m_commandList->RSSetScissorRects(1, &m_scissor);
-        const D3D12_CPU_DESCRIPTOR_HANDLE rtv = m_sceneBuffers->postRtv();
-        m_commandList->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
-    }
-
     void Renderer::bindHdrColorTarget()
     {
         if (!m_commandList || !m_sceneBuffers || !m_sceneBuffers->valid())
@@ -1521,16 +1522,6 @@ namespace Dark
         m_commandList->RSSetScissorRects(1, &m_scissor);
         const D3D12_CPU_DESCRIPTOR_HANDLE rtv = m_sceneBuffers->hdrRtv();
         m_commandList->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
-    }
-
-    void Renderer::bindTaaTargets(D3D12_CPU_DESCRIPTOR_HANDLE historyRtv)
-    {
-        bindPostHdr();
-        if (!m_commandList || !m_sceneBuffers || !m_sceneBuffers->post() || historyRtv.ptr == 0)
-            return;
-        // MRT: post HDR + the graph's TAA history (current slot), replacing the old Post→History copy.
-        const D3D12_CPU_DESCRIPTOR_HANDLE rtvs[2] = { m_sceneBuffers->postRtv(), historyRtv };
-        m_commandList->OMSetRenderTargets(2, rtvs, FALSE, nullptr);
     }
 
     void Renderer::clearGBuffer()
