@@ -284,13 +284,16 @@ TEST(ParticleDepthWarp, FiniteDifferenceMatchesCpu)
     D3D12_HEAP_PROPERTIES defaultHeap{};
     defaultHeap.Type = D3D12_HEAP_TYPE_DEFAULT;
     ComPtr<ID3D12Resource> depthTex;
-    ASSERT_TRUE(SUCCEEDED(device->CreateCommittedResource(&defaultHeap, D3D12_HEAP_FLAG_NONE, &texDesc, D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&depthTex))));
+    // Created with an explicit public layout (CreateCommittedResource3): a texture created in a
+    // legacy COPY_DEST / NON_PIXEL_SHADER_RESOURCE state sits in an internal LEGACY_* layout that
+    // the enhanced barriers recorded by transition() cannot name.
+    ASSERT_TRUE(SUCCEEDED(createCommittedResource(device.Get(), defaultHeap, D3D12_HEAP_FLAG_NONE, texDesc, D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&depthTex))));
     D3D12_RESOURCE_DESC attribDesc = texDesc;
     attribDesc.Width               = 1;
     attribDesc.Height              = 1;
     attribDesc.Format              = DXGI_FORMAT_R8G8B8A8_UNORM;
     ComPtr<ID3D12Resource> attribTex;
-    ASSERT_TRUE(SUCCEEDED(device->CreateCommittedResource(&defaultHeap, D3D12_HEAP_FLAG_NONE, &attribDesc, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, nullptr, IID_PPV_ARGS(&attribTex))));
+    ASSERT_TRUE(SUCCEEDED(createCommittedResource(device.Get(), defaultHeap, D3D12_HEAP_FLAG_NONE, attribDesc, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, nullptr, IID_PPV_ARGS(&attribTex))));
 
     ComPtr<ID3D12Resource> depthUpload = makeBuffer(device.Get(), texBytes, D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_FLAG_NONE);
     ASSERT_TRUE(depthUpload);
