@@ -51,18 +51,10 @@ namespace Dark
         for (Rg::TargetId& id : m_ids)
             id = {};
         m_targets = nullptr;
-        m_lightingHeap.Reset();
-        m_lightingGpu    = {};
-        m_heightGpu      = {};
-        m_aoGpu          = {};
-        m_iblGpu         = {};
-        m_ssrGpu         = {};
-        m_localShadowGpu = {};
-        m_shadowCpu      = {};
-        m_localShadowCpu = {};
+        m_viewHeap.Reset();
+        m_shadowCpu             = {};
+        m_localShadowCpu        = {};
         m_localShadowRecordsCpu = {};
-        m_lightingAoCpu  = {};
-        m_lightingSsrCpu = {};
         m_heightCpu      = {};
         m_iblIrrCpu      = {};
         m_iblPrefCpu     = {};
@@ -114,7 +106,7 @@ namespace Dark
         recordTransitionTo(cmd, res, after);
     }
 
-    bool SceneBuffers::create(GraphTargets& targets, D3D12_CPU_DESCRIPTOR_HANDLE depthSrvCpu, const float hdrClear[4])
+    bool SceneBuffers::create(GraphTargets& targets, const float hdrClear[4])
     {
         const D3D12_CPU_DESCRIPTOR_HANDLE savedShadow = m_shadowCpu;
         const D3D12_CPU_DESCRIPTOR_HANDLE savedLocalShadow = m_localShadowCpu;
@@ -174,7 +166,7 @@ namespace Dark
                 return false;
             }
         }
-        if (!rebuildViews(depthSrvCpu))
+        if (!rebuildViews())
         {
             reset();
             return false;
@@ -183,117 +175,81 @@ namespace Dark
         return true;
     }
 
-    bool SceneBuffers::rebuildViews(D3D12_CPU_DESCRIPTOR_HANDLE depthSrvCpu)
+    bool SceneBuffers::rebuildViews()
     {
         ID3D12Device* device = m_targets ? m_targets->device() : nullptr;
         if (!device)
             return false;
-        // Called with the GPU idle (create, or Renderer::resize after its drain), so the old table can go now.
-        m_lightingHeap.Reset();
-        D3D12_DESCRIPTOR_HEAP_DESC lightDesc{};
-        lightDesc.NumDescriptors = kLightingCount;
-        lightDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-        lightDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-        if (!checkHr(device->CreateDescriptorHeap(&lightDesc, IID_PPV_ARGS(&m_lightingHeap)), "SceneBuffers CreateDescriptorHeap lighting"))
-            return false;
-        m_lightingHeap->SetName(L"DE.SceneBuffers.Lighting");
-        m_lightingGpu = m_lightingHeap->GetGPUDescriptorHandleForHeapStart();
-        m_heightGpu   = m_lightingGpu;
-        m_heightGpu.ptr += static_cast<SIZE_T>(kLightingHeight) * m_srvIncr;
-        m_aoGpu = m_lightingGpu;
-        m_aoGpu.ptr += static_cast<SIZE_T>(kLightingAo) * m_srvIncr;
-        m_iblGpu = m_lightingGpu;
-        m_iblGpu.ptr += static_cast<SIZE_T>(kLightingIblIrradiance) * m_srvIncr;
-        m_ssrGpu = m_lightingGpu;
-        m_ssrGpu.ptr += static_cast<SIZE_T>(kLightingSsr) * m_srvIncr;
-        m_localShadowGpu = m_lightingGpu;
-        m_localShadowGpu.ptr += static_cast<SIZE_T>(kLightingLocalShadow) * m_srvIncr;
-        // GTAO/SSR views from before the resize are gone; their pipelines set fresh ones every frame.
-        m_lightingAoCpu  = {};
-        m_lightingSsrCpu = {};
-        packLightingHeap(device, depthSrvCpu);
+        // CPU only: the lighting passes copy from it into ring tables when they record, so the old
+        // heap can go as soon as the new one exists.
+        if (!m_viewHeap)
+        {
+            D3D12_DESCRIPTOR_HEAP_DESC viewDesc{};
+            viewDesc.NumDescriptors = kViewCount;
+            viewDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+            viewDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+            if (!checkHr(device->CreateDescriptorHeap(&viewDesc, IID_PPV_ARGS(&m_viewHeap)), "SceneBuffers CreateDescriptorHeap lighting views"))
+                return false;
+            m_viewHeap->SetName(L"DE.SceneBuffers.LightingViews");
+
+            // Null SRVs for views a host has not set (no shadows, no local shadows yet, ...).
+            D3D12_SHADER_RESOURCE_VIEW_DESC nullTex = tex2dSrv(DXGI_FORMAT_R8G8B8A8_UNORM);
+            device->CreateShaderResourceView(nullptr, &nullTex, view(kViewNullTex2D));
+            D3D12_SHADER_RESOURCE_VIEW_DESC nullArray{};
+            nullArray.Format                   = DXGI_FORMAT_R32_FLOAT;
+            nullArray.ViewDimension            = D3D12_SRV_DIMENSION_TEXTURE2DARRAY;
+            nullArray.Shader4ComponentMapping  = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+            nullArray.Texture2DArray.MipLevels = 1;
+            nullArray.Texture2DArray.ArraySize = 1;
+            device->CreateShaderResourceView(nullptr, &nullArray, view(kViewNullTex2DArray));
+            D3D12_SHADER_RESOURCE_VIEW_DESC nullCube{};
+            nullCube.Format                  = DXGI_FORMAT_R16G16B16A16_FLOAT;
+            nullCube.ViewDimension           = D3D12_SRV_DIMENSION_TEXTURECUBE;
+            nullCube.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+            nullCube.TextureCube.MipLevels   = 1;
+            device->CreateShaderResourceView(nullptr, &nullCube, view(kViewNullCube));
+            D3D12_SHADER_RESOURCE_VIEW_DESC nullBuffer{};
+            nullBuffer.Format                     = DXGI_FORMAT_UNKNOWN;
+            nullBuffer.ViewDimension              = D3D12_SRV_DIMENSION_BUFFER;
+            nullBuffer.Shader4ComponentMapping    = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+            nullBuffer.Buffer.NumElements         = 1;
+            nullBuffer.Buffer.StructureByteStride = 16;
+            device->CreateShaderResourceView(nullptr, &nullBuffer, view(kViewNullBuffer));
+        }
+        applyLightingAlbedoView();
         return true;
     }
 
-    void SceneBuffers::packLightingHeap(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE depthSrvCpu)
+    D3D12_CPU_DESCRIPTOR_HANDLE SceneBuffers::view(ViewSlot slot) const
     {
-        if (!device || !m_lightingHeap || !albedo() || !attrib() || !ao())
-            return;
-
-        D3D12_CPU_DESCRIPTOR_HANDLE cpu = m_lightingHeap->GetCPUDescriptorHandleForHeapStart();
-
-        const D3D12_SHADER_RESOURCE_VIEW_DESC attribUnorm = tex2dSrv(DXGI_FORMAT_R8G8B8A8_UNORM);
-        applyLightingAlbedoView(device);
-        device->CreateShaderResourceView(attrib(), &attribUnorm, offsetHandle(cpu, kLightingAttrib, m_srvIncr));
-
-        if (depthSrvCpu.ptr != 0)
-            device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingDepth, m_srvIncr), depthSrvCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-        if (m_shadowCpu.ptr != 0)
-            device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingShadow, m_srvIncr), m_shadowCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-        if (m_heightCpu.ptr != 0)
-            device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingHeight, m_srvIncr), m_heightCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-        const D3D12_CPU_DESCRIPTOR_HANDLE aoSrc = m_lightingAoCpu.ptr != 0 ? m_lightingAoCpu : aoSrvCpu();
-        if (aoSrc.ptr != 0)
-            device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingAo, m_srvIncr), aoSrc, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-        if (m_iblIrrCpu.ptr != 0)
-            device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingIblIrradiance, m_srvIncr), m_iblIrrCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-        if (m_iblPrefCpu.ptr != 0)
-            device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingIblPrefilter, m_srvIncr), m_iblPrefCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-        if (m_iblLutCpu.ptr != 0)
-            device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingIblBrdfLut, m_srvIncr), m_iblLutCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-        if (m_lightingSsrCpu.ptr != 0)
-            device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingSsr, m_srvIncr), m_lightingSsrCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-        if (m_localShadowCpu.ptr != 0)
-            device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingLocalShadow, m_srvIncr), m_localShadowCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-        if (m_localShadowRecordsCpu.ptr != 0)
-            device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingLocalShadowRecords, m_srvIncr), m_localShadowRecordsCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        if (!m_viewHeap)
+            return {};
+        const UINT incr = m_srvIncr;
+        return offsetHandle(m_viewHeap->GetCPUDescriptorHandleForHeapStart(), slot, incr);
     }
 
-    void SceneBuffers::setLocalShadowSrvs(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE arraySrv, D3D12_CPU_DESCRIPTOR_HANDLE recordsSrv)
+    LightingViews SceneBuffers::lightingViews() const
     {
-        m_localShadowCpu         = arraySrv;
-        m_localShadowRecordsCpu  = recordsSrv;
-        if (!device || !m_lightingHeap)
-            return;
-        D3D12_CPU_DESCRIPTOR_HANDLE cpu = m_lightingHeap->GetCPUDescriptorHandleForHeapStart();
-        if (arraySrv.ptr != 0)
-            device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingLocalShadow, m_srvIncr), arraySrv, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-        if (recordsSrv.ptr != 0)
-            device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingLocalShadowRecords, m_srvIncr), recordsSrv, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        const auto    orNull = [](D3D12_CPU_DESCRIPTOR_HANDLE h, D3D12_CPU_DESCRIPTOR_HANDLE fallback) { return h.ptr != 0 ? h : fallback; };
+        LightingViews v;
+        v.albedo             = m_viewHeap ? view(kViewAlbedo) : D3D12_CPU_DESCRIPTOR_HANDLE{};
+        v.attrib             = attribSrvCpu(); // the graph view is already UNORM
+        v.shadow             = orNull(m_shadowCpu, view(kViewNullTex2DArray));
+        v.height             = orNull(m_heightCpu, view(kViewNullTex2D));
+        v.iblIrradiance      = orNull(m_iblIrrCpu, view(kViewNullCube));
+        v.iblPrefilter       = orNull(m_iblPrefCpu, view(kViewNullCube));
+        v.iblBrdfLut         = orNull(m_iblLutCpu, view(kViewNullTex2D));
+        v.localShadow        = orNull(m_localShadowCpu, view(kViewNullTex2DArray));
+        v.localShadowRecords = orNull(m_localShadowRecordsCpu, view(kViewNullBuffer));
+        return v;
     }
 
-    void SceneBuffers::setShadowSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu)
+    void SceneBuffers::applyLightingAlbedoView()
     {
-        m_shadowCpu = shadowCpu;
-        if (!device || !m_lightingHeap || shadowCpu.ptr == 0)
+        ID3D12Device* device = m_targets ? m_targets->device() : nullptr;
+        if (!device || !m_viewHeap || !albedo())
             return;
-        D3D12_CPU_DESCRIPTOR_HANDLE cpu = m_lightingHeap->GetCPUDescriptorHandleForHeapStart();
-        device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingShadow, m_srvIncr), shadowCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-    }
-
-    void SceneBuffers::setLightingAoSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE aoCpu)
-    {
-        m_lightingAoCpu = aoCpu;
-        if (!device || !m_lightingHeap || aoCpu.ptr == 0)
-            return;
-        D3D12_CPU_DESCRIPTOR_HANDLE cpu = m_lightingHeap->GetCPUDescriptorHandleForHeapStart();
-        device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingAo, m_srvIncr), aoCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-    }
-
-    void SceneBuffers::setLightingSsrSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE ssrCpu)
-    {
-        m_lightingSsrCpu = ssrCpu;
-        if (!device || !m_lightingHeap || ssrCpu.ptr == 0)
-            return;
-        D3D12_CPU_DESCRIPTOR_HANDLE cpu = m_lightingHeap->GetCPUDescriptorHandleForHeapStart();
-        device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingSsr, m_srvIncr), ssrCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-    }
-
-    void SceneBuffers::applyLightingAlbedoView(ID3D12Device* device)
-    {
-        if (!device || !m_lightingHeap || !albedo())
-            return;
-        D3D12_CPU_DESCRIPTOR_HANDLE dest = offsetHandle(m_lightingHeap->GetCPUDescriptorHandleForHeapStart(), kLightingAlbedo, m_srvIncr);
+        const D3D12_CPU_DESCRIPTOR_HANDLE dest = view(kViewAlbedo);
         if (m_lightingAlbedoRaw)
         {
             if (albedoSrvCpu().ptr != 0)
@@ -304,40 +260,10 @@ namespace Dark
         device->CreateShaderResourceView(albedo(), &albedoSrgb, dest);
     }
 
-    void SceneBuffers::setLightingAlbedoRaw(ID3D12Device* device, bool raw)
+    void SceneBuffers::setLightingAlbedoRaw(bool raw)
     {
         m_lightingAlbedoRaw = raw;
-        applyLightingAlbedoView(device);
-    }
-
-    void SceneBuffers::setHeightSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE heightCpu)
-    {
-        m_heightCpu = heightCpu;
-        if (!device || !m_lightingHeap || heightCpu.ptr == 0)
-            return;
-        D3D12_CPU_DESCRIPTOR_HANDLE cpu = m_lightingHeap->GetCPUDescriptorHandleForHeapStart();
-        device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingHeight, m_srvIncr), heightCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-        m_heightGpu = m_lightingGpu;
-        m_heightGpu.ptr += static_cast<SIZE_T>(kLightingHeight) * m_srvIncr;
-    }
-
-    void SceneBuffers::setIblSrvs(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE irradianceCpu, D3D12_CPU_DESCRIPTOR_HANDLE prefilterCpu,
-                                  D3D12_CPU_DESCRIPTOR_HANDLE brdfLutCpu)
-    {
-        m_iblIrrCpu  = irradianceCpu;
-        m_iblPrefCpu = prefilterCpu;
-        m_iblLutCpu  = brdfLutCpu;
-        if (!device || !m_lightingHeap)
-            return;
-        D3D12_CPU_DESCRIPTOR_HANDLE cpu = m_lightingHeap->GetCPUDescriptorHandleForHeapStart();
-        if (irradianceCpu.ptr != 0)
-            device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingIblIrradiance, m_srvIncr), irradianceCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-        if (prefilterCpu.ptr != 0)
-            device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingIblPrefilter, m_srvIncr), prefilterCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-        if (brdfLutCpu.ptr != 0)
-            device->CopyDescriptorsSimple(1, offsetHandle(cpu, kLightingIblBrdfLut, m_srvIncr), brdfLutCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-        m_iblGpu = m_lightingGpu;
-        m_iblGpu.ptr += static_cast<SIZE_T>(kLightingIblIrradiance) * m_srvIncr;
+        applyLightingAlbedoView();
     }
 
 } // namespace Dark

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Render/LightingViews.h"
 #include "Render/RenderTargetPool.h"
 
 #include <cstdint>
@@ -15,23 +16,24 @@ namespace Dark
 
     // Offscreen 3D color + G-buffer. Owned by Renderer. Does not record command lists.
     // The textures are graph-registered persistent targets (GraphTargets, render-graph plan Phase 5):
-    // Renderer::resize recreates them after its one GPU drain and then calls rebuildViews().
+    // Renderer::resize recreates them after its one GPU drain and then calls rebuildViews(). No
+    // shader-visible heap: the lighting passes build ring tables from lightingViews().
     class SceneBuffers
     {
     public:
-        static constexpr UINT kLightingAlbedo = 0;
-        static constexpr UINT kLightingAttrib = 1;
-        static constexpr UINT kLightingDepth  = 2;
-        static constexpr UINT kLightingShadow = 3;
-        static constexpr UINT kLightingHeight = 4;
+        // The deferred lighting pass's descriptor table, in register order (t0..t9). The pass copies
+        // these views into a descriptor-ring table each frame (render-graph plan Phase 6 part 4).
+        static constexpr UINT kLightingAlbedo        = 0;
+        static constexpr UINT kLightingAttrib        = 1;
+        static constexpr UINT kLightingDepth         = 2;
+        static constexpr UINT kLightingShadow        = 3;
+        static constexpr UINT kLightingHeight        = 4;
         static constexpr UINT kLightingAo            = 5;
         static constexpr UINT kLightingIblIrradiance = 6;
         static constexpr UINT kLightingIblPrefilter  = 7;
         static constexpr UINT kLightingIblBrdfLut    = 8;
         static constexpr UINT kLightingSsr           = 9;
-        static constexpr UINT kLightingLocalShadow   = 10;
-        static constexpr UINT kLightingLocalShadowRecords = 11;
-        static constexpr UINT kLightingCount         = 12;
+        static constexpr UINT kLightingCount         = 10;
 
         SceneBuffers() = default;
         ~SceneBuffers();
@@ -49,9 +51,9 @@ namespace Dark
         // hdrClear is display-referred (same space as Renderer::setClearColor / swapchain). RGB is converted to linear for the HDR target.
         // HDR, G-buffer, velocity, post and AO at the output size of `targets`. The TAA history is a
         // graph history pair (FrameComposer::history), not a scene buffer.
-        bool create(GraphTargets& targets, D3D12_CPU_DESCRIPTOR_HANDLE depthSrvCpu, const float hdrClear[4]);
-        // After GraphTargets::resizeAfterDrain (GPU idle): new lighting table, states back to RENDER_TARGET.
-        bool rebuildViews(D3D12_CPU_DESCRIPTOR_HANDLE depthSrvCpu);
+        bool create(GraphTargets& targets, const float hdrClear[4]);
+        // After GraphTargets::resizeAfterDrain: the lighting CPU views for the new resources.
+        bool rebuildViews();
         void reset();
 
         bool     valid() const;
@@ -77,20 +79,11 @@ namespace Dark
         D3D12_CPU_DESCRIPTOR_HANDLE hdrSrvCpu() const { return srv(kHdr); }
         D3D12_CPU_DESCRIPTOR_HANDLE velocitySrvCpu() const { return srv(kVelocity); }
         D3D12_CPU_DESCRIPTOR_HANDLE postSrvCpu() const { return srv(kPost); }
-        // Graph-owned CPU views — legal CopyDescriptors sources (shader-visible lighting heap is not).
-        // Overlay albedo is raw UNORM (byte dump). Lighting heap slot 0 is UNORM_SRGB.
+        // Graph-owned CPU views — legal CopyDescriptors sources. Overlay albedo is raw UNORM (byte dump).
         D3D12_CPU_DESCRIPTOR_HANDLE albedoSrvCpu() const { return srv(kAlbedo); }
         D3D12_CPU_DESCRIPTOR_HANDLE attribSrvCpu() const { return srv(kAttrib); }
         D3D12_CPU_DESCRIPTOR_HANDLE aoSrvCpu() const { return srv(kAo); }
-        D3D12_CPU_DESCRIPTOR_HANDLE lightingAoCpu() const { return m_lightingAoCpu; }
-        D3D12_CPU_DESCRIPTOR_HANDLE lightingSsrCpu() const { return m_lightingSsrCpu; }
-        D3D12_GPU_DESCRIPTOR_HANDLE lightingTableGpu() const { return m_lightingGpu; }
-        D3D12_GPU_DESCRIPTOR_HANDLE heightTableGpu() const { return m_heightGpu; }
-        D3D12_GPU_DESCRIPTOR_HANDLE aoTableGpu() const { return m_aoGpu; }
-        D3D12_GPU_DESCRIPTOR_HANDLE iblTableGpu() const { return m_iblGpu; }
-        D3D12_GPU_DESCRIPTOR_HANDLE ssrTableGpu() const { return m_ssrGpu; }
-        D3D12_GPU_DESCRIPTOR_HANDLE localShadowTableGpu() const { return m_localShadowGpu; }
-        ID3D12DescriptorHeap*       lightingHeap() const { return m_lightingHeap.Get(); }
+        LightingViews               lightingViews() const;
         const float*                hdrClear() const { return m_hdrClear; }
 
         void transitionHdr(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after) { transition(cmd, kHdr, after); }
@@ -100,15 +93,31 @@ namespace Dark
         void transitionPost(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after) { transition(cmd, kPost, after); }
         void transitionAo(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after) { transition(cmd, kAo, after); }
 
-        void setShadowSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu);
-        void setLocalShadowSrvs(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE arraySrv, D3D12_CPU_DESCRIPTOR_HANDLE recordsSrv);
-        void setLightingAoSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE aoCpu);
-        void setLightingSsrSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE ssrCpu);
-        void setHeightSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE heightCpu);
-        void setIblSrvs(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE irradianceCpu, D3D12_CPU_DESCRIPTOR_HANDLE prefilterCpu,
-                        D3D12_CPU_DESCRIPTOR_HANDLE brdfLutCpu);
-        void setLightingAlbedoRaw(ID3D12Device* device, bool raw);
-        void packLightingHeap(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE depthSrvCpu);
+        // CPU views the lighting passes read (owned by their systems; stored, not copied).
+        void setShadowSrv(D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu)
+        {
+            m_shadowCpu = shadowCpu;
+        }
+        void setLocalShadowSrvs(D3D12_CPU_DESCRIPTOR_HANDLE arraySrv, D3D12_CPU_DESCRIPTOR_HANDLE recordsSrv)
+        {
+            m_localShadowCpu        = arraySrv;
+            m_localShadowRecordsCpu = recordsSrv;
+        }
+        void setHeightSrv(D3D12_CPU_DESCRIPTOR_HANDLE heightCpu)
+        {
+            m_heightCpu = heightCpu;
+        }
+        void setIblSrvs(D3D12_CPU_DESCRIPTOR_HANDLE irradianceCpu, D3D12_CPU_DESCRIPTOR_HANDLE prefilterCpu, D3D12_CPU_DESCRIPTOR_HANDLE brdfLutCpu)
+        {
+            m_iblIrrCpu  = irradianceCpu;
+            m_iblPrefCpu = prefilterCpu;
+            m_iblLutCpu  = brdfLutCpu;
+        }
+        void setLightingAlbedoRaw(bool raw);
+        bool lightingAlbedoRaw() const
+        {
+            return m_lightingAlbedoRaw;
+        }
 
     private:
         enum Slot : uint32_t
@@ -125,23 +134,27 @@ namespace Dark
         ID3D12Resource*             resource(Slot slot) const;
         D3D12_CPU_DESCRIPTOR_HANDLE rtv(Slot slot) const;
         D3D12_CPU_DESCRIPTOR_HANDLE srv(Slot slot) const;
-        void                        applyLightingAlbedoView(ID3D12Device* device);
+        void                        applyLightingAlbedoView();
         void                        transition(ID3D12GraphicsCommandList* cmd, Slot slot, D3D12_RESOURCE_STATES after);
+
+        // Non-shader-visible: the lighting albedo view and the null SRVs that stand in for unset views.
+        enum ViewSlot : UINT
+        {
+            kViewAlbedo,
+            kViewNullTex2D,
+            kViewNullTex2DArray,
+            kViewNullCube,
+            kViewNullBuffer,
+            kViewCount,
+        };
+        D3D12_CPU_DESCRIPTOR_HANDLE view(ViewSlot slot) const;
 
         GraphTargets*                m_targets = nullptr;
         Rg::TargetId                 m_ids[kSlotCount];
-        ComPtr<ID3D12DescriptorHeap> m_lightingHeap;
-        D3D12_GPU_DESCRIPTOR_HANDLE  m_lightingGpu{};
-        D3D12_GPU_DESCRIPTOR_HANDLE  m_heightGpu{};
-        D3D12_GPU_DESCRIPTOR_HANDLE  m_aoGpu{};
-        D3D12_GPU_DESCRIPTOR_HANDLE  m_iblGpu{};
-        D3D12_GPU_DESCRIPTOR_HANDLE  m_ssrGpu{};
-        D3D12_GPU_DESCRIPTOR_HANDLE  m_localShadowGpu{};
+        ComPtr<ID3D12DescriptorHeap> m_viewHeap;
         D3D12_CPU_DESCRIPTOR_HANDLE  m_shadowCpu{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_localShadowCpu{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_localShadowRecordsCpu{};
-        D3D12_CPU_DESCRIPTOR_HANDLE  m_lightingAoCpu{};
-        D3D12_CPU_DESCRIPTOR_HANDLE  m_lightingSsrCpu{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_heightCpu{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_iblIrrCpu{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_iblPrefCpu{};

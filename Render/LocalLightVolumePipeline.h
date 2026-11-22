@@ -64,27 +64,40 @@ namespace Dark
         static constexpr UINT kRootAoSrv       = 5;
         static constexpr UINT kRootShadowTable = 6;
 
+        // The descriptor-ring table draw() takes (render-graph plan Phase 6 part 4): one range, the
+        // root tables point into it.
+        static constexpr UINT kTableAlbedo             = 0; // t0..t2: albedo, attrib, depth
+        static constexpr UINT kTableAttrib             = 1;
+        static constexpr UINT kTableDepth              = 2;
+        static constexpr UINT kTableAo                 = 3; // t3
+        static constexpr UINT kTableHeight             = 4; // t6
+        static constexpr UINT kTableLocalShadow        = 5; // t7..t8: array, records
+        static constexpr UINT kTableLocalShadowRecords = 6;
+        static constexpr UINT kTableCount              = 7;
+
         LocalLightVolumePipeline() = default;
 
         bool create(ID3D12Device* device);
 
-        void drawInstanced(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const LocalLightGpuList& gpuList, const Mesh& volume, uint32_t instanceCount,
-                           uint32_t baseIndex, const LocalLightPassConstants& cb) const;
+        void drawInstanced(ID3D12GraphicsCommandList* cmd, D3D12_GPU_DESCRIPTOR_HANDLE table, const LocalLightGpuList& gpuList, const Mesh& volume, uint32_t instanceCount, uint32_t baseIndex,
+                           const LocalLightPassConstants& cb) const;
 
-        void drawFullscreenScissor(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const LocalLightGpuList& gpuList, const D3D12_RECT& scissor,
-                                   uint32_t lightIndex, const LocalLightPassConstants& cb) const;
+        void drawFullscreenScissor(ID3D12GraphicsCommandList* cmd, D3D12_GPU_DESCRIPTOR_HANDLE table, const LocalLightGpuList& gpuList, const D3D12_RECT& scissor, uint32_t lightIndex,
+                                   const LocalLightPassConstants& cb) const;
 
         // Gather + upload + instanced sphere/cone + inside fullscreen. Fog/camera copied from `lighting`.
-        // Skips if pipeline, GPU list, or either volume mesh is invalid.
-        void draw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, World& world, LocalLightGpuList& gpuList, const Mesh& sphere, const Mesh& cone,
-                  const Camera3D& camera, const Math::Matrix4f& viewProj, const LightingConstants& lighting, const LocalShadowSystem* localShadows,
-                  const Math::AABox3f* fogBoxes, int fogBoxCount) const;
+        // Skips if pipeline, GPU list, or either volume mesh is invalid. Draws into the bound HDR target;
+        // `table` holds kTableCount views (kTable*) and the caller has bound the ring heap.
+        void draw(ID3D12GraphicsCommandList* cmd, D3D12_GPU_DESCRIPTOR_HANDLE table, Renderer& renderer, World& world, LocalLightGpuList& gpuList, const Mesh& sphere, const Mesh& cone,
+                  const Camera3D& camera, const Math::Matrix4f& viewProj, const LightingConstants& lighting, const LocalShadowSystem* localShadows, const Math::AABox3f* fogBoxes,
+                  int fogBoxCount) const;
 
         bool isValid() const { return m_psoMesh != nullptr && m_psoFullscreen != nullptr; }
 
     private:
-        bool bindCommon(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const LocalLightGpuList& gpuList, const LocalLightPassConstants& cb) const;
+        bool bindCommon(ID3D12GraphicsCommandList* cmd, D3D12_GPU_DESCRIPTOR_HANDLE table, const LocalLightGpuList& gpuList, const LocalLightPassConstants& cb) const;
 
+        UINT                        m_srvIncr = 0;
         ComPtr<ID3D12RootSignature> m_rootSignature;
         ComPtr<ID3D12PipelineState> m_psoMesh;
         ComPtr<ID3D12PipelineState> m_psoFullscreen;

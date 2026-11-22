@@ -1,7 +1,6 @@
 #include "Render/DeferredLightingPipeline.h"
 #include "Render/DepthState.h"
 #include "Render/Profile.h"
-#include "Render/Renderer.h"
 #include "Render/SceneBuffers.h"
 #include "Render/ShadowSystem.h"
 #include "Render/ShaderCompile.h"
@@ -170,40 +169,32 @@ namespace Dark
             return false;
         }
 
+        m_srvIncr = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
         DE_LOG_INFO(LogCategory::Render, "DeferredLightingPipeline: ready");
         return true;
     }
 
-    void DeferredLightingPipeline::draw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const ShadowSystem& shadows, const LightingConstants& constants) const
+    void DeferredLightingPipeline::draw(ID3D12GraphicsCommandList* cmd, D3D12_GPU_DESCRIPTOR_HANDLE table, const ShadowSystem& shadows, const LightingConstants& constants) const
     {
         if (!cmd || !m_pso)
             return;
-        ID3D12DescriptorHeap* heap = renderer.lightingHeap();
-        const D3D12_GPU_DESCRIPTOR_HANDLE table = renderer.lightingTableGpu();
-        if (!heap || table.ptr == 0)
+        if (table.ptr == 0)
         {
-            DE_LOG_ERROR(LogCategory::Render, "DeferredLightingPipeline::draw: no lighting heap");
+            DE_LOG_ERROR(LogCategory::Render, "DeferredLightingPipeline::draw: no descriptor table");
             return;
         }
+        const auto at = [&](UINT slot) { return D3D12_GPU_DESCRIPTOR_HANDLE{ table.ptr + static_cast<UINT64>(slot) * m_srvIncr }; };
 
         const GpuScope lighting(cmd, "Deferred Lighting", ProfileColor::DeferredLighting);
         cmd->SetGraphicsRootSignature(m_rootSignature.Get());
         cmd->SetPipelineState(m_pso.Get());
-        ID3D12DescriptorHeap* heaps[] = { heap };
-        cmd->SetDescriptorHeaps(1, heaps);
         cmd->SetGraphicsRoot32BitConstants(kRootConstants, static_cast<UINT>(sizeof(LightingConstants) / 4), &constants, 0);
-        cmd->SetGraphicsRootDescriptorTable(kRootSrvTable, table);
+        cmd->SetGraphicsRootDescriptorTable(kRootSrvTable, at(SceneBuffers::kLightingAlbedo)); // t0..t3
         shadows.bindReceiverCbv(cmd, kRootShadowCbv);
-        const D3D12_GPU_DESCRIPTOR_HANDLE height = renderer.heightTableGpu();
-        if (height.ptr != 0)
-            cmd->SetGraphicsRootDescriptorTable(kRootHeightSrv, height);
-        const D3D12_GPU_DESCRIPTOR_HANDLE ao = renderer.aoTableGpu();
-        if (ao.ptr != 0)
-            cmd->SetGraphicsRootDescriptorTable(kRootAoSrv, ao);
-        const D3D12_GPU_DESCRIPTOR_HANDLE ibl = renderer.iblTableGpu();
-        if (ibl.ptr != 0)
-            cmd->SetGraphicsRootDescriptorTable(kRootIblSrv, ibl);
-        cmd->SetGraphicsRootDescriptorTable(kRootSsrSrv, renderer.ssrTableGpu());
+        cmd->SetGraphicsRootDescriptorTable(kRootHeightSrv, at(SceneBuffers::kLightingHeight));
+        cmd->SetGraphicsRootDescriptorTable(kRootAoSrv, at(SceneBuffers::kLightingAo));
+        cmd->SetGraphicsRootDescriptorTable(kRootIblSrv, at(SceneBuffers::kLightingIblIrradiance)); // t6..t8
+        cmd->SetGraphicsRootDescriptorTable(kRootSsrSrv, at(SceneBuffers::kLightingSsr));
         cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         cmd->DrawInstanced(3, 1, 0, 0);
     }

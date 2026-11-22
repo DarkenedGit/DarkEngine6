@@ -653,15 +653,14 @@ void EditorApp::renderScene3D()
     });
     frame.declare(PassId::Gtao, [&](FeatureBuilder& b) { m_scene.addGtaoPasses(b, renderer(), m_camera, m_sceneWorld.ssao); });
     frame.declare(PassId::Ssr, [&](FeatureBuilder& b) { m_scene.addSsrPasses(b, renderer(), m_camera, m_sceneWorld.ssr, nullptr); });
-    frame.set(PassId::Lighting, [&](Rg::PassContext& pass) {
-        ID3D12GraphicsCommandList* const cmd = pass.cmd();
-        m_scene.resolveDeferred(SceneRenderer::DeferredStep::Lighting, cmd, renderer(), world(), m_camera, resolve);
-    });
-    frame.set(PassId::LocalVolumes, [&](Rg::PassContext& pass) {
-        ID3D12GraphicsCommandList* const cmd = pass.cmd();
-        m_scene.resolveDeferred(SceneRenderer::DeferredStep::LocalVolumes, cmd, renderer(), world(), m_camera, resolve);
-        renderer().bindHdr(true);
-    });
+    frame.declare(PassId::Lighting, [&](FeatureBuilder& b) { m_scene.addLightingPasses(b, renderer(), resolve); });
+    frame.declare(PassId::LocalVolumes,
+                  [&](FeatureBuilder& b)
+                  {
+                      m_scene.addLocalVolumesPasses(b, renderer(), world(), m_camera, resolve);
+                      // Sky and the passes after it are opaque and draw into HDR with depth bound.
+                      b.opaque("LocalVolumes.BindHdr", {}, {}, [&](Rg::PassContext&) { renderer().bindHdr(true); });
+                  });
     if (m_skyPipeline.isValid())
     {
         frame.set(PassId::Sky, [&](Rg::PassContext& pass) {

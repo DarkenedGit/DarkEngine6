@@ -837,23 +837,22 @@ void SandboxFrame::render()
         }
     });
 
-    // resolveDeferred runs Decals, Lighting and LocalVolumes with the same input (lc filled by GBuffer);
-    // Gtao and Ssr declare their uses (settings captured at build, the camera read at execute).
+    // Decals is opaque (resolveDeferred); Gtao, Ssr, Lighting and LocalVolumes declare their uses.
+    // Settings are captured at build; the camera and `resolve` (lc, filled by GBuffer) are read at execute.
     frame.set(PassId::Decals, [&](Rg::PassContext& pass) {
         ID3D12GraphicsCommandList* const cmd = pass.cmd();
         m_scene.resolveDeferred(SceneRenderer::DeferredStep::Decals, cmd, app().renderer(), app().world(), app().m_sceneWorld.camera, resolve);
     });
     frame.declare(PassId::Gtao, [&](FeatureBuilder& b) { m_scene.addGtaoPasses(b, app().renderer(), app().m_sceneWorld.camera, app().m_sceneWorld.ssao); });
     frame.declare(PassId::Ssr, [&](FeatureBuilder& b) { m_scene.addSsrPasses(b, app().renderer(), app().m_sceneWorld.camera, app().m_sceneWorld.ssr, &app().m_sceneWorld.env); });
-    frame.set(PassId::Lighting, [&](Rg::PassContext& pass) {
-        ID3D12GraphicsCommandList* const cmd = pass.cmd();
-        m_scene.resolveDeferred(SceneRenderer::DeferredStep::Lighting, cmd, app().renderer(), app().world(), app().m_sceneWorld.camera, resolve);
-    });
-    frame.set(PassId::LocalVolumes, [&](Rg::PassContext& pass) {
-        ID3D12GraphicsCommandList* const cmd = pass.cmd();
-        m_scene.resolveDeferred(SceneRenderer::DeferredStep::LocalVolumes, cmd, app().renderer(), app().world(), app().m_sceneWorld.camera, resolve);
-        app().renderer().bindHdr(true);
-    });
+    frame.declare(PassId::Lighting, [&](FeatureBuilder& b) { m_scene.addLightingPasses(b, app().renderer(), resolve); });
+    frame.declare(PassId::LocalVolumes,
+                  [&](FeatureBuilder& b)
+                  {
+                      m_scene.addLocalVolumesPasses(b, app().renderer(), app().world(), app().m_sceneWorld.camera, resolve);
+                      // Sky and the passes after it are opaque and draw into HDR with depth bound.
+                      b.opaque("LocalVolumes.BindHdr", {}, {}, [&](Rg::PassContext&) { app().renderer().bindHdr(true); });
+                  });
     frame.set(PassId::Sky, [&](Rg::PassContext& pass) {
         ID3D12GraphicsCommandList* const cmd = pass.cmd();
         m_skyPipeline.draw(cmd, app().renderer().frameIndex(), &m_shadows);
@@ -903,10 +902,10 @@ void SandboxFrame::render()
                                        heightHeap = app().m_sceneWorld.terrain.heightTexture().srvHeap();
                                        heightGpu  = app().m_sceneWorld.terrain.heightTexture().gpuHandle();
                                    }
-                                   else if (app().renderer().lightingHeap())
+                                   else if (app().renderer().heightFallbackHeap())
                                    {
-                                       heightHeap = app().renderer().lightingHeap();
-                                       heightGpu  = app().renderer().heightTableGpu();
+                                       heightHeap = app().renderer().heightFallbackHeap();
+                                       heightGpu  = app().renderer().heightFallbackGpu();
                                    }
                                    if (m_scene.ssr().hasSceneColor())
                                    {
