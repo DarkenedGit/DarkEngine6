@@ -21,7 +21,7 @@ namespace Dark::Rg
     UseState useState(Use use, ResourceKind kind, Queue queue);
 
     // Two read states one layout can serve (SRV + copy source -> GENERIC_READ, SRV + depth read ->
-    // DEPTH_STENCIL_READ). False when no single layout serves both.
+    // DIRECT_QUEUE_GENERIC_READ, as DEPTH_STENCIL_READ allows depth-stencil-read access only). False when no single layout serves both.
     bool combineReadStates(const UseState& a, const UseState& b, ResourceKind kind, UseState& out);
     bool isReadOnlyState(const UseState& state);
 
@@ -39,7 +39,9 @@ namespace Dark::Rg
     // this stays D3D12-free), per the enhanced-barriers spec's "Equivalent D3D12_BARRIER_LAYOUT /
     // ACCESS / SYNC for each D3D12_RESOURCE_STATES bit" tables (Phase 6). Textures get a public
     // layout: SRV-only states map to SHADER_RESOURCE, mixed read states to GENERIC_READ, depth read
-    // (alone or with SRV) to DEPTH_STENCIL_READ, COMMON/PRESENT to COMMON. Buffers get
+    // alone to DEPTH_STENCIL_READ (which allows depth-stencil-read access only), depth read with
+    // other reads to DIRECT_QUEUE_GENERIC_READ, or to DIRECT_QUEUE_GENERIC_READ_COMPUTE_QUEUE_ACCESSIBLE
+    // when NON_PIXEL_SHADER_RESOURCE is among them, COMMON/PRESENT to COMMON. Buffers get
     // Layout::Undefined. False for states the engine never uses (stream out, resolve, predication,
     // video, shading rate, acceleration structures), two write states at once, or a buffer-only
     // state on a texture that has no readable bit left.

@@ -180,6 +180,10 @@ namespace Dark::Rg
         ShaderResource    = 6,
         CopySource        = 7,
         CopyDest          = 8,
+        // Read-only depth that is also sampled (DEPTH_STENCIL_READ allows depth-stencil-read access
+        // only). Direct queue only; 31 is also usable on compute lists (non-depth reads there).
+        DirectQueueGenericRead                       = 19,
+        DirectQueueGenericReadComputeQueueAccessible = 31,
     };
 
     constexpr Sync operator|(Sync a, Sync b)

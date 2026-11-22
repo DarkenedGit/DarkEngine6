@@ -545,7 +545,7 @@ TEST(RenderGraph, CompatibleReadsInOnePassMerge)
              b.read(t, Use::PixelSrv);
              b.read(t, Use::CopySrc); // SRV + copy source = GENERIC_READ
              b.read(d, Use::DepthRead);
-             b.read(d, Use::PixelSrv); // depth test + sample = DEPTH_STENCIL_READ
+             b.read(d, Use::PixelSrv); // depth test + sample = DIRECT_QUEUE_GENERIC_READ
              b.write(bb);
          });
     ASSERT_TRUE(compiles(g));
@@ -556,7 +556,8 @@ TEST(RenderGraph, CompatibleReadsInOnePassMerge)
     EXPECT_TRUE(any(tb[1].after.access & Access::CopySource));
     const std::vector<BarrierRec> db = barriersFor(g, "Depth");
     ASSERT_EQ(db.size(), 2u);
-    EXPECT_EQ(db[1].after.layout, Layout::DepthStencilRead);
+    EXPECT_EQ(db[1].after.layout, Layout::DirectQueueGenericRead);
+    EXPECT_TRUE(validateBarrier(db[1]));
 }
 
 TEST(RenderGraph, ErrorsAreLoggedOnceAcrossFrames)

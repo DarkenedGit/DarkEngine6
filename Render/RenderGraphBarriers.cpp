@@ -205,7 +205,8 @@ namespace Dark::Rg
             s = { Sync::DepthStencil, Access::DepthStencilWrite, Layout::DepthStencilWrite };
             break;
         case Use::DepthRead:
-            s = { Sync::DepthStencil | Sync::PixelShading, Access::DepthStencilRead | Access::ShaderResource, Layout::DepthStencilRead };
+            // Depth test and sampling at once: DEPTH_STENCIL_READ allows depth-stencil-read access only.
+            s = { Sync::DepthStencil | Sync::PixelShading, Access::DepthStencilRead | Access::ShaderResource, Layout::DirectQueueGenericRead };
             break;
         case Use::Uav:
             s = { compute ? Sync::ComputeShading : Sync::AllShading, Access::UnorderedAccess, Layout::UnorderedAccess };
@@ -259,9 +260,13 @@ namespace Dark::Rg
             out.layout = Layout::GenericRead;
             return true;
         }
-        if (pair(Layout::DepthStencilRead, Layout::ShaderResource))
+        // Read-only depth together with shader reads: DIRECT_QUEUE_GENERIC_READ, since DEPTH_STENCIL_READ
+        // allows depth-stencil-read access only (graphics only; the caller's queue check refuses the
+        // merge when a compute reader is in the group). Depth read + copy source still splits.
+        if (pair(Layout::DepthStencilRead, Layout::ShaderResource) || pair(Layout::DepthStencilRead, Layout::DirectQueueGenericRead) ||
+            pair(Layout::DirectQueueGenericRead, Layout::ShaderResource))
         {
-            out.layout = Layout::DepthStencilRead;
+            out.layout = Layout::DirectQueueGenericRead;
             return true;
         }
         return false;
@@ -278,10 +283,12 @@ namespace Dark::Rg
         case Layout::ShaderResource:
         case Layout::CopySource:
         case Layout::CopyDest:
+        case Layout::DirectQueueGenericReadComputeQueueAccessible:
             return true;
         case Layout::RenderTarget:
         case Layout::DepthStencilWrite:
         case Layout::DepthStencilRead:
+        case Layout::DirectQueueGenericRead:
             return queue == Queue::Graphics;
         }
         return false;
@@ -324,7 +331,13 @@ namespace Dark::Rg
             allowed = Access::DepthStencilWrite | Access::DepthStencilRead;
             break;
         case Layout::DepthStencilRead:
-            allowed = Access::DepthStencilRead | Access::ShaderResource;
+            allowed = Access::DepthStencilRead; // the spec's layout table: nothing else
+            break;
+        case Layout::DirectQueueGenericRead:
+        case Layout::DirectQueueGenericReadComputeQueueAccessible:
+            // Read-only depth is only legal on a direct list; layoutLegalOnQueue covers 19, and a
+            // compute list using 31 cannot name depth-stencil-read access (accessLegalOnQueue).
+            allowed = Access::ShaderResource | Access::CopySource | Access::DepthStencilRead;
             break;
         case Layout::ShaderResource:
             allowed = Access::ShaderResource;
@@ -433,7 +446,17 @@ namespace Dark::Rg
         if (states & kDepthWrite)
             layout = Layout::DepthStencilWrite;
         else if (states & kDepthRead)
-            layout = Layout::DepthStencilRead;
+        {
+            // DEPTH_STENCIL_READ allows depth-stencil-read access only. Sampled as well: the public
+            // direct-queue generic read layout; with NON_PIXEL_SHADER_RESOURCE the compute-accessible
+            // variant, as the spec's own legacy translation does.
+            if (states == kDepthRead)
+                layout = Layout::DepthStencilRead;
+            else if (states & kNonPixelSrv)
+                layout = Layout::DirectQueueGenericReadComputeQueueAccessible;
+            else
+                layout = Layout::DirectQueueGenericRead;
+        }
         else if (states & kRenderTarget)
             layout = Layout::RenderTarget;
         else if (states & kUav)
@@ -592,6 +615,10 @@ namespace Dark::Rg
             return "COPY_SOURCE";
         case Layout::CopyDest:
             return "COPY_DEST";
+        case Layout::DirectQueueGenericRead:
+            return "DIRECT_QUEUE_GENERIC_READ";
+        case Layout::DirectQueueGenericReadComputeQueueAccessible:
+            return "DIRECT_QUEUE_GENERIC_READ_COMPUTE_QUEUE_ACCESSIBLE";
         }
         return "?";
     }

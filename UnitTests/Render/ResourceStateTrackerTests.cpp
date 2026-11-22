@@ -54,16 +54,41 @@ TEST(LegacyStateEquivalent, MixedReadsOnATextureUseGenericReadAndDropBufferBits)
     EXPECT_EQ(legacy(kPixelSrv | kCopySource, ResourceKind::Texture).layout, Layout::GenericRead);
 }
 
-TEST(LegacyStateEquivalent, ReadOnlyDepthThatIsAlsoSampledStaysInDepthStencilRead)
+TEST(LegacyStateEquivalent, ReadOnlyDepthThatIsAlsoSampledLeavesDepthStencilRead)
 {
     // Renderer::bindSceneColor and the water/particle passes: depth test against a read-only DSV
-    // while shaders sample it.
+    // while shaders sample it. DEPTH_STENCIL_READ allows depth-stencil-read access only.
     const UseState s = legacy(kDepthRead | kPixelSrv, ResourceKind::Texture);
-    EXPECT_EQ(s.layout, Layout::DepthStencilRead);
+    EXPECT_EQ(s.layout, Layout::DirectQueueGenericRead);
     EXPECT_EQ(s.access, Access::DepthStencilRead | Access::ShaderResource);
     const UseState all = legacy(kDepthRead | kPixelSrv | kNonPixelSrv, ResourceKind::Texture);
-    EXPECT_EQ(all.layout, Layout::DepthStencilRead);
+    EXPECT_EQ(all.layout, Layout::DirectQueueGenericReadComputeQueueAccessible);
+    EXPECT_EQ(all.access, Access::DepthStencilRead | Access::ShaderResource);
     EXPECT_EQ(all.sync, Sync::DepthStencil | Sync::PixelShading | Sync::NonPixelShading);
+    EXPECT_EQ(legacy(kDepthRead | kNonPixelSrv, ResourceKind::Texture).layout, Layout::DirectQueueGenericReadComputeQueueAccessible);
+    EXPECT_EQ(legacy(kDepthRead | kCopySource, ResourceKind::Texture).layout, Layout::DirectQueueGenericRead);
+    // Every mapping must pass the layout/access table it is checked against.
+    for (uint32_t st : { kDepthRead, kDepthRead | kPixelSrv, kDepthRead | kNonPixelSrv, kDepthRead | kPixelSrv | kNonPixelSrv })
+    {
+        const UseState u = legacy(st, ResourceKind::Texture);
+        EXPECT_TRUE(accessAllowedInLayout(u.access, u.layout)) << st;
+        EXPECT_TRUE(layoutLegalOnQueue(u.layout, Queue::Graphics)) << st;
+    }
+}
+
+TEST(LegacyStateEquivalent, DepthStencilReadLayoutAllowsOnlyDepthStencilReadAccess)
+{
+    EXPECT_TRUE(accessAllowedInLayout(Access::DepthStencilRead, Layout::DepthStencilRead));
+    EXPECT_FALSE(accessAllowedInLayout(Access::DepthStencilRead | Access::ShaderResource, Layout::DepthStencilRead));
+    EXPECT_FALSE(accessAllowedInLayout(Access::ShaderResource, Layout::DepthStencilRead));
+    for (Layout l : { Layout::DirectQueueGenericRead, Layout::DirectQueueGenericReadComputeQueueAccessible })
+    {
+        EXPECT_TRUE(accessAllowedInLayout(Access::DepthStencilRead | Access::ShaderResource | Access::CopySource, l)) << layoutName(l);
+        EXPECT_FALSE(accessAllowedInLayout(Access::UnorderedAccess, l)) << layoutName(l);
+        EXPECT_TRUE(layoutLegalOnQueue(l, Queue::Graphics)) << layoutName(l);
+    }
+    EXPECT_FALSE(layoutLegalOnQueue(Layout::DirectQueueGenericRead, Queue::AsyncCompute));
+    EXPECT_TRUE(layoutLegalOnQueue(Layout::DirectQueueGenericReadComputeQueueAccessible, Queue::AsyncCompute));
 }
 
 TEST(LegacyStateEquivalent, BufferStatesHaveNoLayout)
@@ -85,7 +110,6 @@ TEST(LegacyStateEquivalent, RejectsStatesWithNoSingleEquivalent)
     EXPECT_FALSE(legacyStateEquivalent(kResolveDest, ResourceKind::Texture, s));
     EXPECT_FALSE(legacyStateEquivalent(kIndex, ResourceKind::Texture, s));             // buffer-only on a texture
     EXPECT_FALSE(legacyStateEquivalent(kRt, ResourceKind::Buffer, s));                 // texture-only on a buffer
-    EXPECT_FALSE(legacyStateEquivalent(kDepthRead | kCopySource, ResourceKind::Texture, s));
 }
 
 TEST(ResourceStateTracker, TracksForgetsAndReportsCurrentState)

@@ -82,6 +82,7 @@ TEST(RenderGraphBarriers, ComputeQueueRejectsGraphicsOnlyUses)
     EXPECT_FALSE(layoutLegalOnQueue(Layout::RenderTarget, Queue::AsyncCompute));
     EXPECT_FALSE(layoutLegalOnQueue(Layout::DepthStencilWrite, Queue::AsyncCompute));
     EXPECT_FALSE(layoutLegalOnQueue(Layout::DepthStencilRead, Queue::AsyncCompute));
+    EXPECT_FALSE(layoutLegalOnQueue(Layout::DirectQueueGenericRead, Queue::AsyncCompute));
     for (Layout l : { Layout::Common, Layout::GenericRead, Layout::UnorderedAccess, Layout::ShaderResource, Layout::CopySource, Layout::CopyDest })
         EXPECT_TRUE(layoutLegalOnQueue(l, Queue::AsyncCompute)) << layoutName(l);
     EXPECT_FALSE(syncLegalOnQueue(Sync::PixelShading, Queue::AsyncCompute));
@@ -104,8 +105,12 @@ TEST(RenderGraphBarriers, CombineReadStates)
     ASSERT_TRUE(combineReadStates(srv, copy, ResourceKind::Texture, out));
     EXPECT_EQ(out.layout, Layout::GenericRead);
     ASSERT_TRUE(combineReadStates(dr, srv, ResourceKind::Texture, out));
-    EXPECT_EQ(out.layout, Layout::DepthStencilRead);
+    EXPECT_EQ(out.layout, Layout::DirectQueueGenericRead);
+    EXPECT_TRUE(accessAllowedInLayout(out.access, out.layout));
     EXPECT_FALSE(combineReadStates(dr, copy, ResourceKind::Texture, out));
+    const UseState dsr{ Sync::DepthStencil, Access::DepthStencilRead, Layout::DepthStencilRead };
+    ASSERT_TRUE(combineReadStates(dsr, srv, ResourceKind::Texture, out)); // never DEPTH_STENCIL_READ + SRV access
+    EXPECT_EQ(out.layout, Layout::DirectQueueGenericRead);
     EXPECT_FALSE(combineReadStates(rt, srv, ResourceKind::Texture, out));
     // Buffers: any reads combine, no layout.
     ASSERT_TRUE(combineReadStates(useState(Use::IndirectArgs, ResourceKind::Buffer, Queue::Graphics), useState(Use::ComputeSrv, ResourceKind::Buffer, Queue::Graphics), ResourceKind::Buffer, out));
@@ -366,8 +371,8 @@ TEST(RenderGraphBarriers, ReadsThatDontCombineSplit)
     ASSERT_TRUE(compiles(g));
     const std::vector<BarrierRec> db = barriersFor(g, "D");
     ASSERT_EQ(db.size(), 3u);
-    EXPECT_EQ(db[1].after.layout, Layout::DepthStencilRead);
-    EXPECT_EQ(db[2].before.layout, Layout::DepthStencilRead);
+    EXPECT_EQ(db[1].after.layout, Layout::DirectQueueGenericRead);
+    EXPECT_EQ(db[2].before.layout, Layout::DirectQueueGenericRead);
     EXPECT_EQ(db[2].after.layout, Layout::CopySource);
     EXPECT_EQ(db[2].pass, g.findPass("Copy"));
 }

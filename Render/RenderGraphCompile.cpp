@@ -454,7 +454,7 @@ namespace Dark::Rg
                 {
                     merge = combineReadStates(segs.back().combined, a.state, node.kind, combined);
                     // The shared layout must be legal on every queue in the group (no DEPTH_STENCIL_READ
-                    // for a compute reader).
+                    // or DIRECT_QUEUE_GENERIC_READ for a compute reader).
                     const Segment& s = segs.back();
                     for (uint32_t q = 0; q < kQueueCount && merge; ++q)
                         if ((s.hasQueue[q] || kQ(a.queue) == q) && node.kind == ResourceKind::Texture)
