@@ -1,7 +1,6 @@
 #include "Render/DecalPipeline.h"
 #include "Render/EnhancedBarrierEmitter.h"
 #include "Render/DecalGpuList.h"
-#include "Render/DecalLibrary.h"
 #include "Render/DepthState.h"
 #include "Render/Mesh.h"
 #include "Render/ShaderCompile.h"
@@ -29,7 +28,6 @@ namespace Dark
         m_psoOutside.Reset();
         m_psoInside.Reset();
         m_uavHeap.Reset();
-        m_srvHeap.Reset();
         if (m_cbUpload && m_cbMapped)
             m_cbUpload->Unmap(0, nullptr);
         m_cbUpload.Reset();
@@ -44,21 +42,7 @@ namespace Dark
 
     bool DecalPipeline::isValid() const
     {
-        return m_rootSignature && m_psoOutside && m_psoInside && m_uavHeap && m_srvHeap && m_cbUpload && m_cbMapped;
-    }
-
-    D3D12_CPU_DESCRIPTOR_HANDLE DecalPipeline::cpuSrv(UINT slot) const
-    {
-        D3D12_CPU_DESCRIPTOR_HANDLE h = m_srvHeap->GetCPUDescriptorHandleForHeapStart();
-        h.ptr += static_cast<SIZE_T>(slot) * m_srvIncr;
-        return h;
-    }
-
-    D3D12_GPU_DESCRIPTOR_HANDLE DecalPipeline::gpuSrv(UINT slot) const
-    {
-        D3D12_GPU_DESCRIPTOR_HANDLE h = m_srvHeap->GetGPUDescriptorHandleForHeapStart();
-        h.ptr += static_cast<UINT64>(slot) * m_srvIncr;
-        return h;
+        return m_rootSignature && m_psoOutside && m_psoInside && m_uavHeap && m_cbUpload && m_cbMapped;
     }
 
     D3D12_CPU_DESCRIPTOR_HANDLE DecalPipeline::cpuUav(UINT slot) const
@@ -219,16 +203,6 @@ namespace Dark
             return false;
         }
 
-        D3D12_DESCRIPTOR_HEAP_DESC srvHeap{};
-        srvHeap.NumDescriptors = kSlotsPerFrame * kFrameCount;
-        srvHeap.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-        srvHeap.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-        if (FailedHr(device->CreateDescriptorHeap(&srvHeap, IID_PPV_ARGS(&m_srvHeap)), "CreateDescriptorHeap decal SRV"))
-        {
-            reset();
-            return false;
-        }
-
         D3D12_HEAP_PROPERTIES heap{};
         heap.Type = D3D12_HEAP_TYPE_UPLOAD;
         D3D12_RESOURCE_DESC desc{};
@@ -290,60 +264,44 @@ namespace Dark
         std::memcpy(m_cbMapped + static_cast<size_t>(m_frameSlot) * kCbBytes, &cb, sizeof(cb));
     }
 
-    bool DecalPipeline::bindFrameDescriptors(uint32_t frameIndex, ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE depthSrv, const DecalLibrary& library)
+    D3D12_CPU_DESCRIPTOR_HANDLE DecalPipeline::albedoUavCpu() const
     {
-        if (!device || !m_srvHeap || !m_uavsReady || depthSrv.ptr == 0 || !library.isValid())
-            return false;
-
-        m_frameSlot = frameIndex % kFrameCount;
-        const UINT base = frameBase();
-        device->CopyDescriptorsSimple(1, cpuSrv(base + 0), depthSrv, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-        device->CopyDescriptorsSimple(1, cpuSrv(base + 1), cpuUav(0), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-        device->CopyDescriptorsSimple(1, cpuSrv(base + 2), cpuUav(1), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-
-        for (uint32_t i = 0; i < static_cast<uint32_t>(DecalDefId::Count); ++i)
-        {
-            const DecalDefId id = static_cast<DecalDefId>(i);
-            const D3D12_CPU_DESCRIPTOR_HANDLE albedo = library.albedoSrv(id);
-            const D3D12_CPU_DESCRIPTOR_HANDLE normal = library.normalSrv(id);
-            if (albedo.ptr == 0 || normal.ptr == 0)
-                return false;
-            const UINT slot = base + 3u + i * 2u;
-            device->CopyDescriptorsSimple(1, cpuSrv(slot), albedo, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-            device->CopyDescriptorsSimple(1, cpuSrv(slot + 1), normal, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-        }
-        return true;
+        return m_uavsReady ? cpuUav(0) : D3D12_CPU_DESCRIPTOR_HANDLE{};
     }
 
-    bool DecalPipeline::bind(ID3D12GraphicsCommandList* cmd, D3D12_GPU_VIRTUAL_ADDRESS instances, DecalDefId id) const
+    D3D12_CPU_DESCRIPTOR_HANDLE DecalPipeline::attribUavCpu() const
+    {
+        return m_uavsReady ? cpuUav(1) : D3D12_CPU_DESCRIPTOR_HANDLE{};
+    }
+
+    bool DecalPipeline::bind(ID3D12GraphicsCommandList* cmd, const DecalTables& tables, D3D12_GPU_VIRTUAL_ADDRESS instances, DecalDefId id) const
     {
         if (!cmd || !isValid() || instances == 0 || static_cast<UINT>(id) >= static_cast<UINT>(DecalDefId::Count))
             return false;
+        const D3D12_GPU_DESCRIPTOR_HANDLE textures = tables.textures[static_cast<UINT>(id)];
+        if (tables.depth.ptr == 0 || tables.uavs.ptr == 0 || textures.ptr == 0)
+            return false;
 
         cmd->SetGraphicsRootSignature(m_rootSignature.Get());
-        ID3D12DescriptorHeap* heaps[] = { m_srvHeap.Get() };
-        cmd->SetDescriptorHeaps(1, heaps);
-
-        const UINT base = frameBase();
         cmd->SetGraphicsRootConstantBufferView(kRootCbv, m_cbGpu + static_cast<UINT64>(m_frameSlot) * kCbBytes);
-        cmd->SetGraphicsRootDescriptorTable(kRootDepth, gpuSrv(base + 0));
-        cmd->SetGraphicsRootDescriptorTable(kRootTextures, gpuSrv(base + 3u + static_cast<UINT>(id) * 2u));
-        cmd->SetGraphicsRootDescriptorTable(kRootUav, gpuSrv(base + 1));
+        cmd->SetGraphicsRootDescriptorTable(kRootDepth, tables.depth);
+        cmd->SetGraphicsRootDescriptorTable(kRootTextures, textures);
+        cmd->SetGraphicsRootDescriptorTable(kRootUav, tables.uavs);
         cmd->SetGraphicsRootShaderResourceView(kRootInstances, instances);
         return true;
     }
 
-    void DecalPipeline::drawOutside(ID3D12GraphicsCommandList* cmd, const Mesh& cube, D3D12_GPU_VIRTUAL_ADDRESS instances, uint32_t count, DecalDefId id) const
+    void DecalPipeline::drawOutside(ID3D12GraphicsCommandList* cmd, const DecalTables& tables, const Mesh& cube, D3D12_GPU_VIRTUAL_ADDRESS instances, uint32_t count, DecalDefId id) const
     {
-        if (!cmd || count == 0 || !cube.valid() || !bind(cmd, instances, id))
+        if (!cmd || count == 0 || !cube.valid() || !bind(cmd, tables, instances, id))
             return;
         cmd->SetPipelineState(m_psoOutside.Get());
         cube.drawInstanced(cmd, count);
     }
 
-    void DecalPipeline::drawInside(ID3D12GraphicsCommandList* cmd, D3D12_GPU_VIRTUAL_ADDRESS instances, uint32_t count, DecalDefId id) const
+    void DecalPipeline::drawInside(ID3D12GraphicsCommandList* cmd, const DecalTables& tables, D3D12_GPU_VIRTUAL_ADDRESS instances, uint32_t count, DecalDefId id) const
     {
-        if (!cmd || count == 0 || !bind(cmd, instances, id))
+        if (!cmd || count == 0 || !bind(cmd, tables, instances, id))
             return;
         cmd->SetPipelineState(m_psoInside.Get());
         cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);

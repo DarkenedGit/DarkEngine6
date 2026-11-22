@@ -566,13 +566,13 @@ void SandboxFrame::render()
     float                thermal     = 0.0f;
     LightingConstants    lc{};
     DeferredResolveInput resolve;
-    frame.set(PassId::GBuffer, [&](Rg::PassContext& pass) {
+    // GBuffer is one declared pass (render-graph plan Phase 6 part 5): SceneRenderer clears and binds
+    // the MRTs and depth from the graph's views, then runs these draws.
+    const auto drawGBuffer = [&](Rg::PassContext& pass) {
         ID3D12GraphicsCommandList* const cmd = pass.cmd();
         const Matrix4f viewProjEarly = m_scene.beginCameraFrame(app().m_sceneWorld.camera, app().renderer());
         (void)viewProjEarly;
         {
-            app().renderer().bindGBuffer();
-            app().renderer().clearGBuffer();
             const bool uvDraw = app().m_vision.ultraviolet > 0.0f;
             const bool thermalDraw = !uvDraw && app().m_vision.infrared > 0.0f;
             m_meshPipeline.setUltraviolet(uvDraw);
@@ -835,14 +835,12 @@ void SandboxFrame::render()
                 m_scene.setFogOccluders(facility.blocks, facility.blockCount);
             }
         }
-    });
+    };
+    frame.declare(PassId::GBuffer, [&](FeatureBuilder& b) { m_scene.addGBufferPasses(b, app().renderer(), drawGBuffer); });
 
-    // Decals is opaque (resolveDeferred); Gtao, Ssr, Lighting and LocalVolumes declare their uses.
-    // Settings are captured at build; the camera and `resolve` (lc, filled by GBuffer) are read at execute.
-    frame.set(PassId::Decals, [&](Rg::PassContext& pass) {
-        ID3D12GraphicsCommandList* const cmd = pass.cmd();
-        m_scene.resolveDeferred(SceneRenderer::DeferredStep::Decals, cmd, app().renderer(), app().world(), app().m_sceneWorld.camera, resolve);
-    });
+    // Decals, Gtao, Ssr, Lighting and LocalVolumes declare their uses. Settings are captured at build;
+    // the camera and `resolve` (lc, filled by the GBuffer draws) are read at execute.
+    frame.declare(PassId::Decals, [&](FeatureBuilder& b) { m_scene.addDecalsPasses(b, app().renderer(), app().m_sceneWorld.camera, resolve); });
     frame.declare(PassId::Gtao, [&](FeatureBuilder& b) { m_scene.addGtaoPasses(b, app().renderer(), app().m_sceneWorld.camera, app().m_sceneWorld.ssao); });
     frame.declare(PassId::Ssr, [&](FeatureBuilder& b) { m_scene.addSsrPasses(b, app().renderer(), app().m_sceneWorld.camera, app().m_sceneWorld.ssr, &app().m_sceneWorld.env); });
     frame.declare(PassId::Lighting, [&](FeatureBuilder& b) { m_scene.addLightingPasses(b, app().renderer(), resolve); });

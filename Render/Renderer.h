@@ -230,15 +230,13 @@ namespace Dark
         bool        hasSceneBuffers() const;
         DXGI_FORMAT sceneColorFormat() const;
 
-        void bindGBuffer();
         void bindHdr(bool bindDepth);
         void bindHdrDepthRead();
         // OM only. HDR target, read-only scene depth. No particle arguments.
         void bindHdrDepthCompute();
-        void bindDecalTargets();
         void bindHdrColorTarget();
-        void clearGBuffer();
-        void clearHdr();
+        // The HDR target's optimized clear (linear), for the Decals entry's clear pass.
+        const float* hdrClearColor() const;
         void setShadowSrv(D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu);
         void setLocalShadowSrvs(D3D12_CPU_DESCRIPTOR_HANDLE arrayCpu, D3D12_CPU_DESCRIPTOR_HANDLE recordsCpu);
         void setHeightSrv(D3D12_CPU_DESCRIPTOR_HANDLE heightCpu);
@@ -256,6 +254,11 @@ namespace Dark
 
         ID3D12Resource*             hdr() const;
         D3D12_CPU_DESCRIPTOR_HANDLE hdrRtv() const;
+        // G-buffer RTVs (graph views for the declared GBuffer pass, render-graph plan Phase 6 part 5).
+        D3D12_CPU_DESCRIPTOR_HANDLE albedoRtv() const;
+        D3D12_CPU_DESCRIPTOR_HANDLE attribRtv() const;
+        D3D12_CPU_DESCRIPTOR_HANDLE velocityRtv() const;
+        D3D12_CPU_DESCRIPTOR_HANDLE aoRtv() const;
         D3D12_CPU_DESCRIPTOR_HANDLE hdrSrvCpu() const;
         D3D12_CPU_DESCRIPTOR_HANDLE postHdrSrvCpu() const;
         D3D12_CPU_DESCRIPTOR_HANDLE postRtv() const;
