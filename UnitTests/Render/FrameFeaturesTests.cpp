@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "Render/FrameFeatures.h"
+#include "Render/GBufferInputs.h"
 #include "Render/LightingInputs.h"
 #include "Render/PostMatrices.h"
 #include "RenderGraphTestUtil.h"
@@ -1009,4 +1010,275 @@ TEST(FrameFeatures, OpaquePassJustBeforeADeclaredReaderRunsBeforeItsBarrier)
     EXPECT_LT(sky, unbind);
     EXPECT_LT(unbind, hdr);
     EXPECT_LT(hdr, capture);
+}
+
+// ---------------------------------------------------------------- G-buffer and decals (Phase 6 part 5)
+
+namespace
+{
+    // The Sandbox list with GBuffer, Decals and Lighting declared the way the hosts and SceneRenderer
+    // do (GBufferInputs.h / LightingInputs.h); GTAO and SSR take their skip paths (opaque, no uses).
+    // Imports start in the layouts the frame tracker holds at that point: depth DEPTH_WRITE (cleared
+    // in Renderer::beginFrame), the G-buffer and HDR as last frame left them (shader resource).
+    struct DeclaredGeometryFrame
+    {
+        HostFrame                host;
+        std::vector<std::string> ran;
+        GBufferTargets           gb{};
+        DecalTargets             dec{};
+        HdrTarget                clear{};
+        LightingReads            lit{};
+        bool                     decalsAdded = false;
+
+        bool run(bool decals)
+        {
+            uint32_t           count = 0;
+            const FeaturePass* list  = sandboxFeatures(count);
+            ran.clear();
+            gb                 = {};
+            dec                = {};
+            clear              = {};
+            lit                = {};
+            decalsAdded        = false;
+            Rg::RenderGraph& g = host.graph;
+            g.beginFrame(1280, 720);
+            host.features.begin(list, count);
+            for (uint32_t r = 0; r < kRenderResourceCount; ++r)
+            {
+                const auto     res    = static_cast<RenderResource>(r);
+                const uint32_t fmt    = res == RenderResource::Swap ? kBgra8 : (res == RenderResource::Depth ? kD32 : kRgba);
+                Rg::Layout     layout = Rg::Layout::ShaderResource;
+                if (res == RenderResource::Swap)
+                    layout = Rg::Layout::RenderTarget;
+                else if (res == RenderResource::Depth)
+                    layout = Rg::Layout::DepthStencilWrite;
+                host.features.importResource(g, res, fakeResource(r), absDesc(1280, 720, fmt), layout);
+            }
+            for (const PassId id : without(listIds(list, count), { PassId::GBuffer, PassId::Decals, PassId::Gtao, PassId::Ssr, PassId::Lighting }))
+                host.features.set(id, [this, id](Rg::PassContext&) { ran.push_back(passName(id)); });
+            host.features.declare(PassId::GBuffer,
+                                  [this](FeatureBuilder& fb)
+                                  {
+                                      addGBufferPass(fb,
+                                                     [this](Rg::PassContext&, const GBufferTargets& d)
+                                                     {
+                                                         ran.push_back("GBuffer");
+                                                         gb = d;
+                                                     });
+                                  });
+            host.features.declare(PassId::Decals,
+                                  [this, decals](FeatureBuilder& fb)
+                                  {
+                                      if (decals)
+                                          decalsAdded = addDecalPass(fb,
+                                                                     [this](Rg::PassContext&, const DecalTargets& d)
+                                                                     {
+                                                                         ran.push_back("Decals");
+                                                                         dec = d;
+                                                                     });
+                                      addHdrClearPass(fb,
+                                                      [this](Rg::PassContext&, const HdrTarget& d)
+                                                      {
+                                                          ran.push_back("Decals.ClearHdr");
+                                                          clear = d;
+                                                      });
+                                  });
+            host.features.declare(PassId::Gtao, [this](FeatureBuilder& fb) { fb.opaque("Gtao", {}, {}, [this](Rg::PassContext&) { ran.push_back("Gtao.Skip"); }); });
+            host.features.declare(PassId::Ssr, [this](FeatureBuilder& fb) { fb.opaque("Ssr", {}, {}, [this](Rg::PassContext&) { ran.push_back("Ssr.Skip"); }); });
+            host.features.declare(PassId::Lighting,
+                                  [this](FeatureBuilder& fb)
+                                  {
+                                      const LightingReads in = lightingReads(fb);
+                                      Rg::TextureHandle   hdr;
+                                      fb.addPass<LightingReads>(
+                                          "Lighting", [&](Rg::PassBuilder& b, LightingReads& d) { hdr = declareLightingUses(b, in, true, d); },
+                                          [this](Rg::PassContext&, const LightingReads& d)
+                                          {
+                                              ran.push_back("Lighting");
+                                              lit = d;
+                                          });
+                                      fb.set(RenderResource::Hdr, hdr);
+                                  });
+            if (!host.features.compileFrame(g, "test"))
+                return false;
+            return g.execute();
+        }
+
+        long at(const char* n) const
+        {
+            return std::find(ran.begin(), ran.end(), std::string(n)) - ran.begin();
+        }
+
+        // The barriers on `resource` recorded before `pass`.
+        std::vector<Rg::BarrierRec> into(const char* resource, const char* pass) const
+        {
+            std::vector<Rg::BarrierRec> out;
+            for (const Rg::BarrierRec& b : recordsOn(host.graph, resource))
+                if (b.pass != Rg::kNoPass && b.pass < host.graph.passCount() && std::string(host.graph.passName(b.pass)) == pass)
+                    out.push_back(b);
+            return out;
+        }
+
+        // The pass's accesses in the graph's JSON dump.
+        std::string accesses(const char* pass) const
+        {
+            std::string json;
+            host.graph.dumpJson(json);
+            const size_t at  = json.find(std::string("\"name\":\"") + pass + "\"");
+            const size_t end = json.find("{\"index\":", at);
+            return at == std::string::npos ? std::string() : json.substr(at, end - at);
+        }
+    };
+
+    std::string accessOf(const std::string& passAccesses, uint16_t resource)
+    {
+        const std::string key = "{\"resource\":" + std::to_string(resource) + ",";
+        const size_t      at  = passAccesses.find(key);
+        return at == std::string::npos ? std::string() : passAccesses.substr(at, passAccesses.find('}', at) - at);
+    }
+} // namespace
+
+TEST(FrameFeatures, GBufferAndDecalsRunAsDeclaredPassesInListOrder)
+{
+    DeclaredGeometryFrame f;
+    ASSERT_TRUE(f.run(true));
+    EXPECT_TRUE(f.host.features.orderOk());
+    ASSERT_TRUE(f.decalsAdded);
+    EXPECT_LT(f.at("LocalShadows"), f.at("GBuffer"));
+    EXPECT_LT(f.at("GBuffer"), f.at("Decals"));
+    EXPECT_LT(f.at("Decals"), f.at("Decals.ClearHdr"));
+    EXPECT_LT(f.at("Decals.ClearHdr"), f.at("Gtao.Skip"));
+    EXPECT_LT(f.at("Ssr.Skip"), f.at("Lighting"));
+    // Each pass gets the versions the one before it wrote (FeatureBuilder::set after each pass).
+    EXPECT_EQ(f.dec.albedo.index, f.gb.albedo.index);
+    EXPECT_EQ(f.dec.albedo.version, f.gb.albedo.version + 1);
+    EXPECT_EQ(f.dec.attrib.version, f.gb.attrib.version + 1);
+    EXPECT_EQ(f.dec.depth, f.gb.depth);
+    EXPECT_EQ(f.lit.albedo, f.dec.albedo);
+    EXPECT_EQ(f.lit.attrib, f.dec.attrib);
+    EXPECT_EQ(f.lit.ao, f.gb.ao);
+    EXPECT_EQ(f.lit.depth, f.gb.depth);
+    EXPECT_EQ(f.lit.hdr.version, f.clear.hdr.version + 1);
+}
+
+TEST(FrameFeatures, GBufferWritesItsClearedTargetsAndKeepsTheFrameStartDepthClear)
+{
+    DeclaredGeometryFrame f;
+    ASSERT_TRUE(f.run(true));
+    const std::string gb = f.accesses("GBuffer");
+    ASSERT_FALSE(gb.empty());
+    // MRTs: cleared in the pass, so written only (their old contents are dead).
+    for (const char* name : { "Albedo", "Attrib", "Velocity", "Ao" })
+    {
+        const std::string a = accessOf(gb, f.host.graph.findResource(name));
+        EXPECT_NE(a.find("\"use\":\"RenderTarget\",\"read\":false,\"write\":true"), std::string::npos) << name << ": " << a;
+    }
+    // Depth: cleared by Renderer::beginFrame, so tested against and written (read too).
+    const std::string depth = accessOf(gb, f.host.graph.findResource("Depth"));
+    EXPECT_NE(depth.find("\"use\":\"DepthWrite\",\"read\":true,\"write\":true"), std::string::npos) << depth;
+    // Planned barriers: each MRT shader resource -> render target right before the pass; depth is
+    // already DEPTH_WRITE, so it gets none.
+    for (const char* name : { "Albedo", "Attrib", "Velocity", "Ao" })
+    {
+        const std::vector<Rg::BarrierRec> b = f.into(name, "GBuffer");
+        ASSERT_EQ(b.size(), 1u) << name;
+        EXPECT_EQ(b[0].before.layout, Rg::Layout::ShaderResource) << name;
+        EXPECT_EQ(b[0].after.layout, Rg::Layout::RenderTarget) << name;
+        EXPECT_FALSE(b[0].tracked) << name;
+    }
+    EXPECT_TRUE(f.into("Depth", "GBuffer").empty());
+}
+
+TEST(FrameFeatures, DecalsBlendIntoTheGBufferThroughUavsAndReadDepthReadOnly)
+{
+    DeclaredGeometryFrame f;
+    ASSERT_TRUE(f.run(true));
+    const std::string dec = f.accesses("Decals");
+    for (const char* name : { "Albedo", "Attrib" })
+    {
+        const std::string a = accessOf(dec, f.host.graph.findResource(name));
+        EXPECT_NE(a.find("\"use\":\"Uav\",\"read\":true,\"write\":true"), std::string::npos) << name << ": " << a;
+        const std::vector<Rg::BarrierRec> b = f.into(name, "Decals");
+        ASSERT_EQ(b.size(), 1u) << name;
+        EXPECT_EQ(b[0].before.layout, Rg::Layout::RenderTarget) << name;
+        EXPECT_EQ(b[0].after.layout, Rg::Layout::UnorderedAccess) << name;
+        // ...and back to a shader resource for Lighting.
+        const std::vector<Rg::BarrierRec> l = f.into(name, "Lighting");
+        ASSERT_EQ(l.size(), 1u) << name;
+        EXPECT_EQ(l[0].before.layout, Rg::Layout::UnorderedAccess) << name;
+        EXPECT_EQ(l[0].after.layout, Rg::Layout::ShaderResource) << name;
+    }
+    const std::vector<Rg::BarrierRec> depth = f.into("Depth", "Decals");
+    ASSERT_EQ(depth.size(), 1u);
+    EXPECT_EQ(depth[0].before.layout, Rg::Layout::DepthStencilWrite);
+    EXPECT_EQ(depth[0].after.layout, Rg::Layout::DirectQueueGenericRead);
+    // The decal pass does not touch velocity or AO.
+    EXPECT_TRUE(accessOf(dec, f.host.graph.findResource("Velocity")).empty());
+    EXPECT_TRUE(accessOf(dec, f.host.graph.findResource("Ao")).empty());
+}
+
+TEST(FrameFeatures, NoDecalPassMeansNoUavRoundTrip)
+{
+    DeclaredGeometryFrame f;
+    ASSERT_TRUE(f.run(false));
+    EXPECT_TRUE(f.host.features.orderOk()); // the HDR clear keeps the Decals entry
+    EXPECT_EQ(static_cast<size_t>(f.at("Decals")), f.ran.size());
+    EXPECT_FALSE(f.dec.albedo.valid());
+    EXPECT_EQ(f.lit.albedo, f.gb.albedo);
+    for (const char* name : { "Albedo", "Attrib" })
+    {
+        const std::vector<Rg::BarrierRec> l = f.into(name, "Lighting");
+        ASSERT_EQ(l.size(), 1u) << name;
+        EXPECT_EQ(l[0].before.layout, Rg::Layout::RenderTarget) << name;
+        EXPECT_EQ(l[0].after.layout, Rg::Layout::ShaderResource) << name;
+        for (const Rg::BarrierRec& b : recordsOn(f.host.graph, name))
+            EXPECT_NE(b.after.layout, Rg::Layout::UnorderedAccess) << name;
+    }
+}
+
+TEST(FrameFeatures, HdrClearIsAWriteTheLightingPassDrawsOnto)
+{
+    DeclaredGeometryFrame f;
+    ASSERT_TRUE(f.run(true));
+    const std::string a = accessOf(f.accesses("Decals.ClearHdr"), f.host.graph.findResource("Hdr"));
+    EXPECT_NE(a.find("\"use\":\"RenderTarget\",\"read\":false,\"write\":true"), std::string::npos) << a;
+    // Shader resource (last frame) -> render target before the clear; then only a RT -> RT sync into
+    // Lighting, which reads the clear (sky pixels keep it).
+    const std::vector<Rg::BarrierRec> clr = f.into("Hdr", "Decals.ClearHdr");
+    ASSERT_EQ(clr.size(), 1u);
+    EXPECT_EQ(clr[0].before.layout, Rg::Layout::ShaderResource);
+    EXPECT_EQ(clr[0].after.layout, Rg::Layout::RenderTarget);
+    const std::vector<Rg::BarrierRec> lit = f.into("Hdr", "Lighting");
+    ASSERT_EQ(lit.size(), 1u);
+    EXPECT_EQ(lit[0].before.layout, Rg::Layout::RenderTarget);
+    EXPECT_EQ(lit[0].after.layout, Rg::Layout::RenderTarget);
+    EXPECT_FALSE(lit[0].tracked);
+}
+
+TEST(FrameFeatures, GBufferAndDecalHelpersAddNothingWithoutTargets)
+{
+    HostFrame          host;
+    Rg::RenderGraph&   g     = host.graph;
+    uint32_t           count = 0;
+    const FeaturePass* list  = sandboxFeatures(count);
+    g.beginFrame(1280, 720);
+    host.features.begin(list, count); // nothing imported
+    bool gbAdded = true, decAdded = true, clrAdded = true;
+    host.features.declare(PassId::GBuffer,
+                          [&](FeatureBuilder& fb)
+                          {
+                              gbAdded = addGBufferPass(fb, [](Rg::PassContext&, const GBufferTargets&) {});
+                              fb.opaque("GBuffer", {}, {}, [](Rg::PassContext&) {});
+                          });
+    host.features.declare(PassId::Decals,
+                          [&](FeatureBuilder& fb)
+                          {
+                              decAdded = addDecalPass(fb, [](Rg::PassContext&, const DecalTargets&) {});
+                              clrAdded = addHdrClearPass(fb, [](Rg::PassContext&, const HdrTarget&) {});
+                              fb.opaque("Decals", {}, {}, [](Rg::PassContext&) {});
+                          });
+    host.features.compileFrame(g, "test"); // the other entries are missing: only the declares matter
+    EXPECT_FALSE(gbAdded);
+    EXPECT_FALSE(decAdded);
+    EXPECT_FALSE(clrAdded);
 }
