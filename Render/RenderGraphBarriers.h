@@ -35,6 +35,16 @@ namespace Dark::Rg
     // DISCARD only from UNDEFINED, no UNDEFINED after-layout. why gets the first problem.
     bool validateBarrier(const BarrierRec& rec, std::string* why = nullptr);
 
+    // Enhanced-barrier equivalent of a legacy D3D12_RESOURCE_STATES value (passed as an integer so
+    // this stays D3D12-free), per the enhanced-barriers spec's "Equivalent D3D12_BARRIER_LAYOUT /
+    // ACCESS / SYNC for each D3D12_RESOURCE_STATES bit" tables (Phase 6). Textures get a public
+    // layout: SRV-only states map to SHADER_RESOURCE, mixed read states to GENERIC_READ, depth read
+    // (alone or with SRV) to DEPTH_STENCIL_READ, COMMON/PRESENT to COMMON. Buffers get
+    // Layout::Undefined. False for states the engine never uses (stream out, resolve, predication,
+    // video, shading rate, acceleration structures), two write states at once, or a buffer-only
+    // state on a texture that has no readable bit left.
+    bool legacyStateEquivalent(uint32_t d3d12States, ResourceKind kind, UseState& out);
+
     // Bytes per pixel of a DXGI_FORMAT value (0 = unknown or block-compressed).
     uint32_t formatBytesPerPixel(uint32_t dxgiFormat);
     // Estimated size of a resolved texture (all mips and slices); 0 when the format is unknown.

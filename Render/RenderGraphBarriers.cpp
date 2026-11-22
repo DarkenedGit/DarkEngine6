@@ -375,6 +375,83 @@ namespace Dark::Rg
         return true;
     }
 
+    bool legacyStateEquivalent(uint32_t states, ResourceKind kind, UseState& out)
+    {
+        // D3D12_RESOURCE_STATES bits (d3d12.h; mirrored by value like the Sync/Access/Layout enums).
+        constexpr uint32_t kVertexAndConstant = 0x1, kIndex = 0x2, kRenderTarget = 0x4, kUav = 0x8, kDepthWrite = 0x10, kDepthRead = 0x20, kNonPixelSrv = 0x40,
+                           kPixelSrv = 0x80, kIndirect = 0x200, kCopyDest = 0x400, kCopySource = 0x800;
+        constexpr uint32_t kKnown  = kVertexAndConstant | kIndex | kRenderTarget | kUav | kDepthWrite | kDepthRead | kNonPixelSrv | kPixelSrv | kIndirect | kCopyDest | kCopySource;
+        constexpr uint32_t kWrites = kRenderTarget | kUav | kDepthWrite | kCopyDest;
+        out = {};
+        if ((states & ~kKnown) != 0)
+            return false;
+        const uint32_t writes = states & kWrites;
+        if ((writes & (writes - 1)) != 0)
+            return false; // two write states at once
+        if (writes != 0 && states != writes)
+            return false; // write states are exclusive in the legacy model
+        if (states == 0)
+        {
+            // COMMON / PRESENT: everything before must finish (the legacy meaning).
+            out.sync   = Sync::All;
+            out.access = Access::Common;
+            out.layout = kind == ResourceKind::Texture ? Layout::Common : Layout::Undefined;
+            return true;
+        }
+        const bool texture = kind == ResourceKind::Texture;
+        Sync       sync    = Sync::None;
+        Access     access  = Access::Common;
+        const auto add     = [&](uint32_t bit, Sync s, Access a, bool textureOk)
+        {
+            if ((states & bit) == 0)
+                return;
+            sync = sync | s;
+            if (!texture || textureOk)
+                access = access | a;
+        };
+        add(kVertexAndConstant, Sync::AllShading, Access::VertexBuffer | Access::ConstantBuffer, false);
+        add(kIndex, Sync::IndexInput, Access::IndexBuffer, false);
+        add(kRenderTarget, Sync::RenderTarget, Access::RenderTarget, true);
+        add(kUav, Sync::AllShading, Access::UnorderedAccess, true);
+        add(kDepthWrite, Sync::DepthStencil, Access::DepthStencilWrite, true);
+        add(kDepthRead, Sync::DepthStencil, Access::DepthStencilRead, true);
+        add(kNonPixelSrv, Sync::NonPixelShading, Access::ShaderResource, true);
+        add(kPixelSrv, Sync::PixelShading, Access::ShaderResource, true);
+        add(kIndirect, Sync::ExecuteIndirect, Access::IndirectArgument, false);
+        add(kCopyDest, Sync::Copy, Access::CopyDest, true);
+        add(kCopySource, Sync::Copy, Access::CopySource, true);
+        if (!texture)
+        {
+            if (any(access & (Access::RenderTarget | Access::DepthStencilRead | Access::DepthStencilWrite)))
+                return false;
+            out = { sync, access, Layout::Undefined };
+            return true;
+        }
+        if (access == Access::Common)
+            return false; // only buffer bits (vertex/index/indirect) on a texture
+        Layout layout = Layout::Undefined;
+        if (states & kDepthWrite)
+            layout = Layout::DepthStencilWrite;
+        else if (states & kDepthRead)
+            layout = Layout::DepthStencilRead;
+        else if (states & kRenderTarget)
+            layout = Layout::RenderTarget;
+        else if (states & kUav)
+            layout = Layout::UnorderedAccess;
+        else if (states & kCopyDest)
+            layout = Layout::CopyDest;
+        else if (access == Access::CopySource)
+            layout = Layout::CopySource;
+        else if (access == Access::ShaderResource)
+            layout = Layout::ShaderResource;
+        else
+            layout = Layout::GenericRead;
+        if (!accessAllowedInLayout(access, layout))
+            return false; // e.g. COPY_SOURCE with DEPTH_READ: no single public layout
+        out = { sync, access, layout };
+        return true;
+    }
+
     uint32_t formatBytesPerPixel(uint32_t f)
     {
         if (f >= 1 && f <= 4)
