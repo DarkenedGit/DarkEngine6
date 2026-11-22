@@ -913,11 +913,19 @@ namespace
     {
         float v[8] = {};
     };
+
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable : 4324) // alignas pads sizeof; these tests allocate that size
+#endif
     struct alignas(64) Over64
     {
         float v[16] = {};
         int   tag   = 0;
     };
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
 
     bool isAligned(const void* p, size_t align)
     {
@@ -1006,11 +1014,19 @@ TEST(RenderGraphArena, OverAlignedAcrossBlockBoundariesAndNearTheEnd)
 
 TEST(RenderGraphArena, OverAlignedPassDataAcrossFrames)
 {
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable : 4324) // alignas pads sizeof; these tests allocate that size
+#endif
     struct alignas(64) Data
     {
         TextureHandle t;
         float         pad[3] = {};
     };
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
+
     RenderGraph g;
     for (int frame = 0; frame < 3; ++frame)
     {

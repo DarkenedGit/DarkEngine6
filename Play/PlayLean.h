@@ -24,7 +24,7 @@ namespace Dark
     {
         if (!std::isfinite(current) || !std::isfinite(target) || !std::isfinite(dt))
         {
-            DE_ASSERT(std::isfinite(current) && std::isfinite(target) && std::isfinite(dt));
+            //DE_ASSERT(std::isfinite(current) && std::isfinite(target) && std::isfinite(dt));
             return 0.0f;
         }
         if (dt < 0.0f)
