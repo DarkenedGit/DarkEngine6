@@ -11,7 +11,6 @@
 namespace Dark
 {
 
-    class Renderer;
     class ShadowSystem;
 
     using Microsoft::WRL::ComPtr;
@@ -97,11 +96,15 @@ namespace Dark
         DeferredLightingPipeline() = default;
 
         bool create(ID3D12Device* device);
-        void draw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const ShadowSystem& shadows, const LightingConstants& constants) const;
+        // One full-screen triangle into the bound HDR target. `table` is a descriptor-ring table of
+        // SceneBuffers::kLightingCount views in register order (t0..t9, SceneBuffers::kLighting*); the
+        // caller has bound the ring heap (render-graph plan Phase 6 part 4).
+        void draw(ID3D12GraphicsCommandList* cmd, D3D12_GPU_DESCRIPTOR_HANDLE table, const ShadowSystem& shadows, const LightingConstants& constants) const;
 
         bool isValid() const { return m_pso != nullptr; }
 
     private:
+        UINT                        m_srvIncr = 0;
         ComPtr<ID3D12RootSignature> m_rootSignature;
         ComPtr<ID3D12PipelineState> m_pso;
     };

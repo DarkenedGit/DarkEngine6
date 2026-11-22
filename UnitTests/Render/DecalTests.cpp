@@ -689,12 +689,11 @@ TEST(Decal_Normal_SlashCenter, GrooveAndOutside)
     EXPECT_EQ(flat.b, 255);
 }
 
-TEST(Decal_LightingCount_Unchanged, IsTwelve)
+TEST(Decal_LightingCount_Unchanged, IsTen)
 {
-    EXPECT_EQ(SceneBuffers::kLightingCount, 12u);
+    // The lighting pass's ring table (render-graph plan Phase 6 part 4); decals add no slot.
+    EXPECT_EQ(SceneBuffers::kLightingCount, 10u);
     EXPECT_EQ(SceneBuffers::kLightingAo, 5u);
-    EXPECT_EQ(SceneBuffers::kLightingLocalShadow, 10u);
-    EXPECT_EQ(SceneBuffers::kLightingLocalShadowRecords, 11u);
 }
 
 TEST(Decal_Cue_GroundStep, StepOrExactGroundCue)

@@ -536,17 +536,16 @@ namespace Dark
 
         if (m_sceneBuffers)
         {
-            if (!m_sceneBuffers->rebuildViews(m_depthSrvCpu))
+            if (!m_sceneBuffers->rebuildViews())
             {
                 DE_LOG_ERROR(LogCategory::Render, "Renderer: SceneBuffers resize failed");
                 m_sceneBuffers.reset();
                 return false;
             }
-            m_sceneBuffers->setLightingAlbedoRaw(m_device.Get(), m_debugState.showAlbedoRaw);
+            m_sceneBuffers->setLightingAlbedoRaw(m_debugState.showAlbedoRaw);
             setHeightSrv(m_heightCpu.ptr != 0 ? m_heightCpu : (m_fogHeightDummy && m_fogHeightDummy->valid() ? m_fogHeightDummy->cpuHandle() : D3D12_CPU_DESCRIPTOR_HANDLE{}));
             applyIblSrvs();
             ensureSsrDummyResources();
-            setLightingSsrSrv(ssrDummyCpu());
         }
 
         updateViewport();
@@ -1178,14 +1177,14 @@ namespace Dark
             m_sceneBuffers.reset();
         }
         auto buffers = std::make_unique<SceneBuffers>();
-        if (!buffers->create(*m_targets, m_depthSrvCpu, m_clearColor))
+        if (!buffers->create(*m_targets, m_clearColor))
         {
             DE_LOG_ERROR(LogCategory::Render, "createSceneTargets: SceneBuffers create failed");
             m_sceneBuffers.reset();
             return false;
         }
         m_sceneBuffers = std::move(buffers);
-        m_sceneBuffers->setLightingAlbedoRaw(m_device.Get(), m_debugState.showAlbedoRaw);
+        m_sceneBuffers->setLightingAlbedoRaw(m_debugState.showAlbedoRaw);
         if (!m_fogHeightDummy)
             m_fogHeightDummy = std::make_unique<Texture2D>();
         if (!m_fogHeightDummy->valid())
@@ -1196,7 +1195,6 @@ namespace Dark
         setHeightSrv(m_heightCpu.ptr != 0 ? m_heightCpu : (m_fogHeightDummy->valid() ? m_fogHeightDummy->cpuHandle() : D3D12_CPU_DESCRIPTOR_HANDLE{}));
         applyIblSrvs();
         ensureSsrDummyResources();
-        setLightingSsrSrv(ssrDummyCpu());
         ensureIblBrdfLut();
         DE_LOG_INFO(LogCategory::Render, "createSceneTargets: {}x{}", m_width, m_height);
         return true;
@@ -1274,9 +1272,9 @@ namespace Dark
             return;
         const bool haveLast = m_iblIrrCpu.ptr != 0 && m_iblPrefCpu.ptr != 0 && m_iblLutCpu.ptr != 0;
         if (haveLast)
-            m_sceneBuffers->setIblSrvs(m_device.Get(), m_iblIrrCpu, m_iblPrefCpu, m_iblLutCpu);
+            m_sceneBuffers->setIblSrvs(m_iblIrrCpu, m_iblPrefCpu, m_iblLutCpu);
         else
-            m_sceneBuffers->setIblSrvs(m_device.Get(), iblDummyCubeCpu(), iblDummyCubeCpu(), iblDummyLutCpu());
+            m_sceneBuffers->setIblSrvs(iblDummyCubeCpu(), iblDummyCubeCpu(), iblDummyLutCpu());
     }
 
     void Renderer::ensureSsrDummyResources()
@@ -1306,38 +1304,26 @@ namespace Dark
     void Renderer::setShadowSrv(D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu)
     {
         if (m_sceneBuffers)
-            m_sceneBuffers->setShadowSrv(m_device.Get(), shadowCpu);
+            m_sceneBuffers->setShadowSrv(shadowCpu);
     }
 
     void Renderer::setLocalShadowSrvs(D3D12_CPU_DESCRIPTOR_HANDLE arrayCpu, D3D12_CPU_DESCRIPTOR_HANDLE recordsCpu)
     {
         if (m_sceneBuffers)
-            m_sceneBuffers->setLocalShadowSrvs(m_device.Get(), arrayCpu, recordsCpu);
-    }
-
-    void Renderer::setLightingAoSrv(D3D12_CPU_DESCRIPTOR_HANDLE aoCpu)
-    {
-        if (m_sceneBuffers)
-            m_sceneBuffers->setLightingAoSrv(m_device.Get(), aoCpu);
-    }
-
-    void Renderer::setLightingSsrSrv(D3D12_CPU_DESCRIPTOR_HANDLE ssrCpu)
-    {
-        if (m_sceneBuffers)
-            m_sceneBuffers->setLightingSsrSrv(m_device.Get(), ssrCpu);
+            m_sceneBuffers->setLocalShadowSrvs(arrayCpu, recordsCpu);
     }
 
     void Renderer::setLightingAlbedoRaw(bool raw)
     {
         if (m_sceneBuffers)
-            m_sceneBuffers->setLightingAlbedoRaw(m_device.Get(), raw);
+            m_sceneBuffers->setLightingAlbedoRaw(raw);
     }
 
     void Renderer::setHeightSrv(D3D12_CPU_DESCRIPTOR_HANDLE heightCpu)
     {
         m_heightCpu = heightCpu;
         if (m_sceneBuffers)
-            m_sceneBuffers->setHeightSrv(m_device.Get(), heightCpu);
+            m_sceneBuffers->setHeightSrv(heightCpu);
     }
 
     void Renderer::bindGBuffer()
@@ -1584,56 +1570,19 @@ namespace Dark
         return m_sceneBuffers ? m_sceneBuffers->aoSrvCpu() : D3D12_CPU_DESCRIPTOR_HANDLE{};
     }
 
-    D3D12_CPU_DESCRIPTOR_HANDLE Renderer::lightingAoCpu() const
+    LightingViews Renderer::lightingViews() const
     {
-        return m_sceneBuffers ? m_sceneBuffers->lightingAoCpu() : D3D12_CPU_DESCRIPTOR_HANDLE{};
+        return m_sceneBuffers ? m_sceneBuffers->lightingViews() : LightingViews{};
     }
 
-    D3D12_GPU_DESCRIPTOR_HANDLE Renderer::lightingTableGpu() const
+    ID3D12DescriptorHeap* Renderer::heightFallbackHeap() const
     {
-        if (!m_sceneBuffers)
-            return {};
-        return m_sceneBuffers->lightingTableGpu();
+        return m_fogHeightDummy && m_fogHeightDummy->valid() ? m_fogHeightDummy->srvHeap() : nullptr;
     }
 
-    D3D12_GPU_DESCRIPTOR_HANDLE Renderer::heightTableGpu() const
+    D3D12_GPU_DESCRIPTOR_HANDLE Renderer::heightFallbackGpu() const
     {
-        if (!m_sceneBuffers)
-            return {};
-        return m_sceneBuffers->heightTableGpu();
-    }
-
-    D3D12_GPU_DESCRIPTOR_HANDLE Renderer::aoTableGpu() const
-    {
-        if (!m_sceneBuffers)
-            return {};
-        return m_sceneBuffers->aoTableGpu();
-    }
-
-    D3D12_GPU_DESCRIPTOR_HANDLE Renderer::iblTableGpu() const
-    {
-        if (!m_sceneBuffers)
-            return {};
-        return m_sceneBuffers->iblTableGpu();
-    }
-
-    D3D12_GPU_DESCRIPTOR_HANDLE Renderer::localShadowTableGpu() const
-    {
-        if (!m_sceneBuffers)
-            return {};
-        return m_sceneBuffers->localShadowTableGpu();
-    }
-
-    D3D12_GPU_DESCRIPTOR_HANDLE Renderer::ssrTableGpu() const
-    {
-        if (!m_sceneBuffers)
-            return {};
-        return m_sceneBuffers->ssrTableGpu();
-    }
-
-    ID3D12DescriptorHeap* Renderer::lightingHeap() const
-    {
-        return m_sceneBuffers ? m_sceneBuffers->lightingHeap() : nullptr;
+        return m_fogHeightDummy && m_fogHeightDummy->valid() ? m_fogHeightDummy->gpuHandle() : D3D12_GPU_DESCRIPTOR_HANDLE{};
     }
 
 } // namespace Dark

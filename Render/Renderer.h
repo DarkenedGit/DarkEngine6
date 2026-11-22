@@ -1,6 +1,7 @@
 #pragma once
 #include "Render/DebugRenderState.h"
 #include "Render/DepthState.h"
+#include "Render/LightingViews.h"
 #include "Render/RenderTargetPool.h"
 #include "Render/ResourceStateTracker.h"
 #include "Render/RhiDevice.h"
@@ -240,8 +241,6 @@ namespace Dark
         void clearHdr();
         void setShadowSrv(D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu);
         void setLocalShadowSrvs(D3D12_CPU_DESCRIPTOR_HANDLE arrayCpu, D3D12_CPU_DESCRIPTOR_HANDLE recordsCpu);
-        void setLightingAoSrv(D3D12_CPU_DESCRIPTOR_HANDLE aoCpu);
-        void setLightingSsrSrv(D3D12_CPU_DESCRIPTOR_HANDLE ssrCpu);
         void setHeightSrv(D3D12_CPU_DESCRIPTOR_HANDLE heightCpu);
         void setIblSrvs(D3D12_CPU_DESCRIPTOR_HANDLE irradianceCpu, D3D12_CPU_DESCRIPTOR_HANDLE prefilterCpu, D3D12_CPU_DESCRIPTOR_HANDLE brdfLutCpu);
         void setLightingAlbedoRaw(bool raw);
@@ -264,14 +263,13 @@ namespace Dark
         D3D12_CPU_DESCRIPTOR_HANDLE albedoSrvCpu() const;
         D3D12_CPU_DESCRIPTOR_HANDLE attribSrvCpu() const;
         D3D12_CPU_DESCRIPTOR_HANDLE aoSrvCpu() const;
-        D3D12_CPU_DESCRIPTOR_HANDLE lightingAoCpu() const;
-        D3D12_GPU_DESCRIPTOR_HANDLE lightingTableGpu() const;
-        D3D12_GPU_DESCRIPTOR_HANDLE heightTableGpu() const;
-        D3D12_GPU_DESCRIPTOR_HANDLE aoTableGpu() const;
-        D3D12_GPU_DESCRIPTOR_HANDLE iblTableGpu() const;
-        D3D12_GPU_DESCRIPTOR_HANDLE ssrTableGpu() const;
-        D3D12_GPU_DESCRIPTOR_HANDLE localShadowTableGpu() const;
-        ID3D12DescriptorHeap*       lightingHeap() const;
+        // CPU views the declared lighting passes copy into ring tables (render-graph plan Phase 6
+        // part 4). Unset views are null SRVs; empty without scene buffers.
+        LightingViews lightingViews() const;
+        // The 1x1 "dry" height texture lighting falls back to without terrain: a shader-visible heap
+        // and its handle for passes that still bind their own heaps (water).
+        ID3D12DescriptorHeap*       heightFallbackHeap() const;
+        D3D12_GPU_DESCRIPTOR_HANDLE heightFallbackGpu() const;
 
         DebugRenderState&       debugState() { return m_debugState; }
         const DebugRenderState& debugState() const { return m_debugState; }

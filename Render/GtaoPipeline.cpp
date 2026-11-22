@@ -90,12 +90,6 @@ namespace Dark
         cmd->ClearRenderTargetView(m_targets->rtv(m_aoFull.id), white, 0, nullptr);
     }
 
-    void GtaoPipeline::transitionCompose(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after)
-    {
-        if (m_targets)
-            m_targets->transition(cmd, m_aoCompose, after);
-    }
-
     const GraphTarget& GtaoPipeline::target(GtaoTarget which) const
     {
         switch (which)

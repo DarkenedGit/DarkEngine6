@@ -109,44 +109,48 @@ public:
     // dropped, and the host should zero its stored EV before adapting. Never waits.
     bool syncAutoExposureSize(Renderer& renderer);
 
-    // The deferred resolve steps that are still opaque graph passes (render-graph plan Phase 4), run
-    // every frame in this order with the same input: Decals (then the HDR bind and clear) -> [Gtao
-    // -> Ssr, declared entries below] -> Lighting -> LocalVolumes. Hosts fill LightingConstants.
-    // Lighting stores the constants it drew with (SSR bit sampled after the Ssr entry) for LocalVolumes.
+    // The Decals entry (render-graph plan Phase 4; still an opaque pass): decals, then the HDR bind
+    // and clear. Gtao, Ssr, Lighting and LocalVolumes declare their uses (below).
     enum class DeferredStep : uint8_t
     {
         Decals,
-        Lighting,
-        LocalVolumes,
     };
     void resolveDeferred(DeferredStep step, ID3D12GraphicsCommandList* cmd, Renderer& renderer, World& world, const Camera3D& camera, const DeferredResolveInput& in);
+
+    // The Lighting and LocalVolumes entries with declared uses (render-graph plan Phase 6 part 4).
+    // Each is one pass that reads albedo, attrib, depth and the AO lighting uses (GTAO's compose
+    // when the Gtao entry published a GtaoOutput, else the authored MRT3; Lighting also reads SSR
+    // Full from an SsrOutput, else the dummy) and renders into HDR, binding a descriptor-ring table
+    // built from Renderer::lightingViews(). Both read and write HDR (Lighting leaves sky pixels to the
+    // Decals clear; LocalVolumes adds to it). `in` is
+    // read when the passes execute (hosts fill it in their GBuffer pass), so it must outlive
+    // execute(). Lighting stores the constants it drew with (SSR bit sampled after the Ssr entry)
+    // for LocalVolumes.
+    void addLightingPasses(FeatureBuilder& b, Renderer& renderer, const DeferredResolveInput& in);
+    void addLocalVolumesPasses(FeatureBuilder& b, Renderer& renderer, World& world, const Camera3D& camera, const DeferredResolveInput& in);
 
     // The Gtao, Ssr and SsrCapture entries with declared uses (render-graph plan Phase 6 part 3),
     // from the host's FrameComposer::declare callbacks. Each step is a graph pass binding a
     // descriptor-ring table; the graph plans every barrier on the targets (imported from the
     // ResourceStateTracker). Settings are captured now; the camera (jittered by the host's GBuffer
-    // pass) is read when the passes execute, so it must outlive execute(). Each entry ends with an
-    // opaque hand-off pass that leaves its output in PIXEL_SHADER_RESOURCE and the bindings the old
-    // code left (the graph plans no barrier into an opaque pass); it goes when Lighting / Water
-    // declare their uses.
-    // Gtao: compose authored*ssao into Lighting's slot 5 when enabled; on skip restore MRT3 (never a
-    // white SSAO tex) and clear AoFull to identity.
+    // pass) is read when the passes execute, so it must outlive execute(). Gtao and Ssr publish
+    // their outputs for the lighting passes (GtaoOutput / SsrOutput, Render/LightingInputs.h).
+    // SsrCapture ends with an opaque hand-off pass that leaves the capture in PIXEL_SHADER_RESOURCE
+    // and HDR bound with read-only depth for the opaque Water pass.
+    // Gtao: compose authored*ssao for the lighting AO when enabled; on skip lighting reads MRT3
+    // (never a white SSAO tex) and AoFull is cleared to identity.
     void addGtaoPasses(FeatureBuilder& b, Renderer& renderer, const Camera3D& camera, const GtaoSettings& settings);
-    // Ssr: trace -> upsample (-> confidence debug), Full to Lighting's slot 9; skip binds the dummy
-    // slot 9. Both restore bindHdr(false). env may be null.
+    // Ssr: trace -> upsample (-> confidence debug), Full for Lighting's t9; on skip Lighting binds
+    // the dummy. env may be null.
     void addSsrPasses(FeatureBuilder& b, Renderer& renderer, const Camera3D& camera, const SsrSettings& settings, const Sky::Environment* env = nullptr);
     // SsrCapture: HDR -> half-res scene color for next frame's trace and this frame's water; then
     // bindHdrDepthRead. Adds no pass when SSR is unavailable (the host adds its own then).
     void addSsrCapturePasses(FeatureBuilder& b, Renderer& renderer);
 
-    void drawDeferredLighting(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const LightingConstants& lc) const;
-    void drawLocalLights(
-        ID3D12GraphicsCommandList* cmd,
-        Renderer&                 renderer,
-        World&                    world,
-        const Camera3D&           camera,
-        const Math::Matrix4f&     viewProj,
-        const LightingConstants&  lc);
+    // `table`: see DeferredLightingPipeline::draw / LocalLightVolumePipeline::draw.
+    void drawDeferredLighting(ID3D12GraphicsCommandList* cmd, D3D12_GPU_DESCRIPTOR_HANDLE table, const LightingConstants& lc) const;
+    void drawLocalLights(ID3D12GraphicsCommandList* cmd, D3D12_GPU_DESCRIPTOR_HANDLE table, Renderer& renderer, World& world, const Camera3D& camera, const Math::Matrix4f& viewProj,
+                         const LightingConstants& lc);
 
     // Walls and shut doors for unshadowed local-light fog. The pointer is only read during the next draw.
     void setFogOccluders(const Math::AABox3f* boxes, int count);
@@ -280,7 +284,7 @@ private:
     ShadowSystem             m_shadows;
     LocalShadowSystem        m_localShadows;
     const Math::AABox3f*     m_fogOccluders     = nullptr;
-    LightingConstants        m_resolveLighting{}; // DeferredStep::Lighting -> LocalVolumes
+    LightingConstants        m_resolveLighting{}; // the Lighting pass -> LocalVolumes
     int                      m_fogOccluderCount = 0;
     DebugOverlay             m_debugOverlay;
 

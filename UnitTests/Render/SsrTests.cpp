@@ -86,13 +86,11 @@ TEST(Ssr, Settings_Defaults)
     EXPECT_FALSE(HasMaxSteps<SsrSettings>::value);
 }
 
-TEST(Ssr, LightingCount_LocalShadowSlots)
+TEST(Ssr, LightingTable_SsrIsLast)
 {
     EXPECT_EQ(SceneBuffers::kLightingSsr, 9u);
-    EXPECT_EQ(SceneBuffers::kLightingCount, 12u);
+    EXPECT_EQ(SceneBuffers::kLightingCount, 10u);
     EXPECT_EQ(SceneBuffers::kLightingIblBrdfLut + 1u, SceneBuffers::kLightingSsr);
-    EXPECT_EQ(SceneBuffers::kLightingLocalShadow, 10u);
-    EXPECT_EQ(SceneBuffers::kLightingLocalShadowRecords, 11u);
 }
 
 TEST(Ssr, LightingRs_DwordBudget)
@@ -119,104 +117,6 @@ TEST(Ssr, DebugRenderState_Defaults)
     const DebugRenderState s{};
     EXPECT_TRUE(s.ssrEnabled);
     EXPECT_EQ(s.ssrDebug, 0);
-}
-
-TEST(Ssr, SetLightingSsrSrv_NullDevice)
-{
-    SceneBuffers                buffers;
-    D3D12_CPU_DESCRIPTOR_HANDLE ssr{};
-    ssr.ptr = 0x1234;
-    buffers.setLightingSsrSrv(nullptr, ssr);
-    EXPECT_EQ(buffers.lightingSsrCpu().ptr, ssr.ptr);
-}
-
-TEST(Ssr, SetLightingSsrSrv_ZeroHandle)
-{
-    SceneBuffers                buffers;
-    D3D12_CPU_DESCRIPTOR_HANDLE ssr{};
-    buffers.setLightingSsrSrv(nullptr, ssr);
-    EXPECT_EQ(buffers.lightingSsrCpu().ptr, 0u);
-    buffers.packLightingHeap(nullptr, {});
-    EXPECT_EQ(buffers.lightingSsrCpu().ptr, 0u);
-    EXPECT_EQ(buffers.ssrTableGpu().ptr, 0u);
-}
-
-TEST(Ssr, Reset_ClearsLightingSsrOverride)
-{
-    SceneBuffers                buffers;
-    D3D12_CPU_DESCRIPTOR_HANDLE ssr{};
-    ssr.ptr = 0x1234;
-    buffers.setLightingSsrSrv(nullptr, ssr);
-    EXPECT_EQ(buffers.lightingSsrCpu().ptr, ssr.ptr);
-    buffers.reset();
-    EXPECT_EQ(buffers.lightingSsrCpu().ptr, 0u);
-    EXPECT_EQ(buffers.ssrTableGpu().ptr, 0u);
-    buffers.packLightingHeap(nullptr, {});
-    EXPECT_EQ(buffers.lightingSsrCpu().ptr, 0u);
-}
-
-TEST(Ssr, Create_NullDevice_DropsSsrOverride)
-{
-    Dark::GraphTargets          targets; // never initialized: no device
-    SceneBuffers                buffers;
-    D3D12_CPU_DESCRIPTOR_HANDLE ssr{};
-    ssr.ptr = 0x1234;
-    buffers.setLightingSsrSrv(nullptr, ssr);
-    EXPECT_EQ(buffers.lightingSsrCpu().ptr, ssr.ptr);
-
-    const float hdrClear[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
-    EXPECT_FALSE(buffers.create(targets, {}, hdrClear));
-    EXPECT_FALSE(buffers.valid());
-    EXPECT_EQ(buffers.lightingSsrCpu().ptr, 0u);
-    EXPECT_EQ(buffers.ssrTableGpu().ptr, 0u);
-}
-
-TEST(Ssr, Create_ZeroSize_DropsSsrOverride)
-{
-    Dark::GraphTargets          targets; // no device and a 0x0 output
-    SceneBuffers                buffers;
-    D3D12_CPU_DESCRIPTOR_HANDLE ssr{};
-    ssr.ptr = 0x1234;
-    buffers.setLightingSsrSrv(nullptr, ssr);
-    EXPECT_EQ(buffers.lightingSsrCpu().ptr, ssr.ptr);
-    EXPECT_FALSE(buffers.create(targets, {}, nullptr));
-    EXPECT_EQ(buffers.lightingSsrCpu().ptr, 0u);
-    EXPECT_EQ(buffers.ssrTableGpu().ptr, 0u);
-}
-
-TEST(Ssr, Dummy_ConfZero)
-{
-    ComPtr<ID3D12Device> device = TryCreateDevice();
-    if (!device)
-        GTEST_SKIP() << "no D3D12 device (WARP or hardware)";
-
-    Dark::GraphTargets targets; // declared first: owners unregister before it goes away
-    ASSERT_TRUE(targets.init(device.Get(), 64, 64));
-    SceneBuffers buffers;
-    const float  hdrClear[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
-    ASSERT_TRUE(buffers.create(targets, {}, hdrClear));
-    ASSERT_TRUE(buffers.valid());
-    ASSERT_NE(buffers.hdrSrvCpu().ptr, 0u);
-    ASSERT_NE(buffers.lightingHeap(), nullptr);
-    EXPECT_EQ(buffers.lightingHeap()->GetDesc().NumDescriptors, SceneBuffers::kLightingCount);
-    EXPECT_EQ(buffers.lightingSsrCpu().ptr, 0u);
-
-    const D3D12_CPU_DESCRIPTOR_HANDLE dummy = buffers.hdrSrvCpu();
-    buffers.setLightingSsrSrv(device.Get(), dummy);
-    EXPECT_EQ(buffers.lightingSsrCpu().ptr, dummy.ptr);
-    EXPECT_NE(buffers.lightingSsrCpu().ptr, 0u);
-
-    buffers.packLightingHeap(device.Get(), {});
-    EXPECT_EQ(buffers.lightingSsrCpu().ptr, dummy.ptr);
-
-    const UINT incr = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-    D3D12_GPU_DESCRIPTOR_HANDLE slot9 = buffers.lightingTableGpu();
-    slot9.ptr += static_cast<SIZE_T>(SceneBuffers::kLightingSsr) * incr;
-    EXPECT_EQ(buffers.ssrTableGpu().ptr, slot9.ptr);
-
-    buffers.reset();
-    EXPECT_EQ(buffers.lightingSsrCpu().ptr, 0u);
-    EXPECT_EQ(buffers.ssrTableGpu().ptr, 0u);
 }
 
 TEST(Ssr, GpuParams_Size)

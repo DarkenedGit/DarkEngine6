@@ -92,10 +92,8 @@ namespace Dark
         bool isValid() const;
         D3D12_CPU_DESCRIPTOR_HANDLE composeSrvCpu() const;
         D3D12_CPU_DESCRIPTOR_HANDLE aoFullSrvCpu() const; // FLAG_NONE, overlay tile
-        // For opaque readers (they record their own barriers until they convert): the debug overlay,
-        // and the Gtao entry's hand-off to the opaque lighting pass.
+        // For the debug overlay (opaque; it records its own barriers until it converts).
         void transitionAoFull(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after);
-        void transitionCompose(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after);
         void clearAoFullIdentity(ID3D12GraphicsCommandList* cmd);
 
     private:

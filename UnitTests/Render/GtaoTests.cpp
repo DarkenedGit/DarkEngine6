@@ -104,71 +104,11 @@ TEST(Gtao, Settings_Defaults)
     EXPECT_FALSE(HasDirections<GtaoSettings>::value);
 }
 
-TEST(Gtao, LightingCount_Unchanged)
+TEST(Gtao, LightingTable_AoSlot)
 {
-    EXPECT_EQ(SceneBuffers::kLightingCount, 12u);
+    // The lighting pass's ring table (render-graph plan Phase 6 part 4): AO is t5.
+    EXPECT_EQ(SceneBuffers::kLightingCount, 10u);
     EXPECT_EQ(SceneBuffers::kLightingAo, 5u);
-    EXPECT_EQ(SceneBuffers::kLightingLocalShadow, 10u);
-    EXPECT_EQ(SceneBuffers::kLightingLocalShadowRecords, 11u);
-}
-
-TEST(Gtao, SetLightingAoSrv_NullDevice)
-{
-    SceneBuffers buffers;
-    D3D12_CPU_DESCRIPTOR_HANDLE ao{};
-    ao.ptr = 0x1234;
-    buffers.setLightingAoSrv(nullptr, ao);
-    EXPECT_EQ(buffers.lightingAoCpu().ptr, ao.ptr);
-}
-
-TEST(Gtao, SetLightingAoSrv_ZeroHandle)
-{
-    SceneBuffers buffers;
-    D3D12_CPU_DESCRIPTOR_HANDLE ao{};
-    buffers.setLightingAoSrv(nullptr, ao);
-    EXPECT_EQ(buffers.lightingAoCpu().ptr, 0u);
-    buffers.packLightingHeap(nullptr, {});
-    EXPECT_EQ(buffers.lightingAoCpu().ptr, 0u);
-}
-
-TEST(Gtao, Reset_ClearsLightingAoOverride)
-{
-    SceneBuffers buffers;
-    D3D12_CPU_DESCRIPTOR_HANDLE ao{};
-    ao.ptr = 0x1234;
-    buffers.setLightingAoSrv(nullptr, ao);
-    EXPECT_EQ(buffers.lightingAoCpu().ptr, ao.ptr);
-    buffers.reset();
-    EXPECT_EQ(buffers.lightingAoCpu().ptr, 0u);
-    buffers.packLightingHeap(nullptr, {});
-    EXPECT_EQ(buffers.lightingAoCpu().ptr, 0u);
-}
-
-TEST(Gtao, Create_NullDevice_DropsAoOverride)
-{
-    GraphTargets targets; // never initialized: no device
-    SceneBuffers buffers;
-    D3D12_CPU_DESCRIPTOR_HANDLE ao{};
-    ao.ptr = 0x1234;
-    buffers.setLightingAoSrv(nullptr, ao);
-    EXPECT_EQ(buffers.lightingAoCpu().ptr, ao.ptr);
-
-    const float hdrClear[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
-    EXPECT_FALSE(buffers.create(targets, {}, hdrClear));
-    EXPECT_FALSE(buffers.valid());
-    EXPECT_EQ(buffers.lightingAoCpu().ptr, 0u);
-}
-
-TEST(Gtao, Create_ZeroSize_DropsAoOverride)
-{
-    GraphTargets targets; // no device and a 0x0 output
-    SceneBuffers buffers;
-    D3D12_CPU_DESCRIPTOR_HANDLE ao{};
-    ao.ptr = 0x1234;
-    buffers.setLightingAoSrv(nullptr, ao);
-    EXPECT_EQ(buffers.lightingAoCpu().ptr, ao.ptr);
-    EXPECT_FALSE(buffers.create(targets, {}, nullptr));
-    EXPECT_EQ(buffers.lightingAoCpu().ptr, 0u);
 }
 
 TEST(Gtao, Camera3D_GetProjUnjittered)
@@ -205,11 +145,6 @@ TEST(Gtao, Create_NoDevice_False)
     EXPECT_FALSE(gtao.isValid());
     EXPECT_EQ(gtao.composeSrvCpu().ptr, 0u);
     EXPECT_EQ(gtao.aoFullSrvCpu().ptr, 0u);
-
-    SceneBuffers buffers;
-    EXPECT_EQ(buffers.lightingAoCpu().ptr, 0u);
-    EXPECT_EQ(SceneBuffers::kLightingAo, 5u);
-    EXPECT_EQ(SceneBuffers::kLightingCount, 12u);
 }
 
 TEST(Gtao, Release_WithoutCreate_Safe)
@@ -271,10 +206,6 @@ TEST(Gtao, Resize_RecreatesTargets)
     EXPECT_EQ(targets.pool().count(), 0u);
     EXPECT_EQ(gtao.composeSrvCpu().ptr, 0u);
     EXPECT_EQ(gtao.aoFullSrvCpu().ptr, 0u);
-
-    SceneBuffers buffers;
-    EXPECT_EQ(buffers.lightingAoCpu().ptr, 0u);
-    EXPECT_EQ(SceneBuffers::kLightingAo, 5u);
 }
 
 TEST(Gtao, Create_ZeroSize_WithDevice_False)
@@ -289,9 +220,6 @@ TEST(Gtao, Create_ZeroSize_WithDevice_False)
     EXPECT_FALSE(gtao.create(targets));
     EXPECT_FALSE(gtao.isValid());
     EXPECT_EQ(gtao.composeSrvCpu().ptr, 0u);
-
-    SceneBuffers buffers;
-    EXPECT_EQ(buffers.lightingAoCpu().ptr, 0u);
 }
 
 TEST(Gtao, Disabled_SkipsPass)
@@ -302,30 +230,8 @@ TEST(Gtao, Disabled_SkipsPass)
     EXPECT_FALSE(dbg.ssaoEnabled);
     EXPECT_TRUE(gtaoShouldSkip(s.enabled, dbg.ssaoEnabled, true, true));
 
-    GraphTargets targets; // declared first: owners unregister before it goes away
-    SceneBuffers buffers;
-    EXPECT_EQ(buffers.lightingAoCpu().ptr, 0u);
-
-    ComPtr<ID3D12Device> device = TryCreateDevice();
-    if (!device)
-        GTEST_SKIP() << "no D3D12 device (WARP or hardware) — CPU skip contract already checked";
-
-    const float hdrClear[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
-    ASSERT_TRUE(targets.init(device.Get(), 64, 64));
-    ASSERT_TRUE(buffers.create(targets, {}, hdrClear));
-    ASSERT_NE(buffers.aoSrvCpu().ptr, 0u);
-    EXPECT_EQ(buffers.lightingAoCpu().ptr, 0u);
-
-    GtaoPipeline gtao;
-    ASSERT_TRUE(gtao.create(targets));
-    ASSERT_NE(gtao.composeSrvCpu().ptr, 0u);
-
-    // A previous enabled frame left compose in slot 5; disable must restore MRT3, not a white tex.
-    buffers.setLightingAoSrv(device.Get(), gtao.composeSrvCpu());
-    EXPECT_EQ(buffers.lightingAoCpu().ptr, gtao.composeSrvCpu().ptr);
-    buffers.setLightingAoSrv(device.Get(), buffers.aoSrvCpu());
-    EXPECT_EQ(buffers.lightingAoCpu().ptr, buffers.aoSrvCpu().ptr);
-    EXPECT_NE(buffers.lightingAoCpu().ptr, gtao.composeSrvCpu().ptr);
+    // Which AO lighting reads on a skipped frame (the authored MRT3, never a white texture) is a
+    // graph decision now: no GtaoOutput on the blackboard (FrameFeaturesTests, lightingReads).
 }
 
 TEST(Gtao, EnabledWithoutDebugFlag_Skips)

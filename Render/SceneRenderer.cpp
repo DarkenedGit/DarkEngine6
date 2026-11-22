@@ -4,6 +4,7 @@
 #include "ECS/World.h"
 #include "Render/FrameComposer.h"
 #include "Render/GraphTargets.h"
+#include "Render/LightingInputs.h"
 #include "Render/MeshGen.h"
 #include "Render/PostMatrices.h"
 #include "Render/Profile.h"
@@ -414,12 +415,12 @@ void SceneRenderer::addGtaoPasses(FeatureBuilder& b, Renderer& renderer, const C
     GtaoPipeline* const gtao = &m_gtao;
     if (!run)
     {
-        // Restore authored MRT3. Do not bind a white SSAO tex (compose cleared to 1 would wipe ORM cavities).
+        // No GtaoOutput: lighting reads the authored MRT3. Never a white SSAO tex (compose cleared to 1
+        // would wipe ORM cavities).
         markHistoryUnwritten(m_gtaoHistory, "Gtao");
         b.opaque("Gtao", {}, {},
-                 [rr, gtao](PassContext& c)
+                 [gtao](PassContext& c)
                  {
-                     rr->setLightingAoSrv(rr->aoSrvCpu());
                      gtao->clearAoFullIdentity(c.cmd()); // overlay-when-off samples identity, not stale/garbage
                  });
         return;
@@ -503,15 +504,8 @@ void SceneRenderer::addGtaoPasses(FeatureBuilder& b, Renderer& renderer, const C
             profileGpuEnd(c.cmd()); // GTAO
         });
 
-    // Lighting is still opaque: hand it the compose in PIXEL_SHADER_RESOURCE with HDR bound.
-    addHandoff(b, "Gtao.Handoff", { compose },
-               [rr, gtao](ID3D12GraphicsCommandList* cmd)
-               {
-                   gtao->transitionCompose(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-                   const D3D12_CPU_DESCRIPTOR_HANDLE srv = gtao->composeSrvCpu();
-                   rr->setLightingAoSrv(srv.ptr != 0 ? srv : rr->aoSrvCpu());
-                   rr->bindHdr(false);
-               });
+    // Lighting and LocalVolumes read it (lightingReads); the graph plans the barrier into them.
+    g.blackboard().set(GtaoOutput{ compose });
 }
 
 void SceneRenderer::addSsrPasses(FeatureBuilder& b, Renderer& renderer, const Camera3D& camera, const SsrSettings& settings, const Sky::Environment* env)
@@ -536,12 +530,9 @@ void SceneRenderer::addSsrPasses(FeatureBuilder& b, Renderer& renderer, const Ca
     if (!run)
     {
         markHistoryUnwritten(m_ssrHistory, "Ssr");
-        b.opaque("Ssr", {}, {},
-                 [rr](PassContext&)
-                 {
-                     rr->setLightingSsrSrv(rr->ssrDummyCpu());
-                     rr->bindHdr(false);
-                 });
+        // No SsrOutput: lighting binds the dummy. The pass keeps the list entry (the order check
+        // needs one) and does nothing else now that Lighting binds its own target.
+        b.opaque("Ssr", {}, {}, [](PassContext&) {});
         return;
     }
 
@@ -629,16 +620,9 @@ void SceneRenderer::addSsrPasses(FeatureBuilder& b, Renderer& renderer, const Ca
             });
     }
 
-    // Lighting is still opaque: hand it Full in PIXEL_SHADER_RESOURCE with HDR bound (the debug
-    // overlay moves the confidence tile itself).
-    addHandoff(b, "Ssr.Handoff", { full },
-               [rr, ssr](ID3D12GraphicsCommandList* cmd)
-               {
-                   ssr->transitionFull(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-                   const D3D12_CPU_DESCRIPTOR_HANDLE srv = ssr->fullSrvCpu();
-                   rr->setLightingSsrSrv(srv.ptr != 0 ? srv : rr->ssrDummyCpu());
-                   rr->bindHdr(false);
-               });
+    // Lighting reads it (lightingReads); the graph plans the barrier into it. The debug overlay moves
+    // the confidence tile itself.
+    b.graph().blackboard().set(SsrOutput{ full });
 }
 
 void SceneRenderer::addSsrCapturePasses(FeatureBuilder& b, Renderer& renderer)
@@ -704,35 +688,109 @@ void SceneRenderer::resolveDeferred(DeferredStep step, ID3D12GraphicsCommandList
         renderer.bindHdr(false);
         renderer.clearHdr();
         break;
-    case DeferredStep::Lighting:
-        m_resolveLighting = *in.lighting;
-        // The SSR bit is sampled here, as addSsrPasses drew with it.
-        fillSsrLightingConstants(m_resolveLighting, *in.ssr, renderer.debugState().ssrEnabled, m_ssr.isValid());
-        drawDeferredLighting(cmd, renderer, m_resolveLighting);
-        break;
-    case DeferredStep::LocalVolumes:
-        // A flashlight pool is visible light. Heat is already in the emissive meshes.
-        if (!(m_resolveLighting.thermal > 1.0e-4f))
-            drawLocalLights(cmd, renderer, world, camera, *in.viewProj, m_resolveLighting);
-        break;
     }
+    (void)world;
 }
 
-void SceneRenderer::drawDeferredLighting(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const LightingConstants& lc) const
+namespace
 {
-    m_lighting.draw(cmd, renderer, m_shadows, lc);
+    bool resolveInputOk(const DeferredResolveInput& in)
+    {
+        if (in.viewProj && in.prevViewProj && in.gtao && in.ssr && in.lighting)
+            return true;
+        static bool logged = false;
+        if (!logged)
+        {
+            logged = true;
+            DE_LOG_ERROR(LogCategory::Render, "SceneRenderer: a lighting pass is missing a required input (logs once)");
+        }
+        return false;
+    }
+
+    void bindHdrTarget(ID3D12GraphicsCommandList* cmd, const Renderer& renderer, D3D12_CPU_DESCRIPTOR_HANDLE rtv)
+    {
+        cmd->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
+        cmd->RSSetViewports(1, &renderer.viewport());
+        cmd->RSSetScissorRects(1, &renderer.scissor());
+    }
+} // namespace
+
+void SceneRenderer::addLightingPasses(FeatureBuilder& b, Renderer& renderer, const DeferredResolveInput& in)
+{
+    using Rg::PassBuilder;
+    using Rg::PassContext;
+    const LightingReads reads = lightingReads(b);
+    if (!reads.valid() || !m_lighting.isValid())
+    {
+        b.opaque("Lighting", {}, {}, [](PassContext&) {}); // no scene buffers or PSO: nothing to light
+        return;
+    }
+    SceneRenderer* const              self = this;
+    Renderer* const                   rr   = &renderer;
+    const DeferredResolveInput* const inp  = &in; // filled by the host's GBuffer pass: read at execute
+    Rg::TextureHandle                 hdrOut;
+    b.addPass<LightingReads>(
+        "Lighting", [&](PassBuilder& pb, LightingReads& d) { hdrOut = declareLightingUses(pb, reads, true, d); },
+        [self, rr, inp](PassContext& c, const LightingReads& d)
+        {
+            if (!resolveInputOk(*inp))
+                return;
+            self->m_resolveLighting = *inp->lighting;
+            // The SSR bit is sampled here, as addSsrPasses drew with it.
+            fillSsrLightingConstants(self->m_resolveLighting, *inp->ssr, rr->debugState().ssrEnabled, self->m_ssr.isValid());
+            const LightingViews v = rr->lightingViews();
+            // Register order t0..t9 (SceneBuffers::kLighting*).
+            const D3D12_GPU_DESCRIPTOR_HANDLE table = rgTable(c, { v.albedo, v.attrib, rgSrvCpu(c, d.depth), v.shadow, v.height, rgSrvCpu(c, d.ao), v.iblIrradiance, v.iblPrefilter, v.iblBrdfLut,
+                                                                   d.ssr.valid() ? rgSrvCpu(c, d.ssr) : rr->ssrDummyCpu() });
+            bindHdrTarget(c.cmd(), *rr, rgRtv(c, d.hdr));
+            self->drawDeferredLighting(c.cmd(), table, self->m_resolveLighting);
+        });
+    b.set(RenderResource::Hdr, hdrOut);
 }
 
-void SceneRenderer::drawLocalLights(
-    ID3D12GraphicsCommandList* cmd,
-    Renderer&                 renderer,
-    World&                    world,
-    const Camera3D&           camera,
-    const Math::Matrix4f&     viewProj,
-    const LightingConstants&  lc)
+void SceneRenderer::addLocalVolumesPasses(FeatureBuilder& b, Renderer& renderer, World& world, const Camera3D& camera, const DeferredResolveInput& in)
 {
-    m_localLightVolumes.draw(cmd, renderer, world, m_localLightGpu, m_pointVolumeMesh, m_spotVolumeMesh, camera, viewProj, lc, &m_localShadows,
-                             m_fogOccluders, m_fogOccluderCount);
+    using Rg::PassBuilder;
+    using Rg::PassContext;
+    const LightingReads reads = lightingReads(b);
+    if (!reads.valid() || !m_localLightVolumes.isValid())
+    {
+        b.opaque("LocalVolumes", {}, {}, [](PassContext&) {});
+        return;
+    }
+    SceneRenderer* const              self = this;
+    Renderer* const                   rr   = &renderer;
+    World* const                      w    = &world;
+    const Camera3D* const             cam  = &camera;
+    const DeferredResolveInput* const inp  = &in;
+    Rg::TextureHandle                 hdrOut;
+    b.addPass<LightingReads>(
+        "LocalVolumes", [&](PassBuilder& pb, LightingReads& d) { hdrOut = declareLightingUses(pb, reads, false, d); }, // additive
+        [self, rr, w, cam, inp](PassContext& c, const LightingReads& d)
+        {
+            if (!resolveInputOk(*inp))
+                return;
+            // A flashlight pool is visible light. Heat is already in the emissive meshes.
+            if (self->m_resolveLighting.thermal > 1.0e-4f)
+                return;
+            const LightingViews v = rr->lightingViews();
+            // LocalLightVolumePipeline::kTable* order.
+            const D3D12_GPU_DESCRIPTOR_HANDLE table = rgTable(c, { v.albedo, v.attrib, rgSrvCpu(c, d.depth), rgSrvCpu(c, d.ao), v.height, v.localShadow, v.localShadowRecords });
+            bindHdrTarget(c.cmd(), *rr, rgRtv(c, d.hdr));
+            self->drawLocalLights(c.cmd(), table, *rr, *w, *cam, *inp->viewProj, self->m_resolveLighting);
+        });
+    b.set(RenderResource::Hdr, hdrOut);
+}
+
+void SceneRenderer::drawDeferredLighting(ID3D12GraphicsCommandList* cmd, D3D12_GPU_DESCRIPTOR_HANDLE table, const LightingConstants& lc) const
+{
+    m_lighting.draw(cmd, table, m_shadows, lc);
+}
+
+void SceneRenderer::drawLocalLights(ID3D12GraphicsCommandList* cmd, D3D12_GPU_DESCRIPTOR_HANDLE table, Renderer& renderer, World& world, const Camera3D& camera, const Math::Matrix4f& viewProj,
+                                    const LightingConstants& lc)
+{
+    m_localLightVolumes.draw(cmd, table, renderer, world, m_localLightGpu, m_pointVolumeMesh, m_spotVolumeMesh, camera, viewProj, lc, &m_localShadows, m_fogOccluders, m_fogOccluderCount);
 }
 
 void SceneRenderer::setFogOccluders(const Math::AABox3f* boxes, int count)

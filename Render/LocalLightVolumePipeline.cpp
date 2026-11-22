@@ -202,41 +202,33 @@ namespace Dark
             return false;
         }
 
+        m_srvIncr = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
         DE_LOG_INFO(LogCategory::Render, "LocalLightVolumePipeline: ready");
         return true;
     }
 
-    bool LocalLightVolumePipeline::bindCommon(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const LocalLightGpuList& gpuList, const LocalLightPassConstants& cb) const
+    bool LocalLightVolumePipeline::bindCommon(ID3D12GraphicsCommandList* cmd, D3D12_GPU_DESCRIPTOR_HANDLE table, const LocalLightGpuList& gpuList, const LocalLightPassConstants& cb) const
     {
-        ID3D12DescriptorHeap* heap = renderer.lightingHeap();
-        const D3D12_GPU_DESCRIPTOR_HANDLE table = renderer.lightingTableGpu();
-        if (!heap || table.ptr == 0)
+        if (table.ptr == 0)
         {
-            DE_LOG_ERROR(LogCategory::Render, "LocalLightVolumePipeline: no lighting heap");
+            DE_LOG_ERROR(LogCategory::Render, "LocalLightVolumePipeline: no descriptor table");
             return false;
         }
+        const auto at = [&](UINT slot) { return D3D12_GPU_DESCRIPTOR_HANDLE{ table.ptr + static_cast<UINT64>(slot) * m_srvIncr }; };
 
         cmd->SetGraphicsRootSignature(m_rootSignature.Get());
-        ID3D12DescriptorHeap* heaps[] = { heap };
-        cmd->SetDescriptorHeaps(1, heaps);
         cmd->SetGraphicsRoot32BitConstants(kRootConstants, static_cast<UINT>(sizeof(LocalLightPassConstants) / 4), &cb, 0);
-        cmd->SetGraphicsRootDescriptorTable(kRootSrvTable, table);
+        cmd->SetGraphicsRootDescriptorTable(kRootSrvTable, at(kTableAlbedo));
         cmd->SetGraphicsRootShaderResourceView(kRootLightsSrv, gpuList.lightsGpuVa());
         cmd->SetGraphicsRootShaderResourceView(kRootWorldSrv, gpuList.volumeWorldGpuVa());
-        const D3D12_GPU_DESCRIPTOR_HANDLE height = renderer.heightTableGpu();
-        if (height.ptr != 0)
-            cmd->SetGraphicsRootDescriptorTable(kRootHeightSrv, height);
-        const D3D12_GPU_DESCRIPTOR_HANDLE ao = renderer.aoTableGpu();
-        if (ao.ptr != 0)
-            cmd->SetGraphicsRootDescriptorTable(kRootAoSrv, ao);
-        const D3D12_GPU_DESCRIPTOR_HANDLE shadows = renderer.localShadowTableGpu();
-        if (shadows.ptr != 0)
-            cmd->SetGraphicsRootDescriptorTable(kRootShadowTable, shadows);
+        cmd->SetGraphicsRootDescriptorTable(kRootHeightSrv, at(kTableHeight));
+        cmd->SetGraphicsRootDescriptorTable(kRootAoSrv, at(kTableAo));
+        cmd->SetGraphicsRootDescriptorTable(kRootShadowTable, at(kTableLocalShadow));
         return true;
     }
 
-    void LocalLightVolumePipeline::drawInstanced(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const LocalLightGpuList& gpuList, const Mesh& volume,
-                                                 uint32_t instanceCount, uint32_t baseIndex, const LocalLightPassConstants& cb) const
+    void LocalLightVolumePipeline::drawInstanced(ID3D12GraphicsCommandList* cmd, D3D12_GPU_DESCRIPTOR_HANDLE table, const LocalLightGpuList& gpuList, const Mesh& volume, uint32_t instanceCount,
+                                                 uint32_t baseIndex, const LocalLightPassConstants& cb) const
     {
         if (!cmd || !isValid() || !gpuList.isValid() || !volume.valid() || instanceCount == 0)
             return;
@@ -244,15 +236,15 @@ namespace Dark
         LocalLightPassConstants local = cb;
         local.baseIndex               = baseIndex;
         local.lightIndex              = 0;
-        if (!bindCommon(cmd, renderer, gpuList, local))
+        if (!bindCommon(cmd, table, gpuList, local))
             return;
 
         cmd->SetPipelineState(m_psoMesh.Get());
         volume.drawInstanced(cmd, instanceCount);
     }
 
-    void LocalLightVolumePipeline::drawFullscreenScissor(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const LocalLightGpuList& gpuList,
-                                                         const D3D12_RECT& scissor, uint32_t lightIndex, const LocalLightPassConstants& cb) const
+    void LocalLightVolumePipeline::drawFullscreenScissor(ID3D12GraphicsCommandList* cmd, D3D12_GPU_DESCRIPTOR_HANDLE table, const LocalLightGpuList& gpuList, const D3D12_RECT& scissor,
+                                                         uint32_t lightIndex, const LocalLightPassConstants& cb) const
     {
         if (!cmd || !isValid() || !gpuList.isValid())
             return;
@@ -262,7 +254,7 @@ namespace Dark
         LocalLightPassConstants local = cb;
         local.baseIndex               = lightIndex;
         local.lightIndex              = lightIndex;
-        if (!bindCommon(cmd, renderer, gpuList, local))
+        if (!bindCommon(cmd, table, gpuList, local))
             return;
 
         cmd->SetPipelineState(m_psoFullscreen.Get());
@@ -271,9 +263,9 @@ namespace Dark
         cmd->DrawInstanced(3, 1, 0, 0);
     }
 
-    void LocalLightVolumePipeline::draw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, World& world, LocalLightGpuList& gpuList, const Mesh& sphere,
-                                        const Mesh& cone, const Camera3D& camera, const Math::Matrix4f& viewProj, const LightingConstants& lighting,
-                                        const LocalShadowSystem* localShadows, const Math::AABox3f* fogBoxes, int fogBoxCount) const
+    void LocalLightVolumePipeline::draw(ID3D12GraphicsCommandList* cmd, D3D12_GPU_DESCRIPTOR_HANDLE table, Renderer& renderer, World& world, LocalLightGpuList& gpuList, const Mesh& sphere,
+                                        const Mesh& cone, const Camera3D& camera, const Math::Matrix4f& viewProj, const LightingConstants& lighting, const LocalShadowSystem* localShadows,
+                                        const Math::AABox3f* fogBoxes, int fogBoxCount) const
     {
         if (!cmd || !isValid() || !gpuList.isValid() || !sphere.valid() || !cone.valid())
             return;
@@ -325,11 +317,11 @@ namespace Dark
         cb.heightWorldSizeZ      = lighting.heightWorldSizeZ;
         cb.localShadowDebug      = static_cast<float>(renderer.debugState().localShadowDebug);
 
-        drawInstanced(cmd, renderer, gpuList, sphere, lists.pointOutCount, 0, cb);
-        drawInstanced(cmd, renderer, gpuList, cone, lists.spotOutCount, lists.pointOutCount, cb);
+        drawInstanced(cmd, table, gpuList, sphere, lists.pointOutCount, 0, cb);
+        drawInstanced(cmd, table, gpuList, cone, lists.spotOutCount, lists.pointOutCount, cb);
         const uint32_t insideBase = lists.pointOutCount + lists.spotOutCount;
         for (uint32_t i = 0; i < lists.insideCount; ++i)
-            drawFullscreenScissor(cmd, renderer, gpuList, lists.insideScissor[i], insideBase + i, cb);
+            drawFullscreenScissor(cmd, table, gpuList, lists.insideScissor[i], insideBase + i, cb);
         const D3D12_RECT sc = renderer.scissor();
         cmd->RSSetScissorRects(1, &sc);
     }
