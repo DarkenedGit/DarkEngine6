@@ -645,19 +645,14 @@ void EditorApp::renderScene3D()
         }
     });
 
-    // resolveDeferred runs these five in this order with the same input (lighting filled by GBuffer).
+    // resolveDeferred runs Decals, Lighting and LocalVolumes with the same input (lighting filled by
+    // GBuffer); Gtao and Ssr declare their uses (settings captured at build, the camera read at execute).
     frame.set(PassId::Decals, [&](Rg::PassContext& pass) {
         ID3D12GraphicsCommandList* const cmd = pass.cmd();
         m_scene.resolveDeferred(SceneRenderer::DeferredStep::Decals, cmd, renderer(), world(), m_camera, resolve);
     });
-    frame.set(PassId::Gtao, [&](Rg::PassContext& pass) {
-        ID3D12GraphicsCommandList* const cmd = pass.cmd();
-        m_scene.resolveDeferred(SceneRenderer::DeferredStep::Gtao, cmd, renderer(), world(), m_camera, resolve);
-    });
-    frame.set(PassId::Ssr, [&](Rg::PassContext& pass) {
-        ID3D12GraphicsCommandList* const cmd = pass.cmd();
-        m_scene.resolveDeferred(SceneRenderer::DeferredStep::Ssr, cmd, renderer(), world(), m_camera, resolve);
-    });
+    frame.declare(PassId::Gtao, [&](FeatureBuilder& b) { m_scene.addGtaoPasses(b, renderer(), m_camera, m_sceneWorld.ssao); });
+    frame.declare(PassId::Ssr, [&](FeatureBuilder& b) { m_scene.addSsrPasses(b, renderer(), m_camera, m_sceneWorld.ssr, nullptr); });
     frame.set(PassId::Lighting, [&](Rg::PassContext& pass) {
         ID3D12GraphicsCommandList* const cmd = pass.cmd();
         m_scene.resolveDeferred(SceneRenderer::DeferredStep::Lighting, cmd, renderer(), world(), m_camera, resolve);
@@ -676,11 +671,13 @@ void EditorApp::renderScene3D()
             m_skyPipeline.draw(cmd, renderer().frameIndex(), &m_shadows);
         });
     }
-    frame.set(PassId::SsrCapture, [&](Rg::PassContext& pass) {
-        ID3D12GraphicsCommandList* const cmd = pass.cmd();
-        m_scene.captureSsrSceneColor(cmd, renderer());
-        renderer().bindHdrDepthRead();
-    });
+    frame.declare(PassId::SsrCapture,
+                  [&](FeatureBuilder& b)
+                  {
+                      m_scene.addSsrCapturePasses(b, renderer());
+                      // Water and the passes after expect HDR with read-only depth even when SSR is unavailable.
+                      b.opaque("SsrCapture.Bind", {}, {}, [&](Rg::PassContext&) { renderer().bindHdrDepthRead(); });
+                  });
     const bool anyWater = m_sceneWorld.water.wetChunkCount() > 0 || !m_placedWater.empty() || !m_sceneWorld.water.ribbons().empty();
     if (m_haveTerrain && m_scene.waterPipeline().isValid() && anyWater)
     {

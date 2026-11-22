@@ -558,3 +558,148 @@ TEST(FrameFeatures, DeclareRunsBeforeAnyPassExecutesSoHostValuesAreReadAtExecute
     ASSERT_TRUE(g.execute());
     EXPECT_EQ(seenAtExecute, 42);
 }
+
+// ---------------------------------------------------------------- converted entries (Phase 6 part 3)
+
+namespace
+{
+    // The Sandbox list with GTAO converted the way SceneRenderer::addGtaoPasses does it: declared
+    // steps on targets the entry imports, the history through the builder, then an opaque hand-off
+    // pass (OwnBarriers | SideEffect) that declares a read of the output for the opaque Lighting.
+    struct DeclaredGtaoFrame
+    {
+        HostFrame                host;
+        std::vector<std::string> ran;
+        Rg::HistoryPair          gtao;
+
+        bool run(bool skip)
+        {
+            uint32_t           count = 0;
+            const FeaturePass* list  = sandboxFeatures(count);
+            ran.clear();
+            Rg::RenderGraph& g = host.graph;
+            g.beginFrame(1280, 720);
+            host.features.begin(list, count);
+            for (uint32_t r = 0; r < kRenderResourceCount; ++r)
+            {
+                const auto     res = static_cast<RenderResource>(r);
+                const uint32_t fmt = res == RenderResource::Swap ? kBgra8 : (res == RenderResource::Depth ? kD32 : kRgba);
+                host.features.importResource(g, res, fakeResource(r), absDesc(1280, 720, fmt), Rg::Layout::RenderTarget);
+            }
+            gtao = g.history("Gtao", absDesc(1280, 720, kRgba));
+            host.features.setHistory(RenderResource::GtaoHistory, gtao);
+            for (const PassId id : without(listIds(list, count), { PassId::Gtao }))
+                host.features.set(id, [this, id](Rg::PassContext&) { ran.push_back(passName(id)); });
+            host.features.declare(PassId::Gtao,
+                                  [this, skip](FeatureBuilder& fb)
+                                  {
+                                      if (skip)
+                                      {
+                                          fb.graph().markHistoryUnwritten("Gtao");
+                                          fb.opaque("Gtao", {}, {}, [this](Rg::PassContext&) { ran.push_back("Gtao.Skip"); });
+                                          return;
+                                      }
+                                      Rg::RenderGraph&  graph = fb.graph();
+                                      Rg::TextureHandle half  = graph.importTexture("DE.Gtao.AoHalf", absDesc(640, 360, kRgba), fakeResource(50), Rg::Layout::ShaderResource, Rg::Layout::Undefined);
+                                      Rg::TextureHandle compose =
+                                          graph.importTexture("DE.Gtao.AoCompose", absDesc(1280, 720, kRgba), fakeResource(51), Rg::Layout::ShaderResource, Rg::Layout::Undefined);
+                                      fb.addPass<Rg::NoData>(
+                                          "Gtao.Produce",
+                                          [&](Rg::PassBuilder& b, Rg::NoData&)
+                                          {
+                                              b.read(fb.handle(RenderResource::Depth), Rg::Use::PixelSrv);
+                                              b.read(fb.handle(RenderResource::Attrib), Rg::Use::PixelSrv);
+                                              half = b.write(half, Rg::Use::RenderTarget);
+                                          },
+                                          [this](Rg::PassContext&, const Rg::NoData&) { ran.push_back("Gtao.Produce"); });
+                                      fb.addPass<Rg::NoData>(
+                                          "Gtao.Upsample",
+                                          [&](Rg::PassBuilder& b, Rg::NoData&)
+                                          {
+                                              b.read(half, Rg::Use::PixelSrv);
+                                              if (fb.prev(RenderResource::GtaoHistory).valid())
+                                                  b.read(fb.prev(RenderResource::GtaoHistory), Rg::Use::PixelSrv);
+                                              fb.set(RenderResource::GtaoHistory, b.write(fb.handle(RenderResource::GtaoHistory), Rg::Use::RenderTarget));
+                                          },
+                                          [this](Rg::PassContext&, const Rg::NoData&) { ran.push_back("Gtao.Upsample"); });
+                                      fb.addPass<Rg::NoData>(
+                                          "Gtao.Compose",
+                                          [&](Rg::PassBuilder& b, Rg::NoData&)
+                                          {
+                                              b.read(fb.handle(RenderResource::Ao), Rg::Use::PixelSrv);
+                                              b.read(fb.handle(RenderResource::GtaoHistory), Rg::Use::PixelSrv);
+                                              compose = b.write(compose, Rg::Use::RenderTarget);
+                                          },
+                                          [this](Rg::PassContext&, const Rg::NoData&) { ran.push_back("Gtao.Compose"); });
+                                      fb.addPass<Rg::NoData>(
+                                          "Gtao.Handoff",
+                                          [&](Rg::PassBuilder& b, Rg::NoData&)
+                                          {
+                                              b.flags(Rg::PassFlags::OwnBarriers | Rg::PassFlags::SideEffect);
+                                              b.read(compose, Rg::Use::PixelSrv);
+                                          },
+                                          [this](Rg::PassContext&, const Rg::NoData&) { ran.push_back("Gtao.Handoff"); });
+                                  });
+            if (!host.features.compileFrame(g, "test"))
+                return false;
+            return g.execute();
+        }
+
+        long at(const char* n) const
+        {
+            return std::find(ran.begin(), ran.end(), std::string(n)) - ran.begin();
+        }
+    };
+} // namespace
+
+TEST(FrameFeatures, GtaoEntryRunsItsStepsThenTheHandoffBeforeLighting)
+{
+    DeclaredGtaoFrame f;
+    ASSERT_TRUE(f.run(false));
+    EXPECT_TRUE(f.host.features.orderOk());
+    EXPECT_LT(f.at("Decals"), f.at("Gtao.Produce"));
+    EXPECT_LT(f.at("Gtao.Produce"), f.at("Gtao.Upsample"));
+    EXPECT_LT(f.at("Gtao.Upsample"), f.at("Gtao.Compose"));
+    EXPECT_LT(f.at("Gtao.Compose"), f.at("Gtao.Handoff"));
+    EXPECT_LT(f.at("Gtao.Handoff"), f.at("SSR"));
+    EXPECT_LT(f.at("SSR"), f.at("Lighting"));
+    EXPECT_EQ(static_cast<size_t>(f.at("Gtao.Handoff")) + 1, static_cast<size_t>(f.at("SSR")));
+}
+
+TEST(FrameFeatures, HandoffPassGetsNoGraphBarrierSoItMovesTheOutputItself)
+{
+    DeclaredGtaoFrame f;
+    ASSERT_TRUE(f.run(false));
+    const Rg::RenderGraph& g = f.host.graph;
+    // The compose is written by a declared pass (planned barrier from the import's layout) and
+    // read by the opaque hand-off: nothing is planned into the hand-off, it transitions itself.
+    const std::vector<Rg::BarrierRec> compose = recordsOn(g, "DE.Gtao.AoCompose");
+    ASSERT_FALSE(compose.empty());
+    EXPECT_EQ(g.passName(compose[0].pass), std::string("Gtao.Compose"));
+    EXPECT_EQ(compose[0].before.layout, Rg::Layout::ShaderResource);
+    EXPECT_EQ(compose[0].after.layout, Rg::Layout::RenderTarget);
+    for (const Rg::BarrierRec& b : g.barriers())
+        EXPECT_NE(g.passName(b.pass), std::string("Gtao.Handoff"));
+    // Depth was last touched by opaque passes: the first declared reader gets a tracked barrier.
+    const std::vector<Rg::BarrierRec> depth = recordsOn(g, "Depth");
+    ASSERT_FALSE(depth.empty());
+    EXPECT_TRUE(depth[0].tracked);
+    EXPECT_EQ(g.passName(depth[0].pass), std::string("Gtao.Produce"));
+}
+
+TEST(FrameFeatures, GtaoEntryWritesItsHistoryAndASkippedFrameDropsTheNextPrev)
+{
+    DeclaredGtaoFrame f;
+    ASSERT_TRUE(f.run(false));
+    EXPECT_FALSE(f.gtao.prev.valid());
+    ASSERT_TRUE(f.run(false));
+    EXPECT_TRUE(f.gtao.prev.valid()); // written by Gtao.Upsample last frame
+    // The skip path: one opaque pass (the entry still adds a pass), history marked unwritten.
+    ASSERT_TRUE(f.run(true));
+    EXPECT_TRUE(f.host.features.orderOk());
+    EXPECT_NE(static_cast<size_t>(f.at("Gtao.Skip")), f.ran.size());
+    ASSERT_TRUE(f.run(false));
+    EXPECT_FALSE(f.gtao.prev.valid());
+    ASSERT_TRUE(f.run(false));
+    EXPECT_TRUE(f.gtao.prev.valid());
+}

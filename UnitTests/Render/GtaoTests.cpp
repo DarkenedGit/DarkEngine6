@@ -84,7 +84,7 @@ namespace
         return authored * ssao;
     }
 
-    // Mirrors SceneRenderer::applyGtao. Scene targets are an init requirement, so they are not a skip reason.
+    // Mirrors SceneRenderer::addGtaoPasses. Scene targets are an init requirement, so they are not a skip reason.
     bool gtaoShouldSkip(bool settingsEnabled, bool ssaoEnabled, bool gtaoValid, bool cmdOk)
     {
         return !cmdOk || !(settingsEnabled && ssaoEnabled) || !gtaoValid;
@@ -373,4 +373,15 @@ TEST(Gtao, AuthoredAo_StillDarkens)
     EXPECT_FLOAT_EQ(composeAo(1.0f, 1.0f), 1.0f);
 
     // Full GPU fixture (authored MRT3 = 0.2, GTAO ~1 → AoCompose ~0.2) needs Renderer + G-buffer. Not in this fixture.
+}
+
+// Phase 6 part 3: the targets are graph imports named by GtaoPipeline::name.
+TEST(Gtao, GraphTargetNamesAreDistinctAndUncreatedHasNoParams)
+{
+    using Dark::GtaoTarget;
+    EXPECT_STRNE(GtaoPipeline::name(GtaoTarget::Half), GtaoPipeline::name(GtaoTarget::Full));
+    EXPECT_STRNE(GtaoPipeline::name(GtaoTarget::Full), GtaoPipeline::name(GtaoTarget::Compose));
+    EXPECT_STRNE(GtaoPipeline::name(GtaoTarget::Half), GtaoPipeline::name(GtaoTarget::Compose));
+    const GtaoPipeline gtao;
+    EXPECT_EQ(gtao.paramsAddress(0), 0u);
 }

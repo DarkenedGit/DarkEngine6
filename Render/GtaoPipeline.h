@@ -42,6 +42,14 @@ namespace Dark
     };
     static_assert(sizeof(GtaoGpuParams) == 64 * sizeof(float), "GtaoGpuParams is 64 floats (256-byte CBV)");
 
+    // GTAO's own targets, imported into the frame graph each frame (render-graph plan Phase 6 part 3).
+    enum class GtaoTarget : uint8_t
+    {
+        Half,    // produce output (ceil half res)
+        Full,    // upsample + temporal output
+        Compose, // authored MRT3 * AO, read by lighting
+    };
+
     class GtaoPipeline
     {
     public:
@@ -49,6 +57,7 @@ namespace Dark
         static constexpr UINT  kRootCbv       = 0;
         static constexpr UINT  kRootSrv       = 1;
         static constexpr UINT  kRootVelocity  = 2;
+        static constexpr UINT  kSrvCount      = 5; // every step's ring table: t0..t3, then t4 (velocity root table)
 
         GtaoPipeline() = default;
         ~GtaoPipeline();
@@ -61,31 +70,46 @@ namespace Dark
         bool create(GraphTargets& targets);
         void release();
         static Rg::TargetDesc historyDesc();
-        void draw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, const Math::Matrix4f& prevViewProj,
-                  const GtaoSettings& settings, const HistoryView& history, bool resetHistory);
+
+        // The three steps as declared graph passes (render-graph plan Phase 6 part 3): each binds one
+        // descriptor-ring table of kSrvCount SRVs and records no barrier.
+        //   produce:  depth, attrib, attrib, attrib, depth          -> Half
+        //   upsample: Half, depth, attrib, history prev, velocity   -> Full + history curr (MRT)
+        //   compose:  authored MRT3, Full, Full, Full, Full         -> Compose
+        // uploadParams writes this frame's constants (call it from the first step's execute: the
+        // camera is jittered by then) and returns their address for every step.
+        D3D12_GPU_VIRTUAL_ADDRESS uploadParams(const Camera3D& camera, const Math::Matrix4f& prevViewProj, const GtaoSettings& settings, bool resetHistory, uint32_t frameIndex);
+        D3D12_GPU_VIRTUAL_ADDRESS paramsAddress(uint32_t frameIndex) const; // what uploadParams returned this frame
+        void                      drawProduce(ID3D12GraphicsCommandList* cmd, D3D12_GPU_VIRTUAL_ADDRESS params, D3D12_GPU_DESCRIPTOR_HANDLE table) const;
+        void                      drawUpsample(ID3D12GraphicsCommandList* cmd, D3D12_GPU_VIRTUAL_ADDRESS params, D3D12_GPU_DESCRIPTOR_HANDLE table, D3D12_CPU_DESCRIPTOR_HANDLE historyRtv) const;
+        void                      drawCompose(ID3D12GraphicsCommandList* cmd, D3D12_GPU_VIRTUAL_ADDRESS params, D3D12_GPU_DESCRIPTOR_HANDLE table) const;
+
+        ID3D12Resource*             resource(GtaoTarget target) const;
+        D3D12_CPU_DESCRIPTOR_HANDLE srv(GtaoTarget target) const;
+        D3D12_CPU_DESCRIPTOR_HANDLE rtv(GtaoTarget target) const;
+        static const char*          name(GtaoTarget target); // the registered target's name
 
         bool isValid() const;
         D3D12_CPU_DESCRIPTOR_HANDLE composeSrvCpu() const;
         D3D12_CPU_DESCRIPTOR_HANDLE aoFullSrvCpu() const; // FLAG_NONE, overlay tile
+        // For opaque readers (they record their own barriers until they convert): the debug overlay,
+        // and the Gtao entry's hand-off to the opaque lighting pass.
         void transitionAoFull(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after);
+        void transitionCompose(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after);
         void clearAoFullIdentity(ID3D12GraphicsCommandList* cmd);
 
     private:
-        static constexpr UINT kSrvPerPass    = 5;
-        static constexpr UINT kPassCount     = 3;
         static constexpr UINT kFrameCount    = 2;
         static constexpr UINT kCbBytes       = 256;
 
         bool createPsos(ID3D12Device* device);
         bool createCbv(ID3D12Device* device);
-        bool createTargets(ID3D12Device* device);
+        bool               createTargets();
         void resetTargets();
-        D3D12_GPU_DESCRIPTOR_HANDLE passSrvGpu(UINT frame, UINT pass) const;
-        D3D12_CPU_DESCRIPTOR_HANDLE passSrvCpu(UINT frame, UINT pass) const;
-        void copySrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE dst, D3D12_CPU_DESCRIPTOR_HANDLE src) const;
+        const GraphTarget& target(GtaoTarget which) const;
         void fillParams(GtaoGpuParams& out, const Camera3D& camera, const Math::Matrix4f& prevViewProj, const GtaoSettings& settings, bool resetHistory,
                         uint32_t frameIndex) const;
-        void drawFullscreen(ID3D12GraphicsCommandList* cmd, ID3D12PipelineState* pso, UINT nRtv, const D3D12_CPU_DESCRIPTOR_HANDLE* rtvs, uint32_t w, uint32_t h,
+        void drawFullscreen(ID3D12GraphicsCommandList* cmd, ID3D12PipelineState* pso, UINT nRtv, const D3D12_CPU_DESCRIPTOR_HANDLE* rtvs, uint32_t w, uint32_t h, D3D12_GPU_VIRTUAL_ADDRESS params,
                             D3D12_GPU_DESCRIPTOR_HANDLE tableGpu) const;
 
         GraphTargets*                m_targets = nullptr;
@@ -93,17 +117,13 @@ namespace Dark
         ComPtr<ID3D12PipelineState>  m_psoGtao;
         ComPtr<ID3D12PipelineState>  m_psoUpsample;
         ComPtr<ID3D12PipelineState>  m_psoCompose;
-        ComPtr<ID3D12DescriptorHeap> m_srvHeap;
         ComPtr<ID3D12Resource>       m_cbUpload;
         uint8_t*                     m_cbMapped = nullptr;
         D3D12_GPU_VIRTUAL_ADDRESS    m_cbGpu    = 0;
-        D3D12_CPU_DESCRIPTOR_HANDLE  m_srvCpu{};
-        D3D12_GPU_DESCRIPTOR_HANDLE  m_srvGpu{};
-        UINT                         m_srvIncr = 0;
+        UINT                         m_srvIncr  = 0; // the ring's (CBV/SRV/UAV) increment: t4 is table + 4
         GraphTarget                  m_aoHalf;
         GraphTarget                  m_aoFull;
         GraphTarget                  m_aoCompose;
-        bool                         m_loggedSkip = false;
     };
 
 } // namespace Dark

@@ -1,9 +1,7 @@
 #include "Render/GtaoPipeline.h"
-#include "Render/EnhancedBarrierEmitter.h"
 #include "Render/Profile.h"
 #include "Render/Camera3D.h"
 #include "Render/GraphTargets.h"
-#include "Render/Renderer.h"
 #include "Render/ShaderCompile.h"
 #include "Core/Log.h"
 #include "Math/MathHelper.h"
@@ -21,11 +19,6 @@ namespace Dark
                 return false;
             DE_LOG_ERROR(LogCategory::Render, "{} failed (HRESULT 0x{:08X})", what, static_cast<unsigned>(hr));
             return true;
-        }
-
-        void transitionHistory(ID3D12GraphicsCommandList* cmd, ID3D12Resource* res, D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after)
-        {
-            recordTransition(cmd, res, before, after);
         }
 
         void copyMatrix(float dst[16], const Math::Matrix4f& m)
@@ -68,8 +61,8 @@ namespace Dark
 
     bool GtaoPipeline::isValid() const
     {
-        return m_psoGtao && m_psoUpsample && m_psoCompose && m_targets && m_targets->resource(m_aoHalf.id) && m_targets->resource(m_aoFull.id)
-            && m_targets->resource(m_aoCompose.id) && m_srvHeap && m_cbUpload && m_cbMapped;
+        return m_psoGtao && m_psoUpsample && m_psoCompose && m_targets && m_targets->resource(m_aoHalf.id) && m_targets->resource(m_aoFull.id) && m_targets->resource(m_aoCompose.id) && m_cbUpload &&
+               m_cbMapped;
     }
 
     D3D12_CPU_DESCRIPTOR_HANDLE GtaoPipeline::composeSrvCpu() const
@@ -97,25 +90,53 @@ namespace Dark
         cmd->ClearRenderTargetView(m_targets->rtv(m_aoFull.id), white, 0, nullptr);
     }
 
-    D3D12_GPU_DESCRIPTOR_HANDLE GtaoPipeline::passSrvGpu(UINT frame, UINT pass) const
+    void GtaoPipeline::transitionCompose(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after)
     {
-        D3D12_GPU_DESCRIPTOR_HANDLE h = m_srvGpu;
-        h.ptr += static_cast<SIZE_T>((frame * kPassCount + pass) * kSrvPerPass) * m_srvIncr;
-        return h;
+        if (m_targets)
+            m_targets->transition(cmd, m_aoCompose, after);
     }
 
-    D3D12_CPU_DESCRIPTOR_HANDLE GtaoPipeline::passSrvCpu(UINT frame, UINT pass) const
+    const GraphTarget& GtaoPipeline::target(GtaoTarget which) const
     {
-        D3D12_CPU_DESCRIPTOR_HANDLE h = m_srvCpu;
-        h.ptr += static_cast<SIZE_T>((frame * kPassCount + pass) * kSrvPerPass) * m_srvIncr;
-        return h;
+        switch (which)
+        {
+        case GtaoTarget::Half:
+            return m_aoHalf;
+        case GtaoTarget::Full:
+            return m_aoFull;
+        case GtaoTarget::Compose:
+            break;
+        }
+        return m_aoCompose;
     }
 
-    void GtaoPipeline::copySrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE dst, D3D12_CPU_DESCRIPTOR_HANDLE src) const
+    ID3D12Resource* GtaoPipeline::resource(GtaoTarget which) const
     {
-        if (!device || dst.ptr == 0 || src.ptr == 0)
-            return;
-        device->CopyDescriptorsSimple(1, dst, src, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        return m_targets ? m_targets->resource(target(which).id) : nullptr;
+    }
+
+    D3D12_CPU_DESCRIPTOR_HANDLE GtaoPipeline::srv(GtaoTarget which) const
+    {
+        return m_targets ? m_targets->srv(target(which).id) : D3D12_CPU_DESCRIPTOR_HANDLE{};
+    }
+
+    D3D12_CPU_DESCRIPTOR_HANDLE GtaoPipeline::rtv(GtaoTarget which) const
+    {
+        return m_targets ? m_targets->rtv(target(which).id) : D3D12_CPU_DESCRIPTOR_HANDLE{};
+    }
+
+    const char* GtaoPipeline::name(GtaoTarget which)
+    {
+        switch (which)
+        {
+        case GtaoTarget::Half:
+            return "DE.Gtao.AoHalf";
+        case GtaoTarget::Full:
+            return "DE.Gtao.AoFull";
+        case GtaoTarget::Compose:
+            break;
+        }
+        return "DE.Gtao.AoCompose";
     }
 
     void GtaoPipeline::resetTargets()
@@ -129,9 +150,6 @@ namespace Dark
         m_aoHalf    = {};
         m_aoFull    = {};
         m_aoCompose = {};
-        m_srvHeap.Reset();
-        m_srvCpu = {};
-        m_srvGpu = {};
     }
 
     void GtaoPipeline::release()
@@ -296,28 +314,16 @@ namespace Dark
         return true;
     }
 
-    bool GtaoPipeline::createTargets(ID3D12Device* device)
+    bool GtaoPipeline::createTargets()
     {
         resetTargets();
-        m_srvIncr = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-
-        // Per-frame pass tables, filled from the graph targets' CPU views every draw: size independent.
-        D3D12_DESCRIPTOR_HEAP_DESC srvDesc{};
-        srvDesc.NumDescriptors = kFrameCount * kPassCount * kSrvPerPass;
-        srvDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-        srvDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-        if (FailedHr(device->CreateDescriptorHeap(&srvDesc, IID_PPV_ARGS(&m_srvHeap)), "CreateDescriptorHeap GTAO SRV"))
-            return false;
-        m_srvHeap->SetName(L"DE.Gtao.Tables");
-        m_srvCpu = m_srvHeap->GetCPUDescriptorHandleForHeapStart();
-        m_srvGpu = m_srvHeap->GetGPUDescriptorHandleForHeapStart();
 
         // Half is rounded up (ceil(w/2)), matching the produce pass's 2x2 footprint.
         const float identity[4] = { 1.0f, 0.0f, 0.0f, 0.0f };
         const D3D12_RESOURCE_STATES rt = D3D12_RESOURCE_STATE_RENDER_TARGET;
-        m_aoHalf    = m_targets->registerTarget("DE.Gtao.AoHalf", colorTargetDesc(DXGI_FORMAT_R8_UNORM, Rg::TargetSize::OutputCeil, 2, rt, identity));
-        m_aoFull    = m_targets->registerTarget("DE.Gtao.AoFull", colorTargetDesc(DXGI_FORMAT_R8_UNORM, Rg::TargetSize::OutputFloor, 1, rt, identity));
-        m_aoCompose = m_targets->registerTarget("DE.Gtao.AoCompose", colorTargetDesc(DXGI_FORMAT_R8_UNORM, Rg::TargetSize::OutputFloor, 1, rt, identity));
+        m_aoHalf                                = m_targets->registerTarget(name(GtaoTarget::Half), colorTargetDesc(DXGI_FORMAT_R8_UNORM, Rg::TargetSize::OutputCeil, 2, rt, identity));
+        m_aoFull                                = m_targets->registerTarget(name(GtaoTarget::Full), colorTargetDesc(DXGI_FORMAT_R8_UNORM, Rg::TargetSize::OutputFloor, 1, rt, identity));
+        m_aoCompose                             = m_targets->registerTarget(name(GtaoTarget::Compose), colorTargetDesc(DXGI_FORMAT_R8_UNORM, Rg::TargetSize::OutputFloor, 1, rt, identity));
         if (!m_aoHalf.id.valid() || !m_aoFull.id.valid() || !m_aoCompose.id.valid())
         {
             resetTargets();
@@ -348,12 +354,12 @@ namespace Dark
             release();
             return false;
         }
-        if (!createTargets(device))
+        if (!createTargets())
             return false;
+        m_srvIncr = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
-        DE_LOG_INFO(LogCategory::Render, "GtaoPipeline: ready {}x{} (half {}x{}, graph targets)", targets.width(m_aoFull.id), targets.height(m_aoFull.id),
-                    targets.width(m_aoHalf.id), targets.height(m_aoHalf.id));
-        m_loggedSkip = false;
+        DE_LOG_INFO(LogCategory::Render, "GtaoPipeline: ready {}x{} (half {}x{}, graph targets)", targets.width(m_aoFull.id), targets.height(m_aoFull.id), targets.width(m_aoHalf.id),
+                    targets.height(m_aoHalf.id));
         return true;
     }
 
@@ -378,9 +384,14 @@ namespace Dark
         out._pad        = static_cast<float>(frameIndex & 7u);
     }
 
-    void GtaoPipeline::drawFullscreen(ID3D12GraphicsCommandList* cmd, ID3D12PipelineState* pso, UINT nRtv, const D3D12_CPU_DESCRIPTOR_HANDLE* rtvs,
-                                      uint32_t w, uint32_t h, D3D12_GPU_DESCRIPTOR_HANDLE tableGpu) const
+    void GtaoPipeline::drawFullscreen(ID3D12GraphicsCommandList* cmd, ID3D12PipelineState* pso, UINT nRtv, const D3D12_CPU_DESCRIPTOR_HANDLE* rtvs, uint32_t w, uint32_t h,
+                                      D3D12_GPU_VIRTUAL_ADDRESS params, D3D12_GPU_DESCRIPTOR_HANDLE tableGpu) const
     {
+        if (!cmd || !pso || params == 0 || tableGpu.ptr == 0 || m_srvIncr == 0)
+            return;
+        for (UINT i = 0; i < nRtv; ++i)
+            if (rtvs[i].ptr == 0)
+                return;
         D3D12_VIEWPORT vp{};
         vp.Width    = static_cast<float>(w);
         vp.Height   = static_cast<float>(h);
@@ -389,130 +400,55 @@ namespace Dark
         cmd->RSSetViewports(1, &vp);
         cmd->RSSetScissorRects(1, &sc);
         cmd->OMSetRenderTargets(nRtv, rtvs, FALSE, nullptr);
+        cmd->SetGraphicsRootSignature(m_rootSignature.Get());
         cmd->SetPipelineState(pso);
+        cmd->SetGraphicsRootConstantBufferView(kRootCbv, params);
+        cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         cmd->SetGraphicsRootDescriptorTable(kRootSrv, tableGpu);
         D3D12_GPU_DESCRIPTOR_HANDLE velGpu = tableGpu;
-        velGpu.ptr += static_cast<SIZE_T>(4) * m_srvIncr;
+        velGpu.ptr += static_cast<UINT64>(4) * m_srvIncr;
         cmd->SetGraphicsRootDescriptorTable(kRootVelocity, velGpu);
         cmd->DrawInstanced(3, 1, 0, 0);
     }
 
-    void GtaoPipeline::draw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, const Math::Matrix4f& prevViewProj,
-                            const GtaoSettings& settings, const HistoryView& history, bool resetHistory)
+    D3D12_GPU_VIRTUAL_ADDRESS GtaoPipeline::uploadParams(const Camera3D& camera, const Math::Matrix4f& prevViewProj, const GtaoSettings& settings, bool resetHistory, uint32_t frameIndex)
     {
-        if (!settings.enabled)
-            return;
-        if (!cmd || !isValid())
-        {
-            if (!isValid() && !m_loggedSkip)
-            {
-                DE_LOG_ERROR(LogCategory::Render, "GtaoPipeline::draw: not valid — skipping");
-                m_loggedSkip = true;
-            }
-            return;
-        }
-        if (!renderer.hasSceneBuffers())
-            return;
-
-        ID3D12Device* device = renderer.device();
-        const D3D12_CPU_DESCRIPTOR_HANDLE depth  = renderer.depthSrvCpu();
-        const D3D12_CPU_DESCRIPTOR_HANDLE attrib = renderer.attribSrvCpu();
-        const D3D12_CPU_DESCRIPTOR_HANDLE vel    = renderer.velocitySrvCpu();
-        const D3D12_CPU_DESCRIPTOR_HANDLE ao     = renderer.aoSrvCpu();
-        if (!device || depth.ptr == 0 || attrib.ptr == 0 || vel.ptr == 0 || ao.ptr == 0 || !history.valid())
-            return;
-        // Without a valid prev the shader ignores t3 (reset); it is still a real, bindable target.
-        resetHistory = resetHistory || !history.prevValid;
-        const uint32_t fullW = m_targets->width(m_aoFull.id);
-        const uint32_t fullH = m_targets->height(m_aoFull.id);
-
-        const GpuScope gtao(cmd, "GTAO", ProfileColor::Gtao);
-        const UINT frame = renderer.frameIndex() % kFrameCount;
+        if (!isValid())
+            return 0;
+        const UINT    frame = frameIndex % kFrameCount;
         GtaoGpuParams params{};
-        fillParams(params, camera, prevViewProj, settings, resetHistory, renderer.frameIndex());
+        fillParams(params, camera, prevViewProj, settings, resetHistory, frameIndex);
         std::memcpy(m_cbMapped + static_cast<size_t>(frame) * kCbBytes, &params, sizeof(params));
-        const D3D12_GPU_VIRTUAL_ADDRESS cbVa = m_cbGpu + static_cast<UINT64>(frame) * kCbBytes;
+        return m_cbGpu + static_cast<UINT64>(frame) * kCbBytes;
+    }
 
-        cmd->SetGraphicsRootSignature(m_rootSignature.Get());
-        ID3D12DescriptorHeap* heaps[] = { m_srvHeap.Get() };
-        cmd->SetDescriptorHeaps(1, heaps);
-        cmd->SetGraphicsRootConstantBufferView(kRootCbv, cbVa);
-        cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    D3D12_GPU_VIRTUAL_ADDRESS GtaoPipeline::paramsAddress(uint32_t frameIndex) const
+    {
+        return isValid() ? m_cbGpu + static_cast<UINT64>(frameIndex % kFrameCount) * kCbBytes : 0;
+    }
 
-        // Produce (half-res): t0 depth, t1 attrib.
-        {
-            D3D12_CPU_DESCRIPTOR_HANDLE table = passSrvCpu(frame, 0);
-            copySrv(device, table, depth);
-            D3D12_CPU_DESCRIPTOR_HANDLE t1 = table;
-            t1.ptr += m_srvIncr;
-            copySrv(device, t1, attrib);
-            D3D12_CPU_DESCRIPTOR_HANDLE t2 = t1;
-            t2.ptr += m_srvIncr;
-            copySrv(device, t2, attrib);
-            D3D12_CPU_DESCRIPTOR_HANDLE t3 = t2;
-            t3.ptr += m_srvIncr;
-            copySrv(device, t3, attrib);
-            D3D12_CPU_DESCRIPTOR_HANDLE t4 = t3;
-            t4.ptr += m_srvIncr;
-            copySrv(device, t4, depth);
+    void GtaoPipeline::drawProduce(ID3D12GraphicsCommandList* cmd, D3D12_GPU_VIRTUAL_ADDRESS params, D3D12_GPU_DESCRIPTOR_HANDLE table) const
+    {
+        if (!isValid())
+            return;
+        const D3D12_CPU_DESCRIPTOR_HANDLE rtvs[1] = { rtv(GtaoTarget::Half) };
+        drawFullscreen(cmd, m_psoGtao.Get(), 1, rtvs, m_targets->width(m_aoHalf.id), m_targets->height(m_aoHalf.id), params, table);
+    }
 
-            m_targets->transition(cmd, m_aoHalf, D3D12_RESOURCE_STATE_RENDER_TARGET);
-            const D3D12_CPU_DESCRIPTOR_HANDLE rtv = m_targets->rtv(m_aoHalf.id);
-            drawFullscreen(cmd, m_psoGtao.Get(), 1, &rtv, m_targets->width(m_aoHalf.id), m_targets->height(m_aoHalf.id), passSrvGpu(frame, 0));
-        }
+    void GtaoPipeline::drawUpsample(ID3D12GraphicsCommandList* cmd, D3D12_GPU_VIRTUAL_ADDRESS params, D3D12_GPU_DESCRIPTOR_HANDLE table, D3D12_CPU_DESCRIPTOR_HANDLE historyRtv) const
+    {
+        if (!isValid())
+            return;
+        const D3D12_CPU_DESCRIPTOR_HANDLE rtvs[2] = { rtv(GtaoTarget::Full), historyRtv };
+        drawFullscreen(cmd, m_psoUpsample.Get(), 2, rtvs, m_targets->width(m_aoFull.id), m_targets->height(m_aoFull.id), params, table);
+    }
 
-        // Upsample + temporal: t0 AoHalf, t1 depth, t2 attrib, t3 history, t4 velocity.
-        {
-            // Graph history (GtaoHistory): prev rests in PIXEL_SHADER_RESOURCE; curr is written here.
-            m_targets->transition(cmd, m_aoHalf, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-            m_targets->transition(cmd, m_aoFull, D3D12_RESOURCE_STATE_RENDER_TARGET);
-            transitionHistory(cmd, history.curr, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
-
-            D3D12_CPU_DESCRIPTOR_HANDLE table = passSrvCpu(frame, 1);
-            copySrv(device, table, m_targets->srv(m_aoHalf.id));
-            D3D12_CPU_DESCRIPTOR_HANDLE t1 = table;
-            t1.ptr += m_srvIncr;
-            copySrv(device, t1, depth);
-            D3D12_CPU_DESCRIPTOR_HANDLE t2 = t1;
-            t2.ptr += m_srvIncr;
-            copySrv(device, t2, attrib);
-            D3D12_CPU_DESCRIPTOR_HANDLE t3 = t2;
-            t3.ptr += m_srvIncr;
-            copySrv(device, t3, history.prevSrv);
-            D3D12_CPU_DESCRIPTOR_HANDLE t4 = t3;
-            t4.ptr += m_srvIncr;
-            copySrv(device, t4, vel);
-
-            D3D12_CPU_DESCRIPTOR_HANDLE rtvs[2] = { m_targets->rtv(m_aoFull.id), history.currRtv };
-            drawFullscreen(cmd, m_psoUpsample.Get(), 2, rtvs, fullW, fullH, passSrvGpu(frame, 1));
-            transitionHistory(cmd, history.curr, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-        }
-
-        // Compose: t0 authored MRT3, t1 AoFull.
-        {
-            m_targets->transition(cmd, m_aoFull, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-            m_targets->transition(cmd, m_aoCompose, D3D12_RESOURCE_STATE_RENDER_TARGET);
-            const D3D12_CPU_DESCRIPTOR_HANDLE full = m_targets->srv(m_aoFull.id);
-
-            D3D12_CPU_DESCRIPTOR_HANDLE table = passSrvCpu(frame, 2);
-            copySrv(device, table, ao);
-            D3D12_CPU_DESCRIPTOR_HANDLE t1 = table;
-            t1.ptr += m_srvIncr;
-            copySrv(device, t1, full);
-            D3D12_CPU_DESCRIPTOR_HANDLE t2 = t1;
-            t2.ptr += m_srvIncr;
-            copySrv(device, t2, full);
-            D3D12_CPU_DESCRIPTOR_HANDLE t3 = t2;
-            t3.ptr += m_srvIncr;
-            copySrv(device, t3, full);
-            D3D12_CPU_DESCRIPTOR_HANDLE t4 = t3;
-            t4.ptr += m_srvIncr;
-            copySrv(device, t4, full);
-
-            const D3D12_CPU_DESCRIPTOR_HANDLE rtv = m_targets->rtv(m_aoCompose.id);
-            drawFullscreen(cmd, m_psoCompose.Get(), 1, &rtv, fullW, fullH, passSrvGpu(frame, 2));
-            m_targets->transition(cmd, m_aoCompose, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-        }
+    void GtaoPipeline::drawCompose(ID3D12GraphicsCommandList* cmd, D3D12_GPU_VIRTUAL_ADDRESS params, D3D12_GPU_DESCRIPTOR_HANDLE table) const
+    {
+        if (!isValid())
+            return;
+        const D3D12_CPU_DESCRIPTOR_HANDLE rtvs[1] = { rtv(GtaoTarget::Compose) };
+        drawFullscreen(cmd, m_psoCompose.Get(), 1, rtvs, m_targets->width(m_aoCompose.id), m_targets->height(m_aoCompose.id), params, table);
     }
 
 } // namespace Dark

@@ -14,7 +14,6 @@
 namespace Dark
 {
 
-    class Renderer;
     class Camera3D;
 
     namespace Sky
@@ -148,6 +147,35 @@ namespace Dark
     SsrRaySetup ssrSetupDda(const Math::Vector3f& worldPos, const Math::Vector3f& R, const Math::Matrix4f& viewProj, float nearZ, float resX, float resY,
                             float rayLength);
 
+    // SSR's own targets, imported into the frame graph each frame (render-graph plan Phase 6 part 3).
+    enum class SsrTarget : uint8_t
+    {
+        Half,        // trace output (ceil half res)
+        Full,        // upsample + temporal output, read by lighting
+        SceneColor0, // capture ping-pong (ceil half res), read by the next trace and by water
+        SceneColor1,
+        Debug, // ssrDebug == 2 confidence tile
+    };
+
+    // One draw. Each is its own declared graph pass binding one ring table of kSrvCount SRVs:
+    //   trace:    depth, attrib, scene color, scene color, scene color -> Half
+    //   upsample: Half, depth, attrib, history prev, velocity          -> Full + history curr (MRT)
+    //   debug:    Full x5                                              -> Debug
+    //   capture:  scene HDR x5                                         -> the capture target
+    enum class SsrStep : uint8_t
+    {
+        Trace,
+        Upsample,
+        Debug,
+        Capture,
+    };
+
+    struct SsrFrameParams
+    {
+        D3D12_GPU_VIRTUAL_ADDRESS params = 0; // SsrGpuParams
+        D3D12_GPU_VIRTUAL_ADDRESS sky    = 0; // SkyEvalParams
+    };
+
     class SsrPipeline
     {
     public:
@@ -158,6 +186,7 @@ namespace Dark
         static constexpr UINT kCbBytes         = 256;
         static constexpr UINT kSkyEvalCbBytes  = 256;
         static constexpr UINT kCbSlotsPerFrame = 2; // draw + capture; upload CBVs are not snapshotted at bind
+        static constexpr UINT kSrvCount        = 5; // every step's ring table
 
         static UINT cbvByteOffset(uint32_t frameIndex, bool capture)
         {
@@ -187,37 +216,44 @@ namespace Dark
         bool create(GraphTargets& targets);
         void release();
         static Rg::TargetDesc historyDesc();
-        void draw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, const Math::Matrix4f& prevViewProj, const Sky::Environment* env,
-                  const SsrSettings& settings, const HistoryView& history, bool resetHistory);
-        void captureSceneColor(ID3D12GraphicsCommandList* cmd, Renderer& renderer);
+
+        // Declared graph passes (render-graph plan Phase 6 part 3). The uploads write this frame's
+        // constants (call them from the step's execute: the camera is jittered by then).
+        SsrFrameParams uploadParams(const Camera3D& camera, const Math::Matrix4f& prevViewProj, const Sky::Environment* env, const SsrSettings& settings, bool resetHistory, uint32_t frameIndex);
+        SsrFrameParams uploadCaptureParams(uint32_t frameIndex);
+        SsrFrameParams paramsAddress(uint32_t frameIndex) const; // what uploadParams returned this frame
+        // Records `step` into rtv (and historyRtv for Upsample) from `table`. No barriers.
+        void drawStep(ID3D12GraphicsCommandList* cmd, SsrStep step, const SsrFrameParams& params, D3D12_GPU_DESCRIPTOR_HANDLE table, D3D12_CPU_DESCRIPTOR_HANDLE rtv,
+                      D3D12_CPU_DESCRIPTOR_HANDLE historyRtv = {}) const;
+
+        ID3D12Resource*             resource(SsrTarget target) const;
+        D3D12_CPU_DESCRIPTOR_HANDLE srv(SsrTarget target) const;
+        D3D12_CPU_DESCRIPTOR_HANDLE rtv(SsrTarget target) const;
+        static const char*          name(SsrTarget target); // the registered target's name
+        // The capture ping-pong at graph setup: sceneColorRead() is what this frame's trace samples
+        // (the last capture); beginCapture() returns the target this frame's capture writes and
+        // makes it the read one, so later readers this frame (water) see it.
+        SsrTarget sceneColorRead() const;
+        SsrTarget beginCapture();
 
         bool isValid() const;
         bool hasSceneColor() const;
         D3D12_CPU_DESCRIPTOR_HANDLE fullSrvCpu() const;
         D3D12_CPU_DESCRIPTOR_HANDLE debugConfSrvCpu() const;
         D3D12_CPU_DESCRIPTOR_HANDLE sceneColorSrvCpu() const;
+        // For opaque readers (they record their own barriers until they convert): the debug overlay,
+        // and the hand-offs to the opaque lighting and water passes.
         void transitionFull(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after);
         void transitionDebug(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after);
+        void transitionSceneColorRead(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after);
 
     private:
-        static constexpr UINT kSrvPerPass  = 5;
-        static constexpr UINT kPassCount   = 4;
-        static constexpr UINT kPassDownsample = 0;
-        static constexpr UINT kPassTrace      = 1;
-        static constexpr UINT kPassUpsample   = 2;
-        static constexpr UINT kPassDebug      = 3;
-
         bool createPsos(ID3D12Device* device);
         bool createCbv(ID3D12Device* device);
-        bool createTargets(ID3D12Device* device);
+        bool               createTargets();
         void resetTargets();
-        D3D12_GPU_DESCRIPTOR_HANDLE passSrvGpu(UINT frame, UINT pass) const;
-        D3D12_CPU_DESCRIPTOR_HANDLE passSrvCpu(UINT frame, UINT pass) const;
-        void copySrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE dst, D3D12_CPU_DESCRIPTOR_HANDLE src) const;
-        void fillParams(SsrGpuParams& out, const Camera3D& camera, const Math::Matrix4f& prevViewProj, const SsrSettings& settings, bool resetHistory,
-                        uint32_t frameIndex) const;
-        void bindPass(ID3D12GraphicsCommandList* cmd, ID3D12PipelineState* pso, UINT nRtv, const D3D12_CPU_DESCRIPTOR_HANDLE* rtvs, uint32_t w, uint32_t h,
-                      D3D12_GPU_DESCRIPTOR_HANDLE tableGpu) const;
+        const GraphTarget& target(SsrTarget which) const;
+        void               fillParams(SsrGpuParams& out, const Camera3D& camera, const Math::Matrix4f& prevViewProj, const SsrSettings& settings, bool resetHistory, uint32_t frameIndex) const;
 
         GraphTargets*                m_targets = nullptr;
         ComPtr<ID3D12RootSignature>  m_rootSignature;
@@ -225,13 +261,9 @@ namespace Dark
         ComPtr<ID3D12PipelineState>  m_psoUpsample;
         ComPtr<ID3D12PipelineState>  m_psoDownsample;
         ComPtr<ID3D12PipelineState>  m_psoDebug;
-        ComPtr<ID3D12DescriptorHeap> m_srvHeap;
         ComPtr<ID3D12Resource>       m_cbUpload;
         uint8_t*                     m_cbMapped = nullptr;
         D3D12_GPU_VIRTUAL_ADDRESS    m_cbGpu    = 0;
-        D3D12_CPU_DESCRIPTOR_HANDLE  m_srvCpu{};
-        D3D12_GPU_DESCRIPTOR_HANDLE  m_srvGpu{};
-        UINT                         m_srvIncr = 0;
         GraphTarget                  m_half;
         GraphTarget                  m_full;
         GraphTarget                  m_sceneColor[2];
@@ -240,7 +272,6 @@ namespace Dark
         UINT                         m_sceneWrite           = 1;
         uint64_t                     m_sceneColorGeneration = 0; // generation of the capture hasSceneColor refers to
         bool                         m_hasSceneColor        = false;
-        bool                         m_loggedSkip           = false;
     };
 
 } // namespace Dark

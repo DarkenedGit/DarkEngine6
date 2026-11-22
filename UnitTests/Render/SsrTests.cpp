@@ -517,3 +517,29 @@ TEST(Ssr, Reprojection_RowVector)
     }
     EXPECT_TRUE(differs);
 }
+
+// Phase 6 part 3: the SsrCapture entry calls beginCapture at graph setup and imports the target it
+// returns; the Ssr entry (earlier in the list) imports sceneColorRead() before that.
+TEST(Ssr, BeginCaptureWritesTheOtherSlotAndMakesItTheNextRead)
+{
+    using Dark::SsrTarget;
+    SsrPipeline ssr;
+    EXPECT_FALSE(ssr.hasSceneColor());
+    EXPECT_EQ(ssr.sceneColorRead(), SsrTarget::SceneColor0);
+    EXPECT_EQ(ssr.beginCapture(), SsrTarget::SceneColor1);
+    EXPECT_EQ(ssr.sceneColorRead(), SsrTarget::SceneColor1); // water reads this frame's capture
+    EXPECT_EQ(ssr.beginCapture(), SsrTarget::SceneColor0);
+    EXPECT_EQ(ssr.sceneColorRead(), SsrTarget::SceneColor0);
+}
+
+TEST(Ssr, GraphTargetNamesAreDistinctAndUncreatedHasNoParams)
+{
+    using Dark::SsrTarget;
+    const SsrTarget all[] = { SsrTarget::Half, SsrTarget::Full, SsrTarget::SceneColor0, SsrTarget::SceneColor1, SsrTarget::Debug };
+    for (const SsrTarget a : all)
+        for (const SsrTarget b : all)
+            if (a != b)
+                EXPECT_STRNE(SsrPipeline::name(a), SsrPipeline::name(b));
+    const SsrPipeline ssr;
+    EXPECT_EQ(ssr.paramsAddress(0).params, 0u);
+}

@@ -386,76 +386,313 @@ void SceneRenderer::discardTemporalHistory()
     m_discardHistory   = true; // the next requestHistories invalidates the graph histories
 }
 
-void SceneRenderer::applyGtao(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, const Math::Matrix4f& prevViewProj,
-                             const GtaoSettings& settings)
+namespace
 {
+    // An opaque pass (OwnBarriers | SideEffect) that declares reads on graph handles. A converted entry
+    // ends with one when its output feeds an opaque pass that does not transition it (render-graph
+    // plan Phase 6 part 3): the graph plans no barrier at a declared->opaque boundary, so this pass
+    // moves the output to the state the old code left it in and restores the bindings it left.
+    template <class Fn> void addHandoff(FeatureBuilder& b, const char* name, std::initializer_list<Rg::TextureHandle> reads, Fn&& fn)
+    {
+        b.addPass<Rg::NoData>(
+            name,
+            [&](Rg::PassBuilder& pb, Rg::NoData&)
+            {
+                pb.flags(Rg::PassFlags::OwnBarriers | Rg::PassFlags::SideEffect);
+                for (const Rg::TextureHandle h : reads)
+                    if (h.valid())
+                        pb.read(h, Rg::Use::PixelSrv);
+            },
+            [fn = std::forward<Fn>(fn)](Rg::PassContext& c, const Rg::NoData&) { fn(c.cmd()); });
+    }
+} // namespace
+
+void SceneRenderer::addGtaoPasses(FeatureBuilder& b, Renderer& renderer, const Camera3D& camera, const GtaoSettings& settings)
+{
+    using Rg::PassBuilder;
+    using Rg::PassContext;
+    using Rg::TextureHandle;
+    using Rg::Use;
+    using R = RenderResource;
+
     GtaoSettings drawSettings = settings;
     drawSettings.enabled      = settings.enabled && renderer.debugState().ssaoEnabled;
-
-    const bool skip = !cmd || !drawSettings.enabled || !m_gtao.isValid()
-        || renderer.device() == nullptr || renderer.depthSrvCpu().ptr == 0 || renderer.attribSrvCpu().ptr == 0 || renderer.velocitySrvCpu().ptr == 0
-        || renderer.aoSrvCpu().ptr == 0 || !renderer.targets();
-    const HistoryView history = skip ? HistoryView{} : renderer.targets()->historyView(m_gtaoHistory);
-    if (skip || !history.valid())
+    const TextureHandle depth    = b.handle(R::Depth);
+    const TextureHandle attrib   = b.handle(R::Attrib);
+    const TextureHandle velocity = b.handle(R::Velocity);
+    const TextureHandle ao       = b.handle(R::Ao);
+    const TextureHandle histCurr = b.handle(R::GtaoHistory);
+    const HistoryView   history  = renderer.targets() ? renderer.targets()->historyView(m_gtaoHistory) : HistoryView{};
+    const bool          run      = drawSettings.enabled && m_gtao.isValid() && renderer.device() != nullptr && renderer.depthSrvCpu().ptr != 0 && renderer.attribSrvCpu().ptr != 0 &&
+                     renderer.velocitySrvCpu().ptr != 0 && renderer.aoSrvCpu().ptr != 0 && depth.valid() && attrib.valid() && velocity.valid() && ao.valid() && histCurr.valid() && history.valid();
+    Renderer* const     rr   = &renderer;
+    GtaoPipeline* const gtao = &m_gtao;
+    if (!run)
     {
         // Restore authored MRT3. Do not bind a white SSAO tex (compose cleared to 1 would wipe ORM cavities).
-        renderer.setLightingAoSrv(renderer.aoSrvCpu());
         markHistoryUnwritten(m_gtaoHistory, "Gtao");
-        if (cmd)
-            m_gtao.clearAoFullIdentity(cmd); // overlay-when-off samples identity, not stale/garbage
+        b.opaque("Gtao", {}, {},
+                 [rr, gtao](PassContext& c)
+                 {
+                     rr->setLightingAoSrv(rr->aoSrvCpu());
+                     gtao->clearAoFullIdentity(c.cmd()); // overlay-when-off samples identity, not stale/garbage
+                 });
         return;
     }
 
     // The graph's prevValid covers first use, re-enable, resize and held frames.
-    const bool resetHistory = !history.prevValid || !m_havePrevViewProj || (wantsTaa(renderer) && !m_taaHistory.prevValid);
+    const TextureHandle histPrev     = b.prev(R::GtaoHistory);
+    const bool          resetHistory = !history.prevValid || !histPrev.valid() || !m_havePrevViewProj || (wantsTaa(renderer) && !m_taaHistory.prevValid);
+    // Without a valid prev the shader ignores t3 (reset); the other slot's SRV fills the table.
+    const D3D12_CPU_DESCRIPTOR_HANDLE resetPrev = history.prevSrv;
+    // Read at execute: the camera is jittered by the host's GBuffer pass, which runs after this setup.
+    const Camera3D* const cam      = &camera;
+    const bool            havePrev = m_havePrevViewProj;
+    const Math::Matrix4f  prev     = m_prevViewProj;
 
-    cmd->OMSetRenderTargets(0, nullptr, FALSE, nullptr);
-    m_gtao.draw(cmd, renderer, camera, prevViewProj, drawSettings, history, resetHistory);
+    Rg::RenderGraph& g    = b.graph();
+    TextureHandle    half = importTracked(g, GtaoPipeline::name(GtaoTarget::Half), gtao->resource(GtaoTarget::Half), textureViews(gtao->srv(GtaoTarget::Half), gtao->rtv(GtaoTarget::Half)));
+    TextureHandle    full = importTracked(g, GtaoPipeline::name(GtaoTarget::Full), gtao->resource(GtaoTarget::Full), textureViews(gtao->srv(GtaoTarget::Full), gtao->rtv(GtaoTarget::Full)));
+    TextureHandle    compose =
+        importTracked(g, GtaoPipeline::name(GtaoTarget::Compose), gtao->resource(GtaoTarget::Compose), textureViews(gtao->srv(GtaoTarget::Compose), gtao->rtv(GtaoTarget::Compose)));
 
-    const D3D12_CPU_DESCRIPTOR_HANDLE compose = m_gtao.composeSrvCpu();
-    if (compose.ptr == 0)
+    struct Produce
     {
-        renderer.setLightingAoSrv(renderer.aoSrvCpu());
-        return;
-    }
-    renderer.setLightingAoSrv(compose);
-    renderer.bindHdr(false);
+        TextureHandle depth, attrib, half;
+    };
+    b.addPass<Produce>(
+        "Gtao.Produce",
+        [&](PassBuilder& pb, Produce& d)
+        {
+            d.depth  = pb.read(depth, Use::PixelSrv);
+            d.attrib = pb.read(attrib, Use::PixelSrv);
+            d.half = half = pb.write(half, Use::RenderTarget);
+        },
+        [gtao, rr, cam, havePrev, prev, drawSettings, resetHistory](PassContext& c, const Produce& d)
+        {
+            profileGpuBegin(c.cmd(), "GTAO", ProfileColor::Gtao);
+            const D3D12_GPU_VIRTUAL_ADDRESS params = gtao->uploadParams(*cam, havePrev ? prev : cam->GetViewProj(), drawSettings, resetHistory, static_cast<uint32_t>(rr->frameIndex()));
+            gtao->drawProduce(c.cmd(), params, rgSrvTable(c, { d.depth, d.attrib, d.attrib, d.attrib, d.depth }));
+        });
+
+    struct Upsample
+    {
+        TextureHandle half, depth, attrib, prev, velocity, full, hist;
+    };
+    TextureHandle histOut;
+    b.addPass<Upsample>(
+        "Gtao.Upsample",
+        [&](PassBuilder& pb, Upsample& d)
+        {
+            d.half     = pb.read(half, Use::PixelSrv);
+            d.depth    = pb.read(depth, Use::PixelSrv);
+            d.attrib   = pb.read(attrib, Use::PixelSrv);
+            d.prev     = histPrev.valid() ? pb.read(histPrev, Use::PixelSrv) : TextureHandle{};
+            d.velocity = pb.read(velocity, Use::PixelSrv);
+            d.full = full = pb.write(full, Use::RenderTarget);
+            d.hist = histOut = pb.write(histCurr, Use::RenderTarget);
+        },
+        [gtao, rr, resetPrev](PassContext& c, const Upsample& d)
+        {
+            const D3D12_GPU_DESCRIPTOR_HANDLE table = d.prev.valid() ? rgSrvTable(c, { d.half, d.depth, d.attrib, d.prev, d.velocity })
+                                                                     : rgTable(c, { rgSrvCpu(c, d.half), rgSrvCpu(c, d.depth), rgSrvCpu(c, d.attrib), resetPrev, rgSrvCpu(c, d.velocity) });
+            gtao->drawUpsample(c.cmd(), gtao->paramsAddress(static_cast<uint32_t>(rr->frameIndex())), table, rgRtv(c, d.hist));
+        });
+    b.set(R::GtaoHistory, histOut);
+
+    struct Compose
+    {
+        TextureHandle ao, full, compose;
+    };
+    b.addPass<Compose>(
+        "Gtao.Compose",
+        [&](PassBuilder& pb, Compose& d)
+        {
+            d.ao      = pb.read(ao, Use::PixelSrv);
+            d.full    = pb.read(full, Use::PixelSrv);
+            d.compose = compose = pb.write(compose, Use::RenderTarget);
+        },
+        [gtao, rr](PassContext& c, const Compose& d)
+        {
+            gtao->drawCompose(c.cmd(), gtao->paramsAddress(static_cast<uint32_t>(rr->frameIndex())), rgSrvTable(c, { d.ao, d.full, d.full, d.full, d.full }));
+            profileGpuEnd(c.cmd()); // GTAO
+        });
+
+    // Lighting is still opaque: hand it the compose in PIXEL_SHADER_RESOURCE with HDR bound.
+    addHandoff(b, "Gtao.Handoff", { compose },
+               [rr, gtao](ID3D12GraphicsCommandList* cmd)
+               {
+                   gtao->transitionCompose(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+                   const D3D12_CPU_DESCRIPTOR_HANDLE srv = gtao->composeSrvCpu();
+                   rr->setLightingAoSrv(srv.ptr != 0 ? srv : rr->aoSrvCpu());
+                   rr->bindHdr(false);
+               });
 }
 
-void SceneRenderer::applySsr(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, const Math::Matrix4f& prevViewProj,
-                             const SsrSettings& settings, const Sky::Environment* env)
+void SceneRenderer::addSsrPasses(FeatureBuilder& b, Renderer& renderer, const Camera3D& camera, const SsrSettings& settings, const Sky::Environment* env)
 {
+    using Rg::PassBuilder;
+    using Rg::PassContext;
+    using Rg::TextureHandle;
+    using Rg::Use;
+    using R = RenderResource;
+
     SsrSettings drawSettings = settings;
     drawSettings.enabled     = settings.enabled && renderer.debugState().ssrEnabled;
-
-    const bool skip = !cmd || !drawSettings.enabled || !m_ssr.isValid()
-        || renderer.device() == nullptr || renderer.depthSrvCpu().ptr == 0 || renderer.attribSrvCpu().ptr == 0 || renderer.velocitySrvCpu().ptr == 0
-        || !renderer.targets();
-    const HistoryView history = skip ? HistoryView{} : renderer.targets()->historyView(m_ssrHistory);
-    if (skip || !history.valid())
+    const TextureHandle depth    = b.handle(R::Depth);
+    const TextureHandle attrib   = b.handle(R::Attrib);
+    const TextureHandle velocity = b.handle(R::Velocity);
+    const TextureHandle histCurr = b.handle(R::SsrHistory);
+    const HistoryView   history  = renderer.targets() ? renderer.targets()->historyView(m_ssrHistory) : HistoryView{};
+    const bool          run      = drawSettings.enabled && m_ssr.isValid() && renderer.device() != nullptr && renderer.depthSrvCpu().ptr != 0 && renderer.attribSrvCpu().ptr != 0 &&
+                     renderer.velocitySrvCpu().ptr != 0 && depth.valid() && attrib.valid() && velocity.valid() && histCurr.valid() && history.valid();
+    Renderer* const    rr  = &renderer;
+    SsrPipeline* const ssr = &m_ssr;
+    if (!run)
     {
-        renderer.setLightingSsrSrv(renderer.ssrDummyCpu());
         markHistoryUnwritten(m_ssrHistory, "Ssr");
-        if (cmd)
-            renderer.bindHdr(false);
+        b.opaque("Ssr", {}, {},
+                 [rr](PassContext&)
+                 {
+                     rr->setLightingSsrSrv(rr->ssrDummyCpu());
+                     rr->bindHdr(false);
+                 });
         return;
     }
 
-    const bool resetHistory = !history.prevValid || !m_havePrevViewProj || (wantsTaa(renderer) && !m_taaHistory.prevValid);
+    const TextureHandle histPrev     = b.prev(R::SsrHistory);
+    const bool          resetHistory = !history.prevValid || !histPrev.valid() || !m_havePrevViewProj || (wantsTaa(renderer) && !m_taaHistory.prevValid);
+    // Without a valid prev (graph SsrHistory) the shader ignores t3; the other slot's SRV fills it.
+    const D3D12_CPU_DESCRIPTOR_HANDLE resetPrev = history.prevSrv;
+    const Camera3D* const             cam       = &camera;
+    const bool                        havePrev  = m_havePrevViewProj;
+    const Math::Matrix4f              prev      = m_prevViewProj;
+    const bool                        debug     = renderer.debugState().ssrDebug == 2;
 
-    cmd->OMSetRenderTargets(0, nullptr, FALSE, nullptr);
-    m_ssr.draw(cmd, renderer, camera, prevViewProj, env, drawSettings, history, resetHistory);
+    const auto          importSsr = [&](SsrTarget t) { return importTracked(b.graph(), SsrPipeline::name(t), ssr->resource(t), textureViews(ssr->srv(t), ssr->rtv(t))); };
+    TextureHandle       half      = importSsr(SsrTarget::Half);
+    TextureHandle       full      = importSsr(SsrTarget::Full);
+    const TextureHandle scene     = importSsr(ssr->sceneColorRead()); // last frame's capture
+    TextureHandle       conf      = debug ? importSsr(SsrTarget::Debug) : TextureHandle{};
 
-    const D3D12_CPU_DESCRIPTOR_HANDLE full = m_ssr.fullSrvCpu();
-    renderer.setLightingSsrSrv(full.ptr != 0 ? full : renderer.ssrDummyCpu());
-    renderer.bindHdr(false);
+    struct Trace
+    {
+        TextureHandle depth, attrib, scene, half;
+    };
+    b.addPass<Trace>(
+        "Ssr.Trace",
+        [&](PassBuilder& pb, Trace& d)
+        {
+            d.depth  = pb.read(depth, Use::PixelSrv);
+            d.attrib = pb.read(attrib, Use::PixelSrv);
+            d.scene  = pb.read(scene, Use::PixelSrv);
+            d.half = half = pb.write(half, Use::RenderTarget);
+        },
+        [ssr, rr, cam, havePrev, prev, env, drawSettings, resetHistory](PassContext& c, const Trace& d)
+        {
+            profileGpuBegin(c.cmd(), "SSR", ProfileColor::Ssr);
+            const SsrFrameParams params = ssr->uploadParams(*cam, havePrev ? prev : cam->GetViewProj(), env, drawSettings, resetHistory, static_cast<uint32_t>(rr->frameIndex()));
+            ssr->drawStep(c.cmd(), SsrStep::Trace, params, rgSrvTable(c, { d.depth, d.attrib, d.scene, d.scene, d.scene }), rgRtv(c, d.half));
+        });
+
+    struct Upsample
+    {
+        TextureHandle half, depth, attrib, prev, velocity, full, hist;
+        bool          closeScope;
+    };
+    TextureHandle histOut;
+    b.addPass<Upsample>(
+        "Ssr.Upsample",
+        [&](PassBuilder& pb, Upsample& d)
+        {
+            d.half     = pb.read(half, Use::PixelSrv);
+            d.depth    = pb.read(depth, Use::PixelSrv);
+            d.attrib   = pb.read(attrib, Use::PixelSrv);
+            d.prev     = histPrev.valid() ? pb.read(histPrev, Use::PixelSrv) : TextureHandle{};
+            d.velocity = pb.read(velocity, Use::PixelSrv);
+            d.full = full = pb.write(full, Use::RenderTarget);
+            d.hist = histOut = pb.write(histCurr, Use::RenderTarget);
+            d.closeScope     = !debug;
+        },
+        [ssr, rr, resetPrev](PassContext& c, const Upsample& d)
+        {
+            const D3D12_GPU_DESCRIPTOR_HANDLE table = d.prev.valid() ? rgSrvTable(c, { d.half, d.depth, d.attrib, d.prev, d.velocity })
+                                                                     : rgTable(c, { rgSrvCpu(c, d.half), rgSrvCpu(c, d.depth), rgSrvCpu(c, d.attrib), resetPrev, rgSrvCpu(c, d.velocity) });
+            ssr->drawStep(c.cmd(), SsrStep::Upsample, ssr->paramsAddress(static_cast<uint32_t>(rr->frameIndex())), table, rgRtv(c, d.full), rgRtv(c, d.hist));
+            if (d.closeScope)
+                profileGpuEnd(c.cmd()); // SSR
+        });
+    b.set(R::SsrHistory, histOut);
+
+    if (debug)
+    {
+        struct Debug
+        {
+            TextureHandle full, conf;
+        };
+        b.addPass<Debug>(
+            "Ssr.Debug",
+            [&](PassBuilder& pb, Debug& d)
+            {
+                d.full = pb.read(full, Use::PixelSrv);
+                d.conf = conf = pb.write(conf, Use::RenderTarget);
+            },
+            [ssr, rr](PassContext& c, const Debug& d)
+            {
+                ssr->drawStep(c.cmd(), SsrStep::Debug, ssr->paramsAddress(static_cast<uint32_t>(rr->frameIndex())), rgSrvTable(c, { d.full, d.full, d.full, d.full, d.full }), rgRtv(c, d.conf));
+                profileGpuEnd(c.cmd()); // SSR
+            });
+    }
+
+    // Lighting is still opaque: hand it Full in PIXEL_SHADER_RESOURCE with HDR bound (the debug
+    // overlay moves the confidence tile itself).
+    addHandoff(b, "Ssr.Handoff", { full },
+               [rr, ssr](ID3D12GraphicsCommandList* cmd)
+               {
+                   ssr->transitionFull(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+                   const D3D12_CPU_DESCRIPTOR_HANDLE srv = ssr->fullSrvCpu();
+                   rr->setLightingSsrSrv(srv.ptr != 0 ? srv : rr->ssrDummyCpu());
+                   rr->bindHdr(false);
+               });
 }
 
-void SceneRenderer::captureSsrSceneColor(ID3D12GraphicsCommandList* cmd, Renderer& renderer)
+void SceneRenderer::addSsrCapturePasses(FeatureBuilder& b, Renderer& renderer)
 {
-    if (!cmd || !m_ssr.isValid() || !renderer.hasSceneBuffers())
+    using Rg::TextureHandle;
+    using Rg::Use;
+    const TextureHandle hdr = b.handle(RenderResource::Hdr);
+    if (!m_ssr.isValid() || !renderer.hasSceneBuffers() || !hdr.valid())
         return;
-    m_ssr.captureSceneColor(cmd, renderer);
+    SsrPipeline* const ssr     = &m_ssr;
+    Renderer* const    rr      = &renderer;
+    const SsrTarget    written = ssr->beginCapture(); // water and next frame's trace read it
+    TextureHandle      dst     = importTracked(b.graph(), SsrPipeline::name(written), ssr->resource(written), textureViews(ssr->srv(written), ssr->rtv(written)));
+
+    struct Capture
+    {
+        TextureHandle hdr, dst;
+    };
+    b.addPass<Capture>(
+        "SsrCapture",
+        [&](Rg::PassBuilder& pb, Capture& d)
+        {
+            d.hdr = pb.read(hdr, Use::PixelSrv);
+            d.dst = dst = pb.write(dst, Use::RenderTarget);
+        },
+        [ssr, rr](Rg::PassContext& c, const Capture& d)
+        {
+            const GpuScope capture(c.cmd(), "SSR Capture", ProfileColor::Ssr);
+            ssr->drawStep(c.cmd(), SsrStep::Capture, ssr->uploadCaptureParams(static_cast<uint32_t>(rr->frameIndex())), rgSrvTable(c, { d.hdr, d.hdr, d.hdr, d.hdr, d.hdr }), rgRtv(c, d.dst));
+        });
+
+    // Water is still opaque: hand it the capture in PIXEL_SHADER_RESOURCE, and rebind HDR with
+    // read-only depth for the passes after (what captureSceneColor used to leave).
+    addHandoff(b, "SsrCapture.Handoff", { dst },
+               [rr, ssr](ID3D12GraphicsCommandList* cmd)
+               {
+                   ssr->transitionSceneColorRead(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+                   rr->bindHdrDepthRead();
+               });
 }
 
 void SceneRenderer::resolveDeferred(DeferredStep step, ID3D12GraphicsCommandList* cmd, Renderer& renderer, World& world, const Camera3D& camera, const DeferredResolveInput& in)
@@ -477,15 +714,9 @@ void SceneRenderer::resolveDeferred(DeferredStep step, ID3D12GraphicsCommandList
         renderer.bindHdr(false);
         renderer.clearHdr();
         break;
-    case DeferredStep::Gtao:
-        applyGtao(cmd, renderer, camera, *in.prevViewProj, *in.gtao);
-        break;
-    case DeferredStep::Ssr:
-        applySsr(cmd, renderer, camera, *in.prevViewProj, *in.ssr, in.ssrEnv);
-        break;
     case DeferredStep::Lighting:
         m_resolveLighting = *in.lighting;
-        // Sample the enable bit after applySsr (it is what applySsr drew with).
+        // The SSR bit is sampled here, as addSsrPasses drew with it.
         fillSsrLightingConstants(m_resolveLighting, *in.ssr, renderer.debugState().ssrEnabled, m_ssr.isValid());
         drawDeferredLighting(cmd, renderer, m_resolveLighting);
         break;
