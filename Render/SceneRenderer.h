@@ -42,6 +42,7 @@ namespace Dark
         class AABox3f;
     }
 
+class FeatureBuilder;
 class FrameComposer;
 class Renderer;
 class World;
@@ -87,13 +88,15 @@ public:
 
     bool wantsTaa(const Renderer& renderer) const;
 
-    // Meter (when requested) → bloom (resize as needed) → TAA → motion blur → tonemap.
-    // Caller must have finished HDR scene draws. tonemap.usePostHdr is set by this helper.
-    // meterAutoExposure records this frame's 1×1. The host reads the previous sample and
-    // writes tonemap.exposure before the call, so bloom and tonemap share that exposure.
-    // FrameView::holdTemporal (see requestHistories) forces a TAA reset and skips motion blur so a
-    // strobe is not smeared.
-    void applyPost(Renderer& renderer, ID3D12GraphicsCommandList* cmd, const Math::Matrix4f& viewProj, TonemapSettings tonemap, bool meterAutoExposure = false);
+    // The Post entry with declared uses (render-graph plan Phase 6 part 2), from the host's
+    // FrameComposer::declare(PassId::Post) callback: meter (when requested) -> bloom -> TAA ->
+    // motion blur -> tonemap, each step its own graph pass binding a descriptor-ring table, so the
+    // graph plans every barrier. tonemap.usePostHdr is set here. meterAutoExposure records this
+    // frame's 1x1. The host reads the previous sample and writes tonemap.exposure before the call,
+    // so bloom and tonemap share that exposure. FrameView::holdTemporal (see requestHistories)
+    // forces a TAA reset and skips motion blur so a strobe is not smeared. Setup time: the settings
+    // and the previous view-proj are captured now; call endCameraFrame after execute().
+    void addPostPasses(FeatureBuilder& b, Renderer& renderer, const Math::Matrix4f& viewProj, TonemapSettings tonemap, bool meterAutoExposure = false);
 
     // Right after FrameComposer::begin: requests this frame's TAA / GTAO / SSR graph histories
     // (render-graph plan Phase 5) and applies a pending discardTemporalHistory. `frame` must stay

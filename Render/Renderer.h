@@ -235,10 +235,7 @@ namespace Dark
         // OM only. HDR target, read-only scene depth. No particle arguments.
         void bindHdrDepthCompute();
         void bindDecalTargets();
-        void bindPostHdr();
         void bindHdrColorTarget();
-        // Post HDR + the TAA history RTV (graph history, current slot) as MRT.
-        void bindTaaTargets(D3D12_CPU_DESCRIPTOR_HANDLE historyRtv);
         void clearGBuffer();
         void clearHdr();
         void setShadowSrv(D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu);

@@ -7,6 +7,7 @@
 #include "Render/MeshGen.h"
 #include "Render/Profile.h"
 #include "Render/Renderer.h"
+#include "Render/RgViews.h"
 #include "Render/TaaJitter.h"
 #include "Math/MathHelper.h"
 
@@ -676,57 +677,288 @@ bool SceneRenderer::syncAutoExposureSize(Renderer& renderer)
     return true;
 }
 
-void SceneRenderer::applyPost(Renderer& renderer, ID3D12GraphicsCommandList* cmd, const Math::Matrix4f& viewProj, TonemapSettings tonemap, bool meterAutoExposure)
+void SceneRenderer::addPostPasses(FeatureBuilder& b, Renderer& renderer, const Math::Matrix4f& viewProj, TonemapSettings tonemap, bool meterAutoExposure)
 {
+    using Rg::PassBuilder;
+    using Rg::PassContext;
+    using Rg::TextureHandle;
+    using Rg::Use;
+    using R = RenderResource;
+
+    // Captured now: the passes execute later in this frame's graph, after Gtao/Ssr (which read
+    // m_havePrevViewProj at execute), and the host calls endCameraFrame after execute().
     const Math::Matrix4f prevViewProj = m_havePrevViewProj ? m_prevViewProj : viewProj;
+    const Math::Matrix4f invViewProj  = viewProj.Inverse();
     const bool           holdTemporal = m_holdTemporal;
     if (m_autoExposureEnabled)
         syncAutoExposureSize(renderer);
 
-    const GpuScope post(cmd, "Post", ProfileColor::Post);
+    Rg::RenderGraph& g      = b.graph();
+    Renderer*        rr     = &renderer;
+    const uint32_t   width  = renderer.width();
+    const uint32_t   height = renderer.height();
+    TextureHandle    hdr    = b.handle(R::Hdr);
+    const TextureHandle depth    = b.handle(R::Depth);
+    const TextureHandle velocity = b.handle(R::Velocity);
+    TextureHandle       post     = b.handle(R::Post);
+    const TextureHandle swap     = b.handle(R::Swap);
+    if (!hdr.valid() || !depth.valid() || !swap.valid())
     {
-        if (meterAutoExposure && m_autoExposure.isValid())
-            m_autoExposure.meter(cmd, renderer);
-        if (renderer.debugState().bloom && m_bloom.isValid())
-            m_bloom.draw(cmd, renderer, BloomPipeline::kDefaultStrength, tonemap.exposure);
+        markHistoryUnwritten(m_taaHistory, "Taa");
+        return;
     }
 
-    bool usedPostHdr = false;
-    const HistoryView taaHistory = wantsTaa(renderer) && renderer.targets() ? renderer.targets()->historyView(m_taaHistory) : HistoryView{};
-    const bool        useTaa     = taaHistory.valid();
+    // The umbrella profiler scope opens in the first pass and closes in Tonemap (always last). No
+    // pass here can be culled: each writes an import, a history or the readback (SideEffect).
+    bool postScopeOpen = false;
+    auto openPost      = [&postScopeOpen]() {
+        const bool first = !postScopeOpen;
+        postScopeOpen    = true;
+        return first;
+    };
+
+    // ---- Auto exposure: reduce -> downsample chain -> copy the 1x1 into this frame's readback.
+    if (meterAutoExposure && m_autoExposure.prepare())
+    {
+        AutoExposurePipeline* ae     = &m_autoExposure;
+        const uint32_t        levels = ae->levelCount();
+        TextureHandle         level[AutoExposurePipeline::kMaxLevels]{};
+        for (uint32_t i = 0; i < levels; ++i)
+            level[i] = importTracked(g, AutoExposurePipeline::levelName(i), ae->levelResource(i), textureViews(ae->levelSrv(i), ae->levelRtv(i)));
+
+        struct Reduce
+        {
+            TextureHandle hdr, depth, dst;
+        };
+        const bool openScope = openPost();
+        b.addPass<Reduce>(
+            "Post.AutoExposure.Reduce",
+            [&](PassBuilder& pb, Reduce& d) {
+                d.hdr   = pb.read(hdr, Use::PixelSrv);
+                d.depth = pb.read(depth, Use::PixelSrv);
+                d.dst = level[0] = pb.write(level[0], Use::RenderTarget);
+            },
+            [ae, width, height, openScope](PassContext& c, const Reduce& d) {
+                if (openScope)
+                    profileGpuBegin(c.cmd(), "Post", ProfileColor::Post);
+                profileGpuBegin(c.cmd(), "Auto Exposure", ProfileColor::AutoExposure);
+                ae->drawReduce(c.cmd(), rgSrvTable(c, { d.hdr, d.depth }), width, height);
+            });
+        for (uint32_t i = 1; i < levels; ++i)
+        {
+            struct Down
+            {
+                TextureHandle src, dst;
+                uint32_t      index;
+            };
+            b.addPass<Down>(
+                "Post.AutoExposure.Down",
+                [&](PassBuilder& pb, Down& d) {
+                    d.src = pb.read(level[i - 1], Use::PixelSrv);
+                    d.dst = level[i] = pb.write(level[i], Use::RenderTarget);
+                    d.index          = i;
+                },
+                [ae](PassContext& c, const Down& d) { ae->drawDownsample(c.cmd(), d.index, rgSrvTable(c, { d.src })); });
+        }
+        struct Readback
+        {
+            TextureHandle last;
+        };
+        b.addPass<Readback>(
+            "Post.AutoExposure.Readback",
+            [&](PassBuilder& pb, Readback& d) {
+                pb.flags(Rg::PassFlags::SideEffect); // the CPU reads the copy next time this frame index runs
+                d.last = pb.read(level[levels - 1], Use::CopySrc);
+            },
+            [ae, rr](PassContext& c, const Readback&) {
+                ae->copyToReadback(c.cmd(), rr->frameIndex());
+                profileGpuEnd(c.cmd()); // Auto Exposure
+            });
+    }
+
+    // ---- Bloom: extract -> downsample -> additive upsample -> additive composite into HDR.
+    if (renderer.debugState().bloom && m_bloom.prepare())
+    {
+        const BloomPipeline* bloom    = &m_bloom;
+        const float          strength = BloomPipeline::kDefaultStrength;
+        const float          exposure = tonemap.exposure;
+        constexpr UINT       kMips    = BloomPipeline::kMipCount;
+        TextureHandle        mip[kMips]{};
+        for (UINT i = 0; i < kMips; ++i)
+            mip[i] = importTracked(g, BloomPipeline::mipName(i), bloom->mipResource(i), textureViews(bloom->mipSrv(i), bloom->mipRtv(i)));
+
+        struct Step
+        {
+            TextureHandle src, dst;
+            uint32_t      dstW, dstH, srcW, srcH;
+            BloomStep     step;
+            bool          openPost, openBloom, closeBloom;
+        };
+        // One pass: `src` sampled, `dst` drawn (read too when additive).
+        const auto addStep = [&](const char* name, BloomStep step, TextureHandle src, TextureHandle& dst, uint32_t dstW, uint32_t dstH, uint32_t srcW, uint32_t srcH,
+                                 bool first, bool last) {
+            const bool additive = step == BloomStep::Upsample || step == BloomStep::Composite;
+            const bool openP    = first && openPost();
+            b.addPass<Step>(
+                name,
+                [&](PassBuilder& pb, Step& d) {
+                    d.src  = pb.read(src, Use::PixelSrv);
+                    d.dst  = additive ? pb.readWrite(dst, Use::RenderTarget) : pb.write(dst, Use::RenderTarget);
+                    dst    = d.dst;
+                    d.dstW = dstW;
+                    d.dstH = dstH;
+                    d.srcW = srcW;
+                    d.srcH = srcH;
+                    d.step = step;
+                    d.openPost   = openP;
+                    d.openBloom  = first;
+                    d.closeBloom = last;
+                },
+                [bloom, strength, exposure](PassContext& c, const Step& d) {
+                    if (d.openPost)
+                        profileGpuBegin(c.cmd(), "Post", ProfileColor::Post);
+                    if (d.openBloom)
+                        profileGpuBegin(c.cmd(), "Bloom", ProfileColor::Bloom);
+                    bloom->drawStep(c.cmd(), d.step, rgSrvTable(c, { d.src }), rgRtv(c, d.dst), d.dstW, d.dstH, d.srcW, d.srcH, strength, exposure);
+                    if (d.closeBloom)
+                        profileGpuEnd(c.cmd()); // Bloom
+                });
+        };
+        addStep("Post.Bloom.Extract", BloomStep::Extract, hdr, mip[0], bloom->mipWidth(0), bloom->mipHeight(0), width, height, true, false);
+        for (UINT i = 0; i < BloomPipeline::kDownCount; ++i)
+            addStep("Post.Bloom.Down", BloomStep::Downsample, mip[i], mip[i + 1], bloom->mipWidth(i + 1), bloom->mipHeight(i + 1), bloom->mipWidth(i), bloom->mipHeight(i), false,
+                    false);
+        for (UINT i = kMips - 1; i > 0; --i)
+            addStep("Post.Bloom.Up", BloomStep::Upsample, mip[i], mip[i - 1], bloom->mipWidth(i - 1), bloom->mipHeight(i - 1), bloom->mipWidth(i), bloom->mipHeight(i), false,
+                    false);
+        addStep("Post.Bloom.Composite", BloomStep::Composite, mip[0], hdr, width, height, bloom->mipWidth(0), bloom->mipHeight(0), false, true);
+        b.set(R::Hdr, hdr);
+    }
+
+    // ---- TAA: scene HDR + last frame's history -> post and this frame's history.
+    bool                 usedPostHdr = false;
+    const HistoryView    taaHistory  = wantsTaa(renderer) && renderer.targets() ? renderer.targets()->historyView(m_taaHistory) : HistoryView{};
+    const TextureHandle  histCurr    = b.handle(R::TaaHistory);
+    const bool           useTaa      = taaHistory.valid() && histCurr.valid() && post.valid() && velocity.valid();
     if (useTaa)
     {
         TaaSettings taa{};
-        copyMatrix(taa.invViewProj, viewProj.Inverse());
+        copyMatrix(taa.invViewProj, invViewProj);
         copyMatrix(taa.prevViewProj, prevViewProj);
-        taa.blend          = 0.1f;
+        taa.blend = 0.1f;
         // A held frame (and the one after it) gets no valid prev from the graph (FrameView::holdTemporal).
-        taa.reset          = !taaHistory.prevValid;
-        taa.historyPrevSrv = taaHistory.prevSrv;
-        taa.historyCurrRtv = taaHistory.currRtv;
-        taa.historyCurr    = taaHistory.curr;
-        m_taa.draw(cmd, renderer, taa);
+        const TextureHandle histPrev = b.prev(R::TaaHistory);
+        taa.reset                    = !taaHistory.prevValid || !histPrev.valid();
+        // Reset: the shader ignores the history, but the table still needs a valid view. The other
+        // slot's SRV (outside the graph, not read) fills it.
+        const D3D12_CPU_DESCRIPTOR_HANDLE resetPrev = taaHistory.prevSrv;
+
+        struct Taa
+        {
+            TextureHandle hdr, prev, velocity, depth, post, hist;
+        };
+        const TaaPipeline* pipe  = &m_taa;
+        const bool         openP = openPost();
+        TextureHandle      histOut;
+        b.addPass<Taa>(
+            "Post.Taa",
+            [&](PassBuilder& pb, Taa& d) {
+                d.hdr      = pb.read(hdr, Use::PixelSrv);
+                d.prev     = histPrev.valid() ? pb.read(histPrev, Use::PixelSrv) : TextureHandle{};
+                d.velocity = pb.read(velocity, Use::PixelSrv);
+                d.depth    = pb.read(depth, Use::PixelSrv);
+                d.post = post = pb.write(post, Use::RenderTarget);
+                d.hist = histOut = pb.write(histCurr, Use::RenderTarget);
+            },
+            [pipe, taa, resetPrev, width, height, openP](PassContext& c, const Taa& d) {
+                if (openP)
+                    profileGpuBegin(c.cmd(), "Post", ProfileColor::Post);
+                TaaTargets t{};
+                t.srvTable   = d.prev.valid() ? rgSrvTable(c, { d.hdr, d.prev, d.velocity, d.depth })
+                                              : rgTable(c, { rgSrvCpu(c, d.hdr), resetPrev, rgSrvCpu(c, d.velocity), rgSrvCpu(c, d.depth) });
+                t.postRtv    = rgRtv(c, d.post);
+                t.historyRtv = rgRtv(c, d.hist);
+                t.width      = width;
+                t.height     = height;
+                pipe->draw(c.cmd(), taa, t);
+            });
+        b.set(R::Post, post);
+        b.set(R::TaaHistory, histOut);
         usedPostHdr = true;
     }
     else
         markHistoryUnwritten(m_taaHistory, "Taa");
 
-    const bool useMb = !holdTemporal && renderer.debugState().motionBlur && m_motionBlur.isValid();
+    // ---- Motion blur: post -> scene HDR after TAA, scene HDR -> post without it.
+    const bool useMb = !holdTemporal && renderer.debugState().motionBlur && m_motionBlur.isValid() && velocity.valid() && post.valid();
     if (useMb)
     {
         MotionBlurSettings mb{};
-        copyMatrix(mb.invViewProj, viewProj.Inverse());
+        copyMatrix(mb.invViewProj, invViewProj);
         copyMatrix(mb.prevViewProj, prevViewProj);
         mb.strength  = 1.0f;
         mb.maxPixels = 40.0f;
         mb.readPost  = useTaa;
-        m_motionBlur.draw(cmd, renderer, mb);
+
+        struct Mb
+        {
+            TextureHandle src, velocity, depth, dst;
+        };
+        const MotionBlurPipeline* pipe  = &m_motionBlur;
+        const bool                openP = openPost();
+        TextureHandle&            src   = useTaa ? post : hdr;
+        TextureHandle&            dst   = useTaa ? hdr : post;
+        b.addPass<Mb>(
+            "Post.MotionBlur",
+            [&](PassBuilder& pb, Mb& d) {
+                d.src      = pb.read(src, Use::PixelSrv);
+                d.velocity = pb.read(velocity, Use::PixelSrv);
+                d.depth    = pb.read(depth, Use::PixelSrv);
+                d.dst = dst = pb.write(dst, Use::RenderTarget);
+            },
+            [pipe, mb, width, height, openP](PassContext& c, const Mb& d) {
+                if (openP)
+                    profileGpuBegin(c.cmd(), "Post", ProfileColor::Post);
+                MotionBlurTargets t{};
+                t.srvTable = rgSrvTable(c, { d.src, d.velocity, d.depth });
+                t.rtv      = rgRtv(c, d.dst);
+                t.width    = width;
+                t.height   = height;
+                pipe->draw(c.cmd(), mb, t);
+            });
+        b.set(useTaa ? R::Hdr : R::Post, dst);
         usedPostHdr = !useTaa;
     }
 
-    renderer.bindColorTargetOnly();
+    // ---- Tonemap into the back buffer (closes the umbrella scope).
     tonemap.usePostHdr = usedPostHdr;
-    m_tonemap.draw(cmd, renderer, tonemap);
+    struct Tone
+    {
+        TextureHandle src, depth, dst;
+    };
+    const TonemapPipeline* tonePipe   = &m_tonemap;
+    const bool             openP      = openPost();
+    const TextureHandle    toneSource = usedPostHdr ? post : hdr;
+    TextureHandle          swapOut;
+    b.addPass<Tone>(
+        "Post.Tonemap",
+        [&](PassBuilder& pb, Tone& d) {
+            d.src   = pb.read(toneSource, Use::PixelSrv);
+            d.depth = pb.read(depth, Use::PixelSrv);
+            d.dst = swapOut = pb.write(swap, Use::RenderTarget);
+        },
+        [tonePipe, tonemap, width, height, openP](PassContext& c, const Tone& d) {
+            if (openP)
+                profileGpuBegin(c.cmd(), "Post", ProfileColor::Post);
+            TonemapTargets t{};
+            t.srvTable = rgSrvTable(c, { d.src, d.depth });
+            t.rtv      = rgRtv(c, d.dst);
+            t.width    = width;
+            t.height   = height;
+            tonePipe->draw(c.cmd(), tonemap, t);
+            profileGpuEnd(c.cmd()); // Post
+        });
+    b.set(R::Swap, swapOut);
 }
 
 } // namespace Dark

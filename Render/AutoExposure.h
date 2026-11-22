@@ -85,8 +85,25 @@ public:
     // release `renderer` defers behind the frame fence (null: released at once, GPU idle; tests).
     bool create(GraphTargets& targets, Renderer* renderer);
     uint64_t generation() const; // changes when a resize recreated the pyramid
-    // Records the pyramid and copies the 1×1 into this frame's readback slot.
-    bool meter(ID3D12GraphicsCommandList* cmd, Renderer& renderer);
+
+    // Metering as graph passes (render-graph plan Phase 6 part 2): reduce (HDR + depth -> level 0),
+    // one downsample per level, then the copy of the 1x1 into this frame's readback slot. No step
+    // records a barrier; the passes declare the levels. prepare() once per frame before the levels
+    // are imported: picks up a recreated pyramid; false (logged once) when metering cannot run.
+    bool prepare() const;
+    uint32_t                    levelCount() const; // levels drawn: the last one is 1x1
+    uint32_t                    levelWidth(UINT index) const;
+    uint32_t                    levelHeight(UINT index) const;
+    ID3D12Resource*             levelResource(UINT index) const;
+    D3D12_CPU_DESCRIPTOR_HANDLE levelSrv(UINT index) const;
+    D3D12_CPU_DESCRIPTOR_HANDLE levelRtv(UINT index) const;
+    static const char*          levelName(UINT index); // the registered target's name
+    // hdrDepth: ring table of the scene HDR and depth SRVs; srcW x srcH is the HDR size.
+    void drawReduce(ID3D12GraphicsCommandList* cmd, D3D12_GPU_DESCRIPTOR_HANDLE hdrDepth, uint32_t srcW, uint32_t srcH) const;
+    // Level dst - 1 (ring table `src`) -> level dst.
+    void drawDownsample(ID3D12GraphicsCommandList* cmd, UINT dst, D3D12_GPU_DESCRIPTOR_HANDLE src) const;
+    // The last level (in COPY_SOURCE) -> readback slot frameIndex % kFrameCount.
+    void copyToReadback(ID3D12GraphicsCommandList* cmd, uint32_t frameIndex);
     // 0 when this slot has not completed a copy, or the weight was 0.
     float readMeasuredLuma(uint32_t frameIndex) const;
     // Next reads return 0 until a later meter() completes. Does not change GPU memory.
@@ -98,18 +115,10 @@ private:
     static constexpr UINT kRootConstants = 0;
     static constexpr UINT kRootSrv       = 1;
     static constexpr UINT kConstantCount = 4;
-    static constexpr UINT kFrameSrv      = kFrameCount * 2; // HDR + depth, per frame
 
     bool createPsos(ID3D12Device* device);
     bool createTargets(ID3D12Device* device);
     void resetTargets();
-    void refreshViews() const;
-    uint32_t levelCount() const;
-    uint32_t levelWidth(UINT index) const;
-    uint32_t levelHeight(UINT index) const;
-    void transitionLevel(ID3D12GraphicsCommandList* cmd, UINT index, D3D12_RESOURCE_STATES after) const;
-    D3D12_CPU_DESCRIPTOR_HANDLE srvCpu(UINT index) const;
-    D3D12_GPU_DESCRIPTOR_HANDLE srvGpu(UINT index) const;
     void drawLevel(ID3D12GraphicsCommandList* cmd, ID3D12RootSignature* root, ID3D12PipelineState* pso, D3D12_GPU_DESCRIPTOR_HANDLE table,
                    D3D12_CPU_DESCRIPTOR_HANDLE rtv, uint32_t dstW, uint32_t dstH, uint32_t srcW, uint32_t srcH) const;
 
@@ -119,12 +128,7 @@ private:
     ComPtr<ID3D12RootSignature>  m_rootDownsample;
     ComPtr<ID3D12PipelineState>  m_psoReduce;
     ComPtr<ID3D12PipelineState>  m_psoDownsample;
-    ComPtr<ID3D12DescriptorHeap> m_srvHeap;
-    D3D12_CPU_DESCRIPTOR_HANDLE  m_srvCpu{};
-    D3D12_GPU_DESCRIPTOR_HANDLE  m_srvGpu{};
-    UINT                         m_srvIncr = 0;
     mutable GraphTarget          m_levels[kMaxLevels]{};
-    mutable bool                 m_viewsWritten = false;
     GpuResource                  m_readback[kFrameCount]{};
     void*                        m_readbackMapped[kFrameCount]{};
     bool                         m_slotWritten[kFrameCount]{};

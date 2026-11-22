@@ -1,6 +1,5 @@
 #include "Render/MotionBlurPipeline.h"
 #include "Render/Profile.h"
-#include "Render/Renderer.h"
 #include "Render/ShaderCompile.h"
 #include "Core/Log.h"
 #include "Math/MathHelper.h"
@@ -25,7 +24,6 @@ namespace Dark
     {
         m_rootSignature.Reset();
         m_pso.Reset();
-        m_srvHeap.Reset();
         if (!device)
         {
             DE_LOG_ERROR(LogCategory::Render, "MotionBlurPipeline::create: null device");
@@ -34,7 +32,7 @@ namespace Dark
 
         D3D12_DESCRIPTOR_RANGE srvRange{};
         srvRange.RangeType                         = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-        srvRange.NumDescriptors                    = kSrvPerFrame;
+        srvRange.NumDescriptors                    = kSrvCount;
         srvRange.BaseShaderRegister                = 0;
         srvRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
@@ -103,58 +101,27 @@ namespace Dark
             return false;
         }
 
-        D3D12_DESCRIPTOR_HEAP_DESC heapDesc{};
-        heapDesc.NumDescriptors = kBufferedFrames * kSrvPerFrame;
-        heapDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-        heapDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-        if (FailedHr(device->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&m_srvHeap)), "CreateDescriptorHeap motion blur SRV"))
-        {
-            m_pso.Reset();
-            m_rootSignature.Reset();
-            return false;
-        }
-        m_cpu     = m_srvHeap->GetCPUDescriptorHandleForHeapStart();
-        m_gpu     = m_srvHeap->GetGPUDescriptorHandleForHeapStart();
-        m_srvIncr = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-
         DE_LOG_INFO(LogCategory::Render, "MotionBlurPipeline: ready");
         return true;
     }
 
-    void MotionBlurPipeline::draw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const MotionBlurSettings& settings) const
+    void MotionBlurPipeline::draw(ID3D12GraphicsCommandList* cmd, const MotionBlurSettings& settings, const MotionBlurTargets& targets) const
     {
-        if (!cmd || !m_pso || !m_srvHeap)
-            return;
-        ID3D12Device* device = renderer.device();
-        const D3D12_CPU_DESCRIPTOR_HANDLE src = settings.readPost ? renderer.postHdrSrvCpu() : renderer.hdrSrvCpu();
-        const D3D12_CPU_DESCRIPTOR_HANDLE vel = renderer.velocitySrvCpu();
-        if (!device || src.ptr == 0 || vel.ptr == 0)
+        if (!cmd || !m_pso || targets.srvTable.ptr == 0 || targets.rtv.ptr == 0 || targets.width == 0 || targets.height == 0)
             return;
 
         const GpuScope blur(cmd, "Motion Blur", ProfileColor::MotionBlur);
-        if (settings.readPost)
-            renderer.bindHdrColorTarget();
-        else
-            renderer.bindPostHdr();
+        cmd->OMSetRenderTargets(1, &targets.rtv, FALSE, nullptr);
+        D3D12_VIEWPORT vp{};
+        vp.Width    = static_cast<float>(targets.width);
+        vp.Height   = static_cast<float>(targets.height);
+        vp.MaxDepth = 1.0f;
+        const D3D12_RECT sc{ 0, 0, static_cast<LONG>(targets.width), static_cast<LONG>(targets.height) };
+        cmd->RSSetViewports(1, &vp);
+        cmd->RSSetScissorRects(1, &sc);
 
-        const UINT slot = renderer.frameIndex() % kBufferedFrames;
-        D3D12_CPU_DESCRIPTOR_HANDLE cpu = m_cpu;
-        cpu.ptr += static_cast<SIZE_T>(slot * kSrvPerFrame) * m_srvIncr;
-        device->CopyDescriptorsSimple(1, cpu, src, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-        D3D12_CPU_DESCRIPTOR_HANDLE velCpu = cpu;
-        velCpu.ptr += m_srvIncr;
-        device->CopyDescriptorsSimple(1, velCpu, vel, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-        D3D12_CPU_DESCRIPTOR_HANDLE depthCpu = velCpu;
-        depthCpu.ptr += m_srvIncr;
-        const D3D12_CPU_DESCRIPTOR_HANDLE depthSrc = renderer.depthSrvCpu();
-        if (depthSrc.ptr != 0)
-            device->CopyDescriptorsSimple(1, depthCpu, depthSrc, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-
-        D3D12_GPU_DESCRIPTOR_HANDLE gpu = m_gpu;
-        gpu.ptr += static_cast<SIZE_T>(slot * kSrvPerFrame) * m_srvIncr;
-
-        const float w = static_cast<float>(Math::Max(renderer.width(), 1u));
-        const float h = static_cast<float>(Math::Max(renderer.height(), 1u));
+        const float w = static_cast<float>(Math::Max(targets.width, 1u));
+        const float h = static_cast<float>(Math::Max(targets.height, 1u));
         float constants[kConstantCount]{};
         std::memcpy(constants, settings.invViewProj, sizeof(float) * 16);
         std::memcpy(constants + 16, settings.prevViewProj, sizeof(float) * 16);
@@ -165,10 +132,8 @@ namespace Dark
 
         cmd->SetGraphicsRootSignature(m_rootSignature.Get());
         cmd->SetPipelineState(m_pso.Get());
-        ID3D12DescriptorHeap* heaps[] = { m_srvHeap.Get() };
-        cmd->SetDescriptorHeaps(1, heaps);
         cmd->SetGraphicsRoot32BitConstants(kRootConstants, kConstantCount, constants, 0);
-        cmd->SetGraphicsRootDescriptorTable(kRootSrv, gpu);
+        cmd->SetGraphicsRootDescriptorTable(kRootSrv, targets.srvTable);
         cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         cmd->DrawInstanced(3, 1, 0, 0);
     }

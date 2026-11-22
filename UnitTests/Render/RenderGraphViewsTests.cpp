@@ -191,3 +191,90 @@ TEST(RenderGraphViews, HistorySlotsTakeANativeResourceAndViews)
     EXPECT_EQ(g.nativeResource(hist.curr.index), fake(0x50));
     EXPECT_EQ(g.nativeResource(transient.index), nullptr);
 }
+
+// The Post entry's shape (SceneRenderer::addPostPasses): metering, bloom (additive steps read their
+// render target), then tonemap. The compiled order must be the insertion order (the umbrella
+// profiler scopes open in the first pass and close in the last), nothing is culled (the readback
+// copy is a SideEffect; every other pass writes an import), and an additive step gets the RTV of
+// the target it read-writes.
+TEST(RenderGraphViews, PostChainKeepsInsertionOrderAndAdditiveStepsGetTheirRtv)
+{
+    RenderGraph g;
+    g.beginFrame(64, 64);
+    const TextureHandle bb    = g.importBackBuffer(fake(0x10), 64, 64, kBgra8);
+    TextureHandle       hdr   = g.importTexture("Hdr", absTex(64, 64), fake(0x20), Layout::RenderTarget, Layout::Undefined);
+    const TextureHandle depth = g.importTexture("Depth", absTex(64, 64, kD32), fake(0x30), Layout::DepthStencilWrite, Layout::Undefined);
+    TextureHandle       lvl[2] = { g.importTexture("L0", absTex(16, 16), fake(0x40), Layout::RenderTarget, Layout::Undefined),
+                                   g.importTexture("L1", absTex(1, 1), fake(0x50), Layout::RenderTarget, Layout::Undefined) };
+    TextureHandle       mip[2] = { g.importTexture("M0", absTex(32, 32), fake(0x60), Layout::RenderTarget, Layout::Undefined),
+                                   g.importTexture("M1", absTex(16, 16), fake(0x70), Layout::RenderTarget, Layout::Undefined) };
+    g.setViews(bb, views(0x100));
+    g.setViews(hdr, views(0x200));
+    g.setViews(depth, views(0x300));
+    g.setViews(lvl[0], views(0x400));
+    g.setViews(lvl[1], views(0x500));
+    g.setViews(mip[0], views(0x600));
+    g.setViews(mip[1], views(0x700));
+
+    std::vector<const char*> ran;
+    std::vector<uint64_t>    rtvs;
+    const auto step = [&](const char* name, TextureHandle src, TextureHandle& dst, bool additive)
+    {
+        g.addPass<NoData>(
+            name,
+            [&](PassBuilder& b, NoData&)
+            {
+                b.read(src, Use::PixelSrv);
+                dst = additive ? b.readWrite(dst, Use::RenderTarget) : b.write(dst, Use::RenderTarget);
+            },
+            [&ran, &rtvs, name, out = dst](PassContext& c, const NoData&)
+            {
+                ran.push_back(name);
+                rtvs.push_back(c.rtv(out));
+            });
+    };
+    g.addPass<NoData>(
+        "AE.Reduce",
+        [&](PassBuilder& b, NoData&)
+        {
+            b.read(hdr, Use::PixelSrv);
+            b.read(depth, Use::PixelSrv);
+            lvl[0] = b.write(lvl[0], Use::RenderTarget);
+        },
+        [&](PassContext&, const NoData&) { ran.push_back("AE.Reduce"); });
+    step("AE.Down", lvl[0], lvl[1], false);
+    g.addPass<NoData>(
+        "AE.Readback",
+        [&](PassBuilder& b, NoData&)
+        {
+            b.flags(PassFlags::SideEffect);
+            b.read(lvl[1], Use::CopySrc);
+        },
+        [&](PassContext&, const NoData&) { ran.push_back("AE.Readback"); });
+    step("Bloom.Extract", hdr, mip[0], false);
+    step("Bloom.Down", mip[0], mip[1], false);
+    step("Bloom.Up", mip[1], mip[0], true);
+    step("Bloom.Composite", mip[0], hdr, true);
+    g.addPass<NoData>(
+        "Tonemap",
+        [&](PassBuilder& b, NoData&)
+        {
+            b.read(hdr, Use::PixelSrv);
+            b.read(depth, Use::PixelSrv);
+            b.write(bb, Use::RenderTarget);
+        },
+        [&](PassContext& c, const NoData&)
+        {
+            ran.push_back("Tonemap");
+            rtvs.push_back(c.rtv(bb));
+        });
+    ASSERT_TRUE(compiles(g));
+    EXPECT_EQ(g.order(), (std::vector<uint32_t>{ 0, 1, 2, 3, 4, 5, 6, 7 }));
+    TableExecutor exec;
+    ASSERT_TRUE(g.execute(&exec));
+    ASSERT_EQ(ran.size(), 8u);
+    EXPECT_STREQ(ran[2], "AE.Readback");
+    EXPECT_STREQ(ran[7], "Tonemap");
+    // AE.Down, Extract, Down, Up (mip 0), Composite (HDR), Tonemap (back buffer).
+    EXPECT_EQ(rtvs, (std::vector<uint64_t>{ 0x502, 0x602, 0x702, 0x602, 0x202, 0x102 }));
+}

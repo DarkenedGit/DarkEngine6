@@ -1157,8 +1157,9 @@ void SandboxFrame::render()
         });
     }
 
-    frame.set(PassId::Post, [&](Rg::PassContext& pass) {
-        ID3D12GraphicsCommandList* const cmd = pass.cmd();
+    // Phase 6 part 2: Post adds declared passes (SceneRenderer::addPostPasses) when execute() builds
+    // the frame; the echo image stays one opaque pass ahead of them (game content, Phase 8).
+    frame.declare(PassId::Post, [&](FeatureBuilder& b) {
         const bool aces = useAcesTonemap(app().renderer());
         TonemapSettings post = app().playerPostFx();
         post.mode            = aces ? 1.0f : 0.0f;
@@ -1182,46 +1183,45 @@ void SandboxFrame::render()
         post.exposure = exposure;
         const bool echoImage = app().m_vision.echo > 0.0f && m_scene.echo().isValid();
         if (echoImage)
-        {
-            EchoPipeline& echo = m_scene.echo();
-            bool capturedThisFrame = false;
-            if (app().m_vision.echoCapture)
-            {
-                EchoSnapshotFrame snap{};
-                copyMatrix(snap.invViewProj, viewProj.Inverse());
-                snap.cameraPos[0] = camPos.x;
-                snap.cameraPos[1] = camPos.y;
-                snap.cameraPos[2] = camPos.z;
-                if (echo.capture(cmd, app().renderer(), snap))
+            b.opaque("Post.Echo", { RenderResource::Hdr, RenderResource::Depth }, { RenderResource::Hdr }, [&](Rg::PassContext& pass) {
+                ID3D12GraphicsCommandList* const cmd = pass.cmd();
+                EchoPipeline& echo = m_scene.echo();
+                bool capturedThisFrame = false;
+                if (app().m_vision.echoCapture)
                 {
-                    app().m_vision.echoChirpViewProj = viewProj;
-                    app().m_vision.echoChirpPos      = camPos;
-                    app().m_vision.echoHaveChirp     = true;
-                    app().m_vision.echoCapture       = false;
-                    capturedThisFrame   = true;
+                    EchoSnapshotFrame snap{};
+                    copyMatrix(snap.invViewProj, viewProj.Inverse());
+                    snap.cameraPos[0] = camPos.x;
+                    snap.cameraPos[1] = camPos.y;
+                    snap.cameraPos[2] = camPos.z;
+                    if (echo.capture(cmd, app().renderer(), snap))
+                    {
+                        app().m_vision.echoChirpViewProj = viewProj;
+                        app().m_vision.echoChirpPos      = camPos;
+                        app().m_vision.echoHaveChirp     = true;
+                        app().m_vision.echoCapture       = false;
+                        capturedThisFrame   = true;
+                    }
                 }
-            }
-            if (app().m_vision.echoHaveChirp && echo.hasSnapshot())
-            {
-                EchoCompositeFrame comp{};
-                copyMatrix(comp.currInvViewProj, viewProj.Inverse());
-                copyMatrix(comp.chirpViewProj, app().m_vision.echoChirpViewProj);
-                comp.chirpCamera[0] = app().m_vision.echoChirpPos.x;
-                comp.chirpCamera[1] = app().m_vision.echoChirpPos.y;
-                comp.chirpCamera[2] = app().m_vision.echoChirpPos.z;
-                float radius = Math::Min(app().m_vision.echoChirpAge * app().m_vision.echoChirp.speedMetersPerSec, app().m_vision.echoChirp.rangeMeters);
-                if (capturedThisFrame)
-                    radius = Math::Max(radius, EchoPipeline::kEdgeMeters);
-                comp.radius   = radius;
-                comp.strength = app().m_vision.echo;
-                comp.maxRange = app().m_vision.echoChirp.rangeMeters;
-                echo.composite(cmd, app().renderer(), comp);
-            }
-        }
+                if (app().m_vision.echoHaveChirp && echo.hasSnapshot())
+                {
+                    EchoCompositeFrame comp{};
+                    copyMatrix(comp.currInvViewProj, viewProj.Inverse());
+                    copyMatrix(comp.chirpViewProj, app().m_vision.echoChirpViewProj);
+                    comp.chirpCamera[0] = app().m_vision.echoChirpPos.x;
+                    comp.chirpCamera[1] = app().m_vision.echoChirpPos.y;
+                    comp.chirpCamera[2] = app().m_vision.echoChirpPos.z;
+                    float radius = Math::Min(app().m_vision.echoChirpAge * app().m_vision.echoChirp.speedMetersPerSec, app().m_vision.echoChirp.rangeMeters);
+                    if (capturedThisFrame)
+                        radius = Math::Max(radius, EchoPipeline::kEdgeMeters);
+                    comp.radius   = radius;
+                    comp.strength = app().m_vision.echo;
+                    comp.maxRange = app().m_vision.echoChirp.rangeMeters;
+                    echo.composite(cmd, app().renderer(), comp);
+                }
+            });
         const bool holdExposure = app().m_vision.infrared > 0.0f || app().m_vision.ultraviolet > 0.0f || app().m_vision.echo > 0.0f || app().m_play.runtime().underAmount > 0.0f;
-        m_scene.applyPost(app().renderer(), cmd, viewProj, post, deferredMeter && app().m_frame.autoExposure().mode == ExposureMode::Auto && !holdExposure);
-
-        m_scene.endCameraFrame(app().m_sceneWorld.camera, viewProj);
+        m_scene.addPostPasses(b, app().renderer(), viewProj, post, deferredMeter && app().m_frame.autoExposure().mode == ExposureMode::Auto && !holdExposure);
     });
 
     const bool movieBlocks = app().m_movie.blocksWorld();
@@ -1232,6 +1232,8 @@ void SandboxFrame::render()
         frame.set(PassId::Overlay, [&](Rg::PassContext& pass) { drawDebugOverlays(pass.cmd()); });
     // ImGui, the movie and the HUD stay after the graph until Phase 7; endFrame still presents.
     (void)frame.execute("Sandbox");
+    // After execute: the Gtao/Ssr passes read last frame's view-proj while the graph records.
+    m_scene.endCameraFrame(app().m_sceneWorld.camera, viewProj);
 
     Health* hudHp = app().localHealth();
     const Entity hudBody = app().possessedBody();

@@ -939,13 +939,13 @@ void EditorApp::renderScene3D()
             m_play.feedback().splats.draw(cmd, m_camera);
     });
 
-    frame.set(PassId::Post, [&](Rg::PassContext& pass) {
-        ID3D12GraphicsCommandList* const cmd = pass.cmd();
+    // Phase 6 part 2: Post adds declared passes when execute() builds the frame.
+    frame.declare(PassId::Post, [&](FeatureBuilder& b) {
         const bool aces = renderer().debugState().aces && renderer().debugState().lightingActive();
         TonemapSettings ts{};
         ts.mode     = aces ? 1.0f : 0.0f;
         ts.exposure = 1.0f;
-        m_scene.applyPost(renderer(), cmd, viewProj, ts);
+        m_scene.addPostPasses(b, renderer(), viewProj, ts);
     });
 
     const bool ssaoTile = renderer().debugState().ssaoDebug == 1;
