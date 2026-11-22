@@ -694,12 +694,10 @@ void EditorApp::renderScene3D()
                                                   cf.time         = m_sceneWorld.cloudTime;
                                                   m_scene.drawCloudVolumes(pass.cmd(), depthTable, renderer(), world(), m_camera, viewProj, cf);
                                               });
-                      // The passes after Clouds are opaque and expect HDR bound with read-only depth.
-                      b.opaque("Clouds.BindHdr", {}, {}, [&](Rg::PassContext&) { renderer().bindHdrDepthRead(); });
                   });
     if (m_showGrid && m_gridMesh.valid())
     {
-        frame.set(PassId::EditorGrid, [&](Rg::PassContext& pass) {
+        const auto drawGrid = [&](Rg::PassContext& pass) {
             ID3D12GraphicsCommandList* const cmd = pass.cmd();
             if (!m_showGrid || !m_gridMesh.valid())
                 return;
@@ -714,11 +712,12 @@ void EditorApp::renderScene3D()
             lc.color[3] = 1.0f;
             lines.setConstants(cmd, lc);
             m_gridMesh.draw(cmd);
-        });
+        };
+        frame.declare(PassId::EditorGrid, [&, drawGrid](FeatureBuilder& b) { m_scene.addHdrOverlayPasses(b, renderer(), "EditorGrid", drawGrid); });
     }
     if ((m_linePipeline3D.isValid() ? m_linePipeline3D : m_linePipeline).isValid())
     {
-        frame.set(PassId::EditorGizmos, [&](Rg::PassContext& pass) {
+        const auto drawGizmos = [&](Rg::PassContext& pass) {
             ID3D12GraphicsCommandList* const cmd = pass.cmd();
             LinePipeline& lines = m_linePipeline3D.isValid() ? m_linePipeline3D : m_linePipeline;
             if (!lines.isValid())
@@ -819,10 +818,11 @@ void EditorApp::renderScene3D()
                 lines.setConstants(cmd, lc);
                 gizmo->draw(cmd);
             });
-        });
+        };
+        frame.declare(PassId::EditorGizmos, [&, drawGizmos](FeatureBuilder& b) { m_scene.addHdrOverlayPasses(b, renderer(), "EditorGizmos", drawGizmos); });
     }
 
-    frame.set(PassId::DebugOverlays, [&](Rg::PassContext& pass) {
+    const auto drawOverlays = [&](Rg::PassContext& pass) {
         ID3D12GraphicsCommandList* const cmd = pass.cmd();
         m_walkDebug.draw(cmd, renderer(), AI::walkabilityMeshSource(&m_ai.walkability()), viewProj);
         drawTrailOverlay(cmd, viewProj);
@@ -830,9 +830,10 @@ void EditorApp::renderScene3D()
             LinePipeline& volumeLines = m_linePipeline3D.isValid() ? m_linePipeline3D : m_linePipeline;
             m_scene.drawDecalVolumes(cmd, renderer(), volumeLines, viewProj);
         }
-    });
+    };
+    frame.declare(PassId::DebugOverlays, [&, drawOverlays](FeatureBuilder& b) { m_scene.addHdrOverlayPasses(b, renderer(), "DebugOverlays", drawOverlays); });
 
-    frame.set(PassId::Translucent, [&](Rg::PassContext& pass) {
+    const auto drawTranslucent = [&](Rg::PassContext& pass) {
         ID3D12GraphicsCommandList* const cmd = pass.cmd();
         const GpuScope translucent(cmd, "Translucent", ProfileColor::Translucent);
         MeshFrameConstants lit{};
@@ -887,13 +888,14 @@ void EditorApp::renderScene3D()
                 drawModelForward(cmd, gpu, m_meshTransparentPipeline, m_shadows, *model, true, worldMat, viewProj, lit, fill);
             ++draws;
         }
-    });
+    };
+    frame.declare(PassId::Translucent, [&, drawTranslucent](FeatureBuilder& b) { m_scene.addHdrOverlayPasses(b, renderer(), "Translucent", drawTranslucent); });
 
-    frame.set(PassId::Particles, [&](Rg::PassContext& pass) {
+    const auto drawParticles = [&](Rg::PassContext& pass, D3D12_CPU_DESCRIPTOR_HANDLE depthSrv, D3D12_CPU_DESCRIPTOR_HANDLE attribSrv) {
         ID3D12GraphicsCommandList* const cmd = pass.cmd();
         const GpuScope particles(cmd, "Particles", ProfileColor::Particles);
         // Editor does not run camouflage, so this frame's depth was not rewritten.
-        m_gpuParticles.simulateAndDraw(cmd, renderer(), m_camera, world(), assets(), false);
+        m_gpuParticles.simulateAndDraw(cmd, renderer(), m_camera, world(), assets(), false, GpuParticleFrame{ &pass, depthSrv, attribSrv });
         m_particleRenderer.beginFrame(renderer().frameIndex());
         if (m_play.feedback().blood.aliveCount() > 0)
             m_particleRenderer.draw(cmd, m_camera, m_play.feedback().blood, false);
@@ -918,7 +920,8 @@ void EditorApp::renderScene3D()
         m_leafRenderer.draw(cmd, m_camera, m_sceneWorld.leafField);
         if (!deferredDecals())
             m_play.feedback().splats.draw(cmd, m_camera);
-    });
+    };
+    frame.declare(PassId::Particles, [&, drawParticles](FeatureBuilder& b) { m_scene.addParticlesPasses(b, renderer(), drawParticles); });
 
     // Phase 6 part 2: Post adds declared passes when execute() builds the frame.
     frame.declare(PassId::Post, [&](FeatureBuilder& b) {

@@ -70,8 +70,6 @@ namespace Dark
         m_rootSignature.Reset();
         m_psoSkinned.Reset();
         m_psoStatic.Reset();
-        m_srvHeap.Reset();
-        m_srvGpu = {};
     }
 
     bool CamouflagePipeline::create(ID3D12Device* device, DXGI_FORMAT colorFormat)
@@ -176,19 +174,6 @@ namespace Dark
             return false;
         }
 
-        D3D12_DESCRIPTOR_HEAP_DESC heapDesc{};
-        heapDesc.NumDescriptors = 1;
-        heapDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-        heapDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-        if (FailedHr(device->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&m_srvHeap)), "CreateDescriptorHeap (camouflage scene)"))
-        {
-            m_rootSignature.Reset();
-            m_psoSkinned.Reset();
-            m_psoStatic.Reset();
-            return false;
-        }
-        m_srvGpu = m_srvHeap->GetGPUDescriptorHandleForHeapStart();
-
         DE_LOG_INFO(LogCategory::Render, "CamouflagePipeline: ready");
         return true;
     }
@@ -199,67 +184,45 @@ namespace Dark
         if (!m_copy.id.valid())
         {
             GraphTargets* targets = renderer.targets();
-            if (!targets || !targets->valid() || !m_srvHeap)
+            if (!targets || !targets->valid() || !isValid())
                 return false;
             m_targets = targets;
             m_copy    = targets->registerTarget("DE.Camouflage.SceneCopy", copyTargetDesc(m_format, D3D12_RESOURCE_STATE_COMMON));
             if (!m_copy.id.valid())
                 return false;
-            m_copy.generation = 0; // write the static SRV below
         }
-        // The table's one SRV is static. A new generation only happens inside Renderer::resize's
-        // drained window, so rewriting it here races no in-flight list.
-        if (m_targets->refresh(m_copy))
-            m_targets->device()->CopyDescriptorsSimple(1, m_srvHeap->GetCPUDescriptorHandleForHeapStart(), m_targets->srv(m_copy.id),
-                                                       D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
         return m_targets->resource(m_copy.id) != nullptr;
     }
 
-    bool CamouflagePipeline::captureScene(ID3D12GraphicsCommandList* cmd, Renderer& renderer)
+    ID3D12Resource* CamouflagePipeline::copyResource() const
     {
-        if (!cmd || !isValid() || !m_targets || !m_targets->resource(m_copy.id))
-            return false;
-        ID3D12Resource* hdr = renderer.hdr();
-        if (!hdr)
-            return false;
-
-        cmd->OMSetRenderTargets(0, nullptr, FALSE, nullptr);
-        renderer.transitionHdr(cmd, D3D12_RESOURCE_STATE_COPY_SOURCE);
-        m_targets->transition(cmd, m_copy, D3D12_RESOURCE_STATE_COPY_DEST);
-        cmd->CopyResource(m_targets->resource(m_copy.id), hdr);
-        m_targets->transition(cmd, m_copy, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-        renderer.bindHdr(true);
-        return true;
+        return m_targets && m_copy.id.valid() ? m_targets->resource(m_copy.id) : nullptr;
     }
 
-    bool CamouflagePipeline::bindDraw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, ID3D12PipelineState* pso) const
+    D3D12_CPU_DESCRIPTOR_HANDLE CamouflagePipeline::copySrv() const
     {
-        if (!cmd || !pso || !m_rootSignature || !m_srvHeap)
+        return m_targets && m_copy.id.valid() ? m_targets->srv(m_copy.id) : D3D12_CPU_DESCRIPTOR_HANDLE{};
+    }
+
+    bool CamouflagePipeline::bindDraw(ID3D12GraphicsCommandList* cmd, D3D12_GPU_DESCRIPTOR_HANDLE sceneTable, ID3D12PipelineState* pso) const
+    {
+        if (!cmd || !pso || !m_rootSignature)
             return false;
-        (void)renderer;
-        ID3D12DescriptorHeap* heaps[] = { m_srvHeap.Get() };
-        cmd->SetDescriptorHeaps(1, heaps);
         cmd->SetGraphicsRootSignature(m_rootSignature.Get());
         cmd->SetPipelineState(pso);
-        cmd->SetGraphicsRootDescriptorTable(kRootSceneSrv, m_srvGpu);
+        cmd->SetGraphicsRootDescriptorTable(kRootSceneSrv, sceneTable);
         cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         return true;
     }
 
-    bool CamouflagePipeline::drawModel(ID3D12GraphicsCommandList* cmd, Renderer& renderer, GpuResourceCache& gpu, SkinningUploadRing& ring, const Model& model,
-                                       const AnimPose* pose, const Math::Matrix4f& world, const Math::Matrix4f& viewProj, const Math::Vector3f& cameraPos,
-                                       float time, DebugFill fill)
+    bool CamouflagePipeline::drawModel(ID3D12GraphicsCommandList* cmd, D3D12_GPU_DESCRIPTOR_HANDLE sceneTable, GpuResourceCache& gpu, SkinningUploadRing& ring, const Model& model,
+                                       const AnimPose* pose, const Math::Matrix4f& world, const Math::Matrix4f& viewProj, const Math::Vector3f& cameraPos, float time, DebugFill fill)
     {
         (void)fill;
         GpuModel* gm = gpu.model(model.id);
-        if (!cmd || !isValid() || !gm || !gm->hasOpaque())
-            return false;
-        if (!ensureCopy(renderer))
+        if (!cmd || sceneTable.ptr == 0 || !isValid() || !gm || !gm->hasOpaque() || !copyResource())
             return false;
         const GpuScope camouflage(cmd, "Camouflage", ProfileColor::Camouflage);
-        // Depth is writable after this. A later skipped part does not undo that.
-        if (!captureScene(cmd, renderer))
-            return false;
 
         CamouflageConstants cb{};
         cb.cameraPos[0]  = cameraPos.x;
@@ -290,7 +253,7 @@ namespace Dark
                     continue;
                 if (!boundSkinned)
                 {
-                    if (!bindDraw(cmd, renderer, m_psoSkinned.Get()))
+                    if (!bindDraw(cmd, sceneTable, m_psoSkinned.Get()))
                         return true;
                     boundSkinned = true;
                     boundStatic  = false;
@@ -305,7 +268,7 @@ namespace Dark
                     continue;
                 if (!boundStatic)
                 {
-                    if (!bindDraw(cmd, renderer, m_psoStatic.Get()))
+                    if (!bindDraw(cmd, sceneTable, m_psoStatic.Get()))
                         return true;
                     boundStatic  = true;
                     boundSkinned = false;

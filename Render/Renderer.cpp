@@ -1377,43 +1377,6 @@ namespace Dark
         }
     }
 
-    void Renderer::bindHdrDepthRead()
-    {
-        if (!m_commandList || !m_sceneBuffers || !m_sceneBuffers->valid())
-        {
-            DE_LOG_ERROR(LogCategory::Render, "bindHdrDepthRead: no SceneBuffers");
-            return;
-        }
-
-        m_sceneBuffers->transitionHdr(m_commandList.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
-        transitionDepth(m_commandList.Get(), D3D12_RESOURCE_STATE_DEPTH_READ | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-        m_commandList->RSSetViewports(1, &m_viewport);
-        m_commandList->RSSetScissorRects(1, &m_scissor);
-
-        const D3D12_CPU_DESCRIPTOR_HANDLE rtv = m_sceneBuffers->hdrRtv();
-        const D3D12_CPU_DESCRIPTOR_HANDLE dsv = depthReadOnlyDsv();
-        m_commandList->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
-    }
-
-    void Renderer::bindHdrDepthCompute()
-    {
-        if (!m_commandList || !m_sceneBuffers || !m_sceneBuffers->valid() || !depthResource())
-        {
-            DE_LOG_ERROR(LogCategory::Render, "bindHdrDepthCompute: no SceneBuffers");
-            return;
-        }
-
-        // HDR RENDER_TARGET. Depth DEPTH_READ | PIXEL_SHADER_RESOURCE | NON_PIXEL_SHADER_RESOURCE, bound read-only.
-        m_sceneBuffers->transitionHdr(m_commandList.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
-        transitionDepth(m_commandList.Get(), D3D12_RESOURCE_STATE_DEPTH_READ | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-        m_commandList->RSSetViewports(1, &m_viewport);
-        m_commandList->RSSetScissorRects(1, &m_scissor);
-
-        const D3D12_CPU_DESCRIPTOR_HANDLE rtv = m_sceneBuffers->hdrRtv();
-        const D3D12_CPU_DESCRIPTOR_HANDLE dsv = depthReadOnlyDsv();
-        m_commandList->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
-    }
-
     ID3D12Resource* Renderer::albedoResource() const
     {
         return (m_sceneBuffers && m_sceneBuffers->valid()) ? m_sceneBuffers->albedo() : nullptr;

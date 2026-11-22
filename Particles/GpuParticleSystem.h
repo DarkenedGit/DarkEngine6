@@ -19,6 +19,10 @@ namespace Dark
     class World;
     class AssetManager;
     class Camera3D;
+    namespace Rg
+    {
+        class PassContext;
+    }
 
     using Microsoft::WRL::ComPtr;
 
@@ -78,6 +82,16 @@ namespace Dark
         uint32_t child1[4];   // childCapacity, child rest bits, pad, pad
     };
 
+    // The declared Particles pass and the scene views its sim samples. The sim's descriptor tables
+    // (and the counter-clear views) go on the pass's ring. A null view samples a dummy: far depth, or
+    // no attrib bounce.
+    struct GpuParticleFrame
+    {
+        const Rg::PassContext*      pass = nullptr;
+        D3D12_CPU_DESCRIPTOR_HANDLE depth{};
+        D3D12_CPU_DESCRIPTOR_HANDLE attrib{};
+    };
+
     // One system, called from Sandbox and Editor. Pools stay out of the world.
     class GpuParticleSystem
     {
@@ -111,7 +125,8 @@ namespace Dark
         void     applyIntegratorFallback(World& world, bool gpuParticlesEnabled);
         void     prepare(World& world, float dt);
         uint32_t poolCount() const;
-        bool     simulateAndDraw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, World& world, AssetManager& assets, bool lateDepthWrite);
+        // HDR and the read-only depth are bound by the caller. A recording cmd needs frame.pass.
+        bool simulateAndDraw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, World& world, AssetManager& assets, bool lateDepthWrite, const GpuParticleFrame& frame = {});
 
     private:
         struct Pool
@@ -175,7 +190,8 @@ namespace Dark
         void  retireDescSlot(int slot);
         void  pumpRetiredDescSlots();
         D3D12_CPU_DESCRIPTOR_HANDLE viewCpu(uint32_t index) const;
-        D3D12_GPU_DESCRIPTOR_HANDLE viewGpu(uint32_t index) const;
+        D3D12_GPU_DESCRIPTOR_HANDLE simTable(const GpuParticleFrame& frame, bool attrib) const;
+        D3D12_GPU_DESCRIPTOR_HANDLE clearTable(const GpuParticleFrame& frame, uint32_t index) const;
         void        releasePool(Pool& pool);
         void        relinquishPoolGpu(Pool& pool, bool defer);
         void        recordClock(Pool& pool, class ParticleEmitter& emitter, float dt);
@@ -198,13 +214,13 @@ namespace Dark
         std::vector<EntityID>    m_loggedPrewarm;
         std::vector<EntityID>    m_loggedOrtho;
         std::vector<EntityID>    m_createFailed;
-        AssetRef<Material>       m_billboardMat;
-        ComPtr<ID3D12DescriptorHeap> m_viewHeap;
+        AssetRef<Material>           m_billboardMat;
         ComPtr<ID3D12DescriptorHeap> m_viewCpuHeap;
         ComPtr<ID3D12Resource>       m_dummyDepth;
         ComPtr<ID3D12Resource>       m_dummyAttrib;
         ComPtr<ID3D12Resource>       m_dummyUav;
         UINT                         m_viewInc = 0;
+        bool                         m_loggedNoPass                 = false;
         bool                         m_descUsed[kMaxSecondaryPools] = {};
         std::vector<RetiredDescSlot> m_retiredDescSlots;
     };

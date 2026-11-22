@@ -234,9 +234,6 @@ namespace Dark
         DXGI_FORMAT sceneColorFormat() const;
 
         void bindHdr(bool bindDepth);
-        void bindHdrDepthRead();
-        // OM only. HDR target, read-only scene depth. No particle arguments.
-        void bindHdrDepthCompute();
         void bindHdrColorTarget();
         // The HDR target's optimized clear (linear), for the Decals entry's clear pass.
         const float* hdrClearColor() const;
