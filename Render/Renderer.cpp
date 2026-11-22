@@ -286,11 +286,15 @@ namespace Dark
         if (!createDepthResources())
             return false;
 
-        // One shader-visible CBV/SRV/UAV heap for converted pipelines (Phase 6). Nothing requires it
-        // yet, so a failure is logged and the renderer carries on without it.
+        // One shader-visible CBV/SRV/UAV heap for converted pipelines (Phase 6): the post passes bind
+        // only it, so the renderer cannot run without it (262144 descriptors; D5's Tier 3 allows 1M).
         m_descriptorRing = std::make_unique<DescriptorRingHeap>();
         if (!m_descriptorRing->init(m_device.Get()))
+        {
+            DE_LOG_ERROR(LogCategory::Render, "Renderer: descriptor ring init failed");
             m_descriptorRing.reset();
+            return false;
+        }
 
         if (!checkHr(m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_commandAllocators[m_frameIndex].Get(), nullptr, IID_PPV_ARGS(&m_commandList)), "CreateCommandList"))
             return false;
@@ -1452,6 +1456,20 @@ namespace Dark
     ID3D12Resource* Renderer::backBufferResource() const
     {
         return m_frameIndex < kFrameCount ? m_renderTargets[m_frameIndex].Get() : nullptr;
+    }
+
+    D3D12_CPU_DESCRIPTOR_HANDLE Renderer::backBufferRtv() const
+    {
+        if (!m_rtvHeap || m_frameIndex >= kFrameCount)
+            return {};
+        D3D12_CPU_DESCRIPTOR_HANDLE rtv = m_rtvHeap->GetCPUDescriptorHandleForHeapStart();
+        rtv.ptr += static_cast<SIZE_T>(m_frameIndex) * m_rtvDescriptorSize;
+        return rtv;
+    }
+
+    D3D12_CPU_DESCRIPTOR_HANDLE Renderer::postRtv() const
+    {
+        return m_sceneBuffers && m_sceneBuffers->post() ? m_sceneBuffers->postRtv() : D3D12_CPU_DESCRIPTOR_HANDLE{};
     }
 
     ID3D12Resource* Renderer::velocityResource() const

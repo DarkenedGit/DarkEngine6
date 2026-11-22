@@ -5,6 +5,7 @@
 
 #include "Render/GraphTargets.h"
 #include "Render/Renderer.h"
+#include "Render/RgViews.h"
 
 #include <d3d12.h>
 
@@ -32,19 +33,20 @@ namespace Dark
         if (view.holdTemporal || m_holdNext)
             m_graph.invalidateHistory();
         m_holdNext = view.holdTemporal;
-        importResource(RenderResource::Swap, renderer.backBufferResource());
-        importResource(RenderResource::Depth, renderer.depthResource());
+        // Views for converted passes (PassContext::rtv/dsv/srvTable, Phase 6 part 2).
+        importResource(RenderResource::Swap, renderer.backBufferResource(), textureViews({}, renderer.backBufferRtv()));
+        importResource(RenderResource::Depth, renderer.depthResource(), textureViews(renderer.depthSrvCpu(), {}, renderer.depthDsv(), renderer.depthReadOnlyDsv()));
         importResource(RenderResource::Shadow, shadowMap);
         importResource(RenderResource::LocalShadow, localShadowArray);
-        importResource(RenderResource::Albedo, renderer.albedoResource());
-        importResource(RenderResource::Attrib, renderer.attribResource());
-        importResource(RenderResource::Velocity, renderer.velocityResource());
-        importResource(RenderResource::Ao, renderer.aoResource());
-        importResource(RenderResource::Hdr, renderer.hdr());
-        importResource(RenderResource::Post, renderer.postResource());
+        importResource(RenderResource::Albedo, renderer.albedoResource(), textureViews(renderer.albedoSrvCpu()));
+        importResource(RenderResource::Attrib, renderer.attribResource(), textureViews(renderer.attribSrvCpu()));
+        importResource(RenderResource::Velocity, renderer.velocityResource(), textureViews(renderer.velocitySrvCpu()));
+        importResource(RenderResource::Ao, renderer.aoResource(), textureViews(renderer.aoSrvCpu()));
+        importResource(RenderResource::Hdr, renderer.hdr(), textureViews(renderer.hdrSrvCpu(), renderer.hdrRtv()));
+        importResource(RenderResource::Post, renderer.postResource(), textureViews(renderer.postHdrSrvCpu(), renderer.postRtv()));
     }
 
-    void FrameComposer::importResource(RenderResource resource, ID3D12Resource* native)
+    void FrameComposer::importResource(RenderResource resource, ID3D12Resource* native, const Rg::TextureViews& views)
     {
         // The real resource and its real size and format; a missing target imports as an empty slot.
         Rg::TextureDesc desc;
@@ -65,7 +67,7 @@ namespace Dark
         if (const ResourceStateTracker* tracker = frameStateTracker())
             if (const Rg::UseState* now = tracker->current(native))
                 initial = now->layout;
-        m_features.importResource(m_graph, resource, native, desc, initial);
+        m_features.importResource(m_graph, resource, native, desc, initial, views);
     }
 
     Rg::HistoryTargets FrameComposer::history(RenderResource resource, const char* name, const Rg::TargetDesc& desc)
@@ -75,7 +77,18 @@ namespace Dark
             return {};
         Rg::HistoryTargets h = m_histories.request(m_graph, targets->pool(), name, desc);
         if (h.valid())
+        {
+            // Phase 6 part 2: the slots' allocations and views, so graph barriers reach them and
+            // converted passes can bind them (a graph-invalid prev stays out of the graph).
+            m_graph.setNative(h.pair.curr, targets->resource(h.curr));
+            m_graph.setViews(h.pair.curr, textureViews(targets->srv(h.curr), targets->rtv(h.curr)));
+            if (h.pair.prev.valid())
+            {
+                m_graph.setNative(h.pair.prev, targets->resource(h.prev));
+                m_graph.setViews(h.pair.prev, textureViews(targets->srv(h.prev), targets->rtv(h.prev)));
+            }
             m_features.setHistory(resource, h.pair);
+        }
         return h;
     }
 

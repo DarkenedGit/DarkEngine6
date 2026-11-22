@@ -1,6 +1,7 @@
 #include "Render/RgExecutor.h"
 
 #include "Core/Log.h"
+#include "Render/DescriptorRingHeap.h"
 #include "Render/Profile.h"
 #include "Render/Renderer.h"
 
@@ -53,6 +54,25 @@ namespace Dark
             fail(1, "a pass is on the async compute queue, which does not exist until Phase 10");
         if (ctx.scopeName())
             profileGpuBegin(ctx.cmd(), ctx.scopeName(), ctx.scopeColor());
+        // Opaque passes may leave any heap bound; a converted pass binds nothing itself.
+        if (!ctx.ownBarriers() && ctx.cmd())
+        {
+            if (DescriptorRingHeap* ring = m_renderer ? m_renderer->descriptorRing() : nullptr)
+                ring->bind(ctx.cmd());
+            else
+                fail(5, "a converted pass without the descriptor ring");
+        }
+    }
+
+    uint64_t RgExecutor::descriptorTable(const uint64_t* cpu, uint32_t count)
+    {
+        DescriptorRingHeap* ring = m_renderer ? m_renderer->descriptorRing() : nullptr;
+        if (!ring || !cpu || count == 0 || count > 32)
+            return 0;
+        D3D12_CPU_DESCRIPTOR_HANDLE handles[32];
+        for (uint32_t i = 0; i < count; ++i)
+            handles[i].ptr = static_cast<SIZE_T>(cpu[i]);
+        return ring->frameTable(handles, count).ptr;
     }
 
     void RgExecutor::passEnd(const Rg::PassContext& ctx)

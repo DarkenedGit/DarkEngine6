@@ -50,6 +50,16 @@ namespace Dark
         {
             return m_features.set(id, std::forward<Fn>(fn));
         }
+        // A converted entry (Phase 6 part 2): `fn(FeatureBuilder&)` adds the entry's passes with
+        // declared uses when execute() builds the frame (FeatureFrame::declare).
+        template <class Fn> bool declare(PassId id, Fn&& fn)
+        {
+            return m_features.declare(id, std::forward<Fn>(fn));
+        }
+        Renderer* renderer() const
+        {
+            return m_renderer;
+        }
 
         // Records the frame. False when the graph did not compile (nothing recorded: the host's ImGui
         // and endFrame still run on the cleared back buffer) or the executor failed.
@@ -65,7 +75,7 @@ namespace Dark
         }
 
     private:
-        void importResource(RenderResource resource, ID3D12Resource* native);
+        void importResource(RenderResource resource, ID3D12Resource* native, const Rg::TextureViews& views = {});
 
         Rg::RenderGraph m_graph;
         FeatureFrame    m_features;
