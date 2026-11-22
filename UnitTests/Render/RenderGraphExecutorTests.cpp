@@ -348,3 +348,171 @@ TEST(RenderGraphExecutor, SplitExecutorKeepsOneListWithoutSyncPoints)
     for (const std::string& p : exec.passList)
         EXPECT_EQ(p.substr(p.find('@')), "@Graphics0") << p;
 }
+
+// ---------------------------------------------------------------- output-merger unbind
+// A barrier must not move a resource out of its render-target / depth layout while it is bound, and
+// the next pass binds its own targets only after its BeforePass barriers. So SplitExecutor clears
+// the graphics list's output merger before a barrier batch whenever the pass before it may have
+// bound something: an opaque pass, or a declared pass with a RenderTarget / DepthWrite / DepthRead use.
+
+namespace
+{
+    std::string joined(const std::vector<std::string>& v)
+    {
+        std::string s;
+        for (const std::string& e : v)
+            s += e + "\n";
+        return s;
+    }
+    // The first event at or after `from` that starts with `prefix`, or -1.
+    int findPrefix(const std::vector<std::string>& v, const std::string& prefix, int from = 0)
+    {
+        for (size_t i = static_cast<size_t>(from < 0 ? 0 : from); i < v.size(); ++i)
+            if (v[i].rfind(prefix, 0) == 0)
+                return static_cast<int>(i);
+        return -1;
+    }
+} // namespace
+
+TEST(RenderGraphExecutor, DeclaredTargetWriterIsUnboundBeforeTheNextBarrierBatch)
+{
+    RenderGraph g;
+    g.beginFrame(256, 256);
+    const TextureHandle bb  = g.importBackBuffer(nullptr, 256, 256, kBgra8);
+    TextureHandle       hdr = g.importTexture("Hdr", absTex(256, 256), fakePtr<ID3D12Resource>(0x10), Layout::RenderTarget, Layout::Undefined);
+    pass(g, "Light", [&](PassBuilder& b) { hdr = b.write(hdr); });
+    pass(g, "Tone",
+         [&](PassBuilder& b)
+         {
+             b.read(hdr, Use::PixelSrv);
+             b.write(bb);
+         });
+    ASSERT_TRUE(compiles(g));
+    Dark::Rg::Test::SplitRecorder rec(g);
+    ASSERT_TRUE(g.execute(&rec));
+    const int end     = rec.find("E Light");
+    const int barrier = findPrefix(rec.events, "B before Tone Graphics", end);
+    ASSERT_GE(end, 0) << joined(rec.events);
+    ASSERT_GT(barrier, end) << joined(rec.events);
+    EXPECT_EQ(rec.events[static_cast<size_t>(barrier) - 1], "U Graphics") << joined(rec.events);
+    // Tone bound the back buffer: its move to Present (the AfterPass batch) is unbound first too.
+    const int present = findPrefix(rec.events, "B after Tone Graphics", barrier);
+    ASSERT_GT(present, barrier) << joined(rec.events);
+    EXPECT_EQ(rec.events[static_cast<size_t>(present) - 1], "U Graphics") << joined(rec.events);
+    EXPECT_EQ(rec.count("U Graphics", static_cast<size_t>(end)), 2) << joined(rec.events);
+    EXPECT_EQ(rec.count("U AsyncCompute"), 0);
+}
+
+TEST(RenderGraphExecutor, ReadOnlyDepthUseCountsAsABinding)
+{
+    RenderGraph g;
+    g.beginFrame(256, 256);
+    TextureHandle depth = g.importTexture("Depth", absTex(256, 256, kD32), fakePtr<ID3D12Resource>(0x20), Layout::DepthStencilWrite, Layout::Undefined);
+    TextureHandle hdr   = g.importTexture("Hdr", absTex(256, 256), fakePtr<ID3D12Resource>(0x10), Layout::UnorderedAccess, Layout::Undefined);
+    pass(g, "Decals",
+         [&](PassBuilder& b)
+         {
+             b.read(depth, Use::DepthRead);
+             hdr = b.readWrite(hdr, Use::Uav);
+         });
+    pass(g, "Gtao",
+         [&](PassBuilder& b)
+         {
+             b.flags(PassFlags::SideEffect);
+             b.read(depth, Use::PixelSrv);
+             b.read(hdr, Use::PixelSrv);
+         });
+    ASSERT_TRUE(compiles(g));
+    Dark::Rg::Test::SplitRecorder rec(g);
+    ASSERT_TRUE(g.execute(&rec));
+    const int end     = rec.find("E Decals");
+    const int barrier = findPrefix(rec.events, "B before Gtao Graphics", end);
+    ASSERT_GT(barrier, end) << joined(rec.events);
+    EXPECT_EQ(rec.events[static_cast<size_t>(barrier) - 1], "U Graphics") << joined(rec.events);
+}
+
+TEST(RenderGraphExecutor, PassesThatBindNothingOrHaveNoBarrierAfterThemCostNothing)
+{
+    RenderGraph g;
+    g.beginFrame(256, 256);
+    // A starts as a shader resource, so the batch before Uav takes the frame-start unbind
+    // (Renderer::beginFrame leaves the back buffer and depth bound).
+    TextureHandle a = g.importTexture("A", absTex(256, 256), fakePtr<ID3D12Resource>(0x10), Layout::ShaderResource, Layout::Undefined);
+    TextureHandle t = g.importTexture("T", absTex(256, 256), fakePtr<ID3D12Resource>(0x30), Layout::RenderTarget, Layout::Undefined);
+    TextureHandle u = g.importTexture("U", absTex(256, 256), fakePtr<ID3D12Resource>(0x40), Layout::RenderTarget, Layout::Undefined);
+    // A UAV writer: binds no targets, so the barrier into the reader needs no unbind.
+    pass(g, "Uav", [&](PassBuilder& b) { a = b.write(a, Use::Uav); });
+    pass(g, "Read",
+         [&](PassBuilder& b)
+         {
+             b.read(a, Use::PixelSrv);
+             t = b.write(t);
+         });
+    // Read binds T, but the next pass needs no barrier (U is already a render target): no unbind.
+    pass(g, "Next",
+         [&](PassBuilder& b)
+         {
+             b.flags(PassFlags::SideEffect);
+             u = b.write(u);
+         });
+    ASSERT_TRUE(compiles(g));
+    Dark::Rg::Test::SplitRecorder rec(g);
+    ASSERT_TRUE(g.execute(&rec));
+    const int uavEnd = rec.find("E Uav");
+    ASSERT_GE(uavEnd, 0) << joined(rec.events);
+    ASSERT_GE(rec.find("B before Uav Graphics [A]"), 0) << joined(rec.events);
+    EXPECT_EQ(rec.events[static_cast<size_t>(rec.find("B before Uav Graphics [A]")) - 1], "U Graphics") << joined(rec.events);
+    ASSERT_GT(findPrefix(rec.events, "B before Read Graphics", uavEnd), uavEnd) << joined(rec.events);
+    EXPECT_EQ(rec.count("U Graphics", static_cast<size_t>(uavEnd)), 0) << joined(rec.events);
+}
+
+TEST(RenderGraphExecutor, OpaquePassBeforeADeclaredReaderIsUnboundFirst)
+{
+    RenderGraph g;
+    g.beginFrame(256, 256);
+    TextureHandle hdr = g.importTexture("Hdr", absTex(256, 256), fakePtr<ID3D12Resource>(0x10), Layout::RenderTarget, Layout::Undefined);
+    TextureHandle cap = g.importTexture("Capture", absTex(256, 256), fakePtr<ID3D12Resource>(0x50), Layout::RenderTarget, Layout::Undefined);
+    pass(g, "Sky",
+         [&](PassBuilder& b)
+         {
+             b.flags(PassFlags::OwnBarriers | PassFlags::SideEffect);
+             hdr = b.write(hdr);
+         });
+    pass(g, "SsrCapture",
+         [&](PassBuilder& b)
+         {
+             b.flags(PassFlags::SideEffect);
+             b.read(hdr, Use::PixelSrv);
+             cap = b.write(cap);
+         });
+    ASSERT_TRUE(compiles(g));
+    Dark::Rg::Test::SplitRecorder rec(g, false); // only Sky can have bound anything
+    ASSERT_TRUE(g.execute(&rec));
+    const int end     = rec.find("E Sky");
+    const int barrier = findPrefix(rec.events, "B before SsrCapture Graphics", end);
+    ASSERT_GT(barrier, end) << joined(rec.events);
+    EXPECT_EQ(rec.events[static_cast<size_t>(barrier) - 1], "U Graphics") << joined(rec.events);
+}
+
+TEST(RenderGraphExecutor, AsyncComputeListsAreNeverUnbound)
+{
+    RenderGraph g;
+    buildSsao(g, true);
+    ASSERT_TRUE(compiles(g));
+    Dark::Rg::Test::SplitRecorder rec(g);
+    ASSERT_TRUE(g.execute(&rec));
+    ASSERT_TRUE(rec.finish());
+    EXPECT_EQ(rec.count("U AsyncCompute"), 0) << joined(rec.events);
+    EXPECT_GE(findPrefix(rec.events, "B ", 0), 0) << joined(rec.events);
+    // Every graphics batch after Depth (it wrote depth as a DSV) is preceded by an unbind or by a
+    // split, which starts a new list with nothing bound.
+    const int end = rec.find("E Depth");
+    ASSERT_GE(end, 0) << joined(rec.events);
+    const int next = findPrefix(rec.events, "B ", end);
+    ASSERT_GT(next, end) << joined(rec.events);
+    ASSERT_NE(rec.events[static_cast<size_t>(next)].find(" Graphics ["), std::string::npos) << joined(rec.events);
+    bool cleared = false;
+    for (int i = end + 1; i < next; ++i)
+        cleared = cleared || rec.events[static_cast<size_t>(i)] == "U Graphics" || rec.events[static_cast<size_t>(i)] == "submit Graphics";
+    EXPECT_TRUE(cleared) << joined(rec.events);
+}

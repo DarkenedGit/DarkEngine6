@@ -170,4 +170,70 @@ namespace Dark::Rg::Test
         const RenderGraph& m_graph;
     };
 
+    // A SplitExecutor recording the same events as Recorder, plus "U <queue>" when it clears the
+    // output merger and "submit <queue>" at a split.
+    class SplitRecorder : public SplitExecutor
+    {
+    public:
+        // `targetsBound`: the graphics list starts with targets bound (as RgExecutor's does).
+        explicit SplitRecorder(const RenderGraph& g, bool targetsBound = true) :
+            m_names(g)
+        {
+            resetSplits(targetsBound);
+        }
+
+        int find(const std::string& text) const
+        {
+            for (size_t i = 0; i < events.size(); ++i)
+                if (events[i] == text)
+                    return static_cast<int>(i);
+            return -1;
+        }
+        // Events equal to text at or after `from`.
+        int count(const std::string& text, size_t from = 0) const
+        {
+            int n = 0;
+            for (size_t i = from; i < events.size(); ++i)
+                n += events[i] == text ? 1 : 0;
+            return n;
+        }
+
+        std::vector<std::string> events;
+
+    protected:
+        void recordBarriers(const BarrierBatch& batch, const BarrierRec* records) override
+        {
+            m_names.barriers(batch, records);
+            events.push_back(m_names.events.back());
+        }
+        void passBegin(const PassContext& ctx) override
+        {
+            events.push_back(std::string("P ") + ctx.passName());
+        }
+        void passEnd(const PassContext& ctx) override
+        {
+            events.push_back(std::string("E ") + ctx.passName());
+        }
+        void unbindTargets(Queue queue) override
+        {
+            events.push_back(std::string("U ") + queueName(queue));
+        }
+        bool submitList(Queue queue) override
+        {
+            events.push_back(std::string("submit ") + queueName(queue));
+            return true;
+        }
+        void queueSignal(Queue queue, uint32_t value) override
+        {
+            events.push_back(std::string("S ") + queueName(queue) + " " + std::to_string(value));
+        }
+        void queueWait(Queue waitQueue, Queue signalQueue, uint32_t value) override
+        {
+            events.push_back(std::string("W ") + queueName(waitQueue) + "<-" + queueName(signalQueue) + " " + std::to_string(value));
+        }
+
+    private:
+        Recorder m_names; // formats barrier batches
+    };
+
 } // namespace Dark::Rg::Test
