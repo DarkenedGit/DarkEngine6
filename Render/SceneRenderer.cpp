@@ -373,27 +373,6 @@ void SceneRenderer::discardTemporalHistory()
     m_discardHistory   = true; // the next requestHistories invalidates the graph histories
 }
 
-namespace
-{
-    // An opaque pass (OwnBarriers | SideEffect) that declares reads on graph handles. A converted entry
-    // ends with one when its output feeds an opaque pass that does not transition it (render-graph
-    // plan Phase 6 part 3): the graph plans no barrier at a declared->opaque boundary, so this pass
-    // moves the output to the state the old code left it in and restores the bindings it left.
-    template <class Fn> void addHandoff(FeatureBuilder& b, const char* name, std::initializer_list<Rg::TextureHandle> reads, Fn&& fn)
-    {
-        b.addPass<Rg::NoData>(
-            name,
-            [&](Rg::PassBuilder& pb, Rg::NoData&)
-            {
-                pb.flags(Rg::PassFlags::OwnBarriers | Rg::PassFlags::SideEffect);
-                for (const Rg::TextureHandle h : reads)
-                    if (h.valid())
-                        pb.read(h, Rg::Use::PixelSrv);
-            },
-            [fn = std::forward<Fn>(fn)](Rg::PassContext& c, const Rg::NoData&) { fn(c.cmd()); });
-    }
-} // namespace
-
 void SceneRenderer::addGtaoPasses(FeatureBuilder& b, Renderer& renderer, const Camera3D& camera, const GtaoSettings& settings)
 {
     using Rg::PassBuilder;
@@ -655,15 +634,58 @@ void SceneRenderer::addSsrCapturePasses(FeatureBuilder& b, Renderer& renderer)
             ssr->drawStep(c.cmd(), SsrStep::Capture, ssr->uploadCaptureParams(static_cast<uint32_t>(rr->frameIndex())), rgSrvTable(c, { d.hdr, d.hdr, d.hdr, d.hdr, d.hdr }), rgRtv(c, d.dst));
         });
 
-    // Water is still opaque: hand it the capture in PIXEL_SHADER_RESOURCE, and rebind HDR with
-    // read-only depth for the passes after (what captureSceneColor used to leave). Rebind first:
-    // the capture left its target bound, and no graph batch runs between it and this transition.
-    addHandoff(b, "SsrCapture.Handoff", { dst },
-               [rr, ssr](ID3D12GraphicsCommandList* cmd)
-               {
-                   rr->bindHdrDepthRead();
-                   ssr->transitionSceneColorRead(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-               });
+    // Water and the underwater ceiling read it (HdrDrawInputs.h); the graph plans the barrier into it.
+    b.graph().blackboard().set(SsrCaptureOutput{ dst });
+}
+
+void SceneRenderer::bindHdr(Rg::PassContext& c, const Renderer& renderer, Rg::TextureHandle hdr)
+{
+    const D3D12_CPU_DESCRIPTOR_HANDLE rtv = rgRtv(c, hdr);
+    c.cmd()->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
+    c.cmd()->RSSetViewports(1, &renderer.viewport());
+    c.cmd()->RSSetScissorRects(1, &renderer.scissor());
+}
+
+void SceneRenderer::bindHdrDepthRead(Rg::PassContext& c, const Renderer& renderer, Rg::TextureHandle hdr, Rg::TextureHandle depth)
+{
+    const D3D12_CPU_DESCRIPTOR_HANDLE rtv = rgRtv(c, hdr);
+    const D3D12_CPU_DESCRIPTOR_HANDLE dsv = cpuHandle(c.dsv(depth, true));
+    c.cmd()->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
+    c.cmd()->RSSetViewports(1, &renderer.viewport());
+    c.cmd()->RSSetScissorRects(1, &renderer.scissor());
+}
+
+D3D12_GPU_DESCRIPTOR_HANDLE SceneRenderer::shadowTable(Rg::PassContext& c, const Renderer& renderer)
+{
+    return rgTable(c, { renderer.lightingViews().shadow });
+}
+
+WaterTables SceneRenderer::waterTables(Rg::PassContext& c, const Renderer& renderer, Rg::TextureHandle depth, Rg::TextureHandle sceneColor) const
+{
+    // No capture this frame: the SSR slots hold the pipeline's dummies and ssrReady is false.
+    const LightingViews v = renderer.lightingViews();
+    WaterTables         t;
+    t.sceneColor = sceneColor.valid();
+    t.table = rgTable(c, { v.height, v.shadow, t.sceneColor ? rgSrvCpu(c, sceneColor) : m_waterPipeline.ssrDummyColorCpu(), t.sceneColor ? rgSrvCpu(c, depth) : m_waterPipeline.ssrDummyDepthCpu() });
+    return t;
+}
+
+Rg::TextureHandle SceneRenderer::importUnderwaterCopy(FeatureBuilder& b, Renderer& renderer)
+{
+    if (!m_underwater.isValid() || !m_underwater.ensureCopy(renderer))
+        return {};
+    return importTracked(b.graph(), "DE.Underwater.HdrCopy", m_underwater.copyResource(), textureViews(m_underwater.copySrv()));
+}
+
+void SceneRenderer::copyHdr(Rg::PassContext& c, const UnderwaterTargets& d)
+{
+    c.cmd()->CopyResource(c.resource(d.copy), c.resource(d.hdr));
+}
+
+void SceneRenderer::drawUnderwater(Rg::PassContext& c, const Renderer& renderer, const UnderwaterTargets& d, const UnderwaterFrame& frame) const
+{
+    bindHdr(c, renderer, d.hdr);
+    m_underwater.draw(c.cmd(), rgSrvTable(c, { d.copy, d.depth }), frame);
 }
 
 void SceneRenderer::logMissingSceneTargets(const char* entry)
@@ -991,10 +1013,10 @@ void SceneRenderer::drawDecalsPass(Rg::PassContext& c, Renderer& renderer, const
     cmd->EndEvent();
 }
 
-void SceneRenderer::drawCloudVolumes(ID3D12GraphicsCommandList* cmd, Renderer& renderer, World& world, const Camera3D& camera,
-                                     const Math::Matrix4f& viewProj, const CloudVolumeFrame& frame)
+void SceneRenderer::drawCloudVolumes(ID3D12GraphicsCommandList* cmd, D3D12_GPU_DESCRIPTOR_HANDLE depthTable, Renderer& renderer, World& world, const Camera3D& camera, const Math::Matrix4f& viewProj,
+                                     const CloudVolumeFrame& frame)
 {
-    m_cloudVolumes.draw(cmd, renderer, world, m_cloudVolumeGpu, camera, viewProj, frame);
+    m_cloudVolumes.draw(cmd, depthTable, renderer, world, m_cloudVolumeGpu, camera, viewProj, frame);
 }
 
 bool SceneRenderer::syncAutoExposureSize(Renderer& renderer)

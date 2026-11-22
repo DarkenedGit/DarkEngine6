@@ -16,6 +16,7 @@ namespace Dark
 
     class Renderer;
     class WaterPipeline;
+    struct WaterTables;
     class Camera3D;
     class Frustum3f;
     class ShadowSystem;
@@ -115,11 +116,8 @@ namespace Dark
             uint32_t lightCount = 0,
             const uint32_t* waterIndex = nullptr,
             uint32_t frameIndex = 0,
-            ID3D12DescriptorHeap* heightHeap = nullptr,
-            D3D12_GPU_DESCRIPTOR_HANDLE heightGpu = {},
+            const WaterTables* tables = nullptr,
             const ShadowSystem* shadows = nullptr,
-            D3D12_CPU_DESCRIPTOR_HANDLE sceneColorCpu = {},
-            D3D12_CPU_DESCRIPTOR_HANDLE depthCpu = {},
             const SsrSettings* ssrSettings = nullptr,
             uint32_t drawIndex = 0,
             float thermal = 0.0f,

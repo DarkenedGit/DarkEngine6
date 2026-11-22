@@ -994,10 +994,7 @@ bool SandboxApp::advanceBootSlice()
             return false;
         }
         if (m_sceneWorld.terrain.heightTexture().valid())
-        {
             renderer().setHeightSrv(m_sceneWorld.terrain.heightTexture().cpuHandle());
-            m_frame.scene().waterPipeline().setHeightSrv(renderer().device(), m_sceneWorld.terrain.heightTexture().cpuHandle());
-        }
         m_bootSlice = BootSlice::WaterCpu;
         return true;
     }
@@ -1113,8 +1110,6 @@ bool SandboxApp::advanceBootSlice()
             boot.demoChecked = true;
             renderer().gpuResources().setShadowSrv(m_frame.scene().shadows().srvCpu());
             renderer().setShadowSrv(m_frame.scene().shadows().srvCpu());
-            m_frame.scene().skyPipeline().setShadowSrv(renderer().device(), m_frame.scene().shadows().srvCpu());
-            m_frame.scene().waterPipeline().setShadowSrv(renderer().device(), m_frame.scene().shadows().srvCpu());
             m_frame.scene().localShadows().setDepthPipeline(&m_frame.scene().shadows().pipeline());
             {
                 const LocalShadowSystem::CpuSrvs localSrvs = m_frame.scene().localShadows().cpuSrvs();
@@ -1368,8 +1363,6 @@ bool SandboxApp::advanceSpawnBatch()
         case SandboxBootLoad::SpawnPhase::Shadow:
             renderer().gpuResources().setShadowSrv(m_frame.scene().shadows().srvCpu());
             renderer().setShadowSrv(m_frame.scene().shadows().srvCpu());
-            m_frame.scene().skyPipeline().setShadowSrv(renderer().device(), m_frame.scene().shadows().srvCpu());
-            m_frame.scene().waterPipeline().setShadowSrv(renderer().device(), m_frame.scene().shadows().srvCpu());
             m_frame.scene().localShadows().setDepthPipeline(&m_frame.scene().shadows().pipeline());
             {
                 const LocalShadowSystem::CpuSrvs localSrvs = m_frame.scene().localShadows().cpuSrvs();

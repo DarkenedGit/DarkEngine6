@@ -92,6 +92,15 @@ static_assert(offsetof(WaterFrameConstants, ultraviolet) == 185 * sizeof(float),
 static_assert(offsetof(WaterFrameConstants, underAmount) == 186 * sizeof(float), "underAmount follows ultraviolet");
 static_assert(((sizeof(WaterFrameConstants) + 255u) & ~255u) == 768u, "water CBV aligned size is 768");
 
+// One descriptor-ring table per water pass, matching the root signature's three tables: t1 height,
+// t2 shadow, t3..t4 SSR scene color + depth. sceneColor: t3 is this frame's capture; otherwise t3..t4
+// are the dummies and the SSR march stays off.
+struct WaterTables
+{
+    D3D12_GPU_DESCRIPTOR_HANDLE table{};
+    bool                        sceneColor = false;
+};
+
 class WaterPipeline
 {
 public:
@@ -114,17 +123,16 @@ public:
     void bind(ID3D12GraphicsCommandList* cmd, DebugFill fill = DebugFill::Solid, bool stream = false, bool ceiling = false) const;
     void setConstants(ID3D12GraphicsCommandList* cmd, const WaterFrameConstants& constants, uint32_t frameIndex, uint32_t drawIndex = 0);
     void setLights(ID3D12GraphicsCommandList* cmd, D3D12_GPU_VIRTUAL_ADDRESS lightsVa) const;
-    void setHeightMap(ID3D12GraphicsCommandList* cmd, ID3D12DescriptorHeap* heap, D3D12_GPU_DESCRIPTOR_HANDLE gpu) const;
-    void setHeightSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE heightCpu);
-    void setShadowSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu);
-    void setSsrSrvs(D3D12_CPU_DESCRIPTOR_HANDLE sceneColorCpu, D3D12_CPU_DESCRIPTOR_HANDLE depthCpu);
-    void bindReceiverSrvs(ID3D12GraphicsCommandList* cmd) const;
-    bool hasReceiverSrvs() const { return m_srvHeap != nullptr && m_haveHeight && m_haveShadow; }
-    // Scene color and depth share the shadow heap. The march must stay off until bindReceiverSrvs runs.
-    bool ssrDescriptorsBound(D3D12_CPU_DESCRIPTOR_HANDLE sceneColorCpu, D3D12_CPU_DESCRIPTOR_HANDLE depthCpu) const
+    // Sets the height, shadow and SSR tables from one ring table. Null or empty tables bind nothing.
+    void bindTables(ID3D12GraphicsCommandList* cmd, const WaterTables* tables) const;
+    // The SSR march samples t3..t4, so it needs this frame's capture in them.
+    static bool ssrReady(const WaterTables* tables)
     {
-        return hasReceiverSrvs() && sceneColorCpu.ptr != 0 && depthCpu.ptr != 0;
+        return tables && tables->table.ptr != 0 && tables->sceneColor;
     }
+    // 1x1 SRVs for t3..t4 when there is no capture (CPU views, legal CopyDescriptors sources).
+    D3D12_CPU_DESCRIPTOR_HANDLE ssrDummyColorCpu() const;
+    D3D12_CPU_DESCRIPTOR_HANDLE ssrDummyDepthCpu() const;
 
     D3D12_GPU_VIRTUAL_ADDRESS dummyLightsGpuVa() const { return m_dummyGpu; }
 
@@ -155,7 +163,6 @@ public:
 private:
     bool createConstantBuffers(ID3D12Device* device);
     bool createSsrDummies(ID3D12Device* device);
-    void packSsrDummySrvs(ID3D12Device* device);
     UINT cbBytes() const;
 
     ComPtr<ID3D12RootSignature>  m_rootSignature;
@@ -170,20 +177,14 @@ private:
     ComPtr<ID3D12PipelineState>  m_psoStreamPoint;
     ComPtr<ID3D12Resource>       m_cbUpload;
     ComPtr<ID3D12Resource>       m_dummyLights;
-    ComPtr<ID3D12DescriptorHeap> m_srvHeap;
+    ComPtr<ID3D12DescriptorHeap> m_dummyHeap; // CPU only: the two SSR dummy SRVs
     ComPtr<ID3D12Resource>       m_dummySsrColor;
     ComPtr<ID3D12Resource>       m_dummySsrDepth;
-    ID3D12Device*                m_device   = nullptr;
     UINT8*                       m_cbMapped = nullptr;
     D3D12_GPU_VIRTUAL_ADDRESS    m_cbGpu    = 0;
     D3D12_GPU_VIRTUAL_ADDRESS    m_dummyGpu = 0;
-    D3D12_GPU_DESCRIPTOR_HANDLE  m_heightGpu{};
-    D3D12_GPU_DESCRIPTOR_HANDLE  m_shadowGpu{};
-    D3D12_GPU_DESCRIPTOR_HANDLE  m_ssrGpu{};
-    UINT                         m_srvIncr    = 0;
-    uint32_t                     m_cbSlot     = 0;
-    bool                         m_haveHeight = false;
-    bool                         m_haveShadow = false;
+    UINT                         m_srvIncr  = 0;
+    uint32_t                     m_cbSlot   = 0;
 };
 
 } // namespace Dark

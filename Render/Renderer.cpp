@@ -1548,14 +1548,4 @@ namespace Dark
         return m_sceneBuffers ? m_sceneBuffers->lightingViews() : LightingViews{};
     }
 
-    ID3D12DescriptorHeap* Renderer::heightFallbackHeap() const
-    {
-        return m_fogHeightDummy && m_fogHeightDummy->valid() ? m_fogHeightDummy->srvHeap() : nullptr;
-    }
-
-    D3D12_GPU_DESCRIPTOR_HANDLE Renderer::heightFallbackGpu() const
-    {
-        return m_fogHeightDummy && m_fogHeightDummy->valid() ? m_fogHeightDummy->gpuHandle() : D3D12_GPU_DESCRIPTOR_HANDLE{};
-    }
-
 } // namespace Dark

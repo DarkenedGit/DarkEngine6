@@ -67,8 +67,6 @@ bool SkyPipeline::create(ID3D12Device* device, DXGI_FORMAT colorFormat)
     m_rootSignature.Reset();
     m_pso.Reset();
     m_psoCloud.Reset();
-    m_shadowHeap.Reset();
-    m_shadowGpu   = {};
     m_skyCb.Reset();
     m_skyMapped = nullptr;
     m_skyGpu    = 0;
@@ -163,19 +161,6 @@ bool SkyPipeline::create(ID3D12Device* device, DXGI_FORMAT colorFormat)
         m_psoCloud.Reset();
     }
 
-    D3D12_DESCRIPTOR_HEAP_DESC heapDesc{};
-    heapDesc.NumDescriptors = 1;
-    heapDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    heapDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    if (FailedHr(device->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&m_shadowHeap)), "CreateDescriptorHeap (sky shadow)"))
-    {
-        m_rootSignature.Reset();
-        m_pso.Reset();
-        m_psoCloud.Reset();
-        return false;
-    }
-    m_shadowGpu = m_shadowHeap->GetGPUDescriptorHandleForHeapStart();
-
     D3D12_HEAP_PROPERTIES uploadHeap{};
     uploadHeap.Type = D3D12_HEAP_TYPE_UPLOAD;
 
@@ -194,7 +179,6 @@ bool SkyPipeline::create(ID3D12Device* device, DXGI_FORMAT colorFormat)
         m_rootSignature.Reset();
         m_pso.Reset();
         m_psoCloud.Reset();
-        m_shadowHeap.Reset();
         return false;
     }
 
@@ -204,7 +188,6 @@ bool SkyPipeline::create(ID3D12Device* device, DXGI_FORMAT colorFormat)
         m_rootSignature.Reset();
         m_pso.Reset();
         m_psoCloud.Reset();
-        m_shadowHeap.Reset();
         m_skyCb.Reset();
         m_skyMapped = nullptr;
         return false;
@@ -214,13 +197,6 @@ bool SkyPipeline::create(ID3D12Device* device, DXGI_FORMAT colorFormat)
 
     DE_LOG_INFO(LogCategory::Render, "SkyPipeline: ready (DeferredLast, deck {})", m_psoCloud ? "on" : "off");
     return true;
-}
-
-void SkyPipeline::setShadowSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu)
-{
-    if (!device || !m_shadowHeap || shadowCpu.ptr == 0)
-        return;
-    device->CopyDescriptorsSimple(1, m_shadowHeap->GetCPUDescriptorHandleForHeapStart(), shadowCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 }
 
 void SkyPipeline::bind(ID3D12GraphicsCommandList* cmd) const
@@ -312,7 +288,7 @@ void SkyPipeline::upload(uint32_t frameIndex, const Camera3D& camera, const Sky:
     std::memcpy(m_skyMapped + static_cast<size_t>(slot) * kSkySlotBytes, &cb, sizeof(cb));
 }
 
-void SkyPipeline::draw(ID3D12GraphicsCommandList* cmd, uint32_t frameIndex, const ShadowSystem* shadows) const
+void SkyPipeline::draw(ID3D12GraphicsCommandList* cmd, uint32_t frameIndex, D3D12_GPU_DESCRIPTOR_HANDLE shadowTable, const ShadowSystem* shadows) const
 {
     if (!cmd || !m_pso || !m_skyMapped)
         return;
@@ -322,12 +298,8 @@ void SkyPipeline::draw(ID3D12GraphicsCommandList* cmd, uint32_t frameIndex, cons
 
     const UINT slot = frameIndex % kFrameCount;
     cmd->SetGraphicsRootConstantBufferView(kRootCbv, m_skyGpu + static_cast<UINT64>(slot) * kSkySlotBytes);
-    if (m_shadowHeap && m_shadowGpu.ptr != 0)
-    {
-        ID3D12DescriptorHeap* heaps[] = { m_shadowHeap.Get() };
-        cmd->SetDescriptorHeaps(1, heaps);
-        cmd->SetGraphicsRootDescriptorTable(kRootShadowSrv, m_shadowGpu);
-    }
+    if (shadowTable.ptr != 0)
+        cmd->SetGraphicsRootDescriptorTable(kRootShadowSrv, shadowTable);
     if (shadows && shadows->isValid())
         shadows->bindReceiverCbv(cmd, kRootShadowCbv);
 

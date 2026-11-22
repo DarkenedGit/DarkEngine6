@@ -35,25 +35,24 @@ namespace Dark
         void release();
 
         bool create(ID3D12Device* device);
-        void draw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const UnderwaterFrame& frame);
+        // The HDR copy the pass samples, registered on first use (only underwater frames pay for
+        // it). False when the target registry or the copy is missing.
+        bool                        ensureCopy(Renderer& renderer);
+        ID3D12Resource*             copyResource() const;
+        D3D12_CPU_DESCRIPTOR_HANDLE copySrv() const;
+        // table: a two-SRV ring table, the HDR copy (t0) and scene depth (t1). HDR is bound.
+        void draw(ID3D12GraphicsCommandList* cmd, D3D12_GPU_DESCRIPTOR_HANDLE table, const UnderwaterFrame& frame) const;
 
         bool isValid() const { return m_pso != nullptr && m_rootSignature != nullptr; }
 
     private:
-        static constexpr UINT kBufferedFrames = 2;
-        static constexpr UINT kSrvPerFrame    = 2; // HDR copy + depth
-        static constexpr UINT kConstantCount  = 21;
+        static constexpr UINT kSrvCount      = 2; // HDR copy + depth
+        static constexpr UINT kConstantCount = 21;
 
-        bool ensureCopy(Renderer& renderer);
-
-        ComPtr<ID3D12RootSignature>  m_rootSignature;
-        ComPtr<ID3D12PipelineState>  m_pso;
-        ComPtr<ID3D12DescriptorHeap> m_srvHeap;
-        D3D12_CPU_DESCRIPTOR_HANDLE  m_cpu{};
-        D3D12_GPU_DESCRIPTOR_HANDLE  m_gpu{};
-        UINT                         m_srvIncr = 0;
-        GraphTargets*                m_targets = nullptr; // set by the first ensureCopy
-        GraphTarget                  m_copy;              // graph target (render-graph plan Phase 5)
+        ComPtr<ID3D12RootSignature> m_rootSignature;
+        ComPtr<ID3D12PipelineState> m_pso;
+        GraphTargets*               m_targets = nullptr; // set by the first ensureCopy
+        GraphTarget                 m_copy;
     };
 
 } // namespace Dark

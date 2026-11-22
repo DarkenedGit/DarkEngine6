@@ -241,11 +241,9 @@ namespace Dark
         D3D12_CPU_DESCRIPTOR_HANDLE fullSrvCpu() const;
         D3D12_CPU_DESCRIPTOR_HANDLE debugConfSrvCpu() const;
         D3D12_CPU_DESCRIPTOR_HANDLE sceneColorSrvCpu() const;
-        // For opaque readers (they record their own barriers until they convert): the debug overlay,
-        // and the hand-offs to the opaque lighting and water passes.
+        // For the opaque debug overlay, which records its own barriers.
         void transitionFull(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after);
         void transitionDebug(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after);
-        void transitionSceneColorRead(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after);
 
     private:
         bool createPsos(ID3D12Device* device);

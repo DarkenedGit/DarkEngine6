@@ -155,16 +155,17 @@ TEST(WaterLightPick, FillSsrWritesEnabledAndSkyEval)
     EXPECT_FLOAT_EQ(cb.ssrEnabled, 0.0f);
 }
 
-TEST(WaterLightPick, SsrDescriptorsRequireReceiverCopies)
+TEST(WaterLightPick, SsrNeedsATableWithThisFramesCapture)
 {
-    WaterPipeline pipeline;
-    D3D12_CPU_DESCRIPTOR_HANDLE color{};
-    D3D12_CPU_DESCRIPTOR_HANDLE depth{};
-    color.ptr = 1;
-    depth.ptr = 1;
-    EXPECT_FALSE(pipeline.ssrDescriptorsBound(color, depth));
-    depth.ptr = 0;
-    EXPECT_FALSE(pipeline.ssrDescriptorsBound(color, depth));
+    EXPECT_FALSE(WaterPipeline::ssrReady(nullptr));
+    WaterTables tables;
+    EXPECT_FALSE(WaterPipeline::ssrReady(&tables));
+    tables.table.ptr = 64; // the SSR slots hold the dummies
+    EXPECT_FALSE(WaterPipeline::ssrReady(&tables));
+    tables.sceneColor = true;
+    EXPECT_TRUE(WaterPipeline::ssrReady(&tables));
+    tables.table.ptr = 0; // the ring was full
+    EXPECT_FALSE(WaterPipeline::ssrReady(&tables));
 }
 
 TEST(WaterLightPick, EmptyWorldHasZeroWaterCount)

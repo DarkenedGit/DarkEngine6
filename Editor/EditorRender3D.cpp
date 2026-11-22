@@ -650,64 +650,53 @@ void EditorApp::renderScene3D()
     frame.declare(PassId::Gtao, [&](FeatureBuilder& b) { m_scene.addGtaoPasses(b, renderer(), m_camera, m_sceneWorld.ssao); });
     frame.declare(PassId::Ssr, [&](FeatureBuilder& b) { m_scene.addSsrPasses(b, renderer(), m_camera, m_sceneWorld.ssr, nullptr); });
     frame.declare(PassId::Lighting, [&](FeatureBuilder& b) { m_scene.addLightingPasses(b, renderer(), resolve); });
-    frame.declare(PassId::LocalVolumes,
-                  [&](FeatureBuilder& b)
-                  {
-                      m_scene.addLocalVolumesPasses(b, renderer(), world(), m_camera, resolve);
-                      // Sky and the passes after it are opaque and draw into HDR with depth bound.
-                      b.opaque("LocalVolumes.BindHdr", {}, {}, [&](Rg::PassContext&) { renderer().bindHdr(true); });
-                  });
+    frame.declare(PassId::LocalVolumes, [&](FeatureBuilder& b) { m_scene.addLocalVolumesPasses(b, renderer(), world(), m_camera, resolve); });
     if (m_skyPipeline.isValid())
     {
-        frame.set(PassId::Sky, [&](Rg::PassContext& pass) {
-            ID3D12GraphicsCommandList* const cmd = pass.cmd();
-            const float waterLevel = m_sceneWorld.water.params().waterLevel;
-            m_skyPipeline.upload(renderer().frameIndex(), m_camera, m_sceneWorld.env, 1.0f, waterLevel, 0.0f);
-            m_skyPipeline.draw(cmd, renderer().frameIndex(), &m_shadows);
-        });
+        frame.declare(PassId::Sky,
+                      [&](FeatureBuilder& b)
+                      {
+                          m_scene.addSkyPasses(b, renderer(),
+                                               [&](Rg::PassContext& pass, D3D12_GPU_DESCRIPTOR_HANDLE shadowTable)
+                                               {
+                                                   const float waterLevel = m_sceneWorld.water.params().waterLevel;
+                                                   m_skyPipeline.upload(renderer().frameIndex(), m_camera, m_sceneWorld.env, 1.0f, waterLevel, 0.0f);
+                                                   m_skyPipeline.draw(pass.cmd(), renderer().frameIndex(), shadowTable, &m_shadows);
+                                               });
+                      });
     }
-    frame.declare(PassId::SsrCapture,
-                  [&](FeatureBuilder& b)
-                  {
-                      m_scene.addSsrCapturePasses(b, renderer());
-                      // Water and the passes after expect HDR with read-only depth even when SSR is unavailable.
-                      b.opaque("SsrCapture.Bind", {}, {}, [&](Rg::PassContext&) { renderer().bindHdrDepthRead(); });
-                  });
+    frame.declare(PassId::SsrCapture, [&](FeatureBuilder& b) { m_scene.addSsrCapturePasses(b, renderer()); });
     const bool anyWater = m_sceneWorld.water.wetChunkCount() > 0 || !m_placedWater.empty() || !m_sceneWorld.water.ribbons().empty();
     if (m_haveTerrain && m_scene.waterPipeline().isValid() && anyWater)
     {
-        frame.set(PassId::Water, [&](Rg::PassContext& pass) {
-            ID3D12GraphicsCommandList* const cmd = pass.cmd();
-            const Frustum3f waterFrustum(m_camera.GetCullViewProj());
-            ID3D12DescriptorHeap*       heightHeap = nullptr;
-            D3D12_GPU_DESCRIPTOR_HANDLE heightGpu{};
-            if (m_sceneWorld.terrain.heightTexture().valid())
-            {
-                heightHeap = m_sceneWorld.terrain.heightTexture().srvHeap();
-                heightGpu  = m_sceneWorld.terrain.heightTexture().gpuHandle();
-            }
-            D3D12_CPU_DESCRIPTOR_HANDLE waterSceneColor{};
-            D3D12_CPU_DESCRIPTOR_HANDLE waterDepth{};
-            const SsrSettings*          waterSsr = nullptr;
-            if (m_scene.ssr().hasSceneColor())
-            {
-                waterSceneColor = m_scene.ssr().sceneColorSrvCpu();
-                waterDepth      = renderer().depthSrvCpu();
-                waterSsr        = &m_sceneWorld.ssr;
-            }
-            const GpuScope water(cmd, "Water", ProfileColor::Water);
-            drawPlacedWater(cmd, waterFrustum, heightHeap, heightGpu, waterSceneColor, waterDepth, waterSsr);
-        });
+        frame.declare(PassId::Water,
+                      [&](FeatureBuilder& b)
+                      {
+                          m_scene.addWaterPasses(b, renderer(),
+                                                 [&](Rg::PassContext& pass, const WaterTables& tables)
+                                                 {
+                                                     const Frustum3f waterFrustum(m_camera.GetCullViewProj());
+                                                     const GpuScope  water(pass.cmd(), "Water", ProfileColor::Water);
+                                                     drawPlacedWater(pass.cmd(), waterFrustum, &tables, &m_sceneWorld.ssr);
+                                                 });
+                      });
     }
-    frame.set(PassId::Clouds, [&](Rg::PassContext& pass) {
-        ID3D12GraphicsCommandList* const cmd = pass.cmd();
-        CloudVolumeFrame cf{};
-        cf.sunDir       = lightDir;
-        cf.sunColor     = sunColor;
-        cf.ambientColor = ambientColor;
-        cf.time         = m_sceneWorld.cloudTime;
-        m_scene.drawCloudVolumes(cmd, renderer(), world(), m_camera, viewProj, cf);
-    });
+    frame.declare(PassId::Clouds,
+                  [&](FeatureBuilder& b)
+                  {
+                      m_scene.addCloudsPasses(b, renderer(),
+                                              [&](Rg::PassContext& pass, D3D12_GPU_DESCRIPTOR_HANDLE depthTable)
+                                              {
+                                                  CloudVolumeFrame cf{};
+                                                  cf.sunDir       = lightDir;
+                                                  cf.sunColor     = sunColor;
+                                                  cf.ambientColor = ambientColor;
+                                                  cf.time         = m_sceneWorld.cloudTime;
+                                                  m_scene.drawCloudVolumes(pass.cmd(), depthTable, renderer(), world(), m_camera, viewProj, cf);
+                                              });
+                      // The passes after Clouds are opaque and expect HDR bound with read-only depth.
+                      b.opaque("Clouds.BindHdr", {}, {}, [&](Rg::PassContext&) { renderer().bindHdrDepthRead(); });
+                  });
     if (m_showGrid && m_gridMesh.valid())
     {
         frame.set(PassId::EditorGrid, [&](Rg::PassContext& pass) {

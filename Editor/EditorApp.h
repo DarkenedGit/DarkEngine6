@@ -334,10 +334,7 @@ private:
     void drawPlacedWater(
         ID3D12GraphicsCommandList* cmd,
         const Frustum3f& frustum,
-        ID3D12DescriptorHeap* heightHeap,
-        D3D12_GPU_DESCRIPTOR_HANDLE heightGpu,
-        D3D12_CPU_DESCRIPTOR_HANDLE sceneColorCpu,
-        D3D12_CPU_DESCRIPTOR_HANDLE depthCpu,
+        const WaterTables* tables,
         const SsrSettings* ssr);
     void bindTerrainHeightSrv();
     void startFoliageSpawn();

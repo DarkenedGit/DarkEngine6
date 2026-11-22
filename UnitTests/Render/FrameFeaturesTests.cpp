@@ -2,6 +2,7 @@
 
 #include "Render/FrameFeatures.h"
 #include "Render/GBufferInputs.h"
+#include "Render/HdrDrawInputs.h"
 #include "Render/LightingInputs.h"
 #include "Render/PostMatrices.h"
 #include "RenderGraphTestUtil.h"
@@ -631,7 +632,6 @@ namespace
                                               vol = d;
                                           });
                                       fb.set(RenderResource::Hdr, volHdrOut);
-                                      fb.opaque("LocalVolumes.BindHdr", {}, {}, [this](Rg::PassContext&) { ran.push_back("LocalVolumes.BindHdr"); });
                                   });
             if (!host.features.compileFrame(g, "test"))
                 return false;
@@ -731,8 +731,7 @@ TEST(FrameFeatures, GtaoAndSsrRunTheirStepsBeforeTheDeclaredLightingPasses)
     EXPECT_LT(f.at("Gtao.Compose"), f.at("Ssr.Upsample"));
     EXPECT_LT(f.at("Ssr.Upsample"), f.at("Lighting"));
     EXPECT_LT(f.at("Lighting"), f.at("LocalVolumes"));
-    EXPECT_LT(f.at("LocalVolumes"), f.at("LocalVolumes.BindHdr"));
-    EXPECT_EQ(static_cast<size_t>(f.at("LocalVolumes.BindHdr")) + 1, static_cast<size_t>(f.at("Sky")));
+    EXPECT_EQ(static_cast<size_t>(f.at("LocalVolumes")) + 1, static_cast<size_t>(f.at("Sky")));
     // Phase 6 part 4: Lighting is declared, so the GTAO / SSR hand-off passes are gone.
     EXPECT_FALSE(hasPass(f.host.graph, "Gtao.Handoff"));
     EXPECT_FALSE(hasPass(f.host.graph, "Ssr.Handoff"));
@@ -961,7 +960,7 @@ TEST(FrameFeatures, PostMatricesBuiltAtDeclareFillTheViewProjGBufferWrote)
     }
 }
 
-// Sky (opaque) leaves HDR bound as a render target; the capture's HDR RT->SRV barrier is recorded
+// An opaque Sky leaves HDR bound as a render target; the capture's HDR RT->SRV barrier is recorded
 // before the capture executes. The executor clears the output merger before that batch, so the
 // SsrCapture entry needs no unbind pass of its own.
 TEST(FrameFeatures, OpaquePassBeforeADeclaredReaderIsUnboundBeforeItsBarrier)
@@ -1277,4 +1276,292 @@ TEST(FrameFeatures, GBufferAndDecalHelpersAddNothingWithoutTargets)
     EXPECT_FALSE(gbAdded);
     EXPECT_FALSE(decAdded);
     EXPECT_FALSE(clrAdded);
+}
+
+namespace
+{
+    // The Sandbox list from Sky to Underwater declared the way SceneRenderer does it
+    // (HdrDrawInputs.h): SsrCapture publishes its scene color, Sky / Water / Clouds draw into HDR with
+    // read-only depth, Underwater copies HDR first. The other entries are opaque. Depth comes in as
+    // the lighting passes leave it (a shader resource), HDR as a render target.
+    struct DeclaredHdrDrawFrame
+    {
+        HostFrame                host;
+        std::vector<std::string> ran;
+        HdrDrawTargets           sky{}, water{}, clouds{};
+        UnderwaterTargets        underCopy{}, under{};
+        Rg::TextureHandle        captured;
+        bool                     skyAdded = false, waterAdded = false, cloudsAdded = false, underAdded = false;
+
+        bool run(bool capture, bool underwater = false)
+        {
+            uint32_t           count = 0;
+            const FeaturePass* list  = sandboxFeatures(count);
+            ran.clear();
+            sky = water = clouds = {};
+            underCopy = under = {};
+            captured          = {};
+            skyAdded = waterAdded = cloudsAdded = underAdded = false;
+            Rg::RenderGraph& g                               = host.graph;
+            g.beginFrame(1280, 720);
+            host.features.begin(list, count);
+            for (uint32_t r = 0; r < kRenderResourceCount; ++r)
+            {
+                const auto     res    = static_cast<RenderResource>(r);
+                const uint32_t fmt    = res == RenderResource::Swap ? kBgra8 : (res == RenderResource::Depth ? kD32 : kRgba);
+                Rg::Layout     layout = Rg::Layout::ShaderResource;
+                if (res == RenderResource::Swap || res == RenderResource::Hdr)
+                    layout = Rg::Layout::RenderTarget;
+                host.features.importResource(g, res, fakeResource(r), absDesc(1280, 720, fmt), layout);
+            }
+            for (const PassId id : without(listIds(list, count), { PassId::Sky, PassId::SsrCapture, PassId::Water, PassId::Clouds, PassId::Underwater }))
+                host.features.set(id, [this, id](Rg::PassContext&) { ran.push_back(passName(id)); });
+            host.features.declare(PassId::Sky,
+                                  [this](FeatureBuilder& fb)
+                                  {
+                                      skyAdded = addHdrDrawPass(fb, "Sky", false,
+                                                                [this](Rg::PassContext&, const HdrDrawTargets& d)
+                                                                {
+                                                                    ran.push_back("Sky");
+                                                                    sky = d;
+                                                                });
+                                  });
+            host.features.declare(PassId::SsrCapture,
+                                  [this, capture](FeatureBuilder& fb)
+                                  {
+                                      if (!capture)
+                                      {
+                                          fb.opaque("SsrCapture", {}, {}, [this](Rg::PassContext&) { ran.push_back("SsrCapture.Skip"); });
+                                          return;
+                                      }
+                                      Rg::TextureHandle dst =
+                                          fb.graph().importTexture("DE.Ssr.SceneColor1", absDesc(640, 360, kRgba), fakeResource(60), Rg::Layout::ShaderResource, Rg::Layout::Undefined);
+                                      fb.addPass<Rg::NoData>(
+                                          "SsrCapture",
+                                          [&](Rg::PassBuilder& b, Rg::NoData&)
+                                          {
+                                              b.read(fb.handle(RenderResource::Hdr), Rg::Use::PixelSrv);
+                                              dst = b.write(dst, Rg::Use::RenderTarget);
+                                          },
+                                          [this](Rg::PassContext&, const Rg::NoData&) { ran.push_back("SsrCapture"); });
+                                      captured = dst;
+                                      fb.graph().blackboard().set(SsrCaptureOutput{ dst });
+                                  });
+            host.features.declare(PassId::Water,
+                                  [this](FeatureBuilder& fb)
+                                  {
+                                      waterAdded = addHdrDrawPass(fb, "Water", true,
+                                                                  [this](Rg::PassContext&, const HdrDrawTargets& d)
+                                                                  {
+                                                                      ran.push_back("Water");
+                                                                      water = d;
+                                                                  });
+                                  });
+            host.features.declare(PassId::Clouds,
+                                  [this](FeatureBuilder& fb)
+                                  {
+                                      cloudsAdded = addHdrDrawPass(fb, "Clouds", false,
+                                                                   [this](Rg::PassContext&, const HdrDrawTargets& d)
+                                                                   {
+                                                                       ran.push_back("Clouds");
+                                                                       clouds = d;
+                                                                   });
+                                      fb.opaque("Clouds.BindHdr", {}, {}, [this](Rg::PassContext&) { ran.push_back("Clouds.BindHdr"); });
+                                  });
+            host.features.declare(PassId::Underwater,
+                                  [this, underwater](FeatureBuilder& fb)
+                                  {
+                                      if (!underwater)
+                                      {
+                                          fb.opaque("Underwater", {}, {}, [this](Rg::PassContext&) { ran.push_back("Underwater.Skip"); });
+                                          return;
+                                      }
+                                      const Rg::TextureHandle copy =
+                                          fb.graph().importTexture("DE.Underwater.HdrCopy", absDesc(1280, 720, kRgba), fakeResource(61), Rg::Layout::ShaderResource, Rg::Layout::Undefined);
+                                      underAdded = addUnderwaterPasses(
+                                          fb, copy,
+                                          [this](Rg::PassContext&, const UnderwaterTargets& d)
+                                          {
+                                              ran.push_back("Underwater.Copy");
+                                              underCopy = d;
+                                          },
+                                          [this](Rg::PassContext&, const UnderwaterTargets& d)
+                                          {
+                                              ran.push_back("Underwater");
+                                              under = d;
+                                          });
+                                  });
+            if (!host.features.compileFrame(g, "test"))
+                return false;
+            return g.execute();
+        }
+
+        long at(const char* n) const
+        {
+            return std::find(ran.begin(), ran.end(), std::string(n)) - ran.begin();
+        }
+
+        std::vector<Rg::BarrierRec> into(const char* resource, const char* pass) const
+        {
+            std::vector<Rg::BarrierRec> out;
+            for (const Rg::BarrierRec& b : recordsOn(host.graph, resource))
+                if (b.pass != Rg::kNoPass && b.pass < host.graph.passCount() && std::string(host.graph.passName(b.pass)) == pass)
+                    out.push_back(b);
+            return out;
+        }
+
+        std::string accesses(const char* pass) const
+        {
+            std::string json;
+            host.graph.dumpJson(json);
+            const size_t at  = json.find(std::string("\"name\":\"") + pass + "\"");
+            const size_t end = json.find("{\"index\":", at);
+            return at == std::string::npos ? std::string() : json.substr(at, end - at);
+        }
+
+        bool hasPass(const char* name) const
+        {
+            for (uint32_t i = 0; i < host.graph.passCount(); ++i)
+                if (std::string(host.graph.passName(i)) == name)
+                    return true;
+            return false;
+        }
+    };
+} // namespace
+
+TEST(FrameFeatures, SkyWaterAndCloudsDrawOntoHdrInListOrder)
+{
+    DeclaredHdrDrawFrame f;
+    ASSERT_TRUE(f.run(true));
+    EXPECT_TRUE(f.host.features.orderOk());
+    ASSERT_TRUE(f.skyAdded && f.waterAdded && f.cloudsAdded);
+    EXPECT_LT(f.at("LocalVolumes"), f.at("Sky"));
+    EXPECT_LT(f.at("Sky"), f.at("SsrCapture"));
+    EXPECT_LT(f.at("SsrCapture"), f.at("Water"));
+    EXPECT_LT(f.at("Water"), f.at("Clouds"));
+    EXPECT_LT(f.at("Clouds"), f.at("Clouds.BindHdr"));
+    EXPECT_LT(f.at("Clouds.BindHdr"), f.at("Camouflage"));
+    // Each blends onto the HDR the one before wrote, and the depth target is never written.
+    EXPECT_EQ(f.water.hdr.index, f.sky.hdr.index);
+    EXPECT_EQ(f.water.hdr.version, f.sky.hdr.version + 1);
+    EXPECT_EQ(f.clouds.hdr.version, f.water.hdr.version + 1);
+    EXPECT_EQ(f.water.depth, f.sky.depth);
+    EXPECT_EQ(f.clouds.depth, f.sky.depth);
+    for (const char* pass : { "Sky", "Water", "Clouds" })
+    {
+        const std::string a     = f.accesses(pass);
+        const std::string hdr   = accessOf(a, f.host.graph.findResource("Hdr"));
+        const std::string depth = accessOf(a, f.host.graph.findResource("Depth"));
+        EXPECT_NE(hdr.find("\"use\":\"RenderTarget\",\"read\":true,\"write\":true"), std::string::npos) << pass << ": " << hdr;
+        EXPECT_NE(depth.find("\"use\":\"DepthRead\",\"read\":true,\"write\":false"), std::string::npos) << pass << ": " << depth;
+    }
+}
+
+TEST(FrameFeatures, DepthMovesToReadOnlyOnceBeforeSkyAndStaysThere)
+{
+    DeclaredHdrDrawFrame f;
+    ASSERT_TRUE(f.run(true));
+    // Opaque LocalVolumes before Sky: a tracked barrier (its before layout is read from the tracker).
+    const std::vector<Rg::BarrierRec> sky = f.into("Depth", "Sky");
+    ASSERT_EQ(sky.size(), 1u);
+    EXPECT_EQ(sky[0].after.layout, Rg::Layout::DirectQueueGenericRead);
+    EXPECT_TRUE(sky[0].tracked);
+    // Water depth-tests, Clouds samples: the same layout serves both, so no barrier between them.
+    EXPECT_TRUE(f.into("Depth", "Water").empty());
+    EXPECT_TRUE(f.into("Depth", "Clouds").empty());
+}
+
+TEST(FrameFeatures, WaterReadsThisFramesCaptureThroughAPlannedBarrier)
+{
+    DeclaredHdrDrawFrame f;
+    ASSERT_TRUE(f.run(true));
+    ASSERT_TRUE(f.captured.valid());
+    EXPECT_EQ(f.water.sceneColor, f.captured);
+    EXPECT_FALSE(f.sky.sceneColor.valid());
+    EXPECT_FALSE(f.clouds.sceneColor.valid());
+    const std::vector<Rg::BarrierRec> b = f.into("DE.Ssr.SceneColor1", "Water");
+    ASSERT_EQ(b.size(), 1u);
+    EXPECT_EQ(b[0].before.layout, Rg::Layout::RenderTarget);
+    EXPECT_EQ(b[0].after.layout, Rg::Layout::ShaderResource);
+    EXPECT_FALSE(b[0].tracked);
+    EXPECT_FALSE(f.hasPass("SsrCapture.Handoff"));
+}
+
+TEST(FrameFeatures, WaterWithoutACaptureReadsNoSceneColor)
+{
+    DeclaredHdrDrawFrame f;
+    ASSERT_TRUE(f.run(false));
+    ASSERT_TRUE(f.waterAdded);
+    EXPECT_LT(f.at("SsrCapture.Skip"), f.at("Water"));
+    EXPECT_FALSE(f.water.sceneColor.valid());
+    EXPECT_EQ(f.water.hdr.version, f.sky.hdr.version + 1);
+}
+
+TEST(FrameFeatures, UnderwaterCopiesHdrThenDrawsOntoIt)
+{
+    DeclaredHdrDrawFrame f;
+    ASSERT_TRUE(f.run(true, true));
+    EXPECT_TRUE(f.host.features.orderOk());
+    ASSERT_TRUE(f.underAdded);
+    EXPECT_LT(f.at("Particles"), f.at("Underwater.Copy"));
+    EXPECT_LT(f.at("Underwater.Copy"), f.at("Underwater"));
+    EXPECT_LT(f.at("Underwater"), f.at("Post"));
+    // The draw samples the copy and rewrites the HDR version the copy read.
+    EXPECT_EQ(f.underCopy.hdr.index, f.clouds.hdr.index);
+    EXPECT_EQ(f.under.copy, f.underCopy.copy);
+    EXPECT_EQ(f.under.hdr.version, f.underCopy.hdr.version + 1);
+    EXPECT_EQ(f.under.depth, f.clouds.depth);
+    EXPECT_EQ(f.under.sceneColor, f.captured); // the water ceiling's SSR
+
+    const std::vector<Rg::BarrierRec> hdrCopy = f.into("Hdr", "Underwater.Copy");
+    ASSERT_EQ(hdrCopy.size(), 1u);
+    EXPECT_EQ(hdrCopy[0].after.layout, Rg::Layout::CopySource);
+    const std::vector<Rg::BarrierRec> dstCopy = f.into("DE.Underwater.HdrCopy", "Underwater.Copy");
+    ASSERT_EQ(dstCopy.size(), 1u);
+    EXPECT_EQ(dstCopy[0].before.layout, Rg::Layout::ShaderResource);
+    EXPECT_EQ(dstCopy[0].after.layout, Rg::Layout::CopyDest);
+    const std::vector<Rg::BarrierRec> hdrDraw = f.into("Hdr", "Underwater");
+    ASSERT_EQ(hdrDraw.size(), 1u);
+    EXPECT_EQ(hdrDraw[0].before.layout, Rg::Layout::CopySource);
+    EXPECT_EQ(hdrDraw[0].after.layout, Rg::Layout::RenderTarget);
+    const std::vector<Rg::BarrierRec> dstDraw = f.into("DE.Underwater.HdrCopy", "Underwater");
+    ASSERT_EQ(dstDraw.size(), 1u);
+    EXPECT_EQ(dstDraw[0].before.layout, Rg::Layout::CopyDest);
+    EXPECT_EQ(dstDraw[0].after.layout, Rg::Layout::ShaderResource);
+    const std::string depth = accessOf(f.accesses("Underwater"), f.host.graph.findResource("Depth"));
+    EXPECT_NE(depth.find("\"use\":\"DepthRead\",\"read\":true,\"write\":false"), std::string::npos) << depth;
+}
+
+TEST(FrameFeatures, HdrDrawHelpersAddNothingWithoutHdrAndDepth)
+{
+    // Nothing imported, then HDR without depth (the read-only depth target is required too).
+    for (const bool withHdr : { false, true })
+    {
+        HostFrame          host;
+        Rg::RenderGraph&   g     = host.graph;
+        uint32_t           count = 0;
+        const FeaturePass* list  = sandboxFeatures(count);
+        g.beginFrame(1280, 720);
+        host.features.begin(list, count);
+        if (withHdr)
+            host.features.importResource(g, RenderResource::Hdr, fakeResource(1), absDesc(1280, 720, kRgba), Rg::Layout::RenderTarget);
+        bool drawAdded = true, underAdded = true;
+        host.features.declare(PassId::Sky,
+                              [&](FeatureBuilder& fb)
+                              {
+                                  drawAdded = addHdrDrawPass(fb, "Sky", true, [](Rg::PassContext&, const HdrDrawTargets&) {});
+                                  fb.opaque("Sky", {}, {}, [](Rg::PassContext&) {});
+                              });
+        host.features.declare(PassId::Underwater,
+                              [&](FeatureBuilder& fb)
+                              {
+                                  const Rg::TextureHandle copy =
+                                      fb.graph().importTexture("DE.Underwater.HdrCopy", absDesc(1280, 720, kRgba), fakeResource(61), Rg::Layout::ShaderResource, Rg::Layout::Undefined);
+                                  underAdded = addUnderwaterPasses(fb, copy, [](Rg::PassContext&, const UnderwaterTargets&) {}, [](Rg::PassContext&, const UnderwaterTargets&) {});
+                                  fb.opaque("Underwater", {}, {}, [](Rg::PassContext&) {});
+                              });
+        host.features.compileFrame(g, "test");
+        EXPECT_FALSE(drawAdded) << withHdr;
+        EXPECT_FALSE(underAdded) << withHdr;
+    }
 }
