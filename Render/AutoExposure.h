@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Render/GraphTargets.h"
+
 #include <cstdint>
 #include <d3d12.h>
 #include <wrl/client.h>
@@ -78,16 +80,18 @@ public:
     AutoExposurePipeline(const AutoExposurePipeline&)            = delete;
     AutoExposurePipeline& operator=(const AutoExposurePipeline&) = delete;
 
-    bool create(ID3D12Device* device, uint32_t width, uint32_t height);
-    // GPU must be idle. Same size is a no-op and keeps the readback.
-    bool resize(ID3D12Device* device, uint32_t width, uint32_t height);
+    // Graph targets (render-graph plan Phase 5): the level chain is registered output-relative and
+    // Renderer::resize recreates it (generation() changes). The readbacks are D3D12MA buffers whose
+    // release `renderer` defers behind the frame fence (null: released at once, GPU idle; tests).
+    bool create(GraphTargets& targets, Renderer* renderer);
+    uint64_t generation() const; // changes when a resize recreated the pyramid
     // Records the pyramid and copies the 1×1 into this frame's readback slot.
     bool meter(ID3D12GraphicsCommandList* cmd, Renderer& renderer);
     // 0 when this slot has not completed a copy, or the weight was 0.
     float readMeasuredLuma(uint32_t frameIndex) const;
     // Next reads return 0 until a later meter() completes. Does not change GPU memory.
     void invalidateReadback();
-    bool isValid() const { return m_psoReduce != nullptr && m_levelCount > 0 && m_levels[0].res != nullptr && m_readback[0] != nullptr; }
+    bool isValid() const;
     void release();
 
 private:
@@ -96,40 +100,32 @@ private:
     static constexpr UINT kConstantCount = 4;
     static constexpr UINT kFrameSrv      = kFrameCount * 2; // HDR + depth, per frame
 
-    struct Level
-    {
-        ComPtr<ID3D12Resource>        res;
-        uint32_t                      w     = 0;
-        uint32_t                      h     = 0;
-        mutable D3D12_RESOURCE_STATES state = D3D12_RESOURCE_STATE_COMMON;
-    };
-
     bool createPsos(ID3D12Device* device);
-    bool createTargets(ID3D12Device* device, uint32_t width, uint32_t height);
+    bool createTargets(ID3D12Device* device);
     void resetTargets();
+    void refreshViews() const;
+    uint32_t levelCount() const;
+    uint32_t levelWidth(UINT index) const;
+    uint32_t levelHeight(UINT index) const;
     void transitionLevel(ID3D12GraphicsCommandList* cmd, UINT index, D3D12_RESOURCE_STATES after) const;
-    D3D12_CPU_DESCRIPTOR_HANDLE rtvCpu(UINT level) const;
     D3D12_CPU_DESCRIPTOR_HANDLE srvCpu(UINT index) const;
     D3D12_GPU_DESCRIPTOR_HANDLE srvGpu(UINT index) const;
     void drawLevel(ID3D12GraphicsCommandList* cmd, ID3D12RootSignature* root, ID3D12PipelineState* pso, D3D12_GPU_DESCRIPTOR_HANDLE table,
                    D3D12_CPU_DESCRIPTOR_HANDLE rtv, uint32_t dstW, uint32_t dstH, uint32_t srcW, uint32_t srcH) const;
 
+    GraphTargets*                m_targets  = nullptr;
+    Renderer*                    m_renderer = nullptr; // deferRelease for the readbacks
     ComPtr<ID3D12RootSignature>  m_rootReduce;
     ComPtr<ID3D12RootSignature>  m_rootDownsample;
     ComPtr<ID3D12PipelineState>  m_psoReduce;
     ComPtr<ID3D12PipelineState>  m_psoDownsample;
-    ComPtr<ID3D12DescriptorHeap> m_rtvHeap;
     ComPtr<ID3D12DescriptorHeap> m_srvHeap;
-    D3D12_CPU_DESCRIPTOR_HANDLE  m_rtvCpu{};
     D3D12_CPU_DESCRIPTOR_HANDLE  m_srvCpu{};
     D3D12_GPU_DESCRIPTOR_HANDLE  m_srvGpu{};
-    UINT                         m_rtvIncr = 0;
     UINT                         m_srvIncr = 0;
-    uint32_t                     m_width   = 0;
-    uint32_t                     m_height  = 0;
-    uint32_t                     m_levelCount = 0;
-    Level                        m_levels[kMaxLevels]{};
-    ComPtr<ID3D12Resource>       m_readback[kFrameCount]{};
+    mutable GraphTarget          m_levels[kMaxLevels]{};
+    mutable bool                 m_viewsWritten = false;
+    GpuResource                  m_readback[kFrameCount]{};
     void*                        m_readbackMapped[kFrameCount]{};
     bool                         m_slotWritten[kFrameCount]{};
     mutable bool                 m_loggedSkip = false;

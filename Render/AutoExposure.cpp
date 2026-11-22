@@ -3,6 +3,7 @@
 
 #include "Core/Log.h"
 #include "Math/MathHelper.h"
+#include "Render/GraphTargets.h"
 #include "Render/Renderer.h"
 #include "Render/ShaderCompile.h"
 
@@ -23,11 +24,11 @@ bool FailedHr(HRESULT hr, const char* what)
     return true;
 }
 
-const wchar_t* kLevelNames[AutoExposurePipeline::kMaxLevels] = {
-    L"DE.AutoExposure.L0",  L"DE.AutoExposure.L1",  L"DE.AutoExposure.L2",  L"DE.AutoExposure.L3",
-    L"DE.AutoExposure.L4",  L"DE.AutoExposure.L5",  L"DE.AutoExposure.L6",  L"DE.AutoExposure.L7",
-    L"DE.AutoExposure.L8",  L"DE.AutoExposure.L9",  L"DE.AutoExposure.L10", L"DE.AutoExposure.L11",
-    L"DE.AutoExposure.L12", L"DE.AutoExposure.L13", L"DE.AutoExposure.L14", L"DE.AutoExposure.L15",
+const char* const kLevelNames[AutoExposurePipeline::kMaxLevels] = {
+    "DE.AutoExposure.L0",  "DE.AutoExposure.L1",  "DE.AutoExposure.L2",  "DE.AutoExposure.L3",
+    "DE.AutoExposure.L4",  "DE.AutoExposure.L5",  "DE.AutoExposure.L6",  "DE.AutoExposure.L7",
+    "DE.AutoExposure.L8",  "DE.AutoExposure.L9",  "DE.AutoExposure.L10", "DE.AutoExposure.L11",
+    "DE.AutoExposure.L12", "DE.AutoExposure.L13", "DE.AutoExposure.L14", "DE.AutoExposure.L15",
 };
 
 bool createSrvRoot(ID3D12Device* device, UINT srvCount, UINT constantCount, const char* label, ComPtr<ID3D12RootSignature>& out)
@@ -156,6 +157,7 @@ AutoExposurePipeline::~AutoExposurePipeline()
 void AutoExposurePipeline::release()
 {
     resetTargets();
+    m_targets = nullptr;
     m_psoReduce.Reset();
     m_psoDownsample.Reset();
     m_rootReduce.Reset();
@@ -168,39 +170,79 @@ void AutoExposurePipeline::resetTargets()
     for (UINT i = 0; i < kFrameCount; ++i)
     {
         if (m_readback[i] && m_readbackMapped[i])
-            m_readback[i]->Unmap(0, nullptr);
+            m_readback[i].get()->Unmap(0, nullptr);
         m_readbackMapped[i] = nullptr;
-        m_readback[i].Reset();
+        // The GPU may still copy into it: Renderer defers the release (resource and its D3D12MA
+        // allocation) behind the frame fence.
+        if (m_renderer && m_readback[i])
+        {
+            m_renderer->deferRelease(m_readback[i].get());
+            if (IUnknown* allocation = m_readback[i].allocation())
+                m_renderer->deferRelease(allocation);
+        }
+        m_readback[i].reset();
         m_slotWritten[i] = false;
     }
-    for (UINT i = 0; i < kMaxLevels; ++i)
+    for (GraphTarget& level : m_levels)
     {
-        m_levels[i].res.Reset();
-        m_levels[i].w     = 0;
-        m_levels[i].h     = 0;
-        m_levels[i].state = D3D12_RESOURCE_STATE_COMMON;
+        if (m_targets)
+            m_targets->unregisterTarget(level);
+        level = {};
     }
-    m_rtvHeap.Reset();
     m_srvHeap.Reset();
-    m_rtvCpu     = {};
-    m_srvCpu     = {};
-    m_srvGpu     = {};
-    m_width      = 0;
-    m_height     = 0;
-    m_levelCount = 0;
+    m_srvCpu       = {};
+    m_srvGpu       = {};
+    m_viewsWritten = false;
+}
+
+bool AutoExposurePipeline::isValid() const
+{
+    return m_psoReduce != nullptr && m_targets != nullptr && m_targets->resource(m_levels[0].id) != nullptr && m_readback[0];
+}
+
+uint64_t AutoExposurePipeline::generation() const
+{
+    return m_targets ? m_targets->generation(m_levels[0].id) : 0;
+}
+
+uint32_t AutoExposurePipeline::levelCount() const
+{
+    // Level k is max(floor(w / (4 * 2^k)), 1); the pyramid ends at the first 1x1 level.
+    for (UINT i = 0; i < kMaxLevels; ++i)
+        if (levelWidth(i) <= 1u && levelHeight(i) <= 1u)
+            return i + 1u;
+    return 0; // never reaches 1x1: meter() refuses
+}
+
+uint32_t AutoExposurePipeline::levelWidth(UINT index) const
+{
+    return m_targets->width(m_levels[index].id);
+}
+
+uint32_t AutoExposurePipeline::levelHeight(UINT index) const
+{
+    return m_targets->height(m_levels[index].id);
+}
+
+void AutoExposurePipeline::refreshViews() const
+{
+    // Level SRVs sit at fixed slots of the shader-visible table; a new generation only happens
+    // inside Renderer::resize's drained window, so rewriting them here races no in-flight list.
+    bool recreated = false;
+    for (GraphTarget& level : m_levels)
+        recreated = m_targets->refresh(level) || recreated;
+    if (!recreated && m_viewsWritten)
+        return;
+    ID3D12Device* device = m_targets->device();
+    for (UINT i = 0; i < kMaxLevels; ++i)
+        device->CopyDescriptorsSimple(1, srvCpu(kFrameSrv + i), m_targets->srv(m_levels[i].id), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    m_viewsWritten = true;
 }
 
 void AutoExposurePipeline::invalidateReadback()
 {
     m_slotWritten[0] = false;
     m_slotWritten[1] = false;
-}
-
-D3D12_CPU_DESCRIPTOR_HANDLE AutoExposurePipeline::rtvCpu(UINT level) const
-{
-    D3D12_CPU_DESCRIPTOR_HANDLE h = m_rtvCpu;
-    h.ptr += static_cast<SIZE_T>(level) * m_rtvIncr;
-    return h;
 }
 
 D3D12_CPU_DESCRIPTOR_HANDLE AutoExposurePipeline::srvCpu(UINT index) const
@@ -219,16 +261,8 @@ D3D12_GPU_DESCRIPTOR_HANDLE AutoExposurePipeline::srvGpu(UINT index) const
 
 void AutoExposurePipeline::transitionLevel(ID3D12GraphicsCommandList* cmd, UINT index, D3D12_RESOURCE_STATES after) const
 {
-    if (!cmd || index >= m_levelCount || !m_levels[index].res || m_levels[index].state == after)
-        return;
-    D3D12_RESOURCE_BARRIER b{};
-    b.Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    b.Transition.pResource   = m_levels[index].res.Get();
-    b.Transition.StateBefore = m_levels[index].state;
-    b.Transition.StateAfter  = after;
-    b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-    cmd->ResourceBarrier(1, &b);
-    m_levels[index].state = after;
+    if (index < kMaxLevels)
+        m_targets->transition(cmd, m_levels[index], after);
 }
 
 bool AutoExposurePipeline::createPsos(ID3D12Device* device)
@@ -278,14 +312,9 @@ bool AutoExposurePipeline::createPsos(ID3D12Device* device)
     return true;
 }
 
-bool AutoExposurePipeline::createTargets(ID3D12Device* device, uint32_t width, uint32_t height)
+bool AutoExposurePipeline::createTargets(ID3D12Device* device)
 {
     resetTargets();
-    if (!device || width == 0 || height == 0)
-    {
-        DE_LOG_ERROR(LogCategory::Render, "AutoExposurePipeline::createTargets: invalid device or size");
-        return false;
-    }
 
     D3D12_FEATURE_DATA_FORMAT_SUPPORT support{};
     support.Format = DXGI_FORMAT_R32G32_FLOAT;
@@ -298,14 +327,7 @@ bool AutoExposurePipeline::createTargets(ID3D12Device* device, uint32_t width, u
         return false;
     }
 
-    m_rtvIncr = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
     m_srvIncr = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-
-    D3D12_DESCRIPTOR_HEAP_DESC rtvDesc{};
-    rtvDesc.NumDescriptors = kMaxLevels;
-    rtvDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-    if (FailedHr(device->CreateDescriptorHeap(&rtvDesc, IID_PPV_ARGS(&m_rtvHeap)), "CreateDescriptorHeap auto exposure RTV"))
-        return false;
 
     D3D12_DESCRIPTOR_HEAP_DESC srvDesc{};
     srvDesc.NumDescriptors = kFrameSrv + kMaxLevels;
@@ -316,132 +338,76 @@ bool AutoExposurePipeline::createTargets(ID3D12Device* device, uint32_t width, u
         resetTargets();
         return false;
     }
-
-    m_rtvCpu = m_rtvHeap->GetCPUDescriptorHandleForHeapStart();
+    m_srvHeap->SetName(L"DE.AutoExposure.Tables");
     m_srvCpu = m_srvHeap->GetCPUDescriptorHandleForHeapStart();
     m_srvGpu = m_srvHeap->GetGPUDescriptorHandleForHeapStart();
 
-    D3D12_HEAP_PROPERTIES heapProps{};
-    heapProps.Type = D3D12_HEAP_TYPE_DEFAULT;
-
-    uint32_t levelW = Math::Max(width / 4u, 1u);
-    uint32_t levelH = Math::Max(height / 4u, 1u);
-    m_levelCount    = 0;
-    while (m_levelCount < kMaxLevels)
+    // Every level is registered (output-relative, max(floor(w / (4 * 2^k)), 1)) so a resize never
+    // changes the registry; levels past the first 1x1 stay 1x1 and are not drawn.
+    const float zero4[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+    for (UINT i = 0; i < kMaxLevels; ++i)
     {
-        const UINT i = m_levelCount;
-        D3D12_RESOURCE_DESC rd{};
-        rd.Dimension        = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-        rd.Width            = levelW;
-        rd.Height           = levelH;
-        rd.DepthOrArraySize = 1;
-        rd.MipLevels        = 1;
-        rd.Format           = DXGI_FORMAT_R32G32_FLOAT;
-        rd.SampleDesc       = { 1, 0 };
-        rd.Layout           = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-        rd.Flags            = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
-
-        D3D12_CLEAR_VALUE clear{};
-        clear.Format = DXGI_FORMAT_R32G32_FLOAT;
-
-        if (FailedHr(device->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE, &rd, D3D12_RESOURCE_STATE_RENDER_TARGET, &clear, IID_PPV_ARGS(&m_levels[i].res)),
-                     "CreateCommittedResource auto exposure level"))
+        const Rg::TargetDesc desc = colorTargetDesc(DXGI_FORMAT_R32G32_FLOAT, Rg::TargetSize::OutputFloor, 4u << i, D3D12_RESOURCE_STATE_RENDER_TARGET, zero4);
+        m_levels[i] = m_targets->registerTarget(kLevelNames[i], desc);
+        if (!m_levels[i].id.valid())
         {
             resetTargets();
             return false;
         }
-        m_levels[i].res->SetName(kLevelNames[i]);
-        m_levels[i].w     = levelW;
-        m_levels[i].h     = levelH;
-        m_levels[i].state = D3D12_RESOURCE_STATE_RENDER_TARGET;
-        device->CreateRenderTargetView(m_levels[i].res.Get(), nullptr, rtvCpu(i));
-
-        D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
-        srv.Format                    = DXGI_FORMAT_R32G32_FLOAT;
-        srv.ViewDimension             = D3D12_SRV_DIMENSION_TEXTURE2D;
-        srv.Shader4ComponentMapping   = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-        srv.Texture2D.MipLevels       = 1;
-        device->CreateShaderResourceView(m_levels[i].res.Get(), &srv, srvCpu(kFrameSrv + i));
-
-        ++m_levelCount;
-        if (levelW == 1 && levelH == 1)
-            break;
-        levelW = Math::Max(levelW / 2u, 1u);
-        levelH = Math::Max(levelH / 2u, 1u);
     }
-
-    if (m_levelCount == 0 || m_levels[m_levelCount - 1].w != 1 || m_levels[m_levelCount - 1].h != 1)
+    if (levelCount() == 0)
     {
-        DE_LOG_ERROR(LogCategory::Render, "AutoExposurePipeline: pyramid did not reach 1x1 ({}x{})", width, height);
+        DE_LOG_ERROR(LogCategory::Render, "AutoExposurePipeline: pyramid did not reach 1x1 ({}x{})", levelWidth(0), levelHeight(0));
         resetTargets();
         return false;
     }
 
-    D3D12_HEAP_PROPERTIES readHeap{};
-    readHeap.Type = D3D12_HEAP_TYPE_READBACK;
-    D3D12_RESOURCE_DESC bd{};
-    bd.Dimension        = D3D12_RESOURCE_DIMENSION_BUFFER;
-    bd.Width            = D3D12_TEXTURE_DATA_PITCH_ALIGNMENT;
-    bd.Height           = 1;
-    bd.DepthOrArraySize = 1;
-    bd.MipLevels        = 1;
-    bd.Format           = DXGI_FORMAT_UNKNOWN;
-    bd.SampleDesc.Count = 1;
-    bd.Layout           = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-
+    // Size independent: survives every resize (the host still drops the samples, see invalidateReadback).
     const wchar_t* readNames[kFrameCount] = { L"DE.AutoExposure.Read0", L"DE.AutoExposure.Read1" };
     for (UINT i = 0; i < kFrameCount; ++i)
     {
-        if (FailedHr(device->CreateCommittedResource(&readHeap, D3D12_HEAP_FLAG_NONE, &bd, D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&m_readback[i])),
-                     "CreateCommittedResource auto exposure readback"))
+        if (!m_targets->allocator().createBuffer(D3D12_TEXTURE_DATA_PITCH_ALIGNMENT, D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_STATE_COPY_DEST,
+                                                 D3D12_RESOURCE_FLAG_NONE, readNames[i], m_readback[i]))
         {
+            DE_LOG_ERROR(LogCategory::Render, "AutoExposurePipeline: readback buffer allocation failed");
             resetTargets();
             return false;
         }
-        m_readback[i]->SetName(readNames[i]);
-        if (FailedHr(m_readback[i]->Map(0, nullptr, &m_readbackMapped[i]), "Map auto exposure readback"))
+        if (FailedHr(m_readback[i].get()->Map(0, nullptr, &m_readbackMapped[i]), "Map auto exposure readback"))
         {
             resetTargets();
             return false;
         }
         std::memset(m_readbackMapped[i], 0, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
     }
-
-    m_width  = width;
-    m_height = height;
+    refreshViews();
     return true;
 }
 
-bool AutoExposurePipeline::create(ID3D12Device* device, uint32_t width, uint32_t height)
+bool AutoExposurePipeline::create(GraphTargets& targets, Renderer* renderer)
 {
+    ID3D12Device* device = targets.device();
     if (!device)
     {
         DE_LOG_ERROR(LogCategory::Render, "AutoExposurePipeline::create: null device");
-        resetTargets();
-        m_psoReduce.Reset();
-        m_psoDownsample.Reset();
-        m_rootReduce.Reset();
-        m_rootDownsample.Reset();
+        release();
         return false;
     }
+    if (m_targets != &targets)
+        resetTargets();
+    m_targets  = &targets;
+    m_renderer = renderer;
     if (!m_psoReduce && !createPsos(device))
     {
         resetTargets();
         return false;
     }
-    if (!createTargets(device, width, height))
+    if (!createTargets(device))
         return false;
 
-    DE_LOG_INFO(LogCategory::Render, "AutoExposurePipeline: ready {}x{} ({} levels)", width, height, m_levelCount);
+    DE_LOG_INFO(LogCategory::Render, "AutoExposurePipeline: ready {}x{} ({} levels, graph targets)", levelWidth(0), levelHeight(0), levelCount());
     m_loggedSkip = false;
     return true;
-}
-
-bool AutoExposurePipeline::resize(ID3D12Device* device, uint32_t width, uint32_t height)
-{
-    if (isValid() && m_width == width && m_height == height)
-        return true;
-    return create(device, width, height);
 }
 
 void AutoExposurePipeline::drawLevel(ID3D12GraphicsCommandList* cmd, ID3D12RootSignature* root, ID3D12PipelineState* pso, D3D12_GPU_DESCRIPTOR_HANDLE table,
@@ -486,6 +452,10 @@ bool AutoExposurePipeline::meter(ID3D12GraphicsCommandList* cmd, Renderer& rende
     if (!device || hdrSrv.ptr == 0 || depthSrv.ptr == 0)
         return false;
 
+    refreshViews();
+    const uint32_t levels = levelCount();
+    if (levels == 0)
+        return false;
     const GpuScope meterScope(cmd, "Auto Exposure", ProfileColor::AutoExposure);
     const UINT frame = renderer.frameIndex() % kFrameCount;
     device->CopyDescriptorsSimple(1, srvCpu(frame * 2u), hdrSrv, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
@@ -499,22 +469,24 @@ bool AutoExposurePipeline::meter(ID3D12GraphicsCommandList* cmd, Renderer& rende
     renderer.transitionDepth(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 
     transitionLevel(cmd, 0, D3D12_RESOURCE_STATE_RENDER_TARGET);
-    drawLevel(cmd, m_rootReduce.Get(), m_psoReduce.Get(), srvGpu(frame * 2u), rtvCpu(0), m_levels[0].w, m_levels[0].h, renderer.width(), renderer.height());
+    drawLevel(cmd, m_rootReduce.Get(), m_psoReduce.Get(), srvGpu(frame * 2u), m_targets->rtv(m_levels[0].id), levelWidth(0), levelHeight(0), renderer.width(),
+              renderer.height());
 
-    for (UINT i = 0; i + 1 < m_levelCount; ++i)
+    for (UINT i = 0; i + 1 < levels; ++i)
     {
         transitionLevel(cmd, i, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
         transitionLevel(cmd, i + 1, D3D12_RESOURCE_STATE_RENDER_TARGET);
-        drawLevel(cmd, m_rootDownsample.Get(), m_psoDownsample.Get(), srvGpu(kFrameSrv + i), rtvCpu(i + 1), m_levels[i + 1].w, m_levels[i + 1].h, m_levels[i].w, m_levels[i].h);
+        drawLevel(cmd, m_rootDownsample.Get(), m_psoDownsample.Get(), srvGpu(kFrameSrv + i), m_targets->rtv(m_levels[i + 1].id), levelWidth(i + 1), levelHeight(i + 1),
+                  levelWidth(i), levelHeight(i));
     }
 
     // The 1×1 cannot be copied while it is still bound as a render target.
     cmd->OMSetRenderTargets(0, nullptr, FALSE, nullptr);
-    const UINT last = m_levelCount - 1;
+    const UINT last = levels - 1;
     transitionLevel(cmd, last, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
     D3D12_TEXTURE_COPY_LOCATION dst{};
-    dst.pResource       = m_readback[frame].Get();
+    dst.pResource       = m_readback[frame].get();
     dst.Type            = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
     dst.PlacedFootprint.Footprint.Format   = DXGI_FORMAT_R32G32_FLOAT;
     dst.PlacedFootprint.Footprint.Width    = 1;
@@ -523,7 +495,7 @@ bool AutoExposurePipeline::meter(ID3D12GraphicsCommandList* cmd, Renderer& rende
     dst.PlacedFootprint.Footprint.RowPitch = D3D12_TEXTURE_DATA_PITCH_ALIGNMENT;
 
     D3D12_TEXTURE_COPY_LOCATION src{};
-    src.pResource        = m_levels[last].res.Get();
+    src.pResource        = m_targets->resource(m_levels[last].id);
     src.Type             = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
     src.SubresourceIndex = 0;
 

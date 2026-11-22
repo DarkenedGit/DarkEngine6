@@ -6,6 +6,7 @@
 #include "Math/MathHelper.h"
 #include "Render/DepthState.h"
 #include "Render/GpuModel.h"
+#include "Render/GraphTargets.h"
 #include "Render/GpuResourceCache.h"
 #include "Render/Mesh.h"
 #include "Render/Renderer.h"
@@ -55,18 +56,28 @@ namespace Dark
         }
     } // namespace
 
-    bool CamouflagePipeline::create(ID3D12Device* device, DXGI_FORMAT colorFormat)
+    CamouflagePipeline::~CamouflagePipeline()
     {
+        release();
+    }
+
+    void CamouflagePipeline::release()
+    {
+        if (m_targets)
+            m_targets->unregisterTarget(m_copy);
+        m_copy    = {};
+        m_targets = nullptr;
         m_rootSignature.Reset();
         m_psoSkinned.Reset();
         m_psoStatic.Reset();
-        m_copy.Reset();
         m_srvHeap.Reset();
-        m_srvGpu    = {};
-        m_copyState = D3D12_RESOURCE_STATE_COMMON;
-        m_width     = 0;
-        m_height    = 0;
-        m_format    = colorFormat;
+        m_srvGpu = {};
+    }
+
+    bool CamouflagePipeline::create(ID3D12Device* device, DXGI_FORMAT colorFormat)
+    {
+        release();
+        m_format = colorFormat;
         if (!device)
         {
             DE_LOG_ERROR(LogCategory::Render, "CamouflagePipeline::create: null device");
@@ -182,50 +193,31 @@ namespace Dark
         return true;
     }
 
-    bool CamouflagePipeline::ensureCopy(ID3D12Device* device, uint32_t width, uint32_t height)
+    bool CamouflagePipeline::ensureCopy(Renderer& renderer)
     {
-        if (!device || width == 0 || height == 0)
-            return false;
-        if (m_copy && m_width == width && m_height == height)
-            return true;
-
-        m_copy.Reset();
-        m_copyState = D3D12_RESOURCE_STATE_COMMON;
-        m_width     = 0;
-        m_height    = 0;
-
-        D3D12_HEAP_PROPERTIES heap{};
-        heap.Type = D3D12_HEAP_TYPE_DEFAULT;
-        D3D12_RESOURCE_DESC desc{};
-        desc.Dimension        = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-        desc.Width            = width;
-        desc.Height           = height;
-        desc.DepthOrArraySize = 1;
-        desc.MipLevels        = 1;
-        desc.Format           = m_format;
-        desc.SampleDesc       = { 1, 0 };
-        desc.Layout           = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-        if (FailedHr(device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_COMMON, nullptr, IID_PPV_ARGS(&m_copy)),
-                     "CreateCommittedResource (camouflage copy)"))
-            return false;
-        m_copy->SetName(L"DE.Camouflage.SceneCopy");
-
-        D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
-        srv.Format                  = m_format;
-        srv.ViewDimension           = D3D12_SRV_DIMENSION_TEXTURE2D;
-        srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-        srv.Texture2D.MipLevels     = 1;
-        device->CreateShaderResourceView(m_copy.Get(), &srv, m_srvHeap->GetCPUDescriptorHandleForHeapStart());
-
-        m_width     = width;
-        m_height    = height;
-        m_copyState = D3D12_RESOURCE_STATE_COMMON;
-        return true;
+        // Registered on first use; Renderer::resize keeps it at the output size (no lazy resize wait).
+        if (!m_copy.id.valid())
+        {
+            GraphTargets* targets = renderer.targets();
+            if (!targets || !targets->valid() || !m_srvHeap)
+                return false;
+            m_targets = targets;
+            m_copy    = targets->registerTarget("DE.Camouflage.SceneCopy", copyTargetDesc(m_format, D3D12_RESOURCE_STATE_COMMON));
+            if (!m_copy.id.valid())
+                return false;
+            m_copy.generation = 0; // write the static SRV below
+        }
+        // The table's one SRV is static. A new generation only happens inside Renderer::resize's
+        // drained window, so rewriting it here races no in-flight list.
+        if (m_targets->refresh(m_copy))
+            m_targets->device()->CopyDescriptorsSimple(1, m_srvHeap->GetCPUDescriptorHandleForHeapStart(), m_targets->srv(m_copy.id),
+                                                       D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        return m_targets->resource(m_copy.id) != nullptr;
     }
 
     bool CamouflagePipeline::captureScene(ID3D12GraphicsCommandList* cmd, Renderer& renderer)
     {
-        if (!cmd || !isValid() || !m_copy)
+        if (!cmd || !isValid() || !m_targets || !m_targets->resource(m_copy.id))
             return false;
         ID3D12Resource* hdr = renderer.hdr();
         if (!hdr)
@@ -233,26 +225,9 @@ namespace Dark
 
         cmd->OMSetRenderTargets(0, nullptr, FALSE, nullptr);
         renderer.transitionHdr(cmd, D3D12_RESOURCE_STATE_COPY_SOURCE);
-        if (m_copyState != D3D12_RESOURCE_STATE_COPY_DEST)
-        {
-            D3D12_RESOURCE_BARRIER b{};
-            b.Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-            b.Transition.pResource   = m_copy.Get();
-            b.Transition.StateBefore = m_copyState;
-            b.Transition.StateAfter  = D3D12_RESOURCE_STATE_COPY_DEST;
-            cmd->ResourceBarrier(1, &b);
-            m_copyState = D3D12_RESOURCE_STATE_COPY_DEST;
-        }
-        cmd->CopyResource(m_copy.Get(), hdr);
-        {
-            D3D12_RESOURCE_BARRIER b{};
-            b.Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-            b.Transition.pResource   = m_copy.Get();
-            b.Transition.StateBefore = m_copyState;
-            b.Transition.StateAfter  = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
-            cmd->ResourceBarrier(1, &b);
-            m_copyState = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
-        }
+        m_targets->transition(cmd, m_copy, D3D12_RESOURCE_STATE_COPY_DEST);
+        cmd->CopyResource(m_targets->resource(m_copy.id), hdr);
+        m_targets->transition(cmd, m_copy, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
         renderer.bindHdr(true);
         return true;
     }
@@ -279,9 +254,7 @@ namespace Dark
         GpuModel* gm = gpu.model(model.id);
         if (!cmd || !isValid() || !gm || !gm->hasOpaque())
             return false;
-        if (m_copy && (m_width != renderer.width() || m_height != renderer.height()))
-            renderer.waitForGpu();
-        if (!ensureCopy(renderer.device(), renderer.width(), renderer.height()))
+        if (!ensureCopy(renderer))
             return false;
         const GpuScope camouflage(cmd, "Camouflage", ProfileColor::Camouflage);
         // Depth is writable after this. A later skipped part does not undo that.
@@ -293,8 +266,8 @@ namespace Dark
         cb.cameraPos[1]  = cameraPos.y;
         cb.cameraPos[2]  = cameraPos.z;
         cb.time          = time;
-        cb.invSize[0]    = 1.0f / static_cast<float>(Dark::Math::Max(m_width, 1u));
-        cb.invSize[1]    = 1.0f / static_cast<float>(Dark::Math::Max(m_height, 1u));
+        cb.invSize[0]    = 1.0f / static_cast<float>(Dark::Math::Max(m_targets->width(m_copy.id), 1u));
+        cb.invSize[1]    = 1.0f / static_cast<float>(Dark::Math::Max(m_targets->height(m_copy.id), 1u));
         cb.distort       = 0.028f;
         cb.rimStrength   = 1.15f;
 

@@ -3,6 +3,7 @@
 #include "Math/Matrix4f.h"
 #include "Math/Vector3f.h"
 #include "Render/DebugRenderState.h"
+#include "Render/GraphTargets.h"
 
 #include <cstdint>
 #include <d3d12.h>
@@ -39,9 +40,14 @@ namespace Dark
         static constexpr UINT kRootBoneCbv   = 2;
 
         CamouflagePipeline() = default;
+        ~CamouflagePipeline();
+        CamouflagePipeline(const CamouflagePipeline&)            = delete;
+        CamouflagePipeline& operator=(const CamouflagePipeline&) = delete;
 
         bool create(ID3D12Device* device, DXGI_FORMAT colorFormat);
-        bool ensureCopy(ID3D12Device* device, uint32_t width, uint32_t height);
+        void release();
+        // The scene copy is a graph target (render-graph plan Phase 5), registered on first use.
+        bool ensureCopy(Renderer& renderer);
         bool captureScene(ID3D12GraphicsCommandList* cmd, Renderer& renderer);
         // True only after bindHdr(true) ran this call. False means depth was not rewritten.
         bool drawModel(ID3D12GraphicsCommandList* cmd, Renderer& renderer, GpuResourceCache& gpu, SkinningUploadRing& ring, const Model& model,
@@ -56,13 +62,11 @@ namespace Dark
         ComPtr<ID3D12RootSignature>  m_rootSignature;
         ComPtr<ID3D12PipelineState>  m_psoSkinned;
         ComPtr<ID3D12PipelineState>  m_psoStatic;
-        ComPtr<ID3D12Resource>       m_copy;
         ComPtr<ID3D12DescriptorHeap> m_srvHeap;
         D3D12_GPU_DESCRIPTOR_HANDLE  m_srvGpu{};
-        D3D12_RESOURCE_STATES        m_copyState = D3D12_RESOURCE_STATE_COMMON;
-        uint32_t                     m_width     = 0;
-        uint32_t                     m_height    = 0;
-        DXGI_FORMAT                  m_format    = DXGI_FORMAT_R16G16B16A16_FLOAT;
+        GraphTargets*                m_targets = nullptr;
+        GraphTarget                  m_copy;
+        DXGI_FORMAT                  m_format = DXGI_FORMAT_R16G16B16A16_FLOAT;
     };
 
 } // namespace Dark

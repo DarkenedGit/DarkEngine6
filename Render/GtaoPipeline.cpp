@@ -1,6 +1,7 @@
 #include "Render/GtaoPipeline.h"
 #include "Render/Profile.h"
 #include "Render/Camera3D.h"
+#include "Render/GraphTargets.h"
 #include "Render/Renderer.h"
 #include "Render/ShaderCompile.h"
 #include "Core/Log.h"
@@ -19,6 +20,17 @@ namespace Dark
                 return false;
             DE_LOG_ERROR(LogCategory::Render, "{} failed (HRESULT 0x{:08X})", what, static_cast<unsigned>(hr));
             return true;
+        }
+
+        void transitionHistory(ID3D12GraphicsCommandList* cmd, ID3D12Resource* res, D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after)
+        {
+            D3D12_RESOURCE_BARRIER b{};
+            b.Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            b.Transition.pResource   = res;
+            b.Transition.StateBefore = before;
+            b.Transition.StateAfter  = after;
+            b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+            cmd->ResourceBarrier(1, &b);
         }
 
         void copyMatrix(float dst[16], const Math::Matrix4f& m)
@@ -48,48 +60,46 @@ namespace Dark
         }
     } // namespace
 
+    GtaoPipeline::~GtaoPipeline()
+    {
+        release();
+    }
+
+    Rg::TargetDesc GtaoPipeline::historyDesc()
+    {
+        const float identity[4] = { 1.0f, 0.0f, 0.0f, 0.0f };
+        return colorTargetDesc(DXGI_FORMAT_R16_FLOAT, Rg::TargetSize::OutputFloor, 1, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, identity);
+    }
+
     bool GtaoPipeline::isValid() const
     {
-        return m_psoGtao && m_psoUpsample && m_psoCompose && m_aoHalf.res && m_aoFull.res && m_aoHistory[0].res && m_aoHistory[1].res && m_aoCompose.res
-            && m_rtvHeap && m_srvHeap && m_cpuSrvHeap && m_cbUpload && m_cbMapped;
+        return m_psoGtao && m_psoUpsample && m_psoCompose && m_targets && m_targets->resource(m_aoHalf.id) && m_targets->resource(m_aoFull.id)
+            && m_targets->resource(m_aoCompose.id) && m_srvHeap && m_cbUpload && m_cbMapped;
     }
 
     D3D12_CPU_DESCRIPTOR_HANDLE GtaoPipeline::composeSrvCpu() const
     {
-        return isValid() ? cpuSrv(kCpuSrvCompose) : D3D12_CPU_DESCRIPTOR_HANDLE{};
+        return isValid() ? m_targets->srv(m_aoCompose.id) : D3D12_CPU_DESCRIPTOR_HANDLE{};
     }
 
     D3D12_CPU_DESCRIPTOR_HANDLE GtaoPipeline::aoFullSrvCpu() const
     {
-        return isValid() ? cpuSrv(kCpuSrvFull) : D3D12_CPU_DESCRIPTOR_HANDLE{};
+        return isValid() ? m_targets->srv(m_aoFull.id) : D3D12_CPU_DESCRIPTOR_HANDLE{};
     }
 
     void GtaoPipeline::transitionAoFull(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after)
     {
-        transition(cmd, m_aoFull, after);
+        if (m_targets)
+            m_targets->transition(cmd, m_aoFull, after);
     }
 
     void GtaoPipeline::clearAoFullIdentity(ID3D12GraphicsCommandList* cmd)
     {
-        if (!cmd || !m_aoFull.res)
+        if (!cmd || !m_targets || !m_targets->resource(m_aoFull.id))
             return;
-        transition(cmd, m_aoFull, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        m_targets->transition(cmd, m_aoFull, D3D12_RESOURCE_STATE_RENDER_TARGET);
         const float white[4] = { 1.0f, 0.0f, 0.0f, 0.0f };
-        cmd->ClearRenderTargetView(rtvCpu(kRtvFull), white, 0, nullptr);
-    }
-
-    D3D12_CPU_DESCRIPTOR_HANDLE GtaoPipeline::rtvCpu(UINT slot) const
-    {
-        D3D12_CPU_DESCRIPTOR_HANDLE h = m_rtvStart;
-        h.ptr += static_cast<SIZE_T>(slot) * m_rtvIncr;
-        return h;
-    }
-
-    D3D12_CPU_DESCRIPTOR_HANDLE GtaoPipeline::cpuSrv(UINT slot) const
-    {
-        D3D12_CPU_DESCRIPTOR_HANDLE h = m_cpuSrvStart;
-        h.ptr += static_cast<SIZE_T>(slot) * m_srvIncr;
-        return h;
+        cmd->ClearRenderTargetView(m_targets->rtv(m_aoFull.id), white, 0, nullptr);
     }
 
     D3D12_GPU_DESCRIPTOR_HANDLE GtaoPipeline::passSrvGpu(UINT frame, UINT pass) const
@@ -115,34 +125,24 @@ namespace Dark
 
     void GtaoPipeline::resetTargets()
     {
-        m_aoHalf.res.Reset();
-        m_aoFull.res.Reset();
-        m_aoHistory[0].res.Reset();
-        m_aoHistory[1].res.Reset();
-        m_aoCompose.res.Reset();
-        m_aoHalf.state        = D3D12_RESOURCE_STATE_COMMON;
-        m_aoFull.state        = D3D12_RESOURCE_STATE_COMMON;
-        m_aoHistory[0].state  = D3D12_RESOURCE_STATE_COMMON;
-        m_aoHistory[1].state  = D3D12_RESOURCE_STATE_COMMON;
-        m_aoCompose.state     = D3D12_RESOURCE_STATE_COMMON;
-        m_rtvHeap.Reset();
+        if (m_targets)
+        {
+            m_targets->unregisterTarget(m_aoHalf);
+            m_targets->unregisterTarget(m_aoFull);
+            m_targets->unregisterTarget(m_aoCompose);
+        }
+        m_aoHalf    = {};
+        m_aoFull    = {};
+        m_aoCompose = {};
         m_srvHeap.Reset();
-        m_cpuSrvHeap.Reset();
-        m_rtvStart     = {};
-        m_srvCpu       = {};
-        m_srvGpu       = {};
-        m_cpuSrvStart  = {};
-        m_width        = 0;
-        m_height       = 0;
-        m_halfW        = 0;
-        m_halfH        = 0;
-        m_historyIndex = 0;
-        m_needReset    = true;
+        m_srvCpu = {};
+        m_srvGpu = {};
     }
 
-    void GtaoPipeline::resetAll()
+    void GtaoPipeline::release()
     {
         resetTargets();
+        m_targets = nullptr;
         m_psoGtao.Reset();
         m_psoUpsample.Reset();
         m_psoCompose.Reset();
@@ -152,57 +152,6 @@ namespace Dark
         m_cbUpload.Reset();
         m_cbMapped = nullptr;
         m_cbGpu    = 0;
-    }
-
-    void GtaoPipeline::transition(ID3D12GraphicsCommandList* cmd, Target& t, D3D12_RESOURCE_STATES after) const
-    {
-        if (!cmd || !t.res || t.state == after)
-            return;
-        D3D12_RESOURCE_BARRIER b{};
-        b.Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        b.Transition.pResource   = t.res.Get();
-        b.Transition.StateBefore = t.state;
-        b.Transition.StateAfter  = after;
-        b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-        cmd->ResourceBarrier(1, &b);
-        t.state = after;
-    }
-
-    bool GtaoPipeline::createColorTarget(ID3D12Device* device, uint32_t width, uint32_t height, DXGI_FORMAT format, const wchar_t* name, Target& out)
-    {
-        out.res.Reset();
-        out.state = D3D12_RESOURCE_STATE_COMMON;
-        if (!device || width == 0 || height == 0)
-            return false;
-
-        D3D12_HEAP_PROPERTIES heapProps{};
-        heapProps.Type = D3D12_HEAP_TYPE_DEFAULT;
-
-        D3D12_RESOURCE_DESC rd{};
-        rd.Dimension        = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-        rd.Width            = width;
-        rd.Height           = height;
-        rd.DepthOrArraySize = 1;
-        rd.MipLevels        = 1;
-        rd.Format           = format;
-        rd.SampleDesc       = { 1, 0 };
-        rd.Layout           = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-        rd.Flags            = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
-
-        D3D12_CLEAR_VALUE clear{};
-        clear.Format   = format;
-        clear.Color[0] = 1.0f;
-        clear.Color[1] = 0.0f;
-        clear.Color[2] = 0.0f;
-        clear.Color[3] = 0.0f;
-
-        if (FailedHr(device->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE, &rd, D3D12_RESOURCE_STATE_RENDER_TARGET, &clear, IID_PPV_ARGS(&out.res)),
-                     "CreateCommittedResource GTAO target"))
-            return false;
-        if (name)
-            out.res->SetName(name);
-        out.state = D3D12_RESOURCE_STATE_RENDER_TARGET;
-        return true;
     }
 
     bool GtaoPipeline::createPsos(ID3D12Device* device)
@@ -352,135 +301,75 @@ namespace Dark
         return true;
     }
 
-    bool GtaoPipeline::createTargets(ID3D12Device* device, uint32_t width, uint32_t height)
+    bool GtaoPipeline::createTargets(ID3D12Device* device)
     {
         resetTargets();
-        if (!device || width == 0 || height == 0)
-        {
-            DE_LOG_ERROR(LogCategory::Render, "GtaoPipeline::createTargets: invalid device or size");
-            return false;
-        }
-
-        m_halfW   = (width + 1u) / 2u;
-        m_halfH   = (height + 1u) / 2u;
-        m_rtvIncr = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
         m_srvIncr = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
-        D3D12_DESCRIPTOR_HEAP_DESC rtvDesc{};
-        rtvDesc.NumDescriptors = kRtvCount;
-        rtvDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-        if (FailedHr(device->CreateDescriptorHeap(&rtvDesc, IID_PPV_ARGS(&m_rtvHeap)), "CreateDescriptorHeap GTAO RTV"))
-            return false;
-
+        // Per-frame pass tables, filled from the graph targets' CPU views every draw: size independent.
         D3D12_DESCRIPTOR_HEAP_DESC srvDesc{};
         srvDesc.NumDescriptors = kFrameCount * kPassCount * kSrvPerPass;
         srvDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
         srvDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         if (FailedHr(device->CreateDescriptorHeap(&srvDesc, IID_PPV_ARGS(&m_srvHeap)), "CreateDescriptorHeap GTAO SRV"))
-        {
-            m_rtvHeap.Reset();
             return false;
-        }
+        m_srvHeap->SetName(L"DE.Gtao.Tables");
+        m_srvCpu = m_srvHeap->GetCPUDescriptorHandleForHeapStart();
+        m_srvGpu = m_srvHeap->GetGPUDescriptorHandleForHeapStart();
 
-        D3D12_DESCRIPTOR_HEAP_DESC cpuDesc{};
-        cpuDesc.NumDescriptors = kCpuSrvCount;
-        cpuDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-        cpuDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-        if (FailedHr(device->CreateDescriptorHeap(&cpuDesc, IID_PPV_ARGS(&m_cpuSrvHeap)), "CreateDescriptorHeap GTAO CPU SRV"))
-        {
-            m_rtvHeap.Reset();
-            m_srvHeap.Reset();
-            return false;
-        }
-
-        m_rtvStart    = m_rtvHeap->GetCPUDescriptorHandleForHeapStart();
-        m_srvCpu      = m_srvHeap->GetCPUDescriptorHandleForHeapStart();
-        m_srvGpu      = m_srvHeap->GetGPUDescriptorHandleForHeapStart();
-        m_cpuSrvStart = m_cpuSrvHeap->GetCPUDescriptorHandleForHeapStart();
-
-        if (!createColorTarget(device, m_halfW, m_halfH, DXGI_FORMAT_R8_UNORM, L"DE.Gtao.AoHalf", m_aoHalf)
-            || !createColorTarget(device, width, height, DXGI_FORMAT_R8_UNORM, L"DE.Gtao.AoFull", m_aoFull)
-            || !createColorTarget(device, width, height, DXGI_FORMAT_R16_FLOAT, L"DE.Gtao.AoHistory0", m_aoHistory[0])
-            || !createColorTarget(device, width, height, DXGI_FORMAT_R16_FLOAT, L"DE.Gtao.AoHistory1", m_aoHistory[1])
-            || !createColorTarget(device, width, height, DXGI_FORMAT_R8_UNORM, L"DE.Gtao.AoCompose", m_aoCompose))
+        // Half is rounded up (ceil(w/2)), matching the produce pass's 2x2 footprint.
+        const float identity[4] = { 1.0f, 0.0f, 0.0f, 0.0f };
+        const D3D12_RESOURCE_STATES rt = D3D12_RESOURCE_STATE_RENDER_TARGET;
+        m_aoHalf    = m_targets->registerTarget("DE.Gtao.AoHalf", colorTargetDesc(DXGI_FORMAT_R8_UNORM, Rg::TargetSize::OutputCeil, 2, rt, identity));
+        m_aoFull    = m_targets->registerTarget("DE.Gtao.AoFull", colorTargetDesc(DXGI_FORMAT_R8_UNORM, Rg::TargetSize::OutputFloor, 1, rt, identity));
+        m_aoCompose = m_targets->registerTarget("DE.Gtao.AoCompose", colorTargetDesc(DXGI_FORMAT_R8_UNORM, Rg::TargetSize::OutputFloor, 1, rt, identity));
+        if (!m_aoHalf.id.valid() || !m_aoFull.id.valid() || !m_aoCompose.id.valid())
         {
             resetTargets();
             return false;
         }
-
-        device->CreateRenderTargetView(m_aoHalf.res.Get(), nullptr, rtvCpu(kRtvHalf));
-        device->CreateRenderTargetView(m_aoFull.res.Get(), nullptr, rtvCpu(kRtvFull));
-        device->CreateRenderTargetView(m_aoHistory[0].res.Get(), nullptr, rtvCpu(kRtvHistory0));
-        device->CreateRenderTargetView(m_aoHistory[1].res.Get(), nullptr, rtvCpu(kRtvHistory1));
-        device->CreateRenderTargetView(m_aoCompose.res.Get(), nullptr, rtvCpu(kRtvCompose));
-
-        D3D12_SHADER_RESOURCE_VIEW_DESC srvR8{};
-        srvR8.Format                  = DXGI_FORMAT_R8_UNORM;
-        srvR8.ViewDimension           = D3D12_SRV_DIMENSION_TEXTURE2D;
-        srvR8.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-        srvR8.Texture2D.MipLevels     = 1;
-        D3D12_SHADER_RESOURCE_VIEW_DESC srvR16 = srvR8;
-        srvR16.Format                          = DXGI_FORMAT_R16_FLOAT;
-        device->CreateShaderResourceView(m_aoHalf.res.Get(), &srvR8, cpuSrv(kCpuSrvHalf));
-        device->CreateShaderResourceView(m_aoFull.res.Get(), &srvR8, cpuSrv(kCpuSrvFull));
-        device->CreateShaderResourceView(m_aoHistory[0].res.Get(), &srvR16, cpuSrv(kCpuSrvHist0));
-        device->CreateShaderResourceView(m_aoHistory[1].res.Get(), &srvR16, cpuSrv(kCpuSrvHist1));
-        device->CreateShaderResourceView(m_aoCompose.res.Get(), &srvR8, cpuSrv(kCpuSrvCompose));
-
-        m_width        = width;
-        m_height       = height;
-        m_historyIndex = 0;
-        m_needReset    = true;
         return true;
     }
 
-    bool GtaoPipeline::create(ID3D12Device* device, uint32_t width, uint32_t height)
+    bool GtaoPipeline::create(GraphTargets& targets)
     {
+        ID3D12Device* device = targets.device();
         if (!device)
         {
             DE_LOG_ERROR(LogCategory::Render, "GtaoPipeline::create: null device");
-            resetAll();
+            release();
             return false;
         }
-        if (width == 0 || height == 0)
-        {
-            DE_LOG_ERROR(LogCategory::Render, "GtaoPipeline::create: invalid size {}x{}", width, height);
+        if (m_targets != &targets)
             resetTargets();
-            return false;
-        }
+        m_targets = &targets;
         if (!m_psoGtao && !createPsos(device))
         {
-            resetAll();
+            release();
             return false;
         }
         if (!createCbv(device))
         {
-            resetAll();
+            release();
             return false;
         }
-        if (!createTargets(device, width, height))
+        if (!createTargets(device))
             return false;
 
-        DE_LOG_INFO(LogCategory::Render, "GtaoPipeline: ready {}x{} (half {}x{})", width, height, m_halfW, m_halfH);
+        DE_LOG_INFO(LogCategory::Render, "GtaoPipeline: ready {}x{} (half {}x{}, graph targets)", targets.width(m_aoFull.id), targets.height(m_aoFull.id),
+                    targets.width(m_aoHalf.id), targets.height(m_aoHalf.id));
         m_loggedSkip = false;
         return true;
-    }
-
-    bool GtaoPipeline::resize(ID3D12Device* device, uint32_t width, uint32_t height)
-    {
-        if (isValid() && m_width == width && m_height == height)
-            return true;
-        return create(device, width, height);
     }
 
     void GtaoPipeline::fillParams(GtaoGpuParams& out, const Camera3D& camera, const Math::Matrix4f& prevViewProj, const GtaoSettings& settings,
                                   bool resetHistory, uint32_t frameIndex) const
     {
         out = {};
-        out.invSizeHalf[0] = 1.0f / static_cast<float>(Math::Max(m_halfW, 1u));
-        out.invSizeHalf[1] = 1.0f / static_cast<float>(Math::Max(m_halfH, 1u));
-        out.invSizeFull[0] = 1.0f / static_cast<float>(Math::Max(m_width, 1u));
-        out.invSizeFull[1] = 1.0f / static_cast<float>(Math::Max(m_height, 1u));
+        out.invSizeHalf[0] = 1.0f / static_cast<float>(Math::Max(m_targets->width(m_aoHalf.id), 1u));
+        out.invSizeHalf[1] = 1.0f / static_cast<float>(Math::Max(m_targets->height(m_aoHalf.id), 1u));
+        out.invSizeFull[0] = 1.0f / static_cast<float>(Math::Max(m_targets->width(m_aoFull.id), 1u));
+        out.invSizeFull[1] = 1.0f / static_cast<float>(Math::Max(m_targets->height(m_aoFull.id), 1u));
         copyMatrix(out.invProj, camera.GetProj().Inverse());
         copyMatrix(out.view, camera.GetView());
         copyMatrix(out.reprojection, camera.GetViewProj().Inverse() * prevViewProj);
@@ -490,7 +379,7 @@ namespace Dark
         out.thickness   = kThickness;
         out.nearZ       = camera.GetNearZ();
         out.farZ        = camera.GetFarZ();
-        out.reset       = (resetHistory || m_needReset) ? 1.0f : 0.0f;
+        out.reset       = resetHistory ? 1.0f : 0.0f;
         out._pad        = static_cast<float>(frameIndex & 7u);
     }
 
@@ -514,7 +403,7 @@ namespace Dark
     }
 
     void GtaoPipeline::draw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, const Math::Matrix4f& prevViewProj,
-                            const GtaoSettings& settings, bool resetHistory)
+                            const GtaoSettings& settings, const HistoryView& history, bool resetHistory)
     {
         if (!settings.enabled)
             return;
@@ -535,8 +424,12 @@ namespace Dark
         const D3D12_CPU_DESCRIPTOR_HANDLE attrib = renderer.attribSrvCpu();
         const D3D12_CPU_DESCRIPTOR_HANDLE vel    = renderer.velocitySrvCpu();
         const D3D12_CPU_DESCRIPTOR_HANDLE ao     = renderer.aoSrvCpu();
-        if (!device || depth.ptr == 0 || attrib.ptr == 0 || vel.ptr == 0 || ao.ptr == 0)
+        if (!device || depth.ptr == 0 || attrib.ptr == 0 || vel.ptr == 0 || ao.ptr == 0 || !history.valid())
             return;
+        // Without a valid prev the shader ignores t3 (reset); it is still a real, bindable target.
+        resetHistory = resetHistory || !history.prevValid;
+        const uint32_t fullW = m_targets->width(m_aoFull.id);
+        const uint32_t fullH = m_targets->height(m_aoFull.id);
 
         const GpuScope gtao(cmd, "GTAO", ProfileColor::Gtao);
         const UINT frame = renderer.frameIndex() % kFrameCount;
@@ -550,9 +443,6 @@ namespace Dark
         cmd->SetDescriptorHeaps(1, heaps);
         cmd->SetGraphicsRootConstantBufferView(kRootCbv, cbVa);
         cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
-        const UINT histRead  = m_historyIndex;
-        const UINT histWrite = 1u - m_historyIndex;
 
         // Produce (half-res): t0 depth, t1 attrib.
         {
@@ -571,20 +461,20 @@ namespace Dark
             t4.ptr += m_srvIncr;
             copySrv(device, t4, depth);
 
-            transition(cmd, m_aoHalf, D3D12_RESOURCE_STATE_RENDER_TARGET);
-            const D3D12_CPU_DESCRIPTOR_HANDLE rtv = rtvCpu(kRtvHalf);
-            drawFullscreen(cmd, m_psoGtao.Get(), 1, &rtv, m_halfW, m_halfH, passSrvGpu(frame, 0));
+            m_targets->transition(cmd, m_aoHalf, D3D12_RESOURCE_STATE_RENDER_TARGET);
+            const D3D12_CPU_DESCRIPTOR_HANDLE rtv = m_targets->rtv(m_aoHalf.id);
+            drawFullscreen(cmd, m_psoGtao.Get(), 1, &rtv, m_targets->width(m_aoHalf.id), m_targets->height(m_aoHalf.id), passSrvGpu(frame, 0));
         }
 
         // Upsample + temporal: t0 AoHalf, t1 depth, t2 attrib, t3 history, t4 velocity.
         {
-            transition(cmd, m_aoHalf, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-            transition(cmd, m_aoHistory[histRead], D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-            transition(cmd, m_aoFull, D3D12_RESOURCE_STATE_RENDER_TARGET);
-            transition(cmd, m_aoHistory[histWrite], D3D12_RESOURCE_STATE_RENDER_TARGET);
+            // Graph history (GtaoHistory): prev rests in PIXEL_SHADER_RESOURCE; curr is written here.
+            m_targets->transition(cmd, m_aoHalf, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            m_targets->transition(cmd, m_aoFull, D3D12_RESOURCE_STATE_RENDER_TARGET);
+            transitionHistory(cmd, history.curr, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
 
             D3D12_CPU_DESCRIPTOR_HANDLE table = passSrvCpu(frame, 1);
-            copySrv(device, table, cpuSrv(kCpuSrvHalf));
+            copySrv(device, table, m_targets->srv(m_aoHalf.id));
             D3D12_CPU_DESCRIPTOR_HANDLE t1 = table;
             t1.ptr += m_srvIncr;
             copySrv(device, t1, depth);
@@ -593,42 +483,41 @@ namespace Dark
             copySrv(device, t2, attrib);
             D3D12_CPU_DESCRIPTOR_HANDLE t3 = t2;
             t3.ptr += m_srvIncr;
-            copySrv(device, t3, cpuSrv(histRead == 0 ? kCpuSrvHist0 : kCpuSrvHist1));
+            copySrv(device, t3, history.prevSrv);
             D3D12_CPU_DESCRIPTOR_HANDLE t4 = t3;
             t4.ptr += m_srvIncr;
             copySrv(device, t4, vel);
 
-            D3D12_CPU_DESCRIPTOR_HANDLE rtvs[2] = { rtvCpu(kRtvFull), rtvCpu(histWrite == 0 ? kRtvHistory0 : kRtvHistory1) };
-            drawFullscreen(cmd, m_psoUpsample.Get(), 2, rtvs, m_width, m_height, passSrvGpu(frame, 1));
+            D3D12_CPU_DESCRIPTOR_HANDLE rtvs[2] = { m_targets->rtv(m_aoFull.id), history.currRtv };
+            drawFullscreen(cmd, m_psoUpsample.Get(), 2, rtvs, fullW, fullH, passSrvGpu(frame, 1));
+            transitionHistory(cmd, history.curr, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
         }
 
         // Compose: t0 authored MRT3, t1 AoFull.
         {
-            transition(cmd, m_aoFull, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-            transition(cmd, m_aoCompose, D3D12_RESOURCE_STATE_RENDER_TARGET);
+            m_targets->transition(cmd, m_aoFull, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            m_targets->transition(cmd, m_aoCompose, D3D12_RESOURCE_STATE_RENDER_TARGET);
+            const D3D12_CPU_DESCRIPTOR_HANDLE full = m_targets->srv(m_aoFull.id);
 
             D3D12_CPU_DESCRIPTOR_HANDLE table = passSrvCpu(frame, 2);
             copySrv(device, table, ao);
             D3D12_CPU_DESCRIPTOR_HANDLE t1 = table;
             t1.ptr += m_srvIncr;
-            copySrv(device, t1, cpuSrv(kCpuSrvFull));
+            copySrv(device, t1, full);
             D3D12_CPU_DESCRIPTOR_HANDLE t2 = t1;
             t2.ptr += m_srvIncr;
-            copySrv(device, t2, cpuSrv(kCpuSrvFull));
+            copySrv(device, t2, full);
             D3D12_CPU_DESCRIPTOR_HANDLE t3 = t2;
             t3.ptr += m_srvIncr;
-            copySrv(device, t3, cpuSrv(kCpuSrvFull));
+            copySrv(device, t3, full);
             D3D12_CPU_DESCRIPTOR_HANDLE t4 = t3;
             t4.ptr += m_srvIncr;
-            copySrv(device, t4, cpuSrv(kCpuSrvFull));
+            copySrv(device, t4, full);
 
-            const D3D12_CPU_DESCRIPTOR_HANDLE rtv = rtvCpu(kRtvCompose);
-            drawFullscreen(cmd, m_psoCompose.Get(), 1, &rtv, m_width, m_height, passSrvGpu(frame, 2));
-            transition(cmd, m_aoCompose, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            const D3D12_CPU_DESCRIPTOR_HANDLE rtv = m_targets->rtv(m_aoCompose.id);
+            drawFullscreen(cmd, m_psoCompose.Get(), 1, &rtv, fullW, fullH, passSrvGpu(frame, 2));
+            m_targets->transition(cmd, m_aoCompose, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
         }
-
-        m_historyIndex = histWrite;
-        m_needReset    = false;
     }
 
 } // namespace Dark

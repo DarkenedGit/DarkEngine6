@@ -1,4 +1,5 @@
 #include "Render/EchoPipeline.h"
+#include "Render/GraphTargets.h"
 
 #include "Core/Log.h"
 #include "Math/MathHelper.h"
@@ -90,22 +91,39 @@ D3D12_GRAPHICS_PIPELINE_STATE_DESC FullscreenPso(ID3D12RootSignature* root, ID3D
 
 } // namespace
 
-bool EchoPipeline::create(ID3D12Device* device)
+EchoPipeline::~EchoPipeline()
 {
+    release();
+}
+
+void EchoPipeline::release()
+{
+    if (m_targets)
+    {
+        m_targets->unregisterTarget(m_snap);
+        m_targets->unregisterTarget(m_copy);
+    }
+    m_snap    = {};
+    m_copy    = {};
+    m_targets = nullptr;
     m_snapRoot.Reset();
     m_compositeRoot.Reset();
     m_snapPso.Reset();
     m_compositePso.Reset();
-    m_rtvHeap.Reset();
-    m_cpuSrvHeap.Reset();
     m_srvHeap.Reset();
-    m_snap.Reset();
-    m_copy.Reset();
-    m_haveSnapshot = false;
-    m_snapW        = 0;
-    m_snapH        = 0;
-    m_copyW        = 0;
-    m_copyH        = 0;
+    m_haveSnapshot       = false;
+    m_snapshotGeneration = 0;
+}
+
+bool EchoPipeline::hasSnapshot() const
+{
+    // A resize recreates the snapshot (new generation): the old chirp is gone with it.
+    return m_haveSnapshot && m_targets && m_targets->resource(m_snap.id) && m_targets->generation(m_snap.id) == m_snapshotGeneration;
+}
+
+bool EchoPipeline::create(ID3D12Device* device)
+{
+    release();
     if (!device)
     {
         DE_LOG_ERROR(LogCategory::Render, "EchoPipeline::create: null device");
@@ -141,37 +159,17 @@ bool EchoPipeline::create(ID3D12Device* device)
         return false;
     }
 
-    D3D12_DESCRIPTOR_HEAP_DESC rtvDesc{};
-    rtvDesc.NumDescriptors = 1;
-    rtvDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-    rtvDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-
-    D3D12_DESCRIPTOR_HEAP_DESC cpuDesc{};
-    cpuDesc.NumDescriptors = kCpuSrvCount;
-    cpuDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    cpuDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-
     D3D12_DESCRIPTOR_HEAP_DESC gpuDesc{};
     gpuDesc.NumDescriptors = kBufferedFrames * kSrvStride;
     gpuDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     gpuDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 
-    if (FailedHr(device->CreateDescriptorHeap(&rtvDesc, IID_PPV_ARGS(&m_rtvHeap)), "CreateDescriptorHeap echo RTV")
-        || FailedHr(device->CreateDescriptorHeap(&cpuDesc, IID_PPV_ARGS(&m_cpuSrvHeap)), "CreateDescriptorHeap echo CPU SRV")
-        || FailedHr(device->CreateDescriptorHeap(&gpuDesc, IID_PPV_ARGS(&m_srvHeap)), "CreateDescriptorHeap echo SRV"))
+    if (FailedHr(device->CreateDescriptorHeap(&gpuDesc, IID_PPV_ARGS(&m_srvHeap)), "CreateDescriptorHeap echo SRV"))
     {
-        m_snapPso.Reset();
-        m_compositePso.Reset();
-        m_snapRoot.Reset();
-        m_compositeRoot.Reset();
-        m_rtvHeap.Reset();
-        m_cpuSrvHeap.Reset();
-        m_srvHeap.Reset();
+        release();
         return false;
     }
 
-    m_rtv     = m_rtvHeap->GetCPUDescriptorHandleForHeapStart();
-    m_cpuSrv  = m_cpuSrvHeap->GetCPUDescriptorHandleForHeapStart();
     m_gpuCpu  = m_srvHeap->GetCPUDescriptorHandleForHeapStart();
     m_gpu     = m_srvHeap->GetGPUDescriptorHandleForHeapStart();
     m_srvIncr = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
@@ -180,150 +178,35 @@ bool EchoPipeline::create(ID3D12Device* device)
     return true;
 }
 
-bool EchoPipeline::ensureSnapshot(Renderer& renderer)
+bool EchoPipeline::ensureTargets(Renderer& renderer)
 {
-    ID3D12Device* device = renderer.device();
-    const uint32_t fullW = Math::Max(renderer.width(), 1u);
-    const uint32_t fullH = Math::Max(renderer.height(), 1u);
-    const uint32_t w     = Math::Max(fullW / kSnapshotDivisor, 1u);
-    const uint32_t h     = Math::Max(fullH / kSnapshotDivisor, 1u);
-    if (!device)
+    // Registered on first use (only echolocation pays for them); Renderer::resize keeps them at the
+    // output size, so there is no lazy resize and no GPU wait here.
+    if (m_targets && m_snap.id.valid() && m_copy.id.valid())
+        return m_targets->resource(m_snap.id) && m_targets->resource(m_copy.id);
+    GraphTargets* targets = renderer.targets();
+    if (!targets || !targets->valid())
         return false;
-    if (m_snap && m_snapW == w && m_snapH == h)
-        return true;
-
-    m_haveSnapshot = false;
-    if (m_snap)
-        renderer.waitForGpu();
-    m_snap.Reset();
-    m_snapW     = 0;
-    m_snapH     = 0;
-    m_snapState = D3D12_RESOURCE_STATE_RENDER_TARGET;
-
-    D3D12_HEAP_PROPERTIES heap{};
-    heap.Type = D3D12_HEAP_TYPE_DEFAULT;
-
-    D3D12_RESOURCE_DESC rd{};
-    rd.Dimension        = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-    rd.Width            = w;
-    rd.Height           = h;
-    rd.DepthOrArraySize = 1;
-    rd.MipLevels        = 1;
-    rd.Format           = DXGI_FORMAT_R16G16_FLOAT;
-    rd.SampleDesc       = { 1, 0 };
-    rd.Layout           = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-    rd.Flags            = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
-
-    D3D12_CLEAR_VALUE clear{};
-    clear.Format = DXGI_FORMAT_R16G16_FLOAT;
-
-    if (FailedHr(device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &rd, D3D12_RESOURCE_STATE_RENDER_TARGET, &clear, IID_PPV_ARGS(&m_snap)),
-                 "CreateCommittedResource echo snapshot"))
-        return false;
-    m_snap->SetName(L"DE.Echo.Snapshot");
-
-    D3D12_RENDER_TARGET_VIEW_DESC rtv{};
-    rtv.Format        = DXGI_FORMAT_R16G16_FLOAT;
-    rtv.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
-    device->CreateRenderTargetView(m_snap.Get(), &rtv, m_rtv);
-
-    D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
-    srv.Format                  = DXGI_FORMAT_R16G16_FLOAT;
-    srv.ViewDimension           = D3D12_SRV_DIMENSION_TEXTURE2D;
-    srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-    srv.Texture2D.MipLevels     = 1;
-    device->CreateShaderResourceView(m_snap.Get(), &srv, m_cpuSrv);
-
-    m_snapW     = w;
-    m_snapH     = h;
-    m_snapState = D3D12_RESOURCE_STATE_RENDER_TARGET;
-    return true;
-}
-
-bool EchoPipeline::ensureCopy(Renderer& renderer)
-{
-    ID3D12Device* device = renderer.device();
-    const uint32_t w     = renderer.width();
-    const uint32_t h     = renderer.height();
-    if (!device || w == 0 || h == 0)
-        return false;
-    if (m_copy && m_copyW == w && m_copyH == h)
-        return true;
-
-    if (m_copy)
-        renderer.waitForGpu();
-    m_copy.Reset();
-    m_copyW     = 0;
-    m_copyH     = 0;
-    m_copyState = D3D12_RESOURCE_STATE_COMMON;
-
-    D3D12_HEAP_PROPERTIES heap{};
-    heap.Type = D3D12_HEAP_TYPE_DEFAULT;
-
-    D3D12_RESOURCE_DESC rd{};
-    rd.Dimension        = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-    rd.Width            = w;
-    rd.Height           = h;
-    rd.DepthOrArraySize = 1;
-    rd.MipLevels        = 1;
-    rd.Format           = DXGI_FORMAT_R16G16B16A16_FLOAT;
-    rd.SampleDesc       = { 1, 0 };
-    rd.Layout           = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-
-    if (FailedHr(device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &rd, D3D12_RESOURCE_STATE_COMMON, nullptr, IID_PPV_ARGS(&m_copy)),
-                 "CreateCommittedResource echo beauty copy"))
-        return false;
-    m_copy->SetName(L"DE.Echo.BeautyCopy");
-
-    D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
-    srv.Format                  = DXGI_FORMAT_R16G16B16A16_FLOAT;
-    srv.ViewDimension           = D3D12_SRV_DIMENSION_TEXTURE2D;
-    srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-    srv.Texture2D.MipLevels     = 1;
-    D3D12_CPU_DESCRIPTOR_HANDLE cpu = m_cpuSrv;
-    cpu.ptr += m_srvIncr;
-    device->CreateShaderResourceView(m_copy.Get(), &srv, cpu);
-
-    m_copyW     = w;
-    m_copyH     = h;
-    m_copyState = D3D12_RESOURCE_STATE_COMMON;
-    return true;
-}
-
-void EchoPipeline::transitionSnapshot(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after)
-{
-    if (!cmd || !m_snap || m_snapState == after)
-        return;
-    D3D12_RESOURCE_BARRIER b{};
-    b.Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    b.Transition.pResource   = m_snap.Get();
-    b.Transition.StateBefore = m_snapState;
-    b.Transition.StateAfter  = after;
-    b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-    cmd->ResourceBarrier(1, &b);
-    m_snapState = after;
-}
-
-void EchoPipeline::transitionCopy(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after)
-{
-    if (!cmd || !m_copy || m_copyState == after)
-        return;
-    D3D12_RESOURCE_BARRIER b{};
-    b.Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    b.Transition.pResource   = m_copy.Get();
-    b.Transition.StateBefore = m_copyState;
-    b.Transition.StateAfter  = after;
-    b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-    cmd->ResourceBarrier(1, &b);
-    m_copyState = after;
+    m_targets = targets;
+    if (!m_snap.id.valid())
+    {
+        const float zero4[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+        m_snap = targets->registerTarget("DE.Echo.Snapshot", colorTargetDesc(DXGI_FORMAT_R16G16_FLOAT, Rg::TargetSize::OutputFloor, kSnapshotDivisor,
+                                                                             D3D12_RESOURCE_STATE_RENDER_TARGET, zero4));
+    }
+    if (!m_copy.id.valid())
+        m_copy = targets->registerTarget("DE.Echo.BeautyCopy", copyTargetDesc(DXGI_FORMAT_R16G16B16A16_FLOAT, D3D12_RESOURCE_STATE_COMMON));
+    return m_snap.id.valid() && m_copy.id.valid();
 }
 
 bool EchoPipeline::capture(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const EchoSnapshotFrame& frame)
 {
     if (!cmd || !m_snapPso || !m_snapRoot || !renderer.hasSceneBuffers())
         return false;
-    if (!ensureSnapshot(renderer))
+    if (!ensureTargets(renderer))
         return false;
+    const uint32_t snapW = m_targets->width(m_snap.id);
+    const uint32_t snapH = m_targets->height(m_snap.id);
 
     ID3D12Device* device = renderer.device();
     const D3D12_CPU_DESCRIPTOR_HANDLE attrib = renderer.attribSrvCpu();
@@ -333,16 +216,17 @@ bool EchoPipeline::capture(ID3D12GraphicsCommandList* cmd, Renderer& renderer, c
 
     const GpuScope snapScope(cmd, "Echo Snapshot", ProfileColor::Echo);
     renderer.bindHdr(false);
-    transitionSnapshot(cmd, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    m_targets->transition(cmd, m_snap, D3D12_RESOURCE_STATE_RENDER_TARGET);
 
     D3D12_VIEWPORT vp{};
-    vp.Width    = static_cast<float>(m_snapW);
-    vp.Height   = static_cast<float>(m_snapH);
+    vp.Width    = static_cast<float>(snapW);
+    vp.Height   = static_cast<float>(snapH);
     vp.MaxDepth = 1.0f;
-    const D3D12_RECT sc{ 0, 0, static_cast<LONG>(m_snapW), static_cast<LONG>(m_snapH) };
+    const D3D12_RECT sc{ 0, 0, static_cast<LONG>(snapW), static_cast<LONG>(snapH) };
     cmd->RSSetViewports(1, &vp);
     cmd->RSSetScissorRects(1, &sc);
-    cmd->OMSetRenderTargets(1, &m_rtv, FALSE, nullptr);
+    const D3D12_CPU_DESCRIPTOR_HANDLE snapRtv = m_targets->rtv(m_snap.id);
+    cmd->OMSetRenderTargets(1, &snapRtv, FALSE, nullptr);
 
     const UINT frameSlot = renderer.frameIndex() % kBufferedFrames;
     D3D12_CPU_DESCRIPTOR_HANDLE dst = m_gpuCpu;
@@ -362,8 +246,8 @@ bool EchoPipeline::capture(ID3D12GraphicsCommandList* cmd, Renderer& renderer, c
     constants[18] = frame.cameraPos[2];
     constants[19] = static_cast<float>(Math::Max(renderer.width(), 1u));
     constants[20] = static_cast<float>(Math::Max(renderer.height(), 1u));
-    constants[21] = static_cast<float>(m_snapW);
-    constants[22] = static_cast<float>(m_snapH);
+    constants[21] = static_cast<float>(snapW);
+    constants[22] = static_cast<float>(snapH);
 
     cmd->SetGraphicsRootSignature(m_snapRoot.Get());
     cmd->SetPipelineState(m_snapPso.Get());
@@ -374,8 +258,9 @@ bool EchoPipeline::capture(ID3D12GraphicsCommandList* cmd, Renderer& renderer, c
     cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     cmd->DrawInstanced(3, 1, 0, 0);
 
-    transitionSnapshot(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-    m_haveSnapshot = true;
+    m_targets->transition(cmd, m_snap, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    m_haveSnapshot       = true;
+    m_snapshotGeneration = m_targets->generation(m_snap.id);
     return true;
 }
 
@@ -387,31 +272,32 @@ void EchoPipeline::composite(ID3D12GraphicsCommandList* cmd, Renderer& renderer,
     ID3D12Device* device = renderer.device();
     ID3D12Resource* hdr  = renderer.hdr();
     const D3D12_CPU_DESCRIPTOR_HANDLE depth = renderer.depthSrvCpu();
-    if (!device || !hdr || depth.ptr == 0 || !ensureCopy(renderer))
+    if (!device || !hdr || depth.ptr == 0 || !ensureTargets(renderer))
         return;
+    const uint32_t snapW = m_targets->width(m_snap.id);
+    const uint32_t snapH = m_targets->height(m_snap.id);
 
     const GpuScope viewScope(cmd, "Echo Composite", ProfileColor::Echo);
     cmd->OMSetRenderTargets(0, nullptr, FALSE, nullptr);
     renderer.transitionHdr(cmd, D3D12_RESOURCE_STATE_COPY_SOURCE);
-    transitionCopy(cmd, D3D12_RESOURCE_STATE_COPY_DEST);
-    cmd->CopyResource(m_copy.Get(), hdr);
-    transitionCopy(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    m_targets->transition(cmd, m_copy, D3D12_RESOURCE_STATE_COPY_DEST);
+    cmd->CopyResource(m_targets->resource(m_copy.id), hdr);
+    m_targets->transition(cmd, m_copy, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 
     renderer.bindHdrColorTarget();
-    transitionSnapshot(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    m_targets->transition(cmd, m_snap, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 
     const UINT frameSlot = renderer.frameIndex() % kBufferedFrames;
     D3D12_CPU_DESCRIPTOR_HANDLE dst = m_gpuCpu;
     dst.ptr += static_cast<SIZE_T>(frameSlot * kSrvStride + kCaptureSrvCount) * m_srvIncr;
-    device->CopyDescriptorsSimple(1, dst, m_cpuSrv, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    device->CopyDescriptorsSimple(1, dst, m_targets->srv(m_snap.id), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
     D3D12_CPU_DESCRIPTOR_HANDLE depthDst = dst;
     depthDst.ptr += m_srvIncr;
     device->CopyDescriptorsSimple(1, depthDst, depth, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
-    D3D12_CPU_DESCRIPTOR_HANDLE beautyCpu = m_cpuSrv;
-    beautyCpu.ptr += m_srvIncr;
-    D3D12_CPU_DESCRIPTOR_HANDLE beautyDst = depthDst;
+    const D3D12_CPU_DESCRIPTOR_HANDLE beautyCpu = m_targets->srv(m_copy.id);
+    D3D12_CPU_DESCRIPTOR_HANDLE       beautyDst = depthDst;
     beautyDst.ptr += m_srvIncr;
     device->CopyDescriptorsSimple(1, beautyDst, beautyCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
@@ -433,8 +319,8 @@ void EchoPipeline::composite(ID3D12GraphicsCommandList* cmd, Renderer& renderer,
     constants[39] = kRangeTolerance;
     constants[40] = kEdgeMeters;
     constants[41] = frame.maxRange > 0.0f ? frame.maxRange : kRangeMeters;
-    constants[42] = static_cast<float>(m_snapW);
-    constants[43] = static_cast<float>(m_snapH);
+    constants[42] = static_cast<float>(snapW);
+    constants[43] = static_cast<float>(snapH);
 
     cmd->SetGraphicsRootSignature(m_compositeRoot.Get());
     cmd->SetPipelineState(m_compositePso.Get());

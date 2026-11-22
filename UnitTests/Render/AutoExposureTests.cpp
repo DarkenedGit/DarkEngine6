@@ -2,6 +2,7 @@
 
 #include "Render/AutoExposure.h"
 #include "Render/BloomPipeline.h"
+#include "Render/GraphTargets.h"
 #include "Render/ShaderCompile.h"
 #include "Render/RhiDevice.h"
 
@@ -165,17 +166,26 @@ TEST(AutoExp, PipelineCreates)
     if (!device)
         GTEST_SKIP() << "no WARP device at FL 12_1";
 
+    // Graph targets (render-graph plan Phase 5): the pyramid follows GraphTargets::resizeAfterDrain.
+    Dark::GraphTargets targets;
+    ASSERT_TRUE(targets.init(device.Get(), 1280, 720));
     Dark::AutoExposurePipeline pipeline;
-    ASSERT_TRUE(pipeline.create(device.Get(), 1280, 720));
+    ASSERT_TRUE(pipeline.create(targets, nullptr));
     EXPECT_TRUE(pipeline.isValid());
-    EXPECT_TRUE(pipeline.resize(device.Get(), 1280, 720));
+    const uint64_t generation = pipeline.generation();
+    ASSERT_TRUE(targets.resizeAfterDrain(1280, 720));
+    EXPECT_EQ(pipeline.generation(), generation); // same size: nothing recreated
     EXPECT_FLOAT_EQ(pipeline.readMeasuredLuma(0), 0.0f);
     pipeline.invalidateReadback();
     EXPECT_FLOAT_EQ(pipeline.readMeasuredLuma(1), 0.0f);
 
-    ASSERT_TRUE(pipeline.resize(device.Get(), 800, 600));
+    ASSERT_TRUE(targets.resizeAfterDrain(800, 600));
+    EXPECT_NE(pipeline.generation(), generation);
     EXPECT_TRUE(pipeline.isValid());
     EXPECT_FLOAT_EQ(pipeline.readMeasuredLuma(0), 0.0f);
+    pipeline.release();
+    EXPECT_FALSE(pipeline.isValid());
+    EXPECT_EQ(targets.pool().count(), 0u);
 }
 
 TEST(AutoExp, ShaderCompiles)

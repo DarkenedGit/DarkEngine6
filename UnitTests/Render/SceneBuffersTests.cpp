@@ -25,16 +25,15 @@ TEST(SceneBuffers, LightingCount)
     EXPECT_EQ(SceneBuffers::kLightingCount, 12u);
 }
 
-TEST(SceneBuffers, GBufferRtvLayout)
+TEST(SceneBuffers, InvalidUntilCreated)
 {
-    EXPECT_EQ(SceneBuffers::kRtvHdr, 0u);
-    EXPECT_EQ(SceneBuffers::kRtvAlbedo, 1u);
-    EXPECT_EQ(SceneBuffers::kRtvAttrib, 2u);
-    EXPECT_EQ(SceneBuffers::kRtvVelocity, 3u);
-    EXPECT_EQ(SceneBuffers::kRtvPost, 4u);
-    EXPECT_EQ(SceneBuffers::kRtvHistory, 5u);
-    EXPECT_EQ(SceneBuffers::kRtvAo, 6u);
-    EXPECT_EQ(SceneBuffers::kRtvCountGBuffer, 7u);
+    // Render-graph plan Phase 5: the G-buffer, HDR, post and AO targets are graph targets (CPU views
+    // from the pool), so there is no RTV heap layout left; only the clear contract stays.
+    SceneBuffers buffers;
+    EXPECT_FALSE(buffers.valid());
+    EXPECT_EQ(buffers.width(), 0u);
+    EXPECT_EQ(buffers.height(), 0u);
+    EXPECT_EQ(buffers.lightingHeap(), nullptr);
     EXPECT_FLOAT_EQ(SceneBuffers::kAoClear[0], 1.0f);
 }
 

@@ -25,6 +25,7 @@
 #include "Render/SkinningUploadRing.h"
 #include "Render/SkyPipeline.h"
 #include "Render/TaaPipeline.h"
+#include "Render/TemporalHistory.h"
 #include "Render/TerrainPipeline.h"
 #include "Render/TonemapPipeline.h"
 #include "Render/UnderwaterPipeline.h"
@@ -41,6 +42,7 @@ namespace Dark
         class AABox3f;
     }
 
+class FrameComposer;
 class Renderer;
 class World;
 
@@ -89,12 +91,17 @@ public:
     // Caller must have finished HDR scene draws. tonemap.usePostHdr is set by this helper.
     // meterAutoExposure records this frame's 1×1. The host reads the previous sample and
     // writes tonemap.exposure before the call, so bloom and tonemap share that exposure.
-    // holdTemporal forces a TAA reset and skips motion blur so a strobe is not smeared.
-    void applyPost(Renderer& renderer, ID3D12GraphicsCommandList* cmd, const Math::Matrix4f& viewProj, TonemapSettings tonemap, bool meterAutoExposure = false,
-                   bool holdTemporal = false);
+    // FrameView::holdTemporal (see requestHistories) forces a TAA reset and skips motion blur so a
+    // strobe is not smeared.
+    void applyPost(Renderer& renderer, ID3D12GraphicsCommandList* cmd, const Math::Matrix4f& viewProj, TonemapSettings tonemap, bool meterAutoExposure = false);
 
-    // Resize the meter with the swap chain. True when the size changed: the readback was
-    // dropped, and the host should zero its stored EV before adapting.
+    // Right after FrameComposer::begin: requests this frame's TAA / GTAO / SSR graph histories
+    // (render-graph plan Phase 5) and applies a pending discardTemporalHistory. `frame` must stay
+    // alive until the frame executes (hosts own it).
+    void requestHistories(FrameComposer& frame, Renderer& renderer);
+
+    // True when Renderer::resize recreated the meter's pyramid since the last call: the readback was
+    // dropped, and the host should zero its stored EV before adapting. Never waits.
     bool syncAutoExposureSize(Renderer& renderer);
 
     // The deferred resolve as five graph passes (render-graph plan Phase 4), run every frame in this
@@ -224,8 +231,7 @@ private:
     bool createPostPipelines(Renderer& renderer, const char* tag);
     bool createTerrainPipelineOnly(Renderer& renderer, const char* tag);
     bool createWorldEnvPipelines(Renderer& renderer, const char* tag);
-    void ensureGtaoSize(Renderer& renderer, ID3D12GraphicsCommandList* cmd = nullptr);
-    void ensureSsrSize(Renderer& renderer, ID3D12GraphicsCommandList* cmd = nullptr);
+    void markHistoryUnwritten(const Rg::HistoryTargets& history, const char* name);
     void createDecalPass(Renderer& renderer, const char* tag);
     void drawDecalsPass(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, const Math::Matrix4f& viewProj);
     void storeDecalStats(uint32_t drawn, uint32_t culled, uint32_t inside, uint32_t triangles);
@@ -274,23 +280,16 @@ private:
 
     Math::Matrix4f m_prevViewProj{};
     bool           m_havePrevViewProj = false;
-    bool           m_taaHistoryValid  = false;
-    uint32_t       m_taaHistoryW      = 0;
-    uint32_t       m_taaHistoryH      = 0;
-    uint32_t       m_bloomW              = 0;
-    uint32_t       m_bloomH              = 0;
-    uint32_t       m_autoExposureW       = 0;
-    uint32_t       m_autoExposureH       = 0;
-    bool           m_autoExposureEnabled = false;
-    uint32_t       m_gtaoW            = 0;
-    uint32_t       m_gtaoH            = 0;
-    bool           m_gtaoWasEnabled   = false;
-    bool           m_gtaoNeedReset    = true;
-    uint32_t       m_ssrW             = 0;
-    uint32_t       m_ssrH             = 0;
-    bool           m_ssrWasEnabled    = false;
-    bool           m_ssrNeedReset     = true;
-    bool           m_initialized      = false;
+    bool           m_discardHistory   = false; // discardTemporalHistory: invalidate at the next requestHistories
+    bool           m_holdTemporal     = false; // this frame's FrameView::holdTemporal
+    // This frame's graph histories (requestHistories). m_frame is the host's composer.
+    FrameComposer*     m_frame = nullptr;
+    Rg::HistoryTargets m_taaHistory;
+    Rg::HistoryTargets m_gtaoHistory;
+    Rg::HistoryTargets m_ssrHistory;
+    uint64_t       m_autoExposureGeneration = 0;
+    bool           m_autoExposureEnabled    = false;
+    bool           m_initialized            = false;
 };
 
 } // namespace Dark

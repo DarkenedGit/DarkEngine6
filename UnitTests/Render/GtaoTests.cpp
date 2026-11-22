@@ -2,6 +2,7 @@
 
 #include "Render/Camera3D.h"
 #include "Render/DebugRenderState.h"
+#include "Render/GraphTargets.h"
 #include "Render/GtaoPipeline.h"
 #include "Render/SceneBuffers.h"
 #include "Render/RhiDevice.h"
@@ -15,6 +16,7 @@
 
 using Dark::Camera3D;
 using Dark::DebugRenderState;
+using Dark::GraphTargets;
 using Dark::GtaoGpuParams;
 using Dark::GtaoPipeline;
 using Dark::GtaoSettings;
@@ -144,6 +146,7 @@ TEST(Gtao, Reset_ClearsLightingAoOverride)
 
 TEST(Gtao, Create_NullDevice_DropsAoOverride)
 {
+    GraphTargets targets; // never initialized: no device
     SceneBuffers buffers;
     D3D12_CPU_DESCRIPTOR_HANDLE ao{};
     ao.ptr = 0x1234;
@@ -151,19 +154,20 @@ TEST(Gtao, Create_NullDevice_DropsAoOverride)
     EXPECT_EQ(buffers.lightingAoCpu().ptr, ao.ptr);
 
     const float hdrClear[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
-    EXPECT_FALSE(buffers.create(nullptr, 64, 64, {}, hdrClear));
+    EXPECT_FALSE(buffers.create(targets, {}, hdrClear));
     EXPECT_FALSE(buffers.valid());
     EXPECT_EQ(buffers.lightingAoCpu().ptr, 0u);
 }
 
 TEST(Gtao, Create_ZeroSize_DropsAoOverride)
 {
+    GraphTargets targets; // no device and a 0x0 output
     SceneBuffers buffers;
     D3D12_CPU_DESCRIPTOR_HANDLE ao{};
     ao.ptr = 0x1234;
     buffers.setLightingAoSrv(nullptr, ao);
     EXPECT_EQ(buffers.lightingAoCpu().ptr, ao.ptr);
-    EXPECT_FALSE(buffers.create(nullptr, 0, 0, {}, nullptr));
+    EXPECT_FALSE(buffers.create(targets, {}, nullptr));
     EXPECT_EQ(buffers.lightingAoCpu().ptr, 0u);
 }
 
@@ -195,8 +199,9 @@ TEST(Gtao, GpuParams_Size)
 
 TEST(Gtao, Create_NoDevice_False)
 {
+    GraphTargets targets;
     GtaoPipeline gtao;
-    EXPECT_FALSE(gtao.create(nullptr, 1280, 720));
+    EXPECT_FALSE(gtao.create(targets));
     EXPECT_FALSE(gtao.isValid());
     EXPECT_EQ(gtao.composeSrvCpu().ptr, 0u);
     EXPECT_EQ(gtao.aoFullSrvCpu().ptr, 0u);
@@ -207,23 +212,24 @@ TEST(Gtao, Create_NoDevice_False)
     EXPECT_EQ(SceneBuffers::kLightingCount, 12u);
 }
 
-TEST(Gtao, Create_ZeroSize_False)
+TEST(Gtao, Release_WithoutCreate_Safe)
 {
     GtaoPipeline gtao;
-    EXPECT_FALSE(gtao.create(nullptr, 0, 720));
-    EXPECT_FALSE(gtao.create(nullptr, 1280, 0));
-    EXPECT_FALSE(gtao.create(nullptr, 0, 0));
-    EXPECT_FALSE(gtao.isValid());
-    EXPECT_EQ(gtao.composeSrvCpu().ptr, 0u);
-}
-
-TEST(Gtao, Resize_NoDevice_False)
-{
-    GtaoPipeline gtao;
-    EXPECT_FALSE(gtao.resize(nullptr, 1920, 1080));
+    gtao.release();
+    gtao.release();
     EXPECT_FALSE(gtao.isValid());
     EXPECT_EQ(gtao.composeSrvCpu().ptr, 0u);
     EXPECT_EQ(gtao.aoFullSrvCpu().ptr, 0u);
+}
+
+TEST(Gtao, HistoryDesc_RestsAsShaderResource)
+{
+    const Dark::Rg::TargetDesc desc = GtaoPipeline::historyDesc();
+    EXPECT_EQ(desc.size, Dark::Rg::TargetSize::OutputFloor);
+    EXPECT_EQ(desc.divisor, 1u);
+    EXPECT_EQ(desc.initialState, static_cast<uint32_t>(D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
+    EXPECT_TRUE(desc.rtv);
+    EXPECT_TRUE(desc.srv);
 }
 
 TEST(Gtao, Invalid_HandlesAreZero)
@@ -240,24 +246,29 @@ TEST(Gtao, Resize_RecreatesTargets)
     if (!device)
         GTEST_SKIP() << "no D3D12 device (WARP or hardware)";
 
+    // Graph targets (render-graph plan Phase 5): GraphTargets::resizeAfterDrain recreates them.
+    GraphTargets targets;
+    ASSERT_TRUE(targets.init(device.Get(), 1280, 720));
     GtaoPipeline gtao;
-    ASSERT_TRUE(gtao.create(device.Get(), 1280, 720));
+    ASSERT_TRUE(gtao.create(targets));
     EXPECT_TRUE(gtao.isValid());
-    const SIZE_T compose1280 = gtao.composeSrvCpu().ptr;
-    const SIZE_T full1280    = gtao.aoFullSrvCpu().ptr;
-    EXPECT_NE(compose1280, 0u);
-    EXPECT_NE(full1280, 0u);
-
-    ASSERT_TRUE(gtao.resize(device.Get(), 1920, 1080));
-    EXPECT_TRUE(gtao.isValid());
+    const uint32_t registered = targets.pool().count();
+    EXPECT_GT(registered, 0u);
     EXPECT_NE(gtao.composeSrvCpu().ptr, 0u);
     EXPECT_NE(gtao.aoFullSrvCpu().ptr, 0u);
 
-    EXPECT_TRUE(gtao.resize(device.Get(), 1920, 1080));
+    ASSERT_TRUE(targets.resizeAfterDrain(1920, 1080));
+    EXPECT_TRUE(gtao.isValid());
+    EXPECT_EQ(targets.pool().count(), registered);
+    EXPECT_NE(gtao.composeSrvCpu().ptr, 0u);
+    EXPECT_NE(gtao.aoFullSrvCpu().ptr, 0u);
+
+    ASSERT_TRUE(targets.resizeAfterDrain(1920, 1080));
     EXPECT_TRUE(gtao.isValid());
 
-    EXPECT_FALSE(gtao.create(device.Get(), 0, 1080));
+    gtao.release();
     EXPECT_FALSE(gtao.isValid());
+    EXPECT_EQ(targets.pool().count(), 0u);
     EXPECT_EQ(gtao.composeSrvCpu().ptr, 0u);
     EXPECT_EQ(gtao.aoFullSrvCpu().ptr, 0u);
 
@@ -272,9 +283,10 @@ TEST(Gtao, Create_ZeroSize_WithDevice_False)
     if (!device)
         GTEST_SKIP() << "no D3D12 device (WARP or hardware)";
 
+    GraphTargets targets;
+    targets.init(device.Get(), 0, 64); // a 0-wide output: nothing can register
     GtaoPipeline gtao;
-    EXPECT_FALSE(gtao.create(device.Get(), 0, 64));
-    EXPECT_FALSE(gtao.create(device.Get(), 64, 0));
+    EXPECT_FALSE(gtao.create(targets));
     EXPECT_FALSE(gtao.isValid());
     EXPECT_EQ(gtao.composeSrvCpu().ptr, 0u);
 
@@ -290,6 +302,7 @@ TEST(Gtao, Disabled_SkipsPass)
     EXPECT_FALSE(dbg.ssaoEnabled);
     EXPECT_TRUE(gtaoShouldSkip(s.enabled, dbg.ssaoEnabled, true, true));
 
+    GraphTargets targets; // declared first: owners unregister before it goes away
     SceneBuffers buffers;
     EXPECT_EQ(buffers.lightingAoCpu().ptr, 0u);
 
@@ -298,12 +311,13 @@ TEST(Gtao, Disabled_SkipsPass)
         GTEST_SKIP() << "no D3D12 device (WARP or hardware) — CPU skip contract already checked";
 
     const float hdrClear[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
-    ASSERT_TRUE(buffers.create(device.Get(), 64, 64, {}, hdrClear));
+    ASSERT_TRUE(targets.init(device.Get(), 64, 64));
+    ASSERT_TRUE(buffers.create(targets, {}, hdrClear));
     ASSERT_NE(buffers.aoSrvCpu().ptr, 0u);
     EXPECT_EQ(buffers.lightingAoCpu().ptr, 0u);
 
     GtaoPipeline gtao;
-    ASSERT_TRUE(gtao.create(device.Get(), 64, 64));
+    ASSERT_TRUE(gtao.create(targets));
     ASSERT_NE(gtao.composeSrvCpu().ptr, 0u);
 
     // A previous enabled frame left compose in slot 5; disable must restore MRT3, not a white tex.
