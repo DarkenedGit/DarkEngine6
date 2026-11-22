@@ -18,7 +18,8 @@ namespace Dark
     // before-state of tracked resources from the frame ResourceStateTracker (Phase 6). A pass with a
     // GPU scope gets a profiler scope around its execute. A converted pass (no OwnBarriers) starts
     // with the renderer's descriptor ring bound and gets its tables from it (PassContext::srvTable,
-    // Phase 6 part 2); opaque passes keep binding their own heaps.
+    // Phase 6 part 2); opaque passes keep binding their own heaps. unbindTargets clears the output
+    // merger before a barrier batch that follows a pass which may have bound targets (SplitExecutor).
     class RgExecutor final : public Rg::SplitExecutor
     {
     public:
@@ -45,6 +46,7 @@ namespace Dark
         void recordBarriers(const Rg::BarrierBatch& batch, const Rg::BarrierRec* records) override;
         void passBegin(const Rg::PassContext& ctx) override;
         void passEnd(const Rg::PassContext& ctx) override;
+        void unbindTargets(Rg::Queue queue) override;
         bool submitList(Rg::Queue queue) override;
         void queueSignal(Rg::Queue queue, uint32_t value) override;
         void queueWait(Rg::Queue waitQueue, Rg::Queue signalQueue, uint32_t value) override;

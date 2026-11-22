@@ -195,6 +195,9 @@ namespace Dark
         }
 
         void bindColorTargetOnly();
+        // The back buffer alone (no DSV, no transitions): what ImGui, the HUD and the movie draw into
+        // after the graph, which may have cleared the output-merger bindings.
+        void                        bindBackBuffer();
         void setClearColor(float r, float g, float b, float a = 1.0f);
         const float* clearColor() const { return m_clearColor; }
         void transitionDepth(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after);

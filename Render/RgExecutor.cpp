@@ -81,6 +81,14 @@ namespace Dark
             profileGpuEnd(ctx.cmd());
     }
 
+    void RgExecutor::unbindTargets(Rg::Queue queue)
+    {
+        if (queue != Rg::Queue::Graphics)
+            return;
+        if (ID3D12GraphicsCommandList* cmd = commandList(queue))
+            cmd->OMSetRenderTargets(0, nullptr, FALSE, nullptr);
+    }
+
     bool RgExecutor::submitList(Rg::Queue queue)
     {
         (void)queue;

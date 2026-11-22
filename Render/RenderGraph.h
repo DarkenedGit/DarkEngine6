@@ -273,6 +273,9 @@ namespace Dark::Rg
         uint64_t    frameIndex() const;
         // An opaque (OwnBarriers) pass: records its own barriers and binds its own descriptor heaps.
         bool ownBarriers() const;
+        // A declared pass with a RenderTarget, DepthWrite or DepthRead use: the only uses that let it
+        // bind graph resources to the output merger.
+        bool        bindsTargets() const;
         Executor*   executor() const
         {
             return m_executor;
@@ -323,12 +326,25 @@ namespace Dark::Rg
     // submitted first so the wait holds back only the commands after it. finish() submits whatever is
     // still open (call it after RenderGraph::execute). Derived classes record barriers and passes and
     // implement the three queue operations.
+    //
+    // Output-merger bindings: a graphics pass that may have left render targets or a DSV bound (an
+    // opaque pass, or a declared pass with bindsTargets()) marks the graphics list, and the next
+    // barrier batch on it calls unbindTargets() first. A barrier must not move a resource out of
+    // its render-target / depth layout while it is still bound, and the next pass's own binds are
+    // recorded after its BeforePass barriers. A pass that binds nothing, or one with no barrier
+    // batch after it, costs nothing. The async compute queue has no output merger: never marked.
     class SplitExecutor : public Executor
     {
     public:
         void barriers(const BarrierBatch& batch, const BarrierRec* records) final
         {
-            m_recorded[static_cast<uint32_t>(batch.queue)] = true;
+            const uint32_t q = static_cast<uint32_t>(batch.queue);
+            m_recorded[q]    = true;
+            if (m_targetsBound[q])
+            {
+                m_targetsBound[q] = false;
+                unbindTargets(batch.queue);
+            }
             recordBarriers(batch, records);
         }
         void signal(Queue queue, uint32_t value) final
@@ -349,6 +365,8 @@ namespace Dark::Rg
         void endPass(const PassContext& ctx) final
         {
             passEnd(ctx);
+            if (ctx.queue() == Queue::Graphics && (ctx.ownBarriers() || ctx.bindsTargets()))
+                m_targetsBound[static_cast<uint32_t>(Queue::Graphics)] = true;
         }
         // Submits the lists still holding recorded work. Returns false if a submit failed this frame.
         bool finish()
@@ -357,13 +375,16 @@ namespace Dark::Rg
                 flush(static_cast<Queue>(q));
             return m_ok;
         }
-        // Start of a frame: nothing recorded, no list submitted yet.
-        void resetSplits()
+        // Start of a frame: nothing recorded, no list submitted yet. `targetsBound`: the graphics list
+        // may already have render targets bound (RgExecutor: Renderer::beginFrame binds the back
+        // buffer and depth), so the first barrier batch clears them.
+        void resetSplits(bool targetsBound = true)
         {
             for (uint32_t q = 0; q < kQueueCount; ++q)
             {
-                m_recorded[q]  = false;
-                m_submitted[q] = 0;
+                m_recorded[q]     = false;
+                m_submitted[q]    = 0;
+                m_targetsBound[q] = targetsBound && static_cast<Queue>(q) == Queue::Graphics;
             }
             m_ok = true;
         }
@@ -385,6 +406,11 @@ namespace Dark::Rg
         {
             (void)ctx;
         }
+        // Clear the queue's output-merger bindings (OMSetRenderTargets with nothing). Graphics only.
+        virtual void unbindTargets(Queue queue)
+        {
+            (void)queue;
+        }
         // Close the queue's open list, submit it and open the next one. False on failure.
         virtual bool submitList(Queue queue)                                       = 0;
         virtual void queueSignal(Queue queue, uint32_t value)                      = 0;
@@ -400,8 +426,10 @@ namespace Dark::Rg
             ++m_submitted[q];
             if (!submitList(queue))
                 m_ok = false;
+            m_targetsBound[q] = false; // a new list starts with nothing bound
         }
-        bool     m_recorded[kQueueCount]  = { false, false };
+        bool     m_recorded[kQueueCount]     = { false, false };
+        bool     m_targetsBound[kQueueCount] = { true, false };
         uint32_t m_submitted[kQueueCount] = { 0, 0 };
         bool     m_ok                     = true;
     };

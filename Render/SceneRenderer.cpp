@@ -638,11 +638,6 @@ void SceneRenderer::addSsrCapturePasses(FeatureBuilder& b, Renderer& renderer)
     const SsrTarget    written = ssr->beginCapture(); // water and next frame's trace read it
     TextureHandle      dst     = importTracked(b.graph(), SsrPipeline::name(written), ssr->resource(written), textureViews(ssr->srv(written), ssr->rtv(written)));
 
-    // Sky (and LocalVolumes' bindHdr(true)) left HDR bound as the render target. The graph records
-    // the capture's HDR RT->SRV barrier before the capture's exec, so unbind in a pass of its own
-    // first, as captureSceneColor did before transitionHdr.
-    b.opaque("SsrCapture.Unbind", {}, {}, [](Rg::PassContext& c) { c.cmd()->OMSetRenderTargets(0, nullptr, FALSE, nullptr); });
-
     struct Capture
     {
         TextureHandle hdr, dst;
@@ -661,12 +656,13 @@ void SceneRenderer::addSsrCapturePasses(FeatureBuilder& b, Renderer& renderer)
         });
 
     // Water is still opaque: hand it the capture in PIXEL_SHADER_RESOURCE, and rebind HDR with
-    // read-only depth for the passes after (what captureSceneColor used to leave).
+    // read-only depth for the passes after (what captureSceneColor used to leave). Rebind first:
+    // the capture left its target bound, and no graph batch runs between it and this transition.
     addHandoff(b, "SsrCapture.Handoff", { dst },
                [rr, ssr](ID3D12GraphicsCommandList* cmd)
                {
-                   ssr->transitionSceneColorRead(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
                    rr->bindHdrDepthRead();
+                   ssr->transitionSceneColorRead(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
                });
 }
 
@@ -692,11 +688,6 @@ void SceneRenderer::beginGBufferPass(Rg::PassContext& c, const Renderer& rendere
     cmd->OMSetRenderTargets(4, rtvs, FALSE, &dsv);
     cmd->RSSetViewports(1, &renderer.viewport());
     cmd->RSSetScissorRects(1, &renderer.scissor());
-}
-
-void SceneRenderer::unbindTargets(Rg::PassContext& c)
-{
-    c.cmd()->OMSetRenderTargets(0, nullptr, FALSE, nullptr);
 }
 
 bool SceneRenderer::decalPassReady() const
@@ -997,9 +988,6 @@ void SceneRenderer::drawDecalsPass(Rg::PassContext& c, Renderer& renderer, const
     }
     if (drewOutside || drewInside)
         m_decalPipeline.uavBarrier(cmd);
-    // The outside-only path still has the read-only DSV bound; the next depth reader's barrier
-    // (to ShaderResource) must not see it.
-    cmd->OMSetRenderTargets(0, nullptr, FALSE, nullptr);
     cmd->EndEvent();
 }
 
