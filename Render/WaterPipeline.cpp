@@ -88,20 +88,14 @@ bool WaterPipeline::create(ID3D12Device* device, DXGI_FORMAT colorFormat)
     m_psoStreamPoint.Reset();
     m_cbUpload.Reset();
     m_dummyLights.Reset();
-    m_srvHeap.Reset();
+    m_dummyHeap.Reset();
     m_dummySsrColor.Reset();
     m_dummySsrDepth.Reset();
-    m_device      = nullptr;
-    m_cbMapped    = nullptr;
-    m_cbGpu       = 0;
-    m_dummyGpu    = 0;
-    m_heightGpu   = {};
-    m_shadowGpu   = {};
-    m_ssrGpu      = {};
-    m_srvIncr     = 0;
-    m_cbSlot      = 0;
-    m_haveHeight  = false;
-    m_haveShadow  = false;
+    m_cbMapped = nullptr;
+    m_cbGpu    = 0;
+    m_dummyGpu = 0;
+    m_srvIncr  = 0;
+    m_cbSlot   = 0;
     if (!device)
     {
         DE_LOG_ERROR(LogCategory::Render, "WaterPipeline::create: null device");
@@ -313,10 +307,10 @@ bool WaterPipeline::create(ID3D12Device* device, DXGI_FORMAT colorFormat)
 
     m_srvIncr = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
     D3D12_DESCRIPTOR_HEAP_DESC heapDesc{};
-    heapDesc.NumDescriptors = 4;
+    heapDesc.NumDescriptors = 2;
     heapDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    heapDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    if (FailedHr(device->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&m_srvHeap)), "CreateDescriptorHeap (water height+shadow+ssr)"))
+    heapDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+    if (FailedHr(device->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&m_dummyHeap)), "CreateDescriptorHeap (water SSR dummies)"))
     {
         m_rootSignature.Reset();
         m_psoSolid.Reset();
@@ -330,11 +324,6 @@ bool WaterPipeline::create(ID3D12Device* device, DXGI_FORMAT colorFormat)
         m_psoStreamPoint.Reset();
         return false;
     }
-    m_heightGpu = m_srvHeap->GetGPUDescriptorHandleForHeapStart();
-    m_shadowGpu = m_heightGpu;
-    m_shadowGpu.ptr += m_srvIncr;
-    m_ssrGpu = m_shadowGpu;
-    m_ssrGpu.ptr += m_srvIncr;
     if (!createSsrDummies(device))
     {
         m_rootSignature.Reset();
@@ -350,13 +339,12 @@ bool WaterPipeline::create(ID3D12Device* device, DXGI_FORMAT colorFormat)
         m_cbUpload.Reset();
         m_dummyLights.Reset();
         m_cbMapped = nullptr;
-        m_srvHeap.Reset();
+        m_dummyHeap.Reset();
         m_dummySsrColor.Reset();
         m_dummySsrDepth.Reset();
         return false;
     }
 
-    m_device = device;
     DE_LOG_INFO(LogCategory::Render, "WaterPipeline: ready (Gerstner + GGX, CBV + 8 local lights)");
     return true;
 }
@@ -459,19 +447,22 @@ bool WaterPipeline::createSsrDummies(ID3D12Device* device)
     }
     m_dummySsrColor->SetName(L"DE.Water.SsrDummyColor");
     m_dummySsrDepth->SetName(L"DE.Water.SsrDummyDepth");
-    packSsrDummySrvs(device);
+    writeTex2dSrv(device, m_dummySsrColor.Get(), DXGI_FORMAT_R16G16B16A16_FLOAT, ssrDummyColorCpu());
+    writeTex2dSrv(device, m_dummySsrDepth.Get(), DXGI_FORMAT_R32_FLOAT, ssrDummyDepthCpu());
     return true;
 }
 
-void WaterPipeline::packSsrDummySrvs(ID3D12Device* device)
+D3D12_CPU_DESCRIPTOR_HANDLE WaterPipeline::ssrDummyColorCpu() const
 {
-    if (!device || !m_srvHeap || !m_dummySsrColor || !m_dummySsrDepth)
-        return;
-    D3D12_CPU_DESCRIPTOR_HANDLE dst = m_srvHeap->GetCPUDescriptorHandleForHeapStart();
-    dst.ptr += static_cast<SIZE_T>(m_srvIncr) * 2u;
-    writeTex2dSrv(device, m_dummySsrColor.Get(), DXGI_FORMAT_R16G16B16A16_FLOAT, dst);
-    dst.ptr += m_srvIncr;
-    writeTex2dSrv(device, m_dummySsrDepth.Get(), DXGI_FORMAT_R32_FLOAT, dst);
+    return m_dummyHeap ? m_dummyHeap->GetCPUDescriptorHandleForHeapStart() : D3D12_CPU_DESCRIPTOR_HANDLE{};
+}
+
+D3D12_CPU_DESCRIPTOR_HANDLE WaterPipeline::ssrDummyDepthCpu() const
+{
+    D3D12_CPU_DESCRIPTOR_HANDLE h = ssrDummyColorCpu();
+    if (h.ptr != 0)
+        h.ptr += m_srvIncr;
+    return h;
 }
 
 void WaterPipeline::bind(ID3D12GraphicsCommandList* cmd, DebugFill fill, bool stream, bool ceiling) const
@@ -508,58 +499,16 @@ void WaterPipeline::setLights(ID3D12GraphicsCommandList* cmd, D3D12_GPU_VIRTUAL_
     cmd->SetGraphicsRootShaderResourceView(kRootLightsSrv, va);
 }
 
-void WaterPipeline::setHeightMap(ID3D12GraphicsCommandList* cmd, ID3D12DescriptorHeap* heap, D3D12_GPU_DESCRIPTOR_HANDLE gpu) const
+void WaterPipeline::bindTables(ID3D12GraphicsCommandList* cmd, const WaterTables* tables) const
 {
-    if (!cmd || !heap || gpu.ptr == 0)
+    if (!cmd || !tables || tables->table.ptr == 0)
         return;
-    ID3D12DescriptorHeap* heaps[] = { heap };
-    cmd->SetDescriptorHeaps(1, heaps);
-    cmd->SetGraphicsRootDescriptorTable(kRootHeightSrv, gpu);
-}
-
-void WaterPipeline::setHeightSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE heightCpu)
-{
-    if (!device || !m_srvHeap || heightCpu.ptr == 0)
-        return;
-    device->CopyDescriptorsSimple(1, m_srvHeap->GetCPUDescriptorHandleForHeapStart(), heightCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-    m_haveHeight = true;
-}
-
-void WaterPipeline::setShadowSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu)
-{
-    if (!device || !m_srvHeap || shadowCpu.ptr == 0)
-        return;
-    D3D12_CPU_DESCRIPTOR_HANDLE dst = m_srvHeap->GetCPUDescriptorHandleForHeapStart();
-    dst.ptr += m_srvIncr;
-    device->CopyDescriptorsSimple(1, dst, shadowCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-    m_haveShadow = true;
-}
-
-void WaterPipeline::setSsrSrvs(D3D12_CPU_DESCRIPTOR_HANDLE sceneColorCpu, D3D12_CPU_DESCRIPTOR_HANDLE depthCpu)
-{
-    if (!m_device || !m_srvHeap)
-        return;
-    if (sceneColorCpu.ptr == 0 || depthCpu.ptr == 0)
-    {
-        packSsrDummySrvs(m_device);
-        return;
-    }
-    D3D12_CPU_DESCRIPTOR_HANDLE dst = m_srvHeap->GetCPUDescriptorHandleForHeapStart();
-    dst.ptr += static_cast<SIZE_T>(m_srvIncr) * 2u;
-    m_device->CopyDescriptorsSimple(1, dst, sceneColorCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-    dst.ptr += m_srvIncr;
-    m_device->CopyDescriptorsSimple(1, dst, depthCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-}
-
-void WaterPipeline::bindReceiverSrvs(ID3D12GraphicsCommandList* cmd) const
-{
-    if (!cmd || !hasReceiverSrvs())
-        return;
-    ID3D12DescriptorHeap* heaps[] = { m_srvHeap.Get() };
-    cmd->SetDescriptorHeaps(1, heaps);
-    cmd->SetGraphicsRootDescriptorTable(kRootHeightSrv, m_heightGpu);
-    cmd->SetGraphicsRootDescriptorTable(kRootShadowSrv, m_shadowGpu);
-    cmd->SetGraphicsRootDescriptorTable(kRootSsrSrv, m_ssrGpu);
+    D3D12_GPU_DESCRIPTOR_HANDLE h = tables->table;
+    cmd->SetGraphicsRootDescriptorTable(kRootHeightSrv, h);
+    h.ptr += m_srvIncr;
+    cmd->SetGraphicsRootDescriptorTable(kRootShadowSrv, h);
+    h.ptr += m_srvIncr;
+    cmd->SetGraphicsRootDescriptorTable(kRootSsrSrv, h);
 }
 
 void WaterPipeline::fillConstants(

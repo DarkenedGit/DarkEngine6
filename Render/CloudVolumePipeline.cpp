@@ -34,8 +34,6 @@ namespace Dark
     {
         m_rootSignature.Reset();
         m_pso.Reset();
-        m_depthHeap.Reset();
-        m_depthGpu = {};
         if (!device)
         {
             DE_LOG_ERROR(LogCategory::Render, "CloudVolumePipeline::create: null device");
@@ -125,30 +123,16 @@ namespace Dark
             return false;
         }
 
-        D3D12_DESCRIPTOR_HEAP_DESC heapDesc{};
-        heapDesc.NumDescriptors = 1;
-        heapDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-        heapDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-        if (FailedHr(device->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&m_depthHeap)), "CreateDescriptorHeap (cloud depth)"))
-        {
-            m_rootSignature.Reset();
-            m_pso.Reset();
-            return false;
-        }
-        m_depthGpu = m_depthHeap->GetGPUDescriptorHandleForHeapStart();
-
         DE_LOG_INFO(LogCategory::Render, "CloudVolumePipeline: ready");
         return true;
     }
 
-    void CloudVolumePipeline::draw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, World& world, CloudVolumeGpuList& gpuList, const Camera3D& camera,
+    void CloudVolumePipeline::draw(ID3D12GraphicsCommandList* cmd, D3D12_GPU_DESCRIPTOR_HANDLE depthTable, Renderer& renderer, World& world, CloudVolumeGpuList& gpuList, const Camera3D& camera,
                                    const Math::Matrix4f& viewProj, const CloudVolumeFrame& frame) const
     {
-        if (!cmd || !isValid() || !gpuList.isValid())
+        if (!cmd || depthTable.ptr == 0 || !isValid() || !gpuList.isValid())
             return;
         if (!renderer.debugState().clouds)
-            return;
-        if (!renderer.hasSceneBuffers() || renderer.depthSrvCpu().ptr == 0)
             return;
 
         const Frustum3f frustum(camera.GetCullViewProj());
@@ -159,11 +143,6 @@ namespace Dark
 
         const GpuScope clouds(cmd, "Cloud Volumes", ProfileColor::Clouds);
         gpuList.upload(renderer.frameIndex(), lists);
-
-        ID3D12Device* device = renderer.device();
-        if (!device)
-            return;
-        device->CopyDescriptorsSimple(1, m_depthHeap->GetCPUDescriptorHandleForHeapStart(), renderer.depthSrvCpu(), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
         CloudVolumePassConstants cb{};
         copyMatrix(cb.invViewProj, viewProj.Inverse());
@@ -198,12 +177,10 @@ namespace Dark
         cb.lodNearLight  = static_cast<float>(lod.nearLightSteps);
         cb.lodFarLight   = static_cast<float>(lod.farLightSteps);
 
-        ID3D12DescriptorHeap* heaps[] = { m_depthHeap.Get() };
-        cmd->SetDescriptorHeaps(1, heaps);
         cmd->SetGraphicsRootSignature(m_rootSignature.Get());
         cmd->SetPipelineState(m_pso.Get());
         cmd->SetGraphicsRoot32BitConstants(kRootConstants, sizeof(CloudVolumePassConstants) / 4, &cb, 0);
-        cmd->SetGraphicsRootDescriptorTable(kRootDepthSrv, m_depthGpu);
+        cmd->SetGraphicsRootDescriptorTable(kRootDepthSrv, depthTable);
         cmd->SetGraphicsRootShaderResourceView(kRootVolumes, gpuList.volumesGpuVa());
         cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         cmd->DrawInstanced(3, 1, 0, 0);

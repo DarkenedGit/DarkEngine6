@@ -842,32 +842,22 @@ void SandboxFrame::render()
     frame.declare(PassId::Gtao, [&](FeatureBuilder& b) { m_scene.addGtaoPasses(b, app().renderer(), app().m_sceneWorld.camera, app().m_sceneWorld.ssao); });
     frame.declare(PassId::Ssr, [&](FeatureBuilder& b) { m_scene.addSsrPasses(b, app().renderer(), app().m_sceneWorld.camera, app().m_sceneWorld.ssr, &app().m_sceneWorld.env); });
     frame.declare(PassId::Lighting, [&](FeatureBuilder& b) { m_scene.addLightingPasses(b, app().renderer(), resolve); });
-    frame.declare(PassId::LocalVolumes,
+    frame.declare(PassId::LocalVolumes, [&](FeatureBuilder& b) { m_scene.addLocalVolumesPasses(b, app().renderer(), app().world(), app().m_sceneWorld.camera, resolve); });
+    frame.declare(PassId::Sky,
                   [&](FeatureBuilder& b)
                   {
-                      m_scene.addLocalVolumesPasses(b, app().renderer(), app().world(), app().m_sceneWorld.camera, resolve);
-                      // Sky and the passes after it are opaque and draw into HDR with depth bound.
-                      b.opaque("LocalVolumes.BindHdr", {}, {}, [&](Rg::PassContext&) { app().renderer().bindHdr(true); });
+                      m_scene.addSkyPasses(b, app().renderer(), [&](Rg::PassContext& pass, D3D12_GPU_DESCRIPTOR_HANDLE shadowTable)
+                                           { m_skyPipeline.draw(pass.cmd(), app().renderer().frameIndex(), shadowTable, &m_shadows); });
                   });
-    frame.set(PassId::Sky, [&](Rg::PassContext& pass) {
-        ID3D12GraphicsCommandList* const cmd = pass.cmd();
-        m_skyPipeline.draw(cmd, app().renderer().frameIndex(), &m_shadows);
-    });
 
     D3D12_GPU_VIRTUAL_ADDRESS waterLightsVa   = m_localLightGpu.isValid() ? m_localLightGpu.dummyGpuVa() : 0;
     uint32_t                  waterLightCount = 0;
     uint32_t                  waterIndex[kWaterLocalLightMax]{};
-    ID3D12DescriptorHeap*       heightHeap = nullptr;
-    D3D12_GPU_DESCRIPTOR_HANDLE heightGpu{};
-    D3D12_CPU_DESCRIPTOR_HANDLE waterSceneColor{};
-    D3D12_CPU_DESCRIPTOR_HANDLE waterDepth{};
-    const SsrSettings*          waterSsr = nullptr;
+    const SsrSettings*        waterSsr = &app().m_sceneWorld.ssr;
     frame.declare(PassId::SsrCapture,
                   [&](FeatureBuilder& b)
                   {
-                      // CPU only: water's local lights, height table and SSR inputs. Runs at execute (viewProj is
-                      // filled by GBuffer), after the capture's setup swapped the scene-color slots, so
-                      // hasSceneColor / sceneColorSrvCpu name this frame's capture.
+                      // CPU only: water's local lights. Runs at execute (viewProj is filled by GBuffer).
                       b.opaque("SsrCapture.WaterInputs", {}, {},
                                [&](Rg::PassContext&)
                                {
@@ -893,55 +883,21 @@ void SandboxFrame::render()
                                            waterLightsVa = m_localLightGpu.lightsGpuVa();
                                        }
                                    }
-                                   if (app().m_sceneWorld.terrain.heightTexture().valid())
-                                   {
-                                       heightHeap = app().m_sceneWorld.terrain.heightTexture().srvHeap();
-                                       heightGpu  = app().m_sceneWorld.terrain.heightTexture().gpuHandle();
-                                   }
-                                   else if (app().renderer().heightFallbackHeap())
-                                   {
-                                       heightHeap = app().renderer().heightFallbackHeap();
-                                       heightGpu  = app().renderer().heightFallbackGpu();
-                                   }
-                                   if (m_scene.ssr().hasSceneColor())
-                                   {
-                                       waterSceneColor = m_scene.ssr().sceneColorSrvCpu();
-                                       waterDepth      = app().renderer().depthSrvCpu();
-                                       waterSsr        = &app().m_sceneWorld.ssr;
-                                   }
                                });
                       m_scene.addSsrCapturePasses(b, app().renderer());
                   });
     const bool waterSheet = app().m_sceneWorld.water.wetChunkCount() > 0;
     if (waterSheet || !app().m_sceneWorld.water.ribbons().empty())
     {
-        frame.set(PassId::Water, [&](Rg::PassContext& pass) {
+        const auto drawWater = [&](Rg::PassContext& pass, const WaterTables& tables)
+        {
             ID3D12GraphicsCommandList* const cmd = pass.cmd();
             const GpuScope waterScope(cmd, "Water", ProfileColor::Water);
             uint32_t drawIndex = 0;
             if (waterSheet)
             {
-                app().m_sceneWorld.water.draw(
-                    cmd,
-                    m_waterPipeline,
-                    app().m_sceneWorld.camera,
-                    &frustum,
-                    &app().m_sceneWorld.env,
-                    &app().renderer().debugState(),
-                    waterLightsVa,
-                    waterLightCount,
-                    waterIndex,
-                    app().renderer().frameIndex(),
-                    heightHeap,
-                    heightGpu,
-                    &m_shadows,
-                    waterSceneColor,
-                    waterDepth,
-                    waterSsr,
-                    drawIndex,
-                    thermal,
-                    ultraviolet,
-                    underDraw);
+                app().m_sceneWorld.water.draw(cmd, m_waterPipeline, app().m_sceneWorld.camera, &frustum, &app().m_sceneWorld.env, &app().renderer().debugState(), waterLightsVa, waterLightCount,
+                                              waterIndex, app().renderer().frameIndex(), &tables, &m_shadows, waterSsr, drawIndex, thermal, ultraviolet, underDraw);
                 drawIndex = 1;
             }
             for (const WaterWorld::WaterRibbon& stream : app().m_sceneWorld.water.ribbons())
@@ -958,44 +914,32 @@ void SandboxFrame::render()
                 }
                 WaterParams streamParams = app().m_sceneWorld.water.params();
                 streamParams.flowSpeed = stream.flowSpeed;
-                if (drawStreamRibbon(
-                        cmd,
-                        m_waterPipeline,
-                        stream.mesh,
-                        stream.bounds,
-                        streamParams,
-                        app().m_sceneWorld.camera,
-                        &frustum,
-                        &app().renderer().debugState(),
-                        app().m_sceneWorld.water.time(),
-                        app().renderer().frameIndex(),
-                        drawIndex,
-                        heightHeap,
-                        heightGpu,
-                        &m_shadows,
-                        waterSceneColor,
-                        waterDepth,
-                        waterSsr,
-                        &app().m_sceneWorld.terrain.coarse(),
-                        &app().m_sceneWorld.env,
-                        thermal,
-                        ultraviolet))
+                if (drawStreamRibbon(cmd, m_waterPipeline, stream.mesh, stream.bounds, streamParams, app().m_sceneWorld.camera, &frustum, &app().renderer().debugState(),
+                                     app().m_sceneWorld.water.time(), app().renderer().frameIndex(), drawIndex, &tables, &m_shadows, waterSsr, &app().m_sceneWorld.terrain.coarse(),
+                                     &app().m_sceneWorld.env, thermal, ultraviolet))
                     ++drawIndex;
             }
-        });
+        };
+        frame.declare(PassId::Water, [&, drawWater](FeatureBuilder& b) { m_scene.addWaterPasses(b, app().renderer(), drawWater); });
     }
 
-    frame.set(PassId::Clouds, [&](Rg::PassContext& pass) {
-        ID3D12GraphicsCommandList* const cmd = pass.cmd();
-        app().renderer().bindHdrDepthRead();
-        CloudVolumeFrame cf{};
-        cf.sunDir       = app().m_sceneWorld.env.lightDir();
-        cf.sunColor     = app().m_sceneWorld.env.lightColor();
-        cf.ambientColor = app().m_sceneWorld.env.ambientColor();
-        cf.time         = app().m_sceneWorld.cloudTime;
-        cf.lod          = app().m_frame.cloudLod();
-        m_scene.drawCloudVolumes(cmd, app().renderer(), app().world(), app().m_sceneWorld.camera, viewProj, cf);
-    });
+    frame.declare(PassId::Clouds,
+                  [&](FeatureBuilder& b)
+                  {
+                      m_scene.addCloudsPasses(b, app().renderer(),
+                                              [&](Rg::PassContext& pass, D3D12_GPU_DESCRIPTOR_HANDLE depthTable)
+                                              {
+                                                  CloudVolumeFrame cf{};
+                                                  cf.sunDir       = app().m_sceneWorld.env.lightDir();
+                                                  cf.sunColor     = app().m_sceneWorld.env.lightColor();
+                                                  cf.ambientColor = app().m_sceneWorld.env.ambientColor();
+                                                  cf.time         = app().m_sceneWorld.cloudTime;
+                                                  cf.lod          = app().m_frame.cloudLod();
+                                                  m_scene.drawCloudVolumes(pass.cmd(), depthTable, app().renderer(), app().world(), app().m_sceneWorld.camera, viewProj, cf);
+                                              });
+                      // The passes after Clouds are opaque and expect HDR bound with read-only depth.
+                      b.opaque("Clouds.BindHdr", {}, {}, [&](Rg::PassContext&) { app().renderer().bindHdrDepthRead(); });
+                  });
 
     bool lateDepthWrite = false;
     if (app().m_vision.camouflage && m_scene.camouflage().isValid())
@@ -1119,8 +1063,8 @@ void SandboxFrame::render()
 
     if (underDraw > 0.0f && m_scene.underwater().isValid())
     {
-        frame.set(PassId::Underwater, [&](Rg::PassContext& pass) {
-            ID3D12GraphicsCommandList* const cmd = pass.cmd();
+        const auto underFrame = [&](Rg::PassContext&)
+        {
             UnderwaterFrame under{};
             copyMatrix(under.invViewProj, viewProj.Inverse());
             under.cameraPos[0] = camPos.x;
@@ -1128,31 +1072,15 @@ void SandboxFrame::render()
             under.cameraPos[2] = camPos.z;
             under.waterLevel   = app().m_sceneWorld.water.params().waterLevel;
             under.amount       = underDraw;
-            m_scene.underwater().draw(cmd, app().renderer(), under);
-            app().renderer().bindHdr(true);
-            app().m_sceneWorld.water.draw(
-                cmd,
-                m_waterPipeline,
-                app().m_sceneWorld.camera,
-                &frustum,
-                &app().m_sceneWorld.env,
-                &app().renderer().debugState(),
-                waterLightsVa,
-                waterLightCount,
-                waterIndex,
-                app().renderer().frameIndex(),
-                heightHeap,
-                heightGpu,
-                &m_shadows,
-                waterSceneColor,
-                waterDepth,
-                waterSsr,
-                0,
-                thermal,
-                ultraviolet,
-                underDraw,
-                true);
-        });
+            return under;
+        };
+        // The water surface seen from below.
+        const auto drawCeiling = [&](Rg::PassContext& pass, const WaterTables& tables)
+        {
+            app().m_sceneWorld.water.draw(pass.cmd(), m_waterPipeline, app().m_sceneWorld.camera, &frustum, &app().m_sceneWorld.env, &app().renderer().debugState(), waterLightsVa, waterLightCount,
+                                          waterIndex, app().renderer().frameIndex(), &tables, &m_shadows, waterSsr, 0, thermal, ultraviolet, underDraw, true);
+        };
+        frame.declare(PassId::Underwater, [&, underFrame, drawCeiling](FeatureBuilder& b) { m_scene.addUnderwaterPasses(b, app().renderer(), underFrame, drawCeiling); });
     }
 
     // Phase 6 part 2: Post adds declared passes (SceneRenderer::addPostPasses) when execute() builds

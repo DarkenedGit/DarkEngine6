@@ -209,12 +209,6 @@ namespace Dark
             m_targets->transition(cmd, m_debug, after);
     }
 
-    void SsrPipeline::transitionSceneColorRead(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after)
-    {
-        if (m_targets)
-            m_targets->transition(cmd, m_sceneColor[m_sceneRead], after);
-    }
-
     const GraphTarget& SsrPipeline::target(SsrTarget which) const
     {
         switch (which)

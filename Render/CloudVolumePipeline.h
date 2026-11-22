@@ -107,7 +107,8 @@ namespace Dark
         CloudVolumePipeline() = default;
 
         bool create(ID3D12Device* device, DXGI_FORMAT colorFormat);
-        void draw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, World& world, CloudVolumeGpuList& gpuList, const Camera3D& camera,
+        // depthTable: a one-SRV ring table with scene depth (t0).
+        void draw(ID3D12GraphicsCommandList* cmd, D3D12_GPU_DESCRIPTOR_HANDLE depthTable, Renderer& renderer, World& world, CloudVolumeGpuList& gpuList, const Camera3D& camera,
                   const Math::Matrix4f& viewProj, const CloudVolumeFrame& frame) const;
 
         bool isValid() const { return m_pso != nullptr && m_rootSignature != nullptr; }
@@ -115,8 +116,6 @@ namespace Dark
     private:
         ComPtr<ID3D12RootSignature>  m_rootSignature;
         ComPtr<ID3D12PipelineState>  m_pso;
-        ComPtr<ID3D12DescriptorHeap> m_depthHeap;
-        D3D12_GPU_DESCRIPTOR_HANDLE  m_depthGpu{};
     };
 
 } // namespace Dark

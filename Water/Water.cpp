@@ -415,11 +415,8 @@ using namespace Terrain;
         uint32_t lightCount,
         const uint32_t* waterIndex,
         uint32_t frameIndex,
-        ID3D12DescriptorHeap* heightHeap,
-        D3D12_GPU_DESCRIPTOR_HANDLE heightGpu,
+        const WaterTables* tables,
         const ShadowSystem* shadows,
-        D3D12_CPU_DESCRIPTOR_HANDLE sceneColorCpu,
-        D3D12_CPU_DESCRIPTOR_HANDLE depthCpu,
         const SsrSettings* ssrSettings,
         uint32_t drawIndex,
         float thermal,
@@ -461,7 +458,7 @@ using namespace Terrain;
         cb.heightCellSize   = fogMap.heightCellSize;
         cb.heightWorldSizeX = fogMap.heightWorldSizeX;
         cb.heightWorldSizeZ = fogMap.heightWorldSizeZ;
-        const bool hasSsr = pipeline.ssrDescriptorsBound(sceneColorCpu, depthCpu);
+        const bool hasSsr = WaterPipeline::ssrReady(tables);
         WaterPipeline::fillSsr(cb, camera, ssrSettings, !debug || debug->ssrEnabled, hasSsr, env);
         cb.thermal = thermal > 0.0f ? thermal : 0.0f;
         cb.ultraviolet = ultraviolet > 0.0f ? ultraviolet : 0.0f;
@@ -479,11 +476,7 @@ using namespace Terrain;
         auto bindFrame = [&]() {
             pipeline.setConstants(cmd, cb, frameIndex, drawIndex);
             pipeline.setLights(cmd, lightsVa);
-            pipeline.setSsrSrvs(sceneColorCpu, depthCpu);
-            if (pipeline.hasReceiverSrvs())
-                pipeline.bindReceiverSrvs(cmd);
-            else
-                pipeline.setHeightMap(cmd, heightHeap, heightGpu);
+            pipeline.bindTables(cmd, tables);
             if (shadows && shadows->isValid())
                 shadows->bindReceiverCbv(cmd, WaterPipeline::kRootShadowCbv);
         };

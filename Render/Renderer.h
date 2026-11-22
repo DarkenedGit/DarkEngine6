@@ -271,10 +271,6 @@ namespace Dark
         // CPU views the declared lighting passes copy into ring tables (render-graph plan Phase 6
         // part 4). Unset views are null SRVs; empty without scene buffers.
         LightingViews lightingViews() const;
-        // The 1x1 "dry" height texture lighting falls back to without terrain: a shader-visible heap
-        // and its handle for passes that still bind their own heaps (water).
-        ID3D12DescriptorHeap*       heightFallbackHeap() const;
-        D3D12_GPU_DESCRIPTOR_HANDLE heightFallbackGpu() const;
 
         DebugRenderState&       debugState() { return m_debugState; }
         const DebugRenderState& debugState() const { return m_debugState; }

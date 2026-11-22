@@ -1717,10 +1717,7 @@ void SandboxApp::syncTerrainLod()
     const TransformComponent* anchor = body.valid() ? world().get<TransformComponent>(body) : nullptr;
     updatePinnedTerrainStream(m_sceneWorld.terrain, m_sceneWorld.camera.GetPosition(), renderer(), m_frame.terrainMaterial(), !body.valid(), anchor);
     if (m_sceneWorld.terrain.heightTexture().valid())
-    {
         renderer().setHeightSrv(m_sceneWorld.terrain.heightTexture().cpuHandle());
-        m_waterPipeline.setHeightSrv(renderer().device(), m_sceneWorld.terrain.heightTexture().cpuHandle());
-    }
     if (!flushDirtyWater(m_sceneWorld.water, renderer()))
         DE_LOG_ERROR("SandboxApp: water upload failed");
 }

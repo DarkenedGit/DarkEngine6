@@ -198,10 +198,7 @@ bool EditorApp::terrainBrushesLocked() const
 void EditorApp::bindTerrainHeightSrv()
 {
     if (m_sceneWorld.terrain.heightTexture().valid())
-    {
         renderer().setHeightSrv(m_sceneWorld.terrain.heightTexture().cpuHandle());
-        m_scene.waterPipeline().setHeightSrv(renderer().device(), m_sceneWorld.terrain.heightTexture().cpuHandle());
-    }
 }
 
 bool EditorApp::rebuildEditorWater()
@@ -499,10 +496,7 @@ void EditorApp::syncPlacedWater(bool terrainChanged)
 void EditorApp::drawPlacedWater(
     ID3D12GraphicsCommandList* cmd,
     const Frustum3f& frustum,
-    ID3D12DescriptorHeap* heightHeap,
-    D3D12_GPU_DESCRIPTOR_HANDLE heightGpu,
-    D3D12_CPU_DESCRIPTOR_HANDLE sceneColorCpu,
-    D3D12_CPU_DESCRIPTOR_HANDLE depthCpu,
+    const WaterTables* tables,
     const SsrSettings* ssr)
 {
     const bool sheet = m_sceneWorld.water.wetChunkCount() > 0;
@@ -534,11 +528,8 @@ void EditorApp::drawPlacedWater(
             0,
             nullptr,
             renderer().frameIndex(),
-            heightHeap,
-            heightGpu,
+            tables,
             &m_shadows,
-            sceneColorCpu,
-            depthCpu,
             ssr,
             drawIndex);
         drawIndex = 1;
@@ -556,11 +547,8 @@ void EditorApp::drawPlacedWater(
                 m_sceneWorld.water.time(),
                 renderer().frameIndex(),
                 drawIndex,
-                heightHeap,
-                heightGpu,
+                tables,
                 &m_shadows,
-                sceneColorCpu,
-                depthCpu,
                 ssr,
                 heightMap,
                 &m_sceneWorld.env))
@@ -573,7 +561,7 @@ void EditorApp::drawPlacedWater(
         WaterParams params = m_sceneWorld.water.params();
         params.flowSpeed   = ribbon.flowSpeed;
         if (drawStreamRibbon(cmd, m_scene.waterPipeline(), ribbon.mesh, ribbon.bounds, params, m_camera, &frustum, &renderer().debugState(), m_sceneWorld.water.time(), renderer().frameIndex(),
-                             drawIndex, heightHeap, heightGpu, &m_shadows, sceneColorCpu, depthCpu, ssr, heightMap, &m_sceneWorld.env))
+                             drawIndex, tables, &m_shadows, ssr, heightMap, &m_sceneWorld.env))
             ++drawIndex;
     }
 }

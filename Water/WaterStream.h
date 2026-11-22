@@ -14,6 +14,7 @@ namespace Dark
 
     class Renderer;
     class WaterPipeline;
+    struct WaterTables;
     class Camera3D;
     class Frustum3f;
     class ShadowSystem;
@@ -82,11 +83,8 @@ namespace Dark
         float time,
         uint32_t frameIndex,
         uint32_t drawIndex,
-        ID3D12DescriptorHeap* heightHeap,
-        D3D12_GPU_DESCRIPTOR_HANDLE heightGpu,
+        const WaterTables* tables,
         const ShadowSystem* shadows,
-        D3D12_CPU_DESCRIPTOR_HANDLE sceneColorCpu,
-        D3D12_CPU_DESCRIPTOR_HANDLE depthCpu,
         const SsrSettings* ssrSettings,
         const Terrain::HeightMap* heightMap,
         const Sky::Environment* env,

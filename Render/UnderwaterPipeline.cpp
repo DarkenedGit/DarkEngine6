@@ -33,7 +33,7 @@ namespace Dark
 
         D3D12_DESCRIPTOR_RANGE srvRange{};
         srvRange.RangeType                         = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-        srvRange.NumDescriptors                    = kSrvPerFrame;
+        srvRange.NumDescriptors                    = kSrvCount;
         srvRange.BaseShaderRegister                = 0;
         srvRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
@@ -96,20 +96,6 @@ namespace Dark
             return false;
         }
 
-        D3D12_DESCRIPTOR_HEAP_DESC heapDesc{};
-        heapDesc.NumDescriptors = kBufferedFrames * kSrvPerFrame;
-        heapDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-        heapDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-        if (FailedHr(device->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&m_srvHeap)), "CreateDescriptorHeap underwater SRV"))
-        {
-            m_pso.Reset();
-            m_rootSignature.Reset();
-            return false;
-        }
-        m_cpu     = m_srvHeap->GetCPUDescriptorHandleForHeapStart();
-        m_gpu     = m_srvHeap->GetGPUDescriptorHandleForHeapStart();
-        m_srvIncr = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-
         DE_LOG_INFO(LogCategory::Render, "UnderwaterPipeline: ready");
         return true;
     }
@@ -125,7 +111,6 @@ namespace Dark
             m_targets->unregisterTarget(m_copy);
         m_copy    = {};
         m_targets = nullptr;
-        m_srvHeap.Reset();
         m_pso.Reset();
         m_rootSignature.Reset();
     }
@@ -144,35 +129,21 @@ namespace Dark
         return m_copy.id.valid();
     }
 
-    void UnderwaterPipeline::draw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const UnderwaterFrame& frame)
+    ID3D12Resource* UnderwaterPipeline::copyResource() const
     {
-        if (!cmd || !m_pso || !m_srvHeap || !(frame.amount > 0.0f))
-            return;
-        ID3D12Device* device = renderer.device();
-        ID3D12Resource* hdr  = renderer.hdr();
-        const D3D12_CPU_DESCRIPTOR_HANDLE depth = renderer.depthSrvCpu();
-        if (!device || !hdr || depth.ptr == 0 || !ensureCopy(renderer))
-            return;
+        return m_targets && m_copy.id.valid() ? m_targets->resource(m_copy.id) : nullptr;
+    }
 
+    D3D12_CPU_DESCRIPTOR_HANDLE UnderwaterPipeline::copySrv() const
+    {
+        return m_targets && m_copy.id.valid() ? m_targets->srv(m_copy.id) : D3D12_CPU_DESCRIPTOR_HANDLE{};
+    }
+
+    void UnderwaterPipeline::draw(ID3D12GraphicsCommandList* cmd, D3D12_GPU_DESCRIPTOR_HANDLE table, const UnderwaterFrame& frame) const
+    {
+        if (!cmd || !m_pso || table.ptr == 0 || !(frame.amount > 0.0f))
+            return;
         const GpuScope scope(cmd, "Underwater", ProfileColor::Underwater);
-        cmd->OMSetRenderTargets(0, nullptr, FALSE, nullptr);
-        renderer.transitionHdr(cmd, D3D12_RESOURCE_STATE_COPY_SOURCE);
-        m_targets->transition(cmd, m_copy, D3D12_RESOURCE_STATE_COPY_DEST);
-        cmd->CopyResource(m_targets->resource(m_copy.id), hdr);
-        m_targets->transition(cmd, m_copy, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-        renderer.bindHdrColorTarget();
-        // bindHdrColorTarget also transitions depth...
-        const UINT slot = renderer.frameIndex() % kBufferedFrames;
-        D3D12_CPU_DESCRIPTOR_HANDLE cpu = m_cpu;
-        cpu.ptr += static_cast<SIZE_T>(slot * kSrvPerFrame) * m_srvIncr;
-        device->CopyDescriptorsSimple(1, cpu, m_targets->srv(m_copy.id), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-        D3D12_CPU_DESCRIPTOR_HANDLE depthCpu = cpu;
-        depthCpu.ptr += m_srvIncr;
-        device->CopyDescriptorsSimple(1, depthCpu, depth, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-
-        D3D12_GPU_DESCRIPTOR_HANDLE gpu = m_gpu;
-        gpu.ptr += static_cast<SIZE_T>(slot * kSrvPerFrame) * m_srvIncr;
-
         float constants[kConstantCount]{};
         for (int i = 0; i < 16; ++i)
             constants[i] = frame.invViewProj[i];
@@ -184,10 +155,8 @@ namespace Dark
 
         cmd->SetGraphicsRootSignature(m_rootSignature.Get());
         cmd->SetPipelineState(m_pso.Get());
-        ID3D12DescriptorHeap* heaps[] = { m_srvHeap.Get() };
-        cmd->SetDescriptorHeaps(1, heaps);
         cmd->SetGraphicsRoot32BitConstants(kRootConstants, kConstantCount, constants, 0);
-        cmd->SetGraphicsRootDescriptorTable(kRootSrv, gpu);
+        cmd->SetGraphicsRootDescriptorTable(kRootSrv, table);
         cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         cmd->DrawInstanced(3, 1, 0, 0);
     }
