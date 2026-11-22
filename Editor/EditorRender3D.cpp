@@ -463,12 +463,10 @@ void EditorApp::renderScene3D()
     uint32_t             draws = 0;
     LightingConstants    deferredLighting{};
     DeferredResolveInput resolve;
-    frame.set(PassId::GBuffer, [&](Rg::PassContext& pass) {
+    const auto drawGBuffer = [&](Rg::PassContext& pass) {
         ID3D12GraphicsCommandList* const cmd = pass.cmd();
         viewProj     = m_scene.beginCameraFrame(m_camera, renderer());
         prevViewProj = m_scene.havePrevViewProj() ? m_scene.prevViewProj() : viewProj;
-        renderer().bindGBuffer();
-        renderer().clearGBuffer();
 
         auto drawMesh = [&](const Mesh& mesh, const Matrix4f& world, const Material* material, float cr, float cg, float cb, float emissive = 0.0f) {
             m_meshPipeline.bind(cmd, fill);
@@ -643,14 +641,12 @@ void EditorApp::renderScene3D()
             resolve.ssrEnv       = nullptr;
             resolve.lighting     = &lc;
         }
-    });
+    };
+    frame.declare(PassId::GBuffer, [&](FeatureBuilder& b) { m_scene.addGBufferPasses(b, renderer(), drawGBuffer); });
 
-    // resolveDeferred runs Decals, Lighting and LocalVolumes with the same input (lighting filled by
-    // GBuffer); Gtao and Ssr declare their uses (settings captured at build, the camera read at execute).
-    frame.set(PassId::Decals, [&](Rg::PassContext& pass) {
-        ID3D12GraphicsCommandList* const cmd = pass.cmd();
-        m_scene.resolveDeferred(SceneRenderer::DeferredStep::Decals, cmd, renderer(), world(), m_camera, resolve);
-    });
+    // Decals, Gtao, Ssr, Lighting and LocalVolumes declare their uses: settings are captured at build;
+    // the camera and `resolve` (filled by the GBuffer draws) are read at execute.
+    frame.declare(PassId::Decals, [&](FeatureBuilder& b) { m_scene.addDecalsPasses(b, renderer(), m_camera, resolve); });
     frame.declare(PassId::Gtao, [&](FeatureBuilder& b) { m_scene.addGtaoPasses(b, renderer(), m_camera, m_sceneWorld.ssao); });
     frame.declare(PassId::Ssr, [&](FeatureBuilder& b) { m_scene.addSsrPasses(b, renderer(), m_camera, m_sceneWorld.ssr, nullptr); });
     frame.declare(PassId::Lighting, [&](FeatureBuilder& b) { m_scene.addLightingPasses(b, renderer(), resolve); });

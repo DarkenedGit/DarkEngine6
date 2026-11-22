@@ -10,6 +10,7 @@
 #include "Render/Profile.h"
 #include "Render/Renderer.h"
 #include "Render/RgViews.h"
+#include "Render/SceneBuffers.h"
 #include "Render/TaaJitter.h"
 #include "Math/MathHelper.h"
 
@@ -669,27 +670,69 @@ void SceneRenderer::addSsrCapturePasses(FeatureBuilder& b, Renderer& renderer)
                });
 }
 
-void SceneRenderer::resolveDeferred(DeferredStep step, ID3D12GraphicsCommandList* cmd, Renderer& renderer, World& world, const Camera3D& camera, const DeferredResolveInput& in)
+void SceneRenderer::logMissingSceneTargets(const char* entry)
 {
-    if (!in.viewProj || !in.prevViewProj || !in.gtao || !in.ssr || !in.lighting)
-    {
-        static bool logged = false;
-        if (!logged)
-        {
-            logged = true;
-            DE_LOG_ERROR(LogCategory::Render, "SceneRenderer: resolveDeferred is missing a required input (logs once)");
-        }
+    static bool logged = false;
+    if (logged)
         return;
-    }
-    switch (step)
-    {
-    case DeferredStep::Decals:
-        drawDecals(cmd, renderer, camera, *in.viewProj);
-        renderer.bindHdr(false);
-        renderer.clearHdr();
-        break;
-    }
-    (void)world;
+    logged = true;
+    DE_LOG_ERROR(LogCategory::Render, "SceneRenderer: {} has no scene targets to draw into (logs once)", entry ? entry : "?");
+}
+
+void SceneRenderer::beginGBufferPass(Rg::PassContext& c, const Renderer& renderer, const GBufferTargets& d)
+{
+    ID3D12GraphicsCommandList* const  cmd     = c.cmd();
+    const D3D12_CPU_DESCRIPTOR_HANDLE rtvs[4] = { rgRtv(c, d.albedo), rgRtv(c, d.attrib), rgRtv(c, d.velocity), rgRtv(c, d.ao) };
+    const D3D12_CPU_DESCRIPTOR_HANDLE dsv     = cpuHandle(c.dsv(d.depth));
+    // Clear values match the targets' optimized clears (SceneBuffers::create).
+    cmd->ClearRenderTargetView(rtvs[0], SceneBuffers::kAlbedoClear, 0, nullptr);
+    cmd->ClearRenderTargetView(rtvs[1], SceneBuffers::kAttribClear, 0, nullptr);
+    cmd->ClearRenderTargetView(rtvs[2], SceneBuffers::kVelocityClear, 0, nullptr);
+    cmd->ClearRenderTargetView(rtvs[3], SceneBuffers::kAoClear, 0, nullptr);
+    cmd->OMSetRenderTargets(4, rtvs, FALSE, &dsv);
+    cmd->RSSetViewports(1, &renderer.viewport());
+    cmd->RSSetScissorRects(1, &renderer.scissor());
+}
+
+void SceneRenderer::unbindTargets(Rg::PassContext& c)
+{
+    c.cmd()->OMSetRenderTargets(0, nullptr, FALSE, nullptr);
+}
+
+bool SceneRenderer::decalPassReady() const
+{
+    return m_decalPipeline.isValid() && m_decalLibrary.isValid() && m_decalGpu.isValid() && m_decalCube.valid();
+}
+
+void SceneRenderer::addDecalsPasses(FeatureBuilder& b, Renderer& renderer, const Camera3D& camera, const DeferredResolveInput& in)
+{
+    using Rg::PassContext;
+    SceneRenderer* const              self = this;
+    Renderer* const                   rr   = &renderer;
+    const Camera3D* const             cam  = &camera;
+    const DeferredResolveInput* const inp  = &in; // viewProj is filled by the host's GBuffer pass
+    // Off, not ready, or nothing alive: no pass at all (no UAV round trip on the G-buffer).
+    const bool draw = renderer.debugState().decalsEnabled && decalPassReady() && m_decalPool.aliveCount() > 0;
+    if (!draw)
+        storeDecalStats(0, 0, 0, 0);
+    else
+        addDecalPass(b,
+                     [self, rr, cam, inp](PassContext& c, const DecalTargets& d)
+                     {
+                         if (!inp->viewProj)
+                         {
+                             self->storeDecalStats(0, 0, 0, 0);
+                             return;
+                         }
+                         self->drawDecalsPass(c, *rr, *cam, *inp->viewProj, d);
+                     });
+    if (!addHdrClearPass(b,
+                         [rr](PassContext& c, const HdrTarget& d)
+                         {
+                             // Must match the D3D12_CLEAR_VALUE passed at HDR resource creation (warning #820).
+                             c.cmd()->ClearRenderTargetView(rgRtv(c, d.hdr), rr->hdrClearColor(), 0, nullptr);
+                         }))
+        b.opaque("Decals", {}, {}, [](PassContext&) { logMissingSceneTargets("Decals"); });
 }
 
 namespace
@@ -838,17 +881,6 @@ void SceneRenderer::storeDecalStats(uint32_t drawn, uint32_t culled, uint32_t in
     m_decalStats.recycleCount = m_decalPool.recycleCount();
 }
 
-void SceneRenderer::drawDecals(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, const Math::Matrix4f& viewProj)
-{
-    // Off: no marker and no UAV.
-    if (!cmd || !renderer.debugState().decalsEnabled)
-    {
-        storeDecalStats(0, 0, 0, 0);
-        return;
-    }
-    drawDecalsPass(cmd, renderer, camera, viewProj);
-}
-
 void SceneRenderer::drawDecalVolumes(ID3D12GraphicsCommandList* cmd, Renderer& renderer, LinePipeline& lines, const Math::Matrix4f& viewProj)
 {
     if (!cmd || renderer.debugState().decalsDebug != 1 || !lines.isValid() || !m_decalVolumeMesh.valid())
@@ -872,9 +904,10 @@ void SceneRenderer::drawDecalVolumes(ID3D12GraphicsCommandList* cmd, Renderer& r
     }
 }
 
-void SceneRenderer::drawDecalsPass(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, const Math::Matrix4f& viewProj)
+void SceneRenderer::drawDecalsPass(Rg::PassContext& c, Renderer& renderer, const Camera3D& camera, const Math::Matrix4f& viewProj, const DecalTargets& d)
 {
-    if (!m_decalPipeline.isValid() || !m_decalLibrary.isValid() || !m_decalGpu.isValid() || !m_decalCube.valid())
+    ID3D12GraphicsCommandList* const cmd = c.cmd();
+    if (!decalPassReady())
     {
         storeDecalStats(0, 0, 0, 0);
         return;
@@ -904,11 +937,26 @@ void SceneRenderer::drawDecalsPass(ID3D12GraphicsCommandList* cmd, Renderer& ren
     const uint32_t frame = renderer.frameIndex();
     m_decalPipeline.uploadPass(frame, cb);
     m_decalGpu.upload(frame, outside, outsideCount, inside, insideCount);
-    if (!m_decalPipeline.bindFrameDescriptors(frame, device, renderer.depthSrvCpu(), m_decalLibrary))
+    DecalTables tables;
+    tables.depth = rgTable(c, { rgSrvCpu(c, d.depth) });
+    tables.uavs  = rgTable(c, { m_decalPipeline.albedoUavCpu(), m_decalPipeline.attribUavCpu() });
+    for (uint32_t i = 0; i < static_cast<uint32_t>(DecalDefId::Count); ++i)
+    {
+        const DecalDefId                  id     = static_cast<DecalDefId>(i);
+        const D3D12_CPU_DESCRIPTOR_HANDLE albedo = m_decalLibrary.albedoSrv(id);
+        const D3D12_CPU_DESCRIPTOR_HANDLE normal = m_decalLibrary.normalSrv(id);
+        if (albedo.ptr == 0 || normal.ptr == 0)
+            return;
+        tables.textures[i] = rgTable(c, { albedo, normal });
+    }
+    const D3D12_CPU_DESCRIPTOR_HANDLE dsv = cpuHandle(c.dsv(d.depth, true));
+    if (tables.depth.ptr == 0 || tables.uavs.ptr == 0 || dsv.ptr == 0)
         return;
 
     beginDecalEvent(cmd);
-    renderer.bindDecalTargets();
+    cmd->RSSetViewports(1, &renderer.viewport());
+    cmd->RSSetScissorRects(1, &renderer.scissor());
+    cmd->OMSetRenderTargets(0, nullptr, FALSE, &dsv);
 
     const auto drawRange = [&](const DecalGpuInstance* list, uint32_t count, D3D12_GPU_VIRTUAL_ADDRESS base, bool fullscreen) -> bool
     {
@@ -929,9 +977,9 @@ void SceneRenderer::drawDecalsPass(ID3D12GraphicsCommandList* cmd, Renderer& ren
                 m_decalPipeline.uavBarrier(cmd);
             const D3D12_GPU_VIRTUAL_ADDRESS va = base + static_cast<UINT64>(start) * sizeof(DecalGpuInstance);
             if (fullscreen)
-                m_decalPipeline.drawInside(cmd, va, end - start, id);
+                m_decalPipeline.drawInside(cmd, tables, va, end - start, id);
             else
-                m_decalPipeline.drawOutside(cmd, m_decalCube, va, end - start, id);
+                m_decalPipeline.drawOutside(cmd, tables, m_decalCube, va, end - start, id);
             drew  = true;
             start = end;
         }
@@ -949,6 +997,9 @@ void SceneRenderer::drawDecalsPass(ID3D12GraphicsCommandList* cmd, Renderer& ren
     }
     if (drewOutside || drewInside)
         m_decalPipeline.uavBarrier(cmd);
+    // The outside-only path still has the read-only DSV bound; the next depth reader's barrier
+    // (to ShaderResource) must not see it.
+    cmd->OMSetRenderTargets(0, nullptr, FALSE, nullptr);
     cmd->EndEvent();
 }
 

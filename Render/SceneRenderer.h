@@ -5,6 +5,7 @@
 #include "Render/Camera3D.h"
 #include "Render/DebugOverlay.h"
 #include "Render/DeferredLightingPipeline.h"
+#include "Render/GBufferInputs.h"
 #include "Render/GtaoPipeline.h"
 #include "Render/SsrPipeline.h"
 #include "Render/DecalGpuList.h"
@@ -34,6 +35,7 @@
 #include "Render/CamouflagePipeline.h"
 
 #include <cstdint>
+#include <utility>
 
 namespace Dark
 {
@@ -109,13 +111,24 @@ public:
     // dropped, and the host should zero its stored EV before adapting. Never waits.
     bool syncAutoExposureSize(Renderer& renderer);
 
-    // The Decals entry (render-graph plan Phase 4; still an opaque pass): decals, then the HDR bind
-    // and clear. Gtao, Ssr, Lighting and LocalVolumes declare their uses (below).
-    enum class DeferredStep : uint8_t
+    // `draw(Rg::PassContext&)` runs with the MRTs and depth bound and is stored until execute(). It
+    // may bind its own descriptor heaps: the executor rebinds the ring before the next declared pass.
+    template <class Draw> void addGBufferPasses(FeatureBuilder& b, Renderer& renderer, Draw&& draw)
     {
-        Decals,
-    };
-    void resolveDeferred(DeferredStep step, ID3D12GraphicsCommandList* cmd, Renderer& renderer, World& world, const Camera3D& camera, const DeferredResolveInput& in);
+        Renderer* const rr = &renderer;
+        if (!addGBufferPass(b,
+                            [rr, draw = std::forward<Draw>(draw)](Rg::PassContext& c, const GBufferTargets& d)
+                            {
+                                beginGBufferPass(c, *rr, d);
+                                draw(c);
+                                unbindTargets(c);
+                            }))
+            b.opaque("GBuffer", {}, {}, [](Rg::PassContext&) { logMissingSceneTargets("GBuffer"); });
+    }
+
+    // The decal pass is only added when decals are on and some are alive, so a frame without them
+    // has no UAV round trip on the G-buffer. `camera` and `in` are read when the passes execute.
+    void addDecalsPasses(FeatureBuilder& b, Renderer& renderer, const Camera3D& camera, const DeferredResolveInput& in);
 
     // The Lighting and LocalVolumes entries with declared uses (render-graph plan Phase 6 part 4).
     // Each is one pass that reads albedo, attrib, depth and the AO lighting uses (GTAO's compose
@@ -161,7 +174,6 @@ public:
     bool spawnDecal(const DecalSpawnDesc& desc, DecalId* outId = nullptr);
     bool decalsReady() const;
     DecalFrameStats decalStats() const;
-    void drawDecals(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, const Math::Matrix4f& viewProj);
     // HDR + D32 already bound. Not the decal UAV pass.
     void drawDecalVolumes(ID3D12GraphicsCommandList* cmd, Renderer& renderer, LinePipeline& lines, const Math::Matrix4f& viewProj);
 
@@ -248,7 +260,15 @@ private:
     bool createWorldEnvPipelines(Renderer& renderer, const char* tag);
     void markHistoryUnwritten(const Rg::HistoryTargets& history, const char* name);
     void createDecalPass(Renderer& renderer, const char* tag);
-    void drawDecalsPass(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, const Math::Matrix4f& viewProj);
+    void drawDecalsPass(Rg::PassContext& c, Renderer& renderer, const Camera3D& camera, const Math::Matrix4f& viewProj, const DecalTargets& d);
+    bool decalPassReady() const;
+    // Clears the G-buffer MRTs and binds them with depth (graph views), with the viewport.
+    static void beginGBufferPass(Rg::PassContext& c, const Renderer& renderer, const GBufferTargets& d);
+    // Clears the output-merger bindings. The next pass's BeforePass barriers are recorded before it
+    // executes, so a pass that leaves its targets or DSV bound has them bound while the graph moves
+    // them out of render-target / depth layouts (the same reason as SsrCapture.Unbind).
+    static void unbindTargets(Rg::PassContext& c);
+    static void logMissingSceneTargets(const char* entry);
     void storeDecalStats(uint32_t drawn, uint32_t culled, uint32_t inside, uint32_t triangles);
 
     MeshPipeline             m_meshPipeline;

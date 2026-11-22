@@ -38,10 +38,10 @@ namespace Dark
         importResource(RenderResource::Depth, renderer.depthResource(), textureViews(renderer.depthSrvCpu(), {}, renderer.depthDsv(), renderer.depthReadOnlyDsv()));
         importResource(RenderResource::Shadow, shadowMap);
         importResource(RenderResource::LocalShadow, localShadowArray);
-        importResource(RenderResource::Albedo, renderer.albedoResource(), textureViews(renderer.albedoSrvCpu()));
-        importResource(RenderResource::Attrib, renderer.attribResource(), textureViews(renderer.attribSrvCpu()));
-        importResource(RenderResource::Velocity, renderer.velocityResource(), textureViews(renderer.velocitySrvCpu()));
-        importResource(RenderResource::Ao, renderer.aoResource(), textureViews(renderer.aoSrvCpu()));
+        importResource(RenderResource::Albedo, renderer.albedoResource(), textureViews(renderer.albedoSrvCpu(), renderer.albedoRtv()));
+        importResource(RenderResource::Attrib, renderer.attribResource(), textureViews(renderer.attribSrvCpu(), renderer.attribRtv()));
+        importResource(RenderResource::Velocity, renderer.velocityResource(), textureViews(renderer.velocitySrvCpu(), renderer.velocityRtv()));
+        importResource(RenderResource::Ao, renderer.aoResource(), textureViews(renderer.aoSrvCpu(), renderer.aoRtv()));
         importResource(RenderResource::Hdr, renderer.hdr(), textureViews(renderer.hdrSrvCpu(), renderer.hdrRtv()));
         importResource(RenderResource::Post, renderer.postResource(), textureViews(renderer.postHdrSrvCpu(), renderer.postRtv()));
     }
