@@ -11,7 +11,7 @@ namespace Dark
     {
         D3D12_CPU_DESCRIPTOR_HANDLE albedo{}; // UNORM_SRGB (raw UNORM with setLightingAlbedoRaw)
         D3D12_CPU_DESCRIPTOR_HANDLE attrib{};
-        D3D12_CPU_DESCRIPTOR_HANDLE shadow{};
+        D3D12_CPU_DESCRIPTOR_HANDLE shadow{}; // always the null view: passes without a shadow map bind it
         D3D12_CPU_DESCRIPTOR_HANDLE height{};
         D3D12_CPU_DESCRIPTOR_HANDLE iblIrradiance{};
         D3D12_CPU_DESCRIPTOR_HANDLE iblPrefilter{};

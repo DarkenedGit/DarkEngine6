@@ -1109,7 +1109,6 @@ bool SandboxApp::advanceBootSlice()
         {
             boot.demoChecked = true;
             renderer().gpuResources().setShadowSrv(m_frame.scene().shadows().srvCpu());
-            renderer().setShadowSrv(m_frame.scene().shadows().srvCpu());
             m_frame.scene().localShadows().setDepthPipeline(&m_frame.scene().shadows().pipeline());
             {
                 const LocalShadowSystem::CpuSrvs localSrvs = m_frame.scene().localShadows().cpuSrvs();
@@ -1362,7 +1361,6 @@ bool SandboxApp::advanceSpawnBatch()
         }
         case SandboxBootLoad::SpawnPhase::Shadow:
             renderer().gpuResources().setShadowSrv(m_frame.scene().shadows().srvCpu());
-            renderer().setShadowSrv(m_frame.scene().shadows().srvCpu());
             m_frame.scene().localShadows().setDepthPipeline(&m_frame.scene().shadows().pipeline());
             {
                 const LocalShadowSystem::CpuSrvs localSrvs = m_frame.scene().localShadows().cpuSrvs();

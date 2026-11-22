@@ -52,7 +52,6 @@ namespace Dark
             id = {};
         m_targets = nullptr;
         m_viewHeap.Reset();
-        m_shadowCpu             = {};
         m_localShadowCpu        = {};
         m_localShadowRecordsCpu = {};
         m_heightCpu      = {};
@@ -108,7 +107,6 @@ namespace Dark
 
     bool SceneBuffers::create(GraphTargets& targets, const float hdrClear[4])
     {
-        const D3D12_CPU_DESCRIPTOR_HANDLE savedShadow = m_shadowCpu;
         const D3D12_CPU_DESCRIPTOR_HANDLE savedLocalShadow = m_localShadowCpu;
         const D3D12_CPU_DESCRIPTOR_HANDLE savedLocalRecords = m_localShadowRecordsCpu;
         const D3D12_CPU_DESCRIPTOR_HANDLE savedHeight = m_heightCpu;
@@ -116,7 +114,6 @@ namespace Dark
         const D3D12_CPU_DESCRIPTOR_HANDLE savedIblPref = m_iblPrefCpu;
         const D3D12_CPU_DESCRIPTOR_HANDLE savedIblLut = m_iblLutCpu;
         reset();
-        m_shadowCpu  = savedShadow;
         m_localShadowCpu = savedLocalShadow;
         m_localShadowRecordsCpu = savedLocalRecords;
         m_heightCpu  = savedHeight;
@@ -234,7 +231,7 @@ namespace Dark
         LightingViews v;
         v.albedo             = m_viewHeap ? view(kViewAlbedo) : D3D12_CPU_DESCRIPTOR_HANDLE{};
         v.attrib             = attribSrvCpu(); // the graph view is already UNORM
-        v.shadow             = orNull(m_shadowCpu, view(kViewNullTex2DArray));
+        v.shadow             = m_viewHeap ? view(kViewNullTex2DArray) : D3D12_CPU_DESCRIPTOR_HANDLE{};
         v.height             = orNull(m_heightCpu, view(kViewNullTex2D));
         v.iblIrradiance      = orNull(m_iblIrrCpu, view(kViewNullCube));
         v.iblPrefilter       = orNull(m_iblPrefCpu, view(kViewNullCube));

@@ -1309,12 +1309,6 @@ namespace Dark
         applyIblSrvs();
     }
 
-    void Renderer::setShadowSrv(D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu)
-    {
-        if (m_sceneBuffers)
-            m_sceneBuffers->setShadowSrv(shadowCpu);
-    }
-
     void Renderer::setLocalShadowSrvs(D3D12_CPU_DESCRIPTOR_HANDLE arrayCpu, D3D12_CPU_DESCRIPTOR_HANDLE recordsCpu)
     {
         if (m_sceneBuffers)

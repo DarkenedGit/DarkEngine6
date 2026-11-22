@@ -34,13 +34,20 @@ class LocalShadowSystem
 public:
     LocalShadowSystem() = default;
 
+    // Creates the array in DEPTH_WRITE and tracks it in the frame's ResourceStateTracker: the graph
+    // plans its barriers (the LocalShadows pass writes it, LocalVolumes reads it).
     bool create(ID3D12Device* device, const LocalShadowSettings& settings = {});
+    // Stops tracking the array and releases everything (call instead of reassigning).
+    void release();
 
     // select == false still latches frameIndex and writes no records (recordFor stays -1).
     // debugEnabled() == false does the same. This system does not read ShadowSystem.
     // frameIndex must be Renderer::frameIndex().
     void update(World& world, const Camera3D& camera, const Frustum3f& cameraFrustum, uint32_t frameIndex, bool select);
 
+    // Inside the LocalShadows pass: beginCapture clears this frame's slices, beginFace binds and
+    // clears one face, endCapture closes the profile scopes. No barriers: the pass declares the
+    // array as a depth write.
     void beginCapture(ID3D12GraphicsCommandList* cmd);
     void beginFace(ID3D12GraphicsCommandList* cmd, int faceOrdinal);
     void endCapture(ID3D12GraphicsCommandList* cmd);
@@ -119,9 +126,6 @@ private:
     CpuSrvs                      m_cpu{};
     UINT                         m_dsvIncr = 0;
     uint8_t*                     m_recordsMap = nullptr;
-    D3D12_RESOURCE_STATES        m_state[kLocalShadowFrames]{
-        D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_DEPTH_WRITE
-    };
 };
 
 } // namespace Dark

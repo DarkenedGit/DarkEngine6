@@ -26,12 +26,35 @@ namespace Dark
         bool depthWrite    = false; // depth tested and written instead (the camouflaged body)
         bool computeDepth  = false; // depth also sampled by compute work recorded in the pass
         bool computeAttrib = false; // the G-buffer attrib target sampled by compute work
+        bool shadow        = false; // the directional shadow map sampled by pixel shaders
     };
 
-    // The versions a pass used. sceneColor / attrib are invalid when not used.
+    // The passes that sample the directional shadow map: Sky (in-scattering), Water and the
+    // underwater ceiling (water also reads this frame's capture), and Translucent (the forward
+    // materials' heaps carry the shadow SRV).
+    inline HdrDrawUses skyUses()
+    {
+        HdrDrawUses u;
+        u.shadow = true;
+        return u;
+    }
+    inline HdrDrawUses waterUses()
+    {
+        HdrDrawUses u;
+        u.sceneColor = true;
+        u.shadow     = true;
+        return u;
+    }
+    inline HdrDrawUses translucentUses()
+    {
+        return skyUses();
+    }
+
+    // The versions a pass used. sceneColor / attrib / shadow are invalid when not used (or, for the
+    // shadow map, when the frame has none).
     struct HdrDrawTargets
     {
-        Rg::TextureHandle hdr, depth, sceneColor, attrib;
+        Rg::TextureHandle hdr, depth, sceneColor, attrib, shadow;
 
         bool valid() const
         {
@@ -77,6 +100,8 @@ namespace Dark
             return false;
         if (uses.sceneColor)
             in.sceneColor = publishedSceneColor(b);
+        if (uses.shadow)
+            in.shadow = b.handle(RenderResource::Shadow);
         HdrDrawTargets out;
         b.addPass<HdrDrawTargets>(
             name,
@@ -85,6 +110,7 @@ namespace Dark
                 d.depth      = HdrDraw::declareDepth(pb, in.depth, uses);
                 d.sceneColor = in.sceneColor.valid() ? pb.read(in.sceneColor, Rg::Use::PixelSrv) : Rg::TextureHandle{};
                 d.attrib     = in.attrib.valid() ? pb.read(in.attrib, Rg::Use::ComputeSrv) : Rg::TextureHandle{};
+                d.shadow     = in.shadow.valid() ? pb.read(in.shadow, Rg::Use::PixelSrv) : Rg::TextureHandle{};
                 d.hdr        = pb.readWrite(in.hdr, Rg::Use::RenderTarget);
                 out          = d;
             },
@@ -105,7 +131,7 @@ namespace Dark
     // A copy of HDR, then one pass that samples the copy and rewrites HDR (Camouflage, Underwater).
     struct HdrCopyTargets
     {
-        Rg::TextureHandle hdr, depth, copy, sceneColor;
+        Rg::TextureHandle hdr, depth, copy, sceneColor, shadow;
 
         bool valid() const
         {
@@ -127,6 +153,8 @@ namespace Dark
         in.copy  = copy;
         if (uses.sceneColor)
             in.sceneColor = publishedSceneColor(b);
+        if (uses.shadow)
+            in.shadow = b.handle(RenderResource::Shadow);
         if (!in.valid())
             return false;
         Rg::TextureHandle copied;
@@ -149,6 +177,7 @@ namespace Dark
                 d.copy       = pb.read(copied, Rg::Use::PixelSrv);
                 d.depth      = HdrDraw::declareDepth(pb, in.depth, drawUses);
                 d.sceneColor = in.sceneColor.valid() ? pb.read(in.sceneColor, Rg::Use::PixelSrv) : Rg::TextureHandle{};
+                d.shadow     = in.shadow.valid() ? pb.read(in.shadow, Rg::Use::PixelSrv) : Rg::TextureHandle{};
                 d.hdr        = pb.readWrite(in.hdr, Rg::Use::RenderTarget);
                 out          = d;
             },
@@ -160,12 +189,10 @@ namespace Dark
     }
 
     // The underwater entry: the fog samples the copy and depth, then the water ceiling draws onto HDR
-    // (sampling this frame's capture when there is one).
+    // (sampling this frame's capture when there is one, and the shadow map).
     template <class CopyExec, class Exec> bool addUnderwaterPasses(FeatureBuilder& b, Rg::TextureHandle copy, CopyExec&& copyExec, Exec&& exec)
     {
-        HdrDrawUses uses;
-        uses.sceneColor = true;
-        return addHdrCopyPasses(b, "Underwater.Copy", "Underwater", copy, uses, std::forward<CopyExec>(copyExec), std::forward<Exec>(exec));
+        return addHdrCopyPasses(b, "Underwater.Copy", "Underwater", copy, waterUses(), std::forward<CopyExec>(copyExec), std::forward<Exec>(exec));
     }
 
     // The camouflage entry: the body samples the copy (refraction) and writes depth, so the passes

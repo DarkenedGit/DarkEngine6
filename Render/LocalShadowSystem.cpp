@@ -348,8 +348,15 @@ bool LocalShadowSystem::createRecords(ID3D12Device* device)
     return true;
 }
 
+void LocalShadowSystem::release()
+{
+    forgetResource(m_resource.Get());
+    *this = LocalShadowSystem{};
+}
+
 bool LocalShadowSystem::createArray(ID3D12Device* device)
 {
+    forgetResource(m_resource.Get());
     m_resource.Reset();
     m_dsvHeap.Reset();
 
@@ -401,7 +408,6 @@ bool LocalShadowSystem::createArray(ID3D12Device* device)
             m_dsvCpu[frame][i] = dsv;
             dsv.ptr += m_dsvIncr;
         }
-        m_state[frame] = D3D12_RESOURCE_STATE_DEPTH_WRITE;
     }
 
     if (!m_srvHeap)
@@ -427,6 +433,7 @@ bool LocalShadowSystem::createArray(ID3D12Device* device)
     srv.Texture2DArray.FirstArraySlice = 0;
     device->CreateShaderResourceView(m_resource.Get(), &srv, arraySrv);
     m_cpu.arraySrv = arraySrv;
+    trackResource(m_resource.Get(), D3D12_RESOURCE_STATE_DEPTH_WRITE);
     return true;
 }
 
@@ -725,18 +732,6 @@ void LocalShadowSystem::beginCapture(ID3D12GraphicsCommandList* cmd)
         profileGpuBegin(cmd, "Local Shadows", ProfileColor::Shadows);
         m_profileCapture = true;
     }
-    if (m_state[m_frame] != D3D12_RESOURCE_STATE_DEPTH_WRITE)
-    {
-        const int slices = slicesPerFrame();
-        {
-            // Per slice (untracked: the worker thread records these, and the tracker is whole-resource).
-            EnhancedBarrierList barriers(cmd);
-            for (int i = 0; i < slices; ++i)
-                barriers.transition(m_resource.Get(), Rg::ResourceKind::Texture, m_state[m_frame], D3D12_RESOURCE_STATE_DEPTH_WRITE, sliceIndex(i));
-        }
-        m_state[m_frame] = D3D12_RESOURCE_STATE_DEPTH_WRITE;
-    }
-
     // Unused slices stay at clear 0 so an inverted debug tile is white.
     const int slices = slicesPerFrame();
     for (int i = 0; i < slices; ++i)
@@ -785,17 +780,6 @@ void LocalShadowSystem::endCapture(ID3D12GraphicsCommandList* cmd)
             m_profileCapture = false;
         }
         return;
-    }
-    if (m_state[m_frame] != D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE)
-    {
-        const int slices = slicesPerFrame();
-        {
-            // Per slice (untracked: the worker thread records these, and the tracker is whole-resource).
-            EnhancedBarrierList barriers(cmd);
-            for (int i = 0; i < slices; ++i)
-                barriers.transition(m_resource.Get(), Rg::ResourceKind::Texture, m_state[m_frame], D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, sliceIndex(i));
-        }
-        m_state[m_frame] = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
     }
     if (m_profileCapture)
     {

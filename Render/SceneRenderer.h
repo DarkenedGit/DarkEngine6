@@ -9,6 +9,7 @@
 #include "Render/GtaoPipeline.h"
 #include "Render/HdrDrawInputs.h"
 #include "Render/RgViews.h"
+#include "Render/ShadowInputs.h"
 #include "Render/SsrPipeline.h"
 #include "Render/DecalGpuList.h"
 #include "Render/DecalLibrary.h"
@@ -113,6 +114,24 @@ public:
     // dropped, and the host should zero its stored EV before adapting. Never waits.
     bool syncAutoExposureSize(Renderer& renderer);
 
+    // The shadow maps FrameComposer::begin imports this frame (a missing map imports nothing).
+    FrameShadows frameShadows() const;
+
+    // The Shadows entry: `record(ID3D12GraphicsCommandList* mainCmd)` records the frame's GPU cull and
+    // the cascades (recordDirectionalShadows) in one pass that writes the shadow map.
+    template <class Record> void addShadowPasses(FeatureBuilder& b, Record&& record)
+    {
+        Dark::addShadowPass(b, [record = std::forward<Record>(record)](Rg::PassContext& c, const ShadowTargets&) { record(c.cmd()); });
+    }
+    // The LocalShadows entry: `record(ID3D12GraphicsCommandList* cmd)` draws the selected faces
+    // (recordLocalShadows). No pass on a frame without faces or without the array.
+    template <class Record> void addLocalShadowPasses(FeatureBuilder& b, Record&& record)
+    {
+        if (m_localShadows.faceCountThisFrame() <= 0 || !m_localShadows.isValid())
+            return;
+        Dark::addLocalShadowPass(b, [record = std::forward<Record>(record)](Rg::PassContext& c, const ShadowTargets&) { record(c.cmd()); });
+    }
+
     // `draw(Rg::PassContext&)` runs with the MRTs and depth bound and is stored until execute(). It
     // may bind its own descriptor heaps: the executor rebinds the ring before the next declared pass.
     template <class Draw> void addGBufferPasses(FeatureBuilder& b, Renderer& renderer, Draw&& draw)
@@ -134,8 +153,9 @@ public:
     // The Lighting and LocalVolumes entries with declared uses (render-graph plan Phase 6 part 4).
     // Each is one pass that reads albedo, attrib, depth and the AO lighting uses (GTAO's compose
     // when the Gtao entry published a GtaoOutput, else the authored MRT3; Lighting also reads SSR
-    // Full from an SsrOutput, else the dummy) and renders into HDR, binding a descriptor-ring table
-    // built from Renderer::lightingViews(). Both read and write HDR (Lighting leaves sky pixels to the
+    // Full from an SsrOutput, else the dummy, and the shadow map; LocalVolumes the local shadow
+    // array, else its dummy) and renders into HDR, binding a descriptor-ring table built from
+    // Renderer::lightingViews() and the graph's views. Both read and write HDR (Lighting leaves sky pixels to the
     // Decals clear; LocalVolumes adds to it). `in` is
     // read when the passes execute (hosts fill it in their GBuffer pass), so it must outlive
     // execute(). Lighting stores the constants it drew with (SSR bit sampled after the Ssr entry)
@@ -162,15 +182,17 @@ public:
     // The passes after lighting draw into HDR with read-only depth (Render/HdrDrawInputs.h).
     // Each pass binds its targets, builds its ring tables and runs the host's callable, which is
     // stored until execute(). Without scene targets the entry is an opaque pass that logs once.
+    // Sky, Water, Underwater and Translucent sample the shadow map (declared, so the graph moves it
+    // there from the Shadows pass); without one they bind a null view.
     // Sky: `draw(Rg::PassContext&, D3D12_GPU_DESCRIPTOR_HANDLE shadowTable)`, HDR + read-only depth bound.
     template <class Draw> void addSkyPasses(FeatureBuilder& b, Renderer& renderer, Draw&& draw)
     {
         Renderer* const rr = &renderer;
-        if (!addHdrDrawPass(b, "Sky", false,
+        if (!addHdrDrawPass(b, "Sky", skyUses(),
                             [rr, draw = std::forward<Draw>(draw)](Rg::PassContext& c, const HdrDrawTargets& d)
                             {
                                 bindHdrDepthRead(c, *rr, d.hdr, d.depth);
-                                draw(c, shadowTable(c, *rr));
+                                draw(c, shadowTable(c, *rr, d.shadow));
                             }))
             b.opaque("Sky", {}, {}, [](Rg::PassContext&) { logMissingSceneTargets("Sky"); });
     }
@@ -180,11 +202,11 @@ public:
     {
         SceneRenderer* const self = this;
         Renderer* const      rr   = &renderer;
-        if (!addHdrDrawPass(b, "Water", true,
+        if (!addHdrDrawPass(b, "Water", waterUses(),
                             [self, rr, draw = std::forward<Draw>(draw)](Rg::PassContext& c, const HdrDrawTargets& d)
                             {
                                 bindHdrDepthRead(c, *rr, d.hdr, d.depth);
-                                const WaterTables tables = self->waterTables(c, *rr, d.depth, d.sceneColor);
+                                const WaterTables tables = self->waterTables(c, *rr, d.depth, d.sceneColor, d.shadow);
                                 draw(c, tables);
                             }))
             b.opaque("Water", {}, {}, [](Rg::PassContext&) { logMissingSceneTargets("Water"); });
@@ -218,12 +240,22 @@ public:
                                  }))
             b.opaque("Camouflage", {}, {}, [](Rg::PassContext&) { logMissingSceneTargets("Camouflage"); });
     }
-    // Translucent, DebugOverlays and the Editor grid and gizmos: `draw(Rg::PassContext&)` with HDR +
-    // read-only depth bound. `name` must outlive the frame (a literal).
+    // DebugOverlays and the Editor grid and gizmos: `draw(Rg::PassContext&)` with HDR + read-only
+    // depth bound. `name` must outlive the frame (a literal).
     template <class Draw> void addHdrOverlayPasses(FeatureBuilder& b, Renderer& renderer, const char* name, Draw&& draw)
     {
+        addHdrOverlayPasses(b, renderer, name, HdrDrawUses{}, std::forward<Draw>(draw));
+    }
+    // Translucent: as an overlay, also reading the shadow map (the forward materials' heaps hold
+    // its SRV, GpuResourceCache::setShadowSrv).
+    template <class Draw> void addTranslucentPasses(FeatureBuilder& b, Renderer& renderer, Draw&& draw)
+    {
+        addHdrOverlayPasses(b, renderer, "Translucent", translucentUses(), std::forward<Draw>(draw));
+    }
+    template <class Draw> void addHdrOverlayPasses(FeatureBuilder& b, Renderer& renderer, const char* name, const HdrDrawUses& uses, Draw&& draw)
+    {
         Renderer* const rr = &renderer;
-        if (!addHdrDrawPass(b, name, false,
+        if (!addHdrDrawPass(b, name, uses,
                             [rr, draw = std::forward<Draw>(draw)](Rg::PassContext& c, const HdrDrawTargets& d)
                             {
                                 bindHdrDepthRead(c, *rr, d.hdr, d.depth);
@@ -264,16 +296,16 @@ public:
                 {
                     self->drawUnderwater(c, *rr, d, frame(c));
                     bindHdrDepthRead(c, *rr, d.hdr, d.depth);
-                    const WaterTables tables = self->waterTables(c, *rr, d.depth, d.sceneColor);
+                    const WaterTables tables = self->waterTables(c, *rr, d.depth, d.sceneColor, d.shadow);
                     ceiling(c, tables);
                 });
             return;
         }
-        if (!addHdrDrawPass(b, "Underwater", true,
+        if (!addHdrDrawPass(b, "Underwater", waterUses(),
                             [self, rr, ceiling = std::forward<Ceiling>(ceiling)](Rg::PassContext& c, const HdrDrawTargets& d)
                             {
                                 bindHdrDepthRead(c, *rr, d.hdr, d.depth);
-                                const WaterTables tables = self->waterTables(c, *rr, d.depth, d.sceneColor);
+                                const WaterTables tables = self->waterTables(c, *rr, d.depth, d.sceneColor, d.shadow);
                                 ceiling(c, tables);
                             }))
             b.opaque("Underwater", {}, {}, [](Rg::PassContext&) { logMissingSceneTargets("Underwater"); });
@@ -388,8 +420,9 @@ private:
     static void                        bindHdr(Rg::PassContext& c, const Renderer& renderer, Rg::TextureHandle hdr);
     static void                        bindHdrDepthRead(Rg::PassContext& c, const Renderer& renderer, Rg::TextureHandle hdr, Rg::TextureHandle depth);
     static void                        bindHdrDepthWrite(Rg::PassContext& c, const Renderer& renderer, Rg::TextureHandle hdr, Rg::TextureHandle depth);
-    static D3D12_GPU_DESCRIPTOR_HANDLE shadowTable(Rg::PassContext& c, const Renderer& renderer);
-    WaterTables                        waterTables(Rg::PassContext& c, const Renderer& renderer, Rg::TextureHandle depth, Rg::TextureHandle sceneColor) const;
+    // `shadow` invalid: the null view (no shadow map this frame).
+    static D3D12_GPU_DESCRIPTOR_HANDLE shadowTable(Rg::PassContext& c, const Renderer& renderer, Rg::TextureHandle shadow);
+    WaterTables waterTables(Rg::PassContext& c, const Renderer& renderer, Rg::TextureHandle depth, Rg::TextureHandle sceneColor, Rg::TextureHandle shadow) const;
     // This frame's import of the underwater HDR copy; invalid when it cannot be made.
     Rg::TextureHandle importUnderwaterCopy(FeatureBuilder& b, Renderer& renderer);
     Rg::TextureHandle importCamouflageCopy(FeatureBuilder& b, Renderer& renderer);

@@ -498,60 +498,28 @@ void SandboxFrame::render()
     SandboxShadowUser shadowUser{ &app(), &acceptedMesh };
     shadowHost.user = &shadowUser;
 
-    // The frame graph drives the frame (render-graph plan Phase 4): every step is an opaque pass on
-    // the main list, set here in recording order and run by frame.execute() below in feature-list
-    // order, which is also the order check. A pass body runs after this setup code, so it captures
-    // only function-scope state; values that cross passes are declared here and filled in order.
+    // The frame graph drives the frame: each entry is declared (or set, for the opaque ones left)
+    // here in recording order and run by frame.execute() below in feature-list order, which is also
+    // the order check. A pass body runs after this setup code, so it captures only function-scope
+    // state; values that cross passes are declared here and filled in order.
     uint32_t           featureCount = 0;
     const FeaturePass* featureList  = sandboxFeatures(featureCount);
     FrameComposer&     frame        = m_frameComposer;
     FrameView          view;
     // Echolocation strobes: no TAA / GTAO / SSR history from (or into) a held frame, no motion blur.
     view.holdTemporal = app().m_vision.echo > 0.0f;
-    frame.begin(app().renderer(), view, featureList, featureCount, m_shadows.resource(), m_scene.localShadows().resource());
+    frame.begin(app().renderer(), view, featureList, featureCount, m_scene.frameShadows());
     m_scene.requestHistories(frame, app().renderer());
 
-    frame.set(PassId::Shadows, [&](Rg::PassContext& pass) {
-        ID3D12GraphicsCommandList* const cmd = pass.cmd();
-        ensureDirectionalShadowModels(shadowHost);
-        recordDirectionalShadows(shadowHost, cmd, shadowViewIndex);
-    });
-
-    LocalShadowSystem& localShadows = m_scene.localShadows();
-    if (localShadows.faceCountThisFrame() > 0 || localShadows.isValid())
-    {
-        frame.set(PassId::LocalShadows, [&](Rg::PassContext& pass) {
-            ID3D12GraphicsCommandList* const cmd = pass.cmd();
-            if (localShadows.faceCountThisFrame() > 0)
-            {
-                localShadows.beginCapture(cmd);
-                for (int f = 0; f < localShadows.faceCountThisFrame(); ++f)
-                {
-                    localShadows.beginFace(cmd, f);
-                    const LocalShadowFaceDraw& face = localShadows.face(f);
-                    Sphere3f pointSphere;
-                    const Sphere3f* foliageSphere = nullptr;
-                    if (face.firstFace)
-                    {
-                        const LocalLightComponent* light = app().world().get<LocalLightComponent>(face.light);
-                        const TransformComponent* xf = app().world().get<TransformComponent>(face.light);
-                        if (light && xf && light->type == LocalLightType::Point)
-                        {
-                            pointSphere = Sphere3f(xf->position, Min(light->range, 80.0f));
-                            foliageSphere = &pointSphere;
-                        }
-                    }
-                    recordShadowCasterView(shadowHost, cmd, face.viewProj, face.frustum, foliageSphere, face.firstFace, true, shadowViewIndex);
-                }
-                localShadows.endCapture(cmd);
-            }
-            else if (localShadows.isValid())
-            {
-                // An idle frame still has to leave this half of the array as a shader resource.
-                localShadows.endCapture(cmd);
-            }
+    frame.declare(PassId::Shadows, [&](FeatureBuilder& b) {
+        m_scene.addShadowPasses(b, [&](ID3D12GraphicsCommandList* cmd) {
+            ensureDirectionalShadowModels(shadowHost);
+            recordDirectionalShadows(shadowHost, cmd, shadowViewIndex);
         });
-    }
+    });
+    frame.declare(PassId::LocalShadows, [&](FeatureBuilder& b) {
+        m_scene.addLocalShadowPasses(b, [&](ID3D12GraphicsCommandList* cmd) { recordLocalShadows(shadowHost, m_scene.localShadows(), cmd, shadowViewIndex); });
+    });
 
     const bool visionPicture = app().m_vision.infrared > 0.0f || app().m_vision.ultraviolet > 0.0f || app().m_vision.echo > 0.0f;
     const float underDraw = !visionPicture ? Math::Clamp(app().m_play.runtime().underAmount, 0.0f, 1.0f) : 0.0f;
@@ -1021,7 +989,7 @@ void SandboxFrame::render()
                 drawModelForward(cmd, gpu, m_meshTransparentPipeline, m_shadows, *model, true, worldMat, viewProj, lit, fill);
         }
     };
-    frame.declare(PassId::Translucent, [&, drawTranslucent](FeatureBuilder& b) { m_scene.addHdrOverlayPasses(b, app().renderer(), "Translucent", drawTranslucent); });
+    frame.declare(PassId::Translucent, [&, drawTranslucent](FeatureBuilder& b) { m_scene.addTranslucentPasses(b, app().renderer(), drawTranslucent); });
 
     const auto drawOverlays = [&](Rg::PassContext& pass) {
         ID3D12GraphicsCommandList* const cmd = pass.cmd();

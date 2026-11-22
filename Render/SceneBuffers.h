@@ -93,11 +93,8 @@ namespace Dark
         void transitionPost(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after) { transition(cmd, kPost, after); }
         void transitionAo(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after) { transition(cmd, kAo, after); }
 
-        // CPU views the lighting passes read (owned by their systems; stored, not copied).
-        void setShadowSrv(D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu)
-        {
-            m_shadowCpu = shadowCpu;
-        }
+        // CPU views the lighting passes read (owned by their systems; stored, not copied). The
+        // directional shadow map is not one: the passes bind the frame graph's import of it.
         void setLocalShadowSrvs(D3D12_CPU_DESCRIPTOR_HANDLE arraySrv, D3D12_CPU_DESCRIPTOR_HANDLE recordsSrv)
         {
             m_localShadowCpu        = arraySrv;
@@ -152,7 +149,6 @@ namespace Dark
         GraphTargets*                m_targets = nullptr;
         Rg::TargetId                 m_ids[kSlotCount];
         ComPtr<ID3D12DescriptorHeap> m_viewHeap;
-        D3D12_CPU_DESCRIPTOR_HANDLE  m_shadowCpu{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_localShadowCpu{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_localShadowRecordsCpu{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_heightCpu{};

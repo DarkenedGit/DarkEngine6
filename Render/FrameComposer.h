@@ -4,6 +4,7 @@
 #include "Render/FrameView.h"
 #include "Render/RenderGraph.h"
 #include "Render/RgExecutor.h"
+#include "Render/ShadowInputs.h"
 #include "Render/TemporalHistory.h"
 
 #include <cstdint>
@@ -18,13 +19,14 @@ namespace Dark
 
     // Drives a 3D host's frame through the render graph (render-graph plan Phase 4). Per frame:
     // begin() imports the back buffer, depth, the scene targets and the host's shadow maps; the host
-    // set()s a callback per PassId it runs this frame (each calls the existing recording code with
-    // ctx.cmd()); execute() adds them in feature-list order as opaque passes, compiles, checks the
-    // order against the list and runs them on the main list. Async compute stays off (Phase 10).
+    // set()s or declare()s each PassId it runs this frame; execute() adds them in feature-list order,
+    // compiles, checks the order against the list and runs them on the main list, then returns the
+    // directional shadow map to its frame-start state (Render/ShadowInputs.h). Async compute stays
+    // off (Phase 10).
     class FrameComposer
     {
     public:
-        void begin(Renderer& renderer, const FrameView& view, const FeaturePass* list, uint32_t count, ID3D12Resource* shadowMap, ID3D12Resource* localShadowArray);
+        void begin(Renderer& renderer, const FrameView& view, const FeaturePass* list, uint32_t count, const FrameShadows& shadows);
         ~FrameComposer();
 
         // A graph history (render-graph plan Phase 5) for one of the *History resources: the graph
@@ -76,11 +78,13 @@ namespace Dark
 
     private:
         void importResource(RenderResource resource, ID3D12Resource* native, const Rg::TextureViews& views = {});
+        void endShadowFrame();
 
         Rg::RenderGraph m_graph;
         FeatureFrame    m_features;
         RgExecutor      m_executor;
-        Renderer*            m_renderer = nullptr;
+        Renderer*            m_renderer  = nullptr;
+        ID3D12Resource*      m_shadowMap = nullptr;
         FrameView            m_view;
         bool                 m_holdNext = false; // the frame after a held one also starts without history
         Rg::HistoryTargetSet m_histories;
