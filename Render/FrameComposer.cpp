@@ -1,5 +1,8 @@
 #include "Render/FrameComposer.h"
 
+#include "Render/EnhancedBarrierEmitter.h"
+#include "Render/ResourceStateTracker.h"
+
 #include "Render/GraphTargets.h"
 #include "Render/Renderer.h"
 
@@ -57,7 +60,12 @@ namespace Dark
             desc.mips                    = static_cast<uint16_t>(rd.MipLevels);
             desc.arraySize               = static_cast<uint16_t>(rd.DepthOrArraySize);
         }
-        m_features.importResource(m_graph, resource, native, desc);
+        // The layout the frame tracker holds now (Phase 6), so the plan's first barriers start from it.
+        Rg::Layout initial = Rg::Layout::Undefined;
+        if (const ResourceStateTracker* tracker = frameStateTracker())
+            if (const Rg::UseState* now = tracker->current(native))
+                initial = now->layout;
+        m_features.importResource(m_graph, resource, native, desc, initial);
     }
 
     Rg::HistoryTargets FrameComposer::history(RenderResource resource, const char* name, const Rg::TargetDesc& desc)
@@ -81,7 +89,7 @@ namespace Dark
             m_histories.collect(m_graph, targets->pool());
         if (!m_features.compileFrame(m_graph, host))
             return false;
-        m_executor.beginFrame(*m_renderer);
+        m_executor.beginFrame(*m_renderer, m_graph);
         if (!m_graph.execute(&m_executor))
             return false;
         // No finish(): the main list is closed and submitted by Renderer::endFrame (after the shadow list).

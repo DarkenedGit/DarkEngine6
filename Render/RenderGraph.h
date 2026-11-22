@@ -518,6 +518,11 @@ namespace Dark::Rg
             return static_cast<uint32_t>(m_resources.size());
         }
         uint16_t                      findResource(const char* name) const; // kInvalidIndex if missing
+        // The native resource an import (or, from Phase 9, a placed transient) was given; null otherwise.
+        ID3D12Resource* nativeResource(uint16_t resource) const
+        {
+            return resource < m_resources.size() ? m_resources[resource].native : nullptr;
+        }
         ResourceInfo                  resourceInfo(uint16_t resource) const;
         const std::vector<AliasSlot>& aliasSlots() const
         {

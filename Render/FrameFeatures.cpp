@@ -221,15 +221,16 @@ namespace Dark
         m_compiled.clear();
     }
 
-    void FeatureFrame::importResource(Rg::RenderGraph& g, RenderResource resource, ID3D12Resource* native, const Rg::TextureDesc& desc)
+    void FeatureFrame::importResource(Rg::RenderGraph& g, RenderResource resource, ID3D12Resource* native, const Rg::TextureDesc& desc, Rg::Layout initial)
     {
         const uint32_t i = static_cast<uint32_t>(resource);
         if (i >= kRenderResourceCount || isHistory(resource))
             return; // histories come from setHistory (RenderGraph::history), never an import
-        // Phase 4: the opaque passes and the legacy trackers own every state change, so only the back
-        // buffer states its layouts (Present is its final layout, not a pass use).
-        m_handles[i] = resource == RenderResource::Swap ? g.importBackBuffer(native, desc.width, desc.height, desc.format)
-                                                        : g.importTexture(renderResourceName(resource), desc, native, Rg::Layout::Undefined, Rg::Layout::Undefined);
+        // Phase 6: the ResourceStateTracker is the single source of truth for these resources; opaque
+        // passes and the owners move them through it and the graph's barriers read it. No final
+        // layout: the back buffer still gets ImGui and the movie after the graph (until Phase 7), so
+        // Renderer::endFrame makes its RT -> PRESENT transition.
+        m_handles[i] = g.importTexture(resource == RenderResource::Swap ? "backbuffer" : renderResourceName(resource), desc, native, initial, Rg::Layout::Undefined);
     }
 
     void FeatureFrame::setHistory(RenderResource resource, const Rg::HistoryPair& pair)

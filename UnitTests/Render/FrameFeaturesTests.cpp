@@ -283,13 +283,15 @@ TEST(FrameFeatures, CompileFailureCountsAFailedFrameAndRunsNothing)
     features.importResource(g, RenderResource::Swap, nullptr, absDesc(320, 180, kBgra8));
     bool ran = false;
     features.set(PassId::Post, [&](Rg::PassContext&) { ran = true; });
-    // A declared (non-opaque) pass on a resource an opaque pass also uses: Phase 6 boundary barriers.
+    // A declared AsyncCompute pass on a resource an opaque pass also uses (opaque layouts are only
+    // known on the graphics queue).
     g.addPass<Rg::NoData>(
         "Declared",
         [&](Rg::PassBuilder& b, Rg::NoData&)
         {
             b.flags(Rg::PassFlags::SideEffect);
-            b.read(features.handle(RenderResource::Hdr), Rg::Use::PixelSrv);
+            b.queue(Rg::Queue::AsyncCompute);
+            b.read(features.handle(RenderResource::Hdr), Rg::Use::ComputeSrv);
         },
         [](Rg::PassContext&, const Rg::NoData&) {});
     const uint32_t before = hostPassSequenceFailures();

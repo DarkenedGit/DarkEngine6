@@ -175,12 +175,11 @@ TEST(RenderGraphExecutor, OpaquePassesGetNoBarrierRecords)
     EXPECT_EQ(g.passName(g.order()[2]), std::string("Post"));
 }
 
-TEST(RenderGraphExecutor, OpaqueAndDeclaredUseOfOneResourceIsAnError)
+TEST(RenderGraphExecutor, OpaqueAndAsyncComputeUseOfOneResourceIsAnError)
 {
     RenderGraph g;
     g.beginFrame(64, 64);
-    const TextureHandle bb  = g.importBackBuffer(nullptr, 64, 64, kBgra8);
-    TextureHandle       hdr = g.importTexture("Hdr", absTex(64, 64), nullptr, Layout::RenderTarget, Layout::RenderTarget);
+    TextureHandle hdr = g.importTexture("Hdr", absTex(64, 64), nullptr, Layout::RenderTarget, Layout::RenderTarget);
     pass(g, "Opaque",
          [&](PassBuilder& b)
          {
@@ -190,12 +189,126 @@ TEST(RenderGraphExecutor, OpaqueAndDeclaredUseOfOneResourceIsAnError)
     pass(g, "Declared",
          [&](PassBuilder& b)
          {
-             b.read(hdr);
-             b.write(bb);
+             b.flags(PassFlags::SideEffect);
+             b.queue(Queue::AsyncCompute);
+             b.read(hdr, Use::ComputeSrv);
          });
     EXPECT_FALSE(g.compile());
     EXPECT_TRUE(g.hasError(ErrorCode::MixedOpaqueUse)) << errorText(g);
     EXPECT_STREQ(errorCodeName(ErrorCode::MixedOpaqueUse), "MixedOpaqueUse");
+}
+
+TEST(RenderGraphExecutor, OpaqueThenDeclaredUseGetsOneTrackedBoundaryBarrier)
+{
+    RenderGraph g;
+    g.beginFrame(64, 64);
+    const TextureHandle bb  = g.importBackBuffer(nullptr, 64, 64, kBgra8);
+    TextureHandle       hdr = g.importTexture("Hdr", absTex(64, 64), nullptr, Layout::RenderTarget, Layout::Undefined);
+    pass(g, "Opaque",
+         [&](PassBuilder& b)
+         {
+             b.flags(PassFlags::OwnBarriers | PassFlags::SideEffect);
+             hdr = b.write(hdr);
+         });
+    pass(g, "Declared",
+         [&](PassBuilder& b)
+         {
+             b.flags(PassFlags::SideEffect);
+             b.read(hdr);
+         });
+    ASSERT_TRUE(compiles(g)) << errorText(g);
+    (void)bb;
+    uint32_t tracked = 0, onHdr = 0;
+    for (const BarrierRec& r : g.barriers())
+    {
+        if (r.resource != hdr.index)
+            continue;
+        ++onHdr;
+        if (!r.tracked)
+            continue;
+        ++tracked;
+        EXPECT_EQ(r.queue, Queue::Graphics);
+        EXPECT_EQ(r.placement, BarrierPlacement::BeforePass);
+        EXPECT_EQ(g.passName(r.pass), std::string("Declared"));
+        EXPECT_EQ(r.after.layout, Layout::ShaderResource);
+        EXPECT_FALSE(r.discard);
+    }
+    EXPECT_EQ(tracked, 1u);
+    EXPECT_EQ(onHdr, 1u); // no final layout: the opaque owner keeps the resource afterwards
+}
+
+TEST(RenderGraphExecutor, DeclaredRunBetweenOpaquePassesPlansNormallyInside)
+{
+    RenderGraph g;
+    g.beginFrame(64, 64);
+    TextureHandle hdr = g.importTexture("Hdr", absTex(64, 64), nullptr, Layout::RenderTarget, Layout::RenderTarget);
+    pass(g, "OpaqueA",
+         [&](PassBuilder& b)
+         {
+             b.flags(PassFlags::OwnBarriers | PassFlags::SideEffect);
+             hdr = b.write(hdr);
+         });
+    pass(g, "Read",
+         [&](PassBuilder& b)
+         {
+             b.flags(PassFlags::SideEffect);
+             b.read(hdr);
+         });
+    pass(g, "Write",
+         [&](PassBuilder& b)
+         {
+             b.flags(PassFlags::SideEffect);
+             hdr = b.write(hdr, Use::Uav);
+         });
+    pass(g, "OpaqueB",
+         [&](PassBuilder& b)
+         {
+             b.flags(PassFlags::OwnBarriers | PassFlags::SideEffect);
+             hdr = b.write(hdr);
+         });
+    ASSERT_TRUE(compiles(g)) << errorText(g);
+    std::vector<BarrierRec> onHdr;
+    for (const BarrierRec& r : g.barriers())
+        if (r.resource == hdr.index)
+            onHdr.push_back(r);
+    // Tracked barrier before Read, a planned SR -> UA before Write, nothing for OpaqueB, and no final
+    // transition (the frame ends on an opaque pass).
+    ASSERT_EQ(onHdr.size(), 2u);
+    EXPECT_TRUE(onHdr[0].tracked);
+    EXPECT_EQ(g.passName(onHdr[0].pass), std::string("Read"));
+    EXPECT_FALSE(onHdr[1].tracked);
+    EXPECT_EQ(g.passName(onHdr[1].pass), std::string("Write"));
+    EXPECT_EQ(onHdr[1].before.layout, Layout::ShaderResource);
+    EXPECT_EQ(onHdr[1].after.layout, Layout::UnorderedAccess);
+}
+
+TEST(RenderGraphExecutor, DeclaredRunEndingTheFrameGetsTheFinalLayout)
+{
+    RenderGraph g;
+    g.beginFrame(64, 64);
+    TextureHandle hdr = g.importTexture("Hdr", absTex(64, 64), nullptr, Layout::RenderTarget, Layout::RenderTarget);
+    pass(g, "Opaque",
+         [&](PassBuilder& b)
+         {
+             b.flags(PassFlags::OwnBarriers | PassFlags::SideEffect);
+             hdr = b.write(hdr);
+         });
+    pass(g, "Read",
+         [&](PassBuilder& b)
+         {
+             b.flags(PassFlags::SideEffect);
+             b.read(hdr);
+         });
+    ASSERT_TRUE(compiles(g)) << errorText(g);
+    std::vector<BarrierRec> onHdr;
+    for (const BarrierRec& r : g.barriers())
+        if (r.resource == hdr.index)
+            onHdr.push_back(r);
+    ASSERT_EQ(onHdr.size(), 2u);
+    EXPECT_TRUE(onHdr[0].tracked);
+    EXPECT_FALSE(onHdr[1].tracked);
+    EXPECT_EQ(onHdr[1].before.layout, Layout::ShaderResource);
+    EXPECT_EQ(onHdr[1].after.layout, Layout::RenderTarget);
 }
 
 TEST(RenderGraphExecutor, SplitExecutorSplitsListsAtEveryCrossQueueWaitAndSignal)
