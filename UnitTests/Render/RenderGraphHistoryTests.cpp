@@ -1,5 +1,6 @@
 #include "RenderGraphTestUtil.h"
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -504,4 +505,72 @@ TEST(RenderGraphAlias, ReusedBufferMemoryGetsAnAliasBarrier)
     EXPECT_EQ(bb2[0].pass, g.findPass("C"));
     EXPECT_TRUE(any(bb2[0].before.sync & (Sync::AllShading | Sync::ComputeShading)));
     EXPECT_EQ(g.aliasSlots()[g.resourceInfo(b1.index).aliasSlot].bytes, 4096u);
+}
+
+// ---------------------------------------------------------------- history slots (Phase 5)
+
+TEST(RenderGraphHistory, SlotsNameTheTargetsBehindThePair)
+{
+    RenderGraph g;
+    EXPECT_EQ(g.historySlots("TAA").curr, kNoPass); // never requested
+    const HistoryPair f1 = taaFrame(g, 640, 360, false);
+    const HistorySlots s1 = g.historySlots("TAA");
+    EXPECT_EQ(s1.curr, idOf(g, f1.curr));
+    EXPECT_NE(s1.prev, kNoPass); // prev is a real slot even on first use
+    EXPECT_NE(s1.prev, s1.curr);
+    EXPECT_FALSE(s1.prevValid);
+    EXPECT_TRUE(g.execute());
+
+    const HistoryPair  f2 = taaFrame(g, 640, 360, false);
+    const HistorySlots s2 = g.historySlots("TAA");
+    EXPECT_TRUE(s2.prevValid);
+    EXPECT_EQ(s2.prev, s1.curr);
+    EXPECT_EQ(s2.curr, s1.prev);
+    EXPECT_EQ(s2.prev, idOf(g, f2.prev));
+    EXPECT_EQ(g.historySlots(nullptr).curr, kNoPass);
+    EXPECT_EQ(g.historySlots("Other").curr, kNoPass);
+}
+
+TEST(RenderGraphHistory, MarkUnwrittenDropsNextFramesPrevOnly)
+{
+    RenderGraph g;
+    taaFrame(g);
+    taaFrame(g);
+    g.markHistoryUnwritten("TAA"); // after execute: the pass skipped its write
+    EXPECT_FALSE(taaFrame(g).prev.valid());
+    EXPECT_TRUE(taaFrame(g).prev.valid());
+    g.markHistoryUnwritten("Nope"); // unknown names are ignored
+    g.markHistoryUnwritten(nullptr);
+    EXPECT_TRUE(taaFrame(g).prev.valid());
+}
+
+TEST(RenderGraphHistory, LiveSlotsFollowEntriesAndResizeIssuesNewIds)
+{
+    RenderGraph           g;
+    std::vector<uint32_t> live;
+    g.liveHistorySlots(live);
+    EXPECT_TRUE(live.empty());
+
+    taaFrame(g, 640, 360);
+    const HistorySlots small = g.historySlots("TAA");
+    g.liveHistorySlots(live);
+    ASSERT_EQ(live.size(), 2u);
+    EXPECT_NE(std::find(live.begin(), live.end(), small.curr), live.end());
+    EXPECT_NE(std::find(live.begin(), live.end(), small.prev), live.end());
+
+    // A new output size is a new allocation: new ids, the old ones are no longer live.
+    taaFrame(g, 800, 600);
+    const HistorySlots big = g.historySlots("TAA");
+    EXPECT_FALSE(big.prevValid);
+    g.liveHistorySlots(live);
+    ASSERT_EQ(live.size(), 2u);
+    EXPECT_EQ(std::find(live.begin(), live.end(), small.curr), live.end());
+    EXPECT_EQ(std::find(live.begin(), live.end(), small.prev), live.end());
+
+    // Not requested for a frame: the entry goes at the following beginFrame.
+    g.beginFrame(800, 600);
+    g.beginFrame(800, 600);
+    g.liveHistorySlots(live);
+    EXPECT_TRUE(live.empty());
+    EXPECT_EQ(g.historyCount(), 0u);
 }

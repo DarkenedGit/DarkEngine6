@@ -37,6 +37,11 @@ namespace Dark
 
         using R = RenderResource;
 
+        bool isHistory(RenderResource r)
+        {
+            return r == R::TaaHistory || r == R::GtaoHistory || r == R::SsrHistory;
+        }
+
         // How an opaque pass declares a list resource. Uses only order the graph (OwnBarriers passes
         // get no barriers), but they still pass the graph's per-use checks.
         bool isDepthLike(RenderResource r)
@@ -92,7 +97,7 @@ namespace Dark
 
     const char* renderResourceName(RenderResource resource)
     {
-        static const char* const kNames[] = { "Swap", "Depth", "Shadow", "LocalShadow", "Albedo", "Attrib", "Velocity", "Ao", "Hdr", "Post" };
+        static const char* const kNames[] = { "Swap", "Depth", "Shadow", "LocalShadow", "Albedo", "Attrib", "Velocity", "Ao", "Hdr", "Post", "TaaHistory", "GtaoHistory", "SsrHistory" };
         static_assert(sizeof(kNames) / sizeof(kNames[0]) == kRenderResourceCount, "one name per RenderResource");
         const auto i = static_cast<uint32_t>(resource);
         return i < kRenderResourceCount ? kNames[i] : "Unknown";
@@ -149,8 +154,8 @@ namespace Dark
             makeNode(PassId::LocalShadows, true, {}, { R::LocalShadow }),
             makeNode(PassId::GBuffer, false, {}, { R::Albedo, R::Attrib, R::Velocity, R::Depth }),
             makeNode(PassId::Decals, false, { R::Depth }, { R::Albedo, R::Attrib, R::Hdr }),
-            makeNode(PassId::Gtao, false, { R::Depth, R::Attrib }, { R::Ao }),
-            makeNode(PassId::Ssr, false, { R::Depth, R::Albedo }, {}),
+            makeNode(PassId::Gtao, false, { R::Depth, R::Attrib }, { R::Ao, R::GtaoHistory }),
+            makeNode(PassId::Ssr, false, { R::Depth, R::Albedo }, { R::SsrHistory }),
             makeNode(PassId::Lighting, false, { R::Albedo, R::Attrib, R::Depth, R::Shadow }, { R::Hdr }),
             makeNode(PassId::LocalVolumes, false, { R::Hdr }, { R::Hdr }),
             makeNode(PassId::Sky, true, { R::Depth }, { R::Hdr }),
@@ -163,7 +168,7 @@ namespace Dark
             // GPU particles read this frame's Depth and, on Bounce, Attrib; the non-deferred blood splats run at the end.
             makeNode(PassId::Particles, true, {}, { R::Hdr }),
             makeNode(PassId::Underwater, true, { R::Hdr, R::Depth }, { R::Hdr }),
-            makeNode(PassId::Post, false, { R::Hdr }, { R::Swap }),
+            makeNode(PassId::Post, false, { R::Hdr }, { R::Swap, R::TaaHistory }),
             makeNode(PassId::Overlay, true, {}, { R::Swap }),
         };
         count = static_cast<uint32_t>(sizeof(kList) / sizeof(kList[0]));
@@ -177,8 +182,8 @@ namespace Dark
             makeNode(PassId::LocalShadows, true, {}, { R::LocalShadow }),
             makeNode(PassId::GBuffer, false, {}, { R::Albedo, R::Attrib, R::Velocity, R::Depth }),
             makeNode(PassId::Decals, false, { R::Depth }, { R::Albedo, R::Attrib, R::Hdr }),
-            makeNode(PassId::Gtao, false, { R::Depth, R::Attrib }, { R::Ao }),
-            makeNode(PassId::Ssr, false, { R::Depth, R::Albedo }, {}),
+            makeNode(PassId::Gtao, false, { R::Depth, R::Attrib }, { R::Ao, R::GtaoHistory }),
+            makeNode(PassId::Ssr, false, { R::Depth, R::Albedo }, { R::SsrHistory }),
             makeNode(PassId::Lighting, false, { R::Albedo, R::Attrib, R::Depth, R::Shadow }, { R::Hdr }),
             makeNode(PassId::LocalVolumes, false, { R::Hdr }, { R::Hdr }),
             makeNode(PassId::Sky, true, { R::Depth }, { R::Hdr }),
@@ -192,7 +197,7 @@ namespace Dark
             // GPU particles read this frame's Depth and, on Bounce, Attrib; the non-deferred blood splats run at the end.
             makeNode(PassId::Particles, true, {}, { R::Hdr }),
             makeNode(PassId::Underwater, true, { R::Hdr, R::Depth }, { R::Hdr }),
-            makeNode(PassId::Post, false, { R::Hdr }, { R::Swap }),
+            makeNode(PassId::Post, false, { R::Hdr }, { R::Swap, R::TaaHistory }),
             makeNode(PassId::Overlay, true, {}, { R::Swap }),
         };
         count = static_cast<uint32_t>(sizeof(kList) / sizeof(kList[0]));
@@ -207,6 +212,8 @@ namespace Dark
             s = {};
         for (Rg::TextureHandle& h : m_handles)
             h = {};
+        for (Rg::TextureHandle& h : m_prevHandles)
+            h = {};
         m_arena.reset();
         m_list  = list;
         m_count = list ? count : 0;
@@ -217,12 +224,21 @@ namespace Dark
     void FeatureFrame::importResource(Rg::RenderGraph& g, RenderResource resource, ID3D12Resource* native, const Rg::TextureDesc& desc)
     {
         const uint32_t i = static_cast<uint32_t>(resource);
-        if (i >= kRenderResourceCount)
-            return;
+        if (i >= kRenderResourceCount || isHistory(resource))
+            return; // histories come from setHistory (RenderGraph::history), never an import
         // Phase 4: the opaque passes and the legacy trackers own every state change, so only the back
         // buffer states its layouts (Present is its final layout, not a pass use).
         m_handles[i] = resource == RenderResource::Swap ? g.importBackBuffer(native, desc.width, desc.height, desc.format)
                                                         : g.importTexture(renderResourceName(resource), desc, native, Rg::Layout::Undefined, Rg::Layout::Undefined);
+    }
+
+    void FeatureFrame::setHistory(RenderResource resource, const Rg::HistoryPair& pair)
+    {
+        if (!isHistory(resource))
+            return;
+        const uint32_t i = static_cast<uint32_t>(resource);
+        m_handles[i]     = pair.curr;
+        m_prevHandles[i] = pair.prev;
     }
 
     bool FeatureFrame::acceptSet(PassId id)
@@ -279,6 +295,15 @@ namespace Dark
                         Rg::TextureHandle&   h   = m_handles[static_cast<uint32_t>(res)];
                         if (!h.valid())
                             continue;
+                        if (isHistory(res))
+                        {
+                            // Reads last frame's contents (when they are valid) and writes this frame's.
+                            const Rg::TextureHandle prev = m_prevHandles[static_cast<uint32_t>(res)];
+                            if (prev.valid())
+                                b.read(prev, Rg::Use::PixelSrv);
+                            h = b.write(h, Rg::Use::RenderTarget);
+                            continue;
+                        }
                         bool alsoRead = false;
                         for (uint32_t r = 0; r < node.readCount; ++r)
                             alsoRead = alsoRead || node.reads[r] == res;

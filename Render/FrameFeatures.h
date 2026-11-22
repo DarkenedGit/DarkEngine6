@@ -32,6 +32,11 @@ namespace Dark
         Ao,
         Hdr,
         Post,
+        // History pairs (RenderGraph::history, Phase 5). The handle is this frame's curr; a pass that
+        // writes one also reads its prev when prev is valid. Not imported: FrameComposer::history.
+        TaaHistory,
+        GtaoHistory,
+        SsrHistory,
         Count,
     };
     inline constexpr uint32_t kRenderResourceCount = static_cast<uint32_t>(RenderResource::Count);
@@ -97,6 +102,8 @@ namespace Dark
 
         // Imports one persistent resource into `g` (after g.beginFrame). Swap is the back buffer.
         void importResource(Rg::RenderGraph& g, RenderResource resource, ID3D12Resource* native, const Rg::TextureDesc& desc);
+        // Binds a history pair (g.history) to one of the *History resources for this frame's passes.
+        void setHistory(RenderResource resource, const Rg::HistoryPair& pair);
 
         // The callback runs as the pass's execute, with the pass's PassContext. It is stored until the
         // next begin(), so it may capture the caller's locals by reference only if they outlive
@@ -135,6 +142,10 @@ namespace Dark
         {
             return m_handles[static_cast<uint32_t>(resource)];
         }
+        Rg::TextureHandle prevHandle(RenderResource resource) const
+        {
+            return m_prevHandles[static_cast<uint32_t>(resource)];
+        }
 
     private:
         using CallFn = void (*)(void* fn, Rg::PassContext& ctx);
@@ -156,6 +167,7 @@ namespace Dark
         uint32_t            m_count = 0;
         Slot                m_slots[kPassIdCount];
         Rg::TextureHandle   m_handles[kRenderResourceCount];
+        Rg::TextureHandle   m_prevHandles[kRenderResourceCount]; // history resources only
         std::vector<PassId> m_graphIds; // PassId per graph pass index
         std::vector<PassId> m_compiled;
         bool                m_orderOk = false;

@@ -53,6 +53,8 @@ namespace
         FeatureFrame        features;
         std::vector<PassId> ran;
         std::vector<bool>   sawResource;
+        bool                withHistories = false; // request TAA / GTAO / SSR graph histories
+        Rg::HistoryPair     taa;
 
         bool run(const FeaturePass* list, uint32_t count, const std::vector<PassId>& ids, const char* host = "test")
         {
@@ -65,6 +67,14 @@ namespace
                 const auto     res = static_cast<RenderResource>(r);
                 const uint32_t fmt = res == RenderResource::Swap ? kBgra8 : (res == RenderResource::Depth ? kD32 : kRgba);
                 features.importResource(graph, res, fakeResource(r), absDesc(1280, 720, fmt));
+            }
+            if (withHistories)
+            {
+                taa = graph.history("Taa", absDesc(1280, 720, kRgba));
+                features.setHistory(RenderResource::TaaHistory, taa);
+                features.setHistory(RenderResource::GtaoHistory, graph.history("Gtao", absDesc(1280, 720, kRgba)));
+                features.setHistory(RenderResource::SsrHistory, graph.history("Ssr", absDesc(1280, 720, kRgba)));
+                features.setHistory(RenderResource::Hdr, taa); // not a history resource: ignored
             }
             for (const PassId id : ids)
             {
@@ -288,4 +298,57 @@ TEST(FrameFeatures, CompileFailureCountsAFailedFrameAndRunsNothing)
     EXPECT_EQ(hostPassSequenceFailures(), before + 1);
     EXPECT_FALSE(features.orderOk());
     EXPECT_FALSE(ran);
+}
+
+// ---------------------------------------------------------------- histories (Phase 5)
+
+TEST(FrameFeatures, HistoriesAreNeverImported)
+{
+    uint32_t           count = 0;
+    const FeaturePass* list  = sandboxFeatures(count);
+    HostFrame          f;
+    ASSERT_TRUE(f.run(list, count, listIds(list, count), "Sandbox"));
+    EXPECT_FALSE(f.features.handle(RenderResource::TaaHistory).valid());
+    EXPECT_FALSE(f.features.handle(RenderResource::GtaoHistory).valid());
+    EXPECT_FALSE(f.features.handle(RenderResource::SsrHistory).valid());
+    EXPECT_TRUE(f.features.handle(RenderResource::Hdr).valid());
+    EXPECT_EQ(f.graph.historyCount(), 0u);
+}
+
+TEST(FrameFeatures, PostGtaoAndSsrWriteTheirHistoriesSoTheGraphSwapsThem)
+{
+    uint32_t           count = 0;
+    const FeaturePass* list  = sandboxFeatures(count);
+    HostFrame          f;
+    f.withHistories = true;
+    ASSERT_TRUE(f.run(list, count, listIds(list, count), "Sandbox"));
+    EXPECT_FALSE(f.taa.prev.valid());
+    EXPECT_EQ(f.ran, f.features.compiledOrder()); // the history declarations change no order
+    EXPECT_EQ(without(f.features.compiledOrder(), { PassId::DebugOverlays }), kLegacySandbox);
+    EXPECT_EQ(f.graph.historyCount(), 3u);
+
+    // Written last frame (declared by Post / GTAO / SSR): this frame reads a valid prev.
+    ASSERT_TRUE(f.run(list, count, listIds(list, count), "Sandbox"));
+    EXPECT_TRUE(f.taa.prev.valid());
+    EXPECT_TRUE(f.graph.historySlots("Gtao").prevValid);
+    EXPECT_TRUE(f.graph.historySlots("Ssr").prevValid);
+
+    // A skipped write (TAA off this frame, the pass ran without it) drops the next prev only.
+    f.graph.markHistoryUnwritten("Taa");
+    ASSERT_TRUE(f.run(list, count, listIds(list, count), "Sandbox"));
+    EXPECT_FALSE(f.taa.prev.valid());
+    EXPECT_TRUE(f.graph.historySlots("Gtao").prevValid);
+}
+
+TEST(FrameFeatures, AHistoryWithoutItsWriterNeverSwaps)
+{
+    // Post not set this frame (e.g. a movie frame): nothing wrote TaaHistory, so no valid prev next.
+    uint32_t           count = 0;
+    const FeaturePass* list  = sandboxFeatures(count);
+    HostFrame          f;
+    f.withHistories = true;
+    ASSERT_TRUE(f.run(list, count, without(listIds(list, count), { PassId::Post }), "Sandbox"));
+    ASSERT_TRUE(f.run(list, count, listIds(list, count), "Sandbox"));
+    EXPECT_FALSE(f.taa.prev.valid());
+    EXPECT_TRUE(f.graph.historySlots("Gtao").prevValid);
 }
