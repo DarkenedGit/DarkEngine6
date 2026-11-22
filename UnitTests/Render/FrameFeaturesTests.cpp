@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "Render/FrameFeatures.h"
+#include "Render/LightingInputs.h"
 #include "Render/PostMatrices.h"
 #include "RenderGraphTestUtil.h"
 
@@ -561,24 +562,31 @@ TEST(FrameFeatures, DeclareRunsBeforeAnyPassExecutesSoHostValuesAreReadAtExecute
     EXPECT_EQ(seenAtExecute, 42);
 }
 
-// ---------------------------------------------------------------- converted entries (Phase 6 part 3)
+// ---------------------------------------------------------------- converted entries (Phase 6 parts 3 and 4)
 
 namespace
 {
-    // The Sandbox list with GTAO converted the way SceneRenderer::addGtaoPasses does it: declared
-    // steps on targets the entry imports, the history through the builder, then an opaque hand-off
-    // pass (OwnBarriers | SideEffect) that declares a read of the output for the opaque Lighting.
-    struct DeclaredGtaoFrame
+    // The Sandbox list with GTAO, SSR, Lighting and LocalVolumes declared the way SceneRenderer does
+    // it: GTAO and SSR publish their outputs on the blackboard (GtaoOutput / SsrOutput) and the
+    // lighting passes read them through lightingReads() / declareLightingUses() (LightingInputs.h),
+    // so the graph plans the barriers into Lighting and no hand-off pass is needed.
+    struct DeclaredLightingFrame
     {
         HostFrame                host;
         std::vector<std::string> ran;
         Rg::HistoryPair          gtao;
+        LightingReads            lit{}, vol{}; // the versions the declared lighting passes used
+        Rg::TextureHandle        litHdrOut, volHdrOut;
+        bool                     litDeclared = false;
 
-        bool run(bool skip)
+        bool run(bool skipGtao, bool ssr = true)
         {
             uint32_t           count = 0;
             const FeaturePass* list  = sandboxFeatures(count);
             ran.clear();
+            lit = vol = {};
+            litHdrOut = volHdrOut = {};
+            litDeclared           = false;
             Rg::RenderGraph& g = host.graph;
             g.beginFrame(1280, 720);
             host.features.begin(list, count);
@@ -590,108 +598,300 @@ namespace
             }
             gtao = g.history("Gtao", absDesc(1280, 720, kRgba));
             host.features.setHistory(RenderResource::GtaoHistory, gtao);
-            for (const PassId id : without(listIds(list, count), { PassId::Gtao }))
+            for (const PassId id : without(listIds(list, count), { PassId::Gtao, PassId::Ssr, PassId::Lighting, PassId::LocalVolumes }))
                 host.features.set(id, [this, id](Rg::PassContext&) { ran.push_back(passName(id)); });
-            host.features.declare(PassId::Gtao,
-                                  [this, skip](FeatureBuilder& fb)
+            host.features.declare(PassId::Gtao, [this, skipGtao](FeatureBuilder& fb) { declareGtao(fb, skipGtao); });
+            host.features.declare(PassId::Ssr, [this, ssr](FeatureBuilder& fb) { declareSsr(fb, ssr); });
+            host.features.declare(PassId::Lighting,
+                                  [this](FeatureBuilder& fb)
                                   {
-                                      if (skip)
-                                      {
-                                          fb.graph().markHistoryUnwritten("Gtao");
-                                          fb.opaque("Gtao", {}, {}, [this](Rg::PassContext&) { ran.push_back("Gtao.Skip"); });
+                                      const LightingReads in = lightingReads(fb);
+                                      if (!in.valid())
                                           return;
-                                      }
-                                      Rg::RenderGraph&  graph = fb.graph();
-                                      Rg::TextureHandle half  = graph.importTexture("DE.Gtao.AoHalf", absDesc(640, 360, kRgba), fakeResource(50), Rg::Layout::ShaderResource, Rg::Layout::Undefined);
-                                      Rg::TextureHandle compose =
-                                          graph.importTexture("DE.Gtao.AoCompose", absDesc(1280, 720, kRgba), fakeResource(51), Rg::Layout::ShaderResource, Rg::Layout::Undefined);
-                                      fb.addPass<Rg::NoData>(
-                                          "Gtao.Produce",
-                                          [&](Rg::PassBuilder& b, Rg::NoData&)
+                                      litDeclared = true;
+                                      fb.addPass<LightingReads>(
+                                          "Lighting", [&](Rg::PassBuilder& b, LightingReads& d) { litHdrOut = declareLightingUses(b, in, true, d); },
+                                          [this](Rg::PassContext&, const LightingReads& d)
                                           {
-                                              b.read(fb.handle(RenderResource::Depth), Rg::Use::PixelSrv);
-                                              b.read(fb.handle(RenderResource::Attrib), Rg::Use::PixelSrv);
-                                              half = b.write(half, Rg::Use::RenderTarget);
-                                          },
-                                          [this](Rg::PassContext&, const Rg::NoData&) { ran.push_back("Gtao.Produce"); });
-                                      fb.addPass<Rg::NoData>(
-                                          "Gtao.Upsample",
-                                          [&](Rg::PassBuilder& b, Rg::NoData&)
+                                              ran.push_back("Lighting");
+                                              lit = d;
+                                          });
+                                      fb.set(RenderResource::Hdr, litHdrOut);
+                                  });
+            host.features.declare(PassId::LocalVolumes,
+                                  [this](FeatureBuilder& fb)
+                                  {
+                                      const LightingReads in = lightingReads(fb);
+                                      fb.addPass<LightingReads>(
+                                          "LocalVolumes", [&](Rg::PassBuilder& b, LightingReads& d) { volHdrOut = declareLightingUses(b, in, false, d); },
+                                          [this](Rg::PassContext&, const LightingReads& d)
                                           {
-                                              b.read(half, Rg::Use::PixelSrv);
-                                              if (fb.prev(RenderResource::GtaoHistory).valid())
-                                                  b.read(fb.prev(RenderResource::GtaoHistory), Rg::Use::PixelSrv);
-                                              fb.set(RenderResource::GtaoHistory, b.write(fb.handle(RenderResource::GtaoHistory), Rg::Use::RenderTarget));
-                                          },
-                                          [this](Rg::PassContext&, const Rg::NoData&) { ran.push_back("Gtao.Upsample"); });
-                                      fb.addPass<Rg::NoData>(
-                                          "Gtao.Compose",
-                                          [&](Rg::PassBuilder& b, Rg::NoData&)
-                                          {
-                                              b.read(fb.handle(RenderResource::Ao), Rg::Use::PixelSrv);
-                                              b.read(fb.handle(RenderResource::GtaoHistory), Rg::Use::PixelSrv);
-                                              compose = b.write(compose, Rg::Use::RenderTarget);
-                                          },
-                                          [this](Rg::PassContext&, const Rg::NoData&) { ran.push_back("Gtao.Compose"); });
-                                      fb.addPass<Rg::NoData>(
-                                          "Gtao.Handoff",
-                                          [&](Rg::PassBuilder& b, Rg::NoData&)
-                                          {
-                                              b.flags(Rg::PassFlags::OwnBarriers | Rg::PassFlags::SideEffect);
-                                              b.read(compose, Rg::Use::PixelSrv);
-                                          },
-                                          [this](Rg::PassContext&, const Rg::NoData&) { ran.push_back("Gtao.Handoff"); });
+                                              ran.push_back("LocalVolumes");
+                                              vol = d;
+                                          });
+                                      fb.set(RenderResource::Hdr, volHdrOut);
+                                      fb.opaque("LocalVolumes.BindHdr", {}, {}, [this](Rg::PassContext&) { ran.push_back("LocalVolumes.BindHdr"); });
                                   });
             if (!host.features.compileFrame(g, "test"))
                 return false;
             return g.execute();
         }
 
+        void declareGtao(FeatureBuilder& fb, bool skip)
+        {
+            if (skip)
+            {
+                fb.graph().markHistoryUnwritten("Gtao");
+                fb.opaque("Gtao", {}, {}, [this](Rg::PassContext&) { ran.push_back("Gtao.Skip"); });
+                return;
+            }
+            Rg::RenderGraph&  graph   = fb.graph();
+            Rg::TextureHandle half    = graph.importTexture("DE.Gtao.AoHalf", absDesc(640, 360, kRgba), fakeResource(50), Rg::Layout::ShaderResource, Rg::Layout::Undefined);
+            Rg::TextureHandle compose = graph.importTexture("DE.Gtao.AoCompose", absDesc(1280, 720, kRgba), fakeResource(51), Rg::Layout::ShaderResource, Rg::Layout::Undefined);
+            fb.addPass<Rg::NoData>(
+                "Gtao.Produce",
+                [&](Rg::PassBuilder& b, Rg::NoData&)
+                {
+                    b.read(fb.handle(RenderResource::Depth), Rg::Use::PixelSrv);
+                    b.read(fb.handle(RenderResource::Attrib), Rg::Use::PixelSrv);
+                    half = b.write(half, Rg::Use::RenderTarget);
+                },
+                [this](Rg::PassContext&, const Rg::NoData&) { ran.push_back("Gtao.Produce"); });
+            fb.addPass<Rg::NoData>(
+                "Gtao.Upsample",
+                [&](Rg::PassBuilder& b, Rg::NoData&)
+                {
+                    b.read(half, Rg::Use::PixelSrv);
+                    if (fb.prev(RenderResource::GtaoHistory).valid())
+                        b.read(fb.prev(RenderResource::GtaoHistory), Rg::Use::PixelSrv);
+                    fb.set(RenderResource::GtaoHistory, b.write(fb.handle(RenderResource::GtaoHistory), Rg::Use::RenderTarget));
+                },
+                [this](Rg::PassContext&, const Rg::NoData&) { ran.push_back("Gtao.Upsample"); });
+            fb.addPass<Rg::NoData>(
+                "Gtao.Compose",
+                [&](Rg::PassBuilder& b, Rg::NoData&)
+                {
+                    b.read(fb.handle(RenderResource::Ao), Rg::Use::PixelSrv);
+                    b.read(fb.handle(RenderResource::GtaoHistory), Rg::Use::PixelSrv);
+                    compose = b.write(compose, Rg::Use::RenderTarget);
+                },
+                [this](Rg::PassContext&, const Rg::NoData&) { ran.push_back("Gtao.Compose"); });
+            fb.graph().blackboard().set(GtaoOutput{ compose });
+        }
+
+        void declareSsr(FeatureBuilder& fb, bool run)
+        {
+            if (!run)
+            {
+                fb.opaque("Ssr", {}, {}, [this](Rg::PassContext&) { ran.push_back("Ssr.Skip"); });
+                return;
+            }
+            Rg::TextureHandle full = fb.graph().importTexture("DE.Ssr.Full", absDesc(1280, 720, kRgba), fakeResource(52), Rg::Layout::ShaderResource, Rg::Layout::Undefined);
+            fb.addPass<Rg::NoData>(
+                "Ssr.Upsample",
+                [&](Rg::PassBuilder& b, Rg::NoData&)
+                {
+                    b.read(fb.handle(RenderResource::Depth), Rg::Use::PixelSrv);
+                    b.read(fb.handle(RenderResource::Albedo), Rg::Use::PixelSrv);
+                    full = b.write(full, Rg::Use::RenderTarget);
+                },
+                [this](Rg::PassContext&, const Rg::NoData&) { ran.push_back("Ssr.Upsample"); });
+            fb.graph().blackboard().set(SsrOutput{ full });
+        }
+
         long at(const char* n) const
         {
             return std::find(ran.begin(), ran.end(), std::string(n)) - ran.begin();
         }
+
+        std::string resName(Rg::TextureHandle h) const
+        {
+            return h.valid() ? host.graph.resourceInfo(h.index).name : "";
+        }
     };
+
+    bool hasPass(const Rg::RenderGraph& g, const char* name)
+    {
+        for (uint32_t p = 0; p < g.passCount(); ++p)
+            if (std::string(g.passName(p)) == name)
+                return true;
+        return false;
+    }
 } // namespace
 
-TEST(FrameFeatures, GtaoEntryRunsItsStepsThenTheHandoffBeforeLighting)
+TEST(FrameFeatures, GtaoAndSsrRunTheirStepsBeforeTheDeclaredLightingPasses)
 {
-    DeclaredGtaoFrame f;
+    DeclaredLightingFrame f;
     ASSERT_TRUE(f.run(false));
     EXPECT_TRUE(f.host.features.orderOk());
     EXPECT_LT(f.at("Decals"), f.at("Gtao.Produce"));
     EXPECT_LT(f.at("Gtao.Produce"), f.at("Gtao.Upsample"));
     EXPECT_LT(f.at("Gtao.Upsample"), f.at("Gtao.Compose"));
-    EXPECT_LT(f.at("Gtao.Compose"), f.at("Gtao.Handoff"));
-    EXPECT_LT(f.at("Gtao.Handoff"), f.at("SSR"));
-    EXPECT_LT(f.at("SSR"), f.at("Lighting"));
-    EXPECT_EQ(static_cast<size_t>(f.at("Gtao.Handoff")) + 1, static_cast<size_t>(f.at("SSR")));
+    EXPECT_LT(f.at("Gtao.Compose"), f.at("Ssr.Upsample"));
+    EXPECT_LT(f.at("Ssr.Upsample"), f.at("Lighting"));
+    EXPECT_LT(f.at("Lighting"), f.at("LocalVolumes"));
+    EXPECT_LT(f.at("LocalVolumes"), f.at("LocalVolumes.BindHdr"));
+    EXPECT_EQ(static_cast<size_t>(f.at("LocalVolumes.BindHdr")) + 1, static_cast<size_t>(f.at("Sky")));
+    // Phase 6 part 4: Lighting is declared, so the GTAO / SSR hand-off passes are gone.
+    EXPECT_FALSE(hasPass(f.host.graph, "Gtao.Handoff"));
+    EXPECT_FALSE(hasPass(f.host.graph, "Ssr.Handoff"));
 }
 
-TEST(FrameFeatures, HandoffPassGetsNoGraphBarrierSoItMovesTheOutputItself)
+TEST(FrameFeatures, LightingReadsTheGtaoComposeThroughAPlannedBarrier)
 {
-    DeclaredGtaoFrame f;
+    DeclaredLightingFrame f;
     ASSERT_TRUE(f.run(false));
     const Rg::RenderGraph& g = f.host.graph;
-    // The compose is written by a declared pass (planned barrier from the import's layout) and
-    // read by the opaque hand-off: nothing is planned into the hand-off, it transitions itself.
+    EXPECT_EQ(f.resName(f.lit.ao), "DE.Gtao.AoCompose");
+    EXPECT_EQ(f.resName(f.vol.ao), "DE.Gtao.AoCompose");
+    // Compose: written by Gtao.Compose (RT), then the graph plans RT -> SRV right into Lighting.
     const std::vector<Rg::BarrierRec> compose = recordsOn(g, "DE.Gtao.AoCompose");
-    ASSERT_FALSE(compose.empty());
-    EXPECT_EQ(g.passName(compose[0].pass), std::string("Gtao.Compose"));
-    EXPECT_EQ(compose[0].before.layout, Rg::Layout::ShaderResource);
-    EXPECT_EQ(compose[0].after.layout, Rg::Layout::RenderTarget);
-    for (const Rg::BarrierRec& b : g.barriers())
-        EXPECT_NE(g.passName(b.pass), std::string("Gtao.Handoff"));
-    // Depth was last touched by opaque passes: the first declared reader gets a tracked barrier.
-    const std::vector<Rg::BarrierRec> depth = recordsOn(g, "Depth");
-    ASSERT_FALSE(depth.empty());
-    EXPECT_TRUE(depth[0].tracked);
-    EXPECT_EQ(g.passName(depth[0].pass), std::string("Gtao.Produce"));
+    ASSERT_EQ(compose.size(), 2u);
+    EXPECT_EQ(g.passName(compose[1].pass), std::string("Lighting"));
+    EXPECT_FALSE(compose[1].tracked);
+    EXPECT_EQ(compose[1].before.layout, Rg::Layout::RenderTarget);
+    EXPECT_EQ(compose[1].after.layout, Rg::Layout::ShaderResource);
+    // The authored AO is only Gtao.Compose's input on a GTAO frame.
+    for (const Rg::BarrierRec& b : recordsOn(g, "Ao"))
+        EXPECT_NE(g.passName(b.pass), std::string("Lighting"));
+}
+
+TEST(FrameFeatures, SkippedGtaoLightingReadsTheAuthoredAoWithATrackedBarrier)
+{
+    DeclaredLightingFrame f;
+    ASSERT_TRUE(f.run(false));
+    ASSERT_TRUE(f.run(true)); // the blackboard is per frame: last frame's GtaoOutput must not leak
+    EXPECT_TRUE(f.host.features.orderOk());
+    EXPECT_EQ(f.resName(f.lit.ao), "Ao");
+    EXPECT_EQ(f.resName(f.vol.ao), "Ao");
+    const Rg::RenderGraph& g = f.host.graph;
+    EXPECT_EQ(g.findResource("DE.Gtao.AoCompose"), Rg::kInvalidIndex);
+    // No declared pass touched AO before: Lighting is its first declared reader, from the import's state.
+    const std::vector<Rg::BarrierRec> ao = recordsOn(g, "Ao");
+    ASSERT_EQ(ao.size(), 1u);
+    EXPECT_EQ(g.passName(ao[0].pass), std::string("Lighting"));
+    EXPECT_EQ(ao[0].before.layout, Rg::Layout::RenderTarget);
+    EXPECT_EQ(ao[0].after.layout, Rg::Layout::ShaderResource);
+}
+
+TEST(FrameFeatures, LightingReadsSsrFullOnlyWhenSsrRan)
+{
+    DeclaredLightingFrame f;
+    ASSERT_TRUE(f.run(false, true));
+    EXPECT_EQ(f.resName(f.lit.ssr), "DE.Ssr.Full");
+    EXPECT_FALSE(f.vol.ssr.valid()); // local volumes never sample SSR
+    const std::vector<Rg::BarrierRec> full = recordsOn(f.host.graph, "DE.Ssr.Full");
+    ASSERT_EQ(full.size(), 2u);
+    EXPECT_EQ(f.host.graph.passName(full[1].pass), std::string("Lighting"));
+    EXPECT_EQ(full[1].after.layout, Rg::Layout::ShaderResource);
+
+    ASSERT_TRUE(f.run(false, false));
+    EXPECT_TRUE(f.host.features.orderOk());
+    EXPECT_NE(static_cast<size_t>(f.at("Ssr.Skip")), f.ran.size());
+    EXPECT_NE(static_cast<size_t>(f.at("Lighting")), f.ran.size());
+    EXPECT_FALSE(f.lit.ssr.valid()); // the exec binds the SSR dummy
+}
+
+TEST(FrameFeatures, LocalVolumesBlendOntoTheHdrLightingWrote)
+{
+    DeclaredLightingFrame f;
+    ASSERT_TRUE(f.run(false));
+    const Rg::RenderGraph& g = f.host.graph;
+    ASSERT_TRUE(f.litHdrOut.valid());
+    ASSERT_TRUE(f.volHdrOut.valid());
+    EXPECT_EQ(f.resName(f.lit.hdr), "Hdr");
+    EXPECT_EQ(f.lit.hdr, f.litHdrOut);
+    // LocalVolumes reads Lighting's HDR version (readWrite) and writes the next one.
+    EXPECT_EQ(f.vol.hdr, f.volHdrOut);
+    EXPECT_EQ(f.volHdrOut.index, f.litHdrOut.index);
+    EXPECT_EQ(f.volHdrOut.version, f.litHdrOut.version + 1);
+    EXPECT_NE(static_cast<size_t>(f.at("Lighting")), f.ran.size()); // not culled
+    // HDR: a tracked barrier into Lighting (Decals, opaque, drew to it last), then only a planned
+    // RT -> RT write-after-write sync into LocalVolumes; the layout never leaves RenderTarget.
+    const std::vector<Rg::BarrierRec> hdr = recordsOn(g, "Hdr");
+    ASSERT_EQ(hdr.size(), 2u);
+    EXPECT_EQ(g.passName(hdr[0].pass), std::string("Lighting"));
+    EXPECT_TRUE(hdr[0].tracked);
+    EXPECT_EQ(hdr[0].after.layout, Rg::Layout::RenderTarget);
+    EXPECT_EQ(g.passName(hdr[1].pass), std::string("LocalVolumes"));
+    EXPECT_FALSE(hdr[1].tracked);
+    EXPECT_EQ(hdr[1].before.layout, Rg::Layout::RenderTarget);
+    EXPECT_EQ(hdr[1].after.layout, Rg::Layout::RenderTarget);
+    // G-buffer inputs were last written by opaque passes: tracked barriers into the first declared reader.
+    const std::vector<Rg::BarrierRec> albedo = recordsOn(g, "Albedo");
+    ASSERT_FALSE(albedo.empty());
+    EXPECT_TRUE(albedo[0].tracked);
+    EXPECT_EQ(albedo[0].after.layout, Rg::Layout::ShaderResource);
+}
+
+// declareLightingUses' HDR contract: Lighting discards sky pixels (they keep the Decals clear) and
+// LocalVolumes blends additively, so both read and write HDR (one RenderTarget access, read + write).
+// A write-only use would tell the graph the earlier contents are dead.
+TEST(FrameFeatures, LightingPassesReadAndWriteHdr)
+{
+    Rg::RenderGraph g;
+    g.beginFrame(1280, 720);
+    LightingReads in;
+    in.albedo              = g.importTexture("Albedo", absDesc(1280, 720, kRgba), fakeResource(1), Rg::Layout::ShaderResource, Rg::Layout::ShaderResource);
+    in.attrib              = g.importTexture("Attrib", absDesc(1280, 720, kRgba), fakeResource(2), Rg::Layout::ShaderResource, Rg::Layout::ShaderResource);
+    in.depth               = g.importTexture("Depth", absDesc(1280, 720, kD32), fakeResource(3), Rg::Layout::ShaderResource, Rg::Layout::ShaderResource);
+    in.ao                  = g.importTexture("Ao", absDesc(1280, 720, kRgba), fakeResource(4), Rg::Layout::ShaderResource, Rg::Layout::ShaderResource);
+    Rg::TextureHandle swap = g.importTexture("Swap", absDesc(1280, 720, kBgra8), fakeResource(5), Rg::Layout::RenderTarget, Rg::Layout::RenderTarget);
+    Rg::TextureHandle hdr0;
+    g.addPass<Rg::NoData>(
+        "Clear", [&](Rg::PassBuilder& b, Rg::NoData&) { hdr0 = b.write(b.create("Hdr", absDesc(1280, 720, kRgba)), Rg::Use::RenderTarget); }, [](Rg::PassContext&, const Rg::NoData&) {});
+    in.hdr = hdr0;
+    g.addPass<LightingReads>("Lighting", [&](Rg::PassBuilder& b, LightingReads& d) { in.hdr = declareLightingUses(b, in, true, d); }, [](Rg::PassContext&, const LightingReads&) {});
+    g.addPass<LightingReads>("LocalVolumes", [&](Rg::PassBuilder& b, LightingReads& d) { in.hdr = declareLightingUses(b, in, false, d); }, [](Rg::PassContext&, const LightingReads&) {});
+    g.addPass<Rg::NoData>(
+        "Post",
+        [&](Rg::PassBuilder& b, Rg::NoData&)
+        {
+            b.read(in.hdr, Rg::Use::PixelSrv);
+            b.write(swap, Rg::Use::RenderTarget);
+        },
+        [](Rg::PassContext&, const Rg::NoData&) {});
+    ASSERT_TRUE(g.compile());
+    std::string json;
+    g.dumpJson(json);
+    const auto accesses = [&](const char* pass)
+    {
+        const size_t at  = json.find(std::string("\"name\":\"") + pass + "\"");
+        const size_t end = json.find("{\"index\":", at);
+        return at == std::string::npos ? std::string() : json.substr(at, end - at);
+    };
+    const std::string readWrite = "\"use\":\"RenderTarget\",\"read\":true,\"write\":true";
+    EXPECT_NE(accesses("Lighting").find(readWrite), std::string::npos) << accesses("Lighting");
+    EXPECT_NE(accesses("LocalVolumes").find(readWrite), std::string::npos) << accesses("LocalVolumes");
+    // The clear feeds Lighting, so nothing before it is culled and the order is kept.
+    EXPECT_FALSE(g.passCulled(g.findPass("Clear")));
+    EXPECT_LT(g.passOrder(g.findPass("Clear")), g.passOrder(g.findPass("Lighting")));
+    EXPECT_LT(g.passOrder(g.findPass("Lighting")), g.passOrder(g.findPass("LocalVolumes")));
+}
+
+TEST(FrameFeatures, LightingWithoutSceneBuffersFallsBackToAnOpaquePass)
+{
+    // lightingReads().valid() is what SceneRenderer checks before declaring (else an opaque no-op).
+    HostFrame          host;
+    Rg::RenderGraph&   g     = host.graph;
+    uint32_t           count = 0;
+    const FeaturePass* list  = sandboxFeatures(count);
+    g.beginFrame(1280, 720);
+    host.features.begin(list, count); // nothing imported: no G-buffer handles
+    bool valid = true;
+    host.features.declare(PassId::Lighting,
+                          [&](FeatureBuilder& fb)
+                          {
+                              valid = lightingReads(fb).valid();
+                              fb.opaque("Lighting", {}, {}, [](Rg::PassContext&) {});
+                          });
+    host.features.compileFrame(g, "test"); // the other entries are missing: only the declare matters
+    EXPECT_FALSE(valid);
 }
 
 TEST(FrameFeatures, GtaoEntryWritesItsHistoryAndASkippedFrameDropsTheNextPrev)
 {
-    DeclaredGtaoFrame f;
+    DeclaredLightingFrame f;
     ASSERT_TRUE(f.run(false));
     EXPECT_FALSE(f.gtao.prev.valid());
     ASSERT_TRUE(f.run(false));
