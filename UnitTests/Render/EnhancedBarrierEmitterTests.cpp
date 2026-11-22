@@ -1,6 +1,7 @@
 #include "Render/EnhancedBarrierEmitter.h"
 #include "Render/RenderGraphTypes.h"
 #include "Render/ResourceStateTracker.h"
+#include "Render/ShadowInputs.h"
 
 #include <gtest/gtest.h>
 
@@ -277,6 +278,26 @@ TEST(EnhancedBarrierEmitter, CreationOnlyNeedsAnExplicitLayoutForLegacyOnlyTextu
     EXPECT_EQ(initialLayout(D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE), D3D12_BARRIER_LAYOUT_SHADER_RESOURCE);
     EXPECT_EQ(initialLayout(D3D12_RESOURCE_STATE_COPY_DEST), D3D12_BARRIER_LAYOUT_COPY_DEST);
     EXPECT_EQ(initialLayout(D3D12_RESOURCE_STATE_GENERIC_READ), D3D12_BARRIER_LAYOUT_GENERIC_READ);
+}
+
+TEST(EnhancedBarrierEmitter, ShadowMapsAreCreatedInTheirFrameStartState)
+{
+    // ShadowSystem / LocalShadowSystem create in DEPTH_WRITE and trackResource that state; the first
+    // frame's Shadows pass declares its write with no barrier, so the two must be the same state.
+    Rg::UseState created;
+    ASSERT_TRUE(legacyEquivalent(D3D12_RESOURCE_STATE_DEPTH_WRITE, Rg::ResourceKind::Texture, created));
+    EXPECT_EQ(created, shadowFrameStartState());
+
+    // FrameComposer's end-of-frame barrier: read by the lighting passes, back to writable.
+    const Rg::UseState          read = Rg::useState(Rg::Use::PixelSrv, Rg::ResourceKind::Texture, Rg::Queue::Graphics);
+    const D3D12_TEXTURE_BARRIER b    = makeTextureBarrier(nullptr, read, shadowFrameStartState());
+    EXPECT_EQ(b.SyncBefore, D3D12_BARRIER_SYNC_PIXEL_SHADING);
+    EXPECT_EQ(b.AccessBefore, D3D12_BARRIER_ACCESS_SHADER_RESOURCE);
+    EXPECT_EQ(b.LayoutBefore, D3D12_BARRIER_LAYOUT_SHADER_RESOURCE);
+    EXPECT_EQ(b.SyncAfter, D3D12_BARRIER_SYNC_DEPTH_STENCIL);
+    EXPECT_EQ(b.AccessAfter, D3D12_BARRIER_ACCESS_DEPTH_STENCIL_WRITE);
+    EXPECT_EQ(b.LayoutAfter, D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_WRITE);
+    EXPECT_EQ(b.Subresources.IndexOrFirstMipLevel, kAllSubresources);
 }
 
 TEST(EnhancedBarrierEmitter, ResourceDesc1CopiesEveryField)
