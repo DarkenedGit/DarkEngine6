@@ -219,6 +219,10 @@ namespace Dark::Rg
     {
         return m_graph.m_frameIndex;
     }
+    bool PassContext::ownBarriers() const
+    {
+        return hasFlag(m_graph.m_passes[m_pass].flags, PassFlags::OwnBarriers);
+    }
 
     uint32_t PassContext::width(TextureHandle h) const
     {
@@ -257,6 +261,126 @@ namespace Dark::Rg
     {
         const auto* r = m_graph.resourceAt(h.index, ResourceKind::Texture);
         return r ? r->historyId : kNoPass;
+    }
+
+    namespace
+    {
+        bool isShaderRead(Use use)
+        {
+            return use == Use::PixelSrv || use == Use::ComputeSrv || use == Use::AnySrv || use == Use::DepthRead;
+        }
+
+        void logUndeclaredView(const char* pass, const char* resource, const char* view)
+        {
+            // One line per pass/resource/view kind: a converted pass that binds what it did not declare
+            // gets no barrier for it, so this is a bug in the pass's setup.
+            static std::vector<std::string> logged;
+            std::string key = std::string(pass ? pass : "") + "|" + (resource ? resource : "") + "|" + view;
+            if (std::find(logged.begin(), logged.end(), key) != logged.end() || logged.size() >= 256)
+                return;
+            logged.push_back(std::move(key));
+            DE_LOG_ERROR(LogCategory::Render, "RenderGraph: pass {} asked for the {} of {} without declaring that use (logs once)", pass ? pass : "?",
+                         view, resource ? resource : "?");
+        }
+    } // namespace
+
+    bool PassContext::declares(uint16_t resource, ViewUse view) const
+    {
+        for (const auto& a : m_graph.m_passes[m_pass].accesses)
+        {
+            if (a.resource != resource)
+                continue;
+            switch (view)
+            {
+            case ViewUse::Rtv:
+                if (a.write && a.use == Use::RenderTarget)
+                    return true;
+                break;
+            case ViewUse::Dsv:
+                if (a.write && a.use == Use::DepthWrite)
+                    return true;
+                break;
+            case ViewUse::DsvReadOnly:
+                if (a.use == Use::DepthRead || a.use == Use::DepthWrite)
+                    return true;
+                break;
+            case ViewUse::Srv:
+                if (a.read && isShaderRead(a.use))
+                    return true;
+                break;
+            }
+        }
+        return false;
+    }
+
+    uint64_t PassContext::view(TextureHandle h, ViewUse use) const
+    {
+        const auto* r = m_graph.resourceAt(h.index, ResourceKind::Texture);
+        if (!r)
+            return 0;
+        static const char* const kNames[] = { "RTV", "DSV", "read-only DSV", "SRV" };
+        if (!declares(h.index, use))
+        {
+            logUndeclaredView(passName(), r->name, kNames[static_cast<uint32_t>(use)]);
+            return 0;
+        }
+        switch (use)
+        {
+        case ViewUse::Rtv:
+            return r->views.rtv;
+        case ViewUse::Dsv:
+            return r->views.dsv;
+        case ViewUse::DsvReadOnly:
+            return r->views.dsvReadOnly;
+        case ViewUse::Srv:
+            return r->views.srv;
+        }
+        return 0;
+    }
+
+    uint64_t PassContext::rtv(TextureHandle h) const
+    {
+        return view(h, ViewUse::Rtv);
+    }
+
+    uint64_t PassContext::dsv(TextureHandle h, bool readOnly) const
+    {
+        return view(h, readOnly ? ViewUse::DsvReadOnly : ViewUse::Dsv);
+    }
+
+    uint64_t PassContext::srvCpu(TextureHandle h) const
+    {
+        return view(h, ViewUse::Srv);
+    }
+
+    uint64_t PassContext::srvTable(std::initializer_list<TextureHandle> hs) const
+    {
+        return srvTable(hs.begin(), static_cast<uint32_t>(hs.size()));
+    }
+
+    uint64_t PassContext::srvTable(const TextureHandle* hs, uint32_t count) const
+    {
+        constexpr uint32_t kMaxTable = 32;
+        if (!hs || count == 0 || count > kMaxTable)
+            return 0;
+        uint64_t cpu[kMaxTable];
+        for (uint32_t i = 0; i < count; ++i)
+        {
+            cpu[i] = srvCpu(hs[i]);
+            if (cpu[i] == 0)
+                return 0;
+        }
+        return descriptorTable(cpu, count);
+    }
+
+    uint64_t PassContext::descriptorTable(const uint64_t* cpu, uint32_t count) const
+    {
+        if (!m_executor || !cpu || count == 0)
+            return 0;
+        for (uint32_t i = 0; i < count; ++i)
+            if (cpu[i] == 0)
+                return 0;
+        return m_executor->descriptorTable(cpu, count);
     }
 
     // ---------------------------------------------------------------- RenderGraph: frame
@@ -518,6 +642,24 @@ namespace Dark::Rg
         resolveSize(node);
         const uint16_t index = addResource(std::move(node), kNoPass);
         return index == kInvalidIndex ? TextureHandle{} : TextureHandle{ index, 0 };
+    }
+
+    void RenderGraph::setViews(TextureHandle h, const TextureViews& views)
+    {
+        if (h.index < m_resources.size() && m_resources[h.index].kind == ResourceKind::Texture)
+            m_resources[h.index].views = views;
+    }
+
+    void RenderGraph::setNative(TextureHandle h, ID3D12Resource* native)
+    {
+        if (h.index < m_resources.size() && m_resources[h.index].kind == ResourceKind::Texture && m_resources[h.index].lifetime != Lifetime::Transient)
+            m_resources[h.index].native = native;
+    }
+
+    TextureViews RenderGraph::views(TextureHandle h) const
+    {
+        const ResourceNode* r = resourceAt(h.index, ResourceKind::Texture);
+        return r ? r->views : TextureViews{};
     }
 
     BufferHandle RenderGraph::importBuffer(const char* name, const BufferDesc& desc, ID3D12Resource* native)

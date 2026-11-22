@@ -221,7 +221,8 @@ namespace Dark
         m_compiled.clear();
     }
 
-    void FeatureFrame::importResource(Rg::RenderGraph& g, RenderResource resource, ID3D12Resource* native, const Rg::TextureDesc& desc, Rg::Layout initial)
+    void FeatureFrame::importResource(Rg::RenderGraph& g, RenderResource resource, ID3D12Resource* native, const Rg::TextureDesc& desc, Rg::Layout initial,
+                                      const Rg::TextureViews& views)
     {
         const uint32_t i = static_cast<uint32_t>(resource);
         if (i >= kRenderResourceCount || isHistory(resource))
@@ -231,6 +232,7 @@ namespace Dark
         // layout: the back buffer still gets ImGui and the movie after the graph (until Phase 7), so
         // Renderer::endFrame makes its RT -> PRESENT transition.
         m_handles[i] = g.importTexture(resource == RenderResource::Swap ? "backbuffer" : renderResourceName(resource), desc, native, initial, Rg::Layout::Undefined);
+        g.setViews(m_handles[i], views);
     }
 
     void FeatureFrame::setHistory(RenderResource resource, const Rg::HistoryPair& pair)
@@ -250,7 +252,7 @@ namespace Dark
         if (inList)
         {
             static bool warned = false;
-            if (m_slots[slotIndex(id)].call && !warned)
+            if (isSet(id) && !warned)
             {
                 warned = true;
                 DE_LOG_WARN(LogCategory::Render, "FeatureFrame: pass {} set twice in one frame; the last callback runs (warns once)", passName(id));
@@ -267,54 +269,94 @@ namespace Dark
         return false;
     }
 
+    void FeatureFrame::addOpaque(Rg::RenderGraph& g, const char* name, PassId id, const RenderResource* reads, uint32_t readCount, const RenderResource* writes,
+                                 uint32_t writeCount, Slot slot)
+    {
+        g.addPass<Rg::NoData>(
+            name,
+            [&](Rg::PassBuilder& b, Rg::NoData&)
+            {
+                b.flags(Rg::PassFlags::OwnBarriers | Rg::PassFlags::SideEffect);
+                bool written[kRenderResourceCount] = {};
+                for (uint32_t w = 0; w < writeCount; ++w)
+                    written[static_cast<uint32_t>(writes[w])] = true;
+                for (uint32_t r = 0; r < readCount; ++r)
+                {
+                    const RenderResource res = reads[r];
+                    Rg::TextureHandle&   h   = m_handles[static_cast<uint32_t>(res)];
+                    if (h.valid() && !written[static_cast<uint32_t>(res)])
+                        b.read(h, isDepthLike(res) ? Rg::Use::DepthRead : Rg::Use::PixelSrv);
+                }
+                for (uint32_t w = 0; w < writeCount; ++w)
+                {
+                    const RenderResource res = writes[w];
+                    Rg::TextureHandle&   h   = m_handles[static_cast<uint32_t>(res)];
+                    if (!h.valid())
+                        continue;
+                    if (isHistory(res))
+                    {
+                        // Reads last frame's contents (when they are valid) and writes this frame's.
+                        const Rg::TextureHandle prev = m_prevHandles[static_cast<uint32_t>(res)];
+                        if (prev.valid())
+                            b.read(prev, Rg::Use::PixelSrv);
+                        h = b.write(h, Rg::Use::RenderTarget);
+                        continue;
+                    }
+                    bool alsoRead = false;
+                    for (uint32_t r = 0; r < readCount; ++r)
+                        alsoRead = alsoRead || reads[r] == res;
+                    const Rg::Use use = isDepthLike(res) ? Rg::Use::DepthWrite : Rg::Use::RenderTarget;
+                    h                 = alsoRead ? b.readWrite(h, use) : b.write(h, use);
+                }
+            },
+            [slot](Rg::PassContext& ctx, const Rg::NoData&) { slot.call(slot.fn, ctx); });
+        m_graphIds.push_back(id);
+    }
+
     void FeatureFrame::addPasses(Rg::RenderGraph& g)
     {
         for (uint32_t i = 0; i < m_count; ++i)
         {
             const FeaturePass& node = m_list[i];
             const Slot         slot = m_slots[slotIndex(node.id)];
+            if (slot.declare)
+            {
+                FeatureBuilder builder(*this, g, node.id);
+                slot.declare(slot.fn, builder);
+                // Passes added straight on the graph still belong to this entry.
+                while (m_firstPass + m_graphIds.size() < g.passCount())
+                    m_graphIds.push_back(node.id);
+                continue;
+            }
             if (!slot.call)
                 continue;
-            g.addPass<Rg::NoData>(
-                passName(node.id),
-                [&](Rg::PassBuilder& b, Rg::NoData&)
-                {
-                    b.flags(Rg::PassFlags::OwnBarriers | Rg::PassFlags::SideEffect);
-                    bool written[kRenderResourceCount] = {};
-                    for (uint32_t w = 0; w < node.writeCount; ++w)
-                        written[static_cast<uint32_t>(node.writes[w])] = true;
-                    for (uint32_t r = 0; r < node.readCount; ++r)
-                    {
-                        const RenderResource res = node.reads[r];
-                        Rg::TextureHandle&   h   = m_handles[static_cast<uint32_t>(res)];
-                        if (h.valid() && !written[static_cast<uint32_t>(res)])
-                            b.read(h, isDepthLike(res) ? Rg::Use::DepthRead : Rg::Use::PixelSrv);
-                    }
-                    for (uint32_t w = 0; w < node.writeCount; ++w)
-                    {
-                        const RenderResource res = node.writes[w];
-                        Rg::TextureHandle&   h   = m_handles[static_cast<uint32_t>(res)];
-                        if (!h.valid())
-                            continue;
-                        if (isHistory(res))
-                        {
-                            // Reads last frame's contents (when they are valid) and writes this frame's.
-                            const Rg::TextureHandle prev = m_prevHandles[static_cast<uint32_t>(res)];
-                            if (prev.valid())
-                                b.read(prev, Rg::Use::PixelSrv);
-                            h = b.write(h, Rg::Use::RenderTarget);
-                            continue;
-                        }
-                        bool alsoRead = false;
-                        for (uint32_t r = 0; r < node.readCount; ++r)
-                            alsoRead = alsoRead || node.reads[r] == res;
-                        const Rg::Use use = isDepthLike(res) ? Rg::Use::DepthWrite : Rg::Use::RenderTarget;
-                        h                 = alsoRead ? b.readWrite(h, use) : b.write(h, use);
-                    }
-                },
-                [slot](Rg::PassContext& ctx, const Rg::NoData&) { slot.call(slot.fn, ctx); });
-            m_graphIds.push_back(node.id);
+            addOpaque(g, passName(node.id), node.id, node.reads, node.readCount, node.writes, node.writeCount, slot);
         }
+    }
+
+    Rg::TextureHandle FeatureBuilder::handle(RenderResource resource) const
+    {
+        const auto i = static_cast<uint32_t>(resource);
+        return i < kRenderResourceCount ? m_frame.m_handles[i] : Rg::TextureHandle{};
+    }
+
+    Rg::TextureHandle FeatureBuilder::prev(RenderResource resource) const
+    {
+        const auto i = static_cast<uint32_t>(resource);
+        return i < kRenderResourceCount ? m_frame.m_prevHandles[i] : Rg::TextureHandle{};
+    }
+
+    void FeatureBuilder::set(RenderResource resource, Rg::TextureHandle h)
+    {
+        const auto i = static_cast<uint32_t>(resource);
+        if (i < kRenderResourceCount && h.valid())
+            m_frame.m_handles[i] = h;
+    }
+
+    void FeatureBuilder::notePass()
+    {
+        while (m_frame.m_firstPass + m_frame.m_graphIds.size() < m_graph.passCount())
+            m_frame.m_graphIds.push_back(m_id);
     }
 
     bool FeatureFrame::compileFrame(Rg::RenderGraph& g, const char* host)
@@ -323,6 +365,7 @@ namespace Dark
         m_compiled.clear();
         m_orderOk                = false;
         const uint32_t firstPass = g.passCount();
+        m_firstPass              = firstPass;
         addPasses(g);
         if (!g.compile())
         {
@@ -331,7 +374,8 @@ namespace Dark
         }
         for (const uint32_t p : g.order())
         {
-            if (p >= firstPass && p - firstPass < m_graphIds.size())
+            // A converted entry adds several passes: one PassId per run of them.
+            if (p >= firstPass && p - firstPass < m_graphIds.size() && (m_compiled.empty() || m_compiled.back() != m_graphIds[p - firstPass]))
                 m_compiled.push_back(m_graphIds[p - firstPass]);
         }
         m_orderOk = validateHostFeatureOrder(host, m_list, m_count, m_compiled.data(), static_cast<uint32_t>(m_compiled.size()));

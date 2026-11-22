@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <initializer_list>
 #include <memory>
 #include <new>
 #include <string>
@@ -138,6 +139,17 @@ namespace Dark::Rg
         Arena*            m_arena = nullptr;
     };
 
+    // CPU descriptor handles of a texture's views (D3D12_CPU_DESCRIPTOR_HANDLE::ptr; 0 = none), given
+    // with an import or a history slot (Phase 6). The SRV must be CPU-only (non-shader-visible): the
+    // executor copies it into the frame's descriptor ring for PassContext::srvTable.
+    struct TextureViews
+    {
+        uint64_t srv         = 0;
+        uint64_t rtv         = 0;
+        uint64_t dsv         = 0;
+        uint64_t dsvReadOnly = 0;
+    };
+
     struct HistoryPair
     {
         TextureHandle prev; // invalid on first use, after a resize, invalidateHistory() or a skipped frame
@@ -227,10 +239,22 @@ namespace Dark::Rg
         {
             (void)ctx;
         }
+        // Copies `count` CPU descriptors into one contiguous shader-visible table for this frame and
+        // returns its GPU handle (D3D12_GPU_DESCRIPTOR_HANDLE::ptr); 0 when there is no ring or it is
+        // full. CPU-only executors have none.
+        virtual uint64_t descriptorTable(const uint64_t* cpu, uint32_t count)
+        {
+            (void)cpu, (void)count;
+            return 0;
+        }
     };
 
     // Execute-time view of a pass (§3.3). cmd() is the executor's list for the pass's queue (null without an
-    // executor); the descriptor helpers (rtv/srvTable/uav) arrive with the Phase 6 descriptor ring.
+    // executor). The view helpers return the views given with the import / history slot, and only for
+    // a use the pass declared (0 otherwise, logged once per pass name): rtv() needs a RenderTarget
+    // write, dsv() a DepthWrite (or DepthRead for the read-only view), srvCpu()/srvTable() a shader
+    // read (PixelSrv/ComputeSrv/AnySrv/DepthRead). srvTable copies the views into the frame's descriptor
+    // ring (Phase 6) and returns the table's GPU handle, 0 if a view is missing or the ring is full.
     class PassContext
     {
     public:
@@ -247,6 +271,8 @@ namespace Dark::Rg
         const char* scopeName() const;
         uint32_t    scopeColor() const;
         uint64_t    frameIndex() const;
+        // An opaque (OwnBarriers) pass: records its own barriers and binds its own descriptor heaps.
+        bool ownBarriers() const;
         Executor*   executor() const
         {
             return m_executor;
@@ -261,8 +287,25 @@ namespace Dark::Rg
         uint32_t           aliasSlot(BufferHandle h) const;
         uint32_t           historyId(TextureHandle h) const; // persistent slot id of a history texture
 
+        uint64_t rtv(TextureHandle h) const;
+        uint64_t dsv(TextureHandle h, bool readOnly = false) const;
+        uint64_t srvCpu(TextureHandle h) const;
+        uint64_t srvTable(std::initializer_list<TextureHandle> hs) const;
+        uint64_t srvTable(const TextureHandle* hs, uint32_t count) const;
+        // A table of arbitrary CPU views (views the graph does not own, e.g. a pipeline's own constants).
+        uint64_t descriptorTable(const uint64_t* cpu, uint32_t count) const;
+
     private:
         friend class RenderGraph;
+        enum class ViewUse : uint8_t
+        {
+            Rtv,
+            Dsv,
+            DsvReadOnly,
+            Srv,
+        };
+        bool     declares(uint16_t resource, ViewUse view) const;
+        uint64_t view(TextureHandle h, ViewUse use) const;
         PassContext(const RenderGraph& graph, uint32_t pass, Executor* executor) :
             m_graph(graph),
             m_pass(pass),
@@ -436,6 +479,12 @@ namespace Dark::Rg
         }
 
         TextureHandle importTexture(const char* name, const TextureDesc& desc, ID3D12Resource* native, Layout initial, Layout finalLayout);
+        // Views for a texture's resource (an import, or a history slot this frame). Setup time only.
+        void setViews(TextureHandle h, const TextureViews& views);
+        // The native resource behind a history slot this frame (Phase 6: the target registry's
+        // allocation), so graph barriers reach it. Imports get theirs from importTexture.
+        void setNative(TextureHandle h, ID3D12Resource* native);
+        TextureViews views(TextureHandle h) const;
         BufferHandle  importBuffer(const char* name, const BufferDesc& desc, ID3D12Resource* native);
         // Imported every frame; starts and ends in PRESENT. Writing it makes the writer a sink.
         TextureHandle importBackBuffer(ID3D12Resource* native, uint32_t width, uint32_t height, uint32_t dxgiFormat);
@@ -594,6 +643,7 @@ namespace Dark::Rg
             BufferDesc               buf;
             uint32_t                 width = 0, height = 0;
             ID3D12Resource*          native      = nullptr;
+            TextureViews             views;
             Layout                   initial     = Layout::Undefined;
             Layout                   finalLayout = Layout::Undefined;
             bool                     hasFinal    = false;

@@ -3,6 +3,7 @@
 #include "Render/RenderGraph.h"
 
 #include <cstdint>
+#include <initializer_list>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -90,6 +91,55 @@ namespace Dark
     bool     validateHostFeatureOrder(const char* host, const FeaturePass* list, uint32_t count, const PassId* played, uint32_t playedCount);
     uint32_t hostPassSequenceFailures();
 
+    class FeatureFrame;
+
+    // What a converted feature (Phase 6) sees while its list entry is added: the current version of
+    // every list resource, and passes it adds with declared uses (no OwnBarriers, so the graph plans
+    // their barriers). Every pass it adds counts as its PassId for the order check. Setup time only.
+    class FeatureBuilder
+    {
+    public:
+        Rg::RenderGraph& graph()
+        {
+            return m_graph;
+        }
+        PassId id() const
+        {
+            return m_id;
+        }
+        // This frame's handle (current version) of a list resource; for a history resource, curr.
+        Rg::TextureHandle handle(RenderResource resource) const;
+        // A history resource's prev (invalid when there is none to read).
+        Rg::TextureHandle prev(RenderResource resource) const;
+        // Records the new version a pass wrote, so later passes (and later list entries) see it.
+        void set(RenderResource resource, Rg::TextureHandle h);
+
+        // A pass with declared uses. Same contract as RenderGraph::addPass.
+        template <class Data, class Setup, class Exec> Data& addPass(const char* name, Setup&& setup, Exec&& exec)
+        {
+            Data& data = m_graph.addPass<Data>(name, std::forward<Setup>(setup), std::forward<Exec>(exec));
+            notePass();
+            return data;
+        }
+        // An opaque pass (OwnBarriers | SideEffect) for work that still records its own barriers,
+        // declaring `reads` and `writes` the way the list entries do. `fn(PassContext&)`.
+        template <class Fn> void opaque(const char* name, std::initializer_list<RenderResource> reads, std::initializer_list<RenderResource> writes, Fn&& fn);
+
+    private:
+        friend class FeatureFrame;
+        FeatureBuilder(FeatureFrame& frame, Rg::RenderGraph& graph, PassId id) :
+            m_frame(frame),
+            m_graph(graph),
+            m_id(id)
+        {
+        }
+        void notePass();
+
+        FeatureFrame&    m_frame;
+        Rg::RenderGraph& m_graph;
+        PassId           m_id;
+    };
+
     class FeatureFrame
     {
     public:
@@ -104,7 +154,9 @@ namespace Dark
         // `initial` is the resource's layout when the frame starts (the ResourceStateTracker's, Phase 6;
         // Undefined when unknown). No import states a final layout: the owners and Renderer::endFrame
         // (back buffer RT -> PRESENT after ImGui and the movie) move them on through the tracker.
-        void importResource(Rg::RenderGraph& g, RenderResource resource, ID3D12Resource* native, const Rg::TextureDesc& desc, Rg::Layout initial = Rg::Layout::Undefined);
+        // `views` are the resource's CPU views for converted passes (PassContext::rtv/srvTable, Phase 6).
+        void importResource(Rg::RenderGraph& g, RenderResource resource, ID3D12Resource* native, const Rg::TextureDesc& desc, Rg::Layout initial = Rg::Layout::Undefined,
+                            const Rg::TextureViews& views = {});
         // Binds a history pair (g.history) to one of the *History resources for this frame's passes.
         void setHistory(RenderResource resource, const Rg::HistoryPair& pair);
 
@@ -117,12 +169,29 @@ namespace Dark
             if (!acceptSet(id))
                 return false;
             FnT* stored            = m_arena.create<FnT>(std::forward<Fn>(fn));
-            m_slots[slotIndex(id)] = { stored, [](void* f, Rg::PassContext& ctx) { (*static_cast<FnT*>(f))(ctx); } };
+            m_slots[slotIndex(id)] = { stored, [](void* f, Rg::PassContext& ctx) { (*static_cast<FnT*>(f))(ctx); }, nullptr };
+            return true;
+        }
+        // A converted entry (Phase 6): instead of one opaque pass, `fn(FeatureBuilder&)` runs when the
+        // entry is added (in list order, at compileFrame) and adds the entry's passes with declared
+        // uses. It replaces a set() callback for the same id and vice versa. Same lifetime rules as set().
+        template <class Fn> bool declare(PassId id, Fn&& fn)
+        {
+            using FnT = std::decay_t<Fn>;
+            if (!acceptSet(id))
+                return false;
+            FnT* stored            = m_arena.create<FnT>(std::forward<Fn>(fn));
+            m_slots[slotIndex(id)] = { stored, nullptr, [](void* f, FeatureBuilder& b) { (*static_cast<FnT*>(f))(b); } };
             return true;
         }
         bool isSet(PassId id) const
         {
-            return m_slots[slotIndex(id)].call != nullptr;
+            const Slot& s = m_slots[slotIndex(id)];
+            return s.call != nullptr || s.declare != nullptr;
+        }
+        bool isDeclared(PassId id) const
+        {
+            return m_slots[slotIndex(id)].declare != nullptr;
         }
 
         // Adds the set passes in list order, compiles `g` and checks the compiled order against the
@@ -151,11 +220,14 @@ namespace Dark
         }
 
     private:
-        using CallFn = void (*)(void* fn, Rg::PassContext& ctx);
+        friend class FeatureBuilder;
+        using CallFn    = void (*)(void* fn, Rg::PassContext& ctx);
+        using DeclareFn = void (*)(void* fn, FeatureBuilder& builder);
         struct Slot
         {
-            void*  fn   = nullptr;
-            CallFn call = nullptr;
+            void*     fn      = nullptr;
+            CallFn    call    = nullptr;
+            DeclareFn declare = nullptr;
         };
         static uint32_t slotIndex(PassId id)
         {
@@ -164,6 +236,9 @@ namespace Dark
         }
         bool acceptSet(PassId id);
         void addPasses(Rg::RenderGraph& g);
+        // One opaque pass for `node`-style reads/writes running `slot`.
+        void addOpaque(Rg::RenderGraph& g, const char* name, PassId id, const RenderResource* reads, uint32_t readCount, const RenderResource* writes, uint32_t writeCount,
+                       Slot slot);
 
         Rg::Arena           m_arena;
         const FeaturePass*  m_list  = nullptr;
@@ -171,9 +246,19 @@ namespace Dark
         Slot                m_slots[kPassIdCount];
         Rg::TextureHandle   m_handles[kRenderResourceCount];
         Rg::TextureHandle   m_prevHandles[kRenderResourceCount]; // history resources only
-        std::vector<PassId> m_graphIds; // PassId per graph pass index
+        std::vector<PassId> m_graphIds; // PassId per graph pass index (from m_firstPass)
+        uint32_t            m_firstPass = 0;
         std::vector<PassId> m_compiled;
         bool                m_orderOk = false;
     };
+
+    template <class Fn>
+    void FeatureBuilder::opaque(const char* name, std::initializer_list<RenderResource> reads, std::initializer_list<RenderResource> writes, Fn&& fn)
+    {
+        using FnT                = std::decay_t<Fn>;
+        FnT*                stored = m_frame.m_arena.create<FnT>(std::forward<Fn>(fn));
+        FeatureFrame::Slot  slot{ stored, [](void* f, Rg::PassContext& ctx) { (*static_cast<FnT*>(f))(ctx); }, nullptr };
+        m_frame.addOpaque(m_graph, name, m_id, reads.begin(), static_cast<uint32_t>(reads.size()), writes.begin(), static_cast<uint32_t>(writes.size()), slot);
+    }
 
 } // namespace Dark
