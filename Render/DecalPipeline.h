@@ -20,9 +20,7 @@ namespace Dark
     };
     static_assert(sizeof(DecalPassConstants) == 32 * sizeof(float), "decal pass CB");
 
-    // The pass's descriptor-ring tables (render-graph plan Phase 6 part 5), built per pass with
-    // rgTable: depth SRV (t0), the albedo/attrib R32_UINT UAVs (u0..u1), and each definition's
-    // albedo + normal pair (t1..t2).
+    // Registers: depth t0, albedo/attrib R32_UINT UAVs u0..u1, a definition's albedo + normal t1..t2.
     struct DecalTables
     {
         D3D12_GPU_DESCRIPTOR_HANDLE depth{};

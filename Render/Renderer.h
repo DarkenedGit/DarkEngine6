@@ -254,7 +254,6 @@ namespace Dark
 
         ID3D12Resource*             hdr() const;
         D3D12_CPU_DESCRIPTOR_HANDLE hdrRtv() const;
-        // G-buffer RTVs (graph views for the declared GBuffer pass, render-graph plan Phase 6 part 5).
         D3D12_CPU_DESCRIPTOR_HANDLE albedoRtv() const;
         D3D12_CPU_DESCRIPTOR_HANDLE attribRtv() const;
         D3D12_CPU_DESCRIPTOR_HANDLE velocityRtv() const;

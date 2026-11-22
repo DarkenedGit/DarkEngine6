@@ -463,8 +463,6 @@ void EditorApp::renderScene3D()
     uint32_t             draws = 0;
     LightingConstants    deferredLighting{};
     DeferredResolveInput resolve;
-    // GBuffer is one declared pass (render-graph plan Phase 6 part 5): SceneRenderer clears and binds
-    // the MRTs and depth from the graph's views, then runs these draws.
     const auto drawGBuffer = [&](Rg::PassContext& pass) {
         ID3D12GraphicsCommandList* const cmd = pass.cmd();
         viewProj     = m_scene.beginCameraFrame(m_camera, renderer());

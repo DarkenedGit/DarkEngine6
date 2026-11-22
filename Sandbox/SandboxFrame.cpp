@@ -566,8 +566,6 @@ void SandboxFrame::render()
     float                thermal     = 0.0f;
     LightingConstants    lc{};
     DeferredResolveInput resolve;
-    // GBuffer is one declared pass (render-graph plan Phase 6 part 5): SceneRenderer clears and binds
-    // the MRTs and depth from the graph's views, then runs these draws.
     const auto drawGBuffer = [&](Rg::PassContext& pass) {
         ID3D12GraphicsCommandList* const cmd = pass.cmd();
         const Matrix4f viewProjEarly = m_scene.beginCameraFrame(app().m_sceneWorld.camera, app().renderer());

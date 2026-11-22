@@ -111,12 +111,8 @@ public:
     // dropped, and the host should zero its stored EV before adapting. Never waits.
     bool syncAutoExposureSize(Renderer& renderer);
 
-    // The GBuffer entry (render-graph plan Phase 6 part 5): one declared pass that writes albedo,
-    // attrib, velocity and AO (cleared here from the graph's views) and tests and writes depth
-    // (cleared when the frame began), binds them, then runs `draw(Rg::PassContext&)`: the host's
-    // terrain, grass, foliage, mesh, model and projectile draws, which bind their own pipelines and
-    // material heaps (the graph rebinds the ring heap before the next declared pass). The callable
-    // is stored until execute().
+    // `draw(Rg::PassContext&)` runs with the MRTs and depth bound and is stored until execute(). It
+    // may bind its own descriptor heaps: the executor rebinds the ring before the next declared pass.
     template <class Draw> void addGBufferPasses(FeatureBuilder& b, Renderer& renderer, Draw&& draw)
     {
         Renderer* const rr = &renderer;
@@ -125,14 +121,13 @@ public:
                             {
                                 beginGBufferPass(c, *rr, d);
                                 draw(c);
+                                unbindTargets(c);
                             }))
             b.opaque("GBuffer", {}, {}, [](Rg::PassContext&) { logMissingSceneTargets("GBuffer"); });
     }
 
-    // The Decals entry (Phase 6 part 5): the decal pass (only when decals are on and some are
-    // alive; depth tested read-only and sampled, albedo/attrib blended through ROV UAVs, a ring
-    // table per definition), then the HDR clear the lighting passes draw onto. `camera` and `in`
-    // are read when the passes execute.
+    // The decal pass is only added when decals are on and some are alive, so a frame without them
+    // has no UAV round trip on the G-buffer. `camera` and `in` are read when the passes execute.
     void addDecalsPasses(FeatureBuilder& b, Renderer& renderer, const Camera3D& camera, const DeferredResolveInput& in);
 
     // The Lighting and LocalVolumes entries with declared uses (render-graph plan Phase 6 part 4).
@@ -269,6 +264,10 @@ private:
     bool decalPassReady() const;
     // Clears the G-buffer MRTs and binds them with depth (graph views), with the viewport.
     static void beginGBufferPass(Rg::PassContext& c, const Renderer& renderer, const GBufferTargets& d);
+    // Clears the output-merger bindings. The next pass's BeforePass barriers are recorded before it
+    // executes, so a pass that leaves its targets or DSV bound has them bound while the graph moves
+    // them out of render-target / depth layouts (the same reason as SsrCapture.Unbind).
+    static void unbindTargets(Rg::PassContext& c);
     static void logMissingSceneTargets(const char* entry);
     void storeDecalStats(uint32_t drawn, uint32_t culled, uint32_t inside, uint32_t triangles);
 

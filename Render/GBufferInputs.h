@@ -4,8 +4,7 @@
 
 #include <utility>
 
-// The G-buffer and decal passes' declared uses (render-graph plan Phase 6 part 5). CPU only, so the
-// native graph tests drive the same declarations SceneRenderer and the hosts use.
+// CPU only, so the native graph tests drive the same declarations SceneRenderer uses.
 
 namespace Dark
 {

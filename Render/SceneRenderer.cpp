@@ -694,6 +694,11 @@ void SceneRenderer::beginGBufferPass(Rg::PassContext& c, const Renderer& rendere
     cmd->RSSetScissorRects(1, &renderer.scissor());
 }
 
+void SceneRenderer::unbindTargets(Rg::PassContext& c)
+{
+    c.cmd()->OMSetRenderTargets(0, nullptr, FALSE, nullptr);
+}
+
 bool SceneRenderer::decalPassReady() const
 {
     return m_decalPipeline.isValid() && m_decalLibrary.isValid() && m_decalGpu.isValid() && m_decalCube.valid();
@@ -932,8 +937,6 @@ void SceneRenderer::drawDecalsPass(Rg::PassContext& c, Renderer& renderer, const
     const uint32_t frame = renderer.frameIndex();
     m_decalPipeline.uploadPass(frame, cb);
     m_decalGpu.upload(frame, outside, outsideCount, inside, insideCount);
-    // This pass's ring tables (render-graph plan Phase 6 part 5): depth as declared (DepthRead), the
-    // pipeline's CPU UAVs, and each definition's albedo + normal pair from the library.
     DecalTables tables;
     tables.depth = rgTable(c, { rgSrvCpu(c, d.depth) });
     tables.uavs  = rgTable(c, { m_decalPipeline.albedoUavCpu(), m_decalPipeline.attribUavCpu() });
@@ -994,6 +997,9 @@ void SceneRenderer::drawDecalsPass(Rg::PassContext& c, Renderer& renderer, const
     }
     if (drewOutside || drewInside)
         m_decalPipeline.uavBarrier(cmd);
+    // The outside-only path still has the read-only DSV bound; the next depth reader's barrier
+    // (to ShaderResource) must not see it.
+    cmd->OMSetRenderTargets(0, nullptr, FALSE, nullptr);
     cmd->EndEvent();
 }
 
