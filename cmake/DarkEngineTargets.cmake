@@ -231,6 +231,7 @@ endif()
 include(cmake/WinPixEventRuntime.cmake)
 include(cmake/AgilitySdk.cmake)
 include(cmake/Dxc.cmake)
+include(cmake/D3D12MA.cmake)
 include(cmake/ShaderBake.cmake)
 include(cmake/HostExe.cmake)
 
@@ -285,6 +286,8 @@ target_link_libraries(DarkRender
         dxguid
         d3dcompiler
 )
+# D3D12MA (cmake/D3D12MA.cmake) backs Render/GpuAllocator; PRIVATE, only GpuAllocator.cpp includes it.
+target_link_libraries(DarkRender PRIVATE D3D12MA)
 # dxcapi.h for Render/ShaderDxc.cpp. DXC itself is loaded at runtime (no import library).
 target_include_directories(DarkRender PRIVATE "${DE_DXC_INCLUDE}")
 if(DE_ENABLE_GPU_MARKERS)

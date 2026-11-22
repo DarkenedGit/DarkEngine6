@@ -176,7 +176,7 @@ What the build files require:
 - CMake **3.22+**
 - An MSVC toolchain with **C++23** support. Flags include `/W4 /WX /permissive-`, so warnings fail the build.
 - Git (Dear ImGui and GoogleTest are fetched with `FetchContent` on first configure)
-- Network access on first configure. CMake downloads the Agility SDK and DXC NuGet packages, plus WinPixEventRuntime when `DE_ENABLE_GPU_MARKERS` is on (default). Each download is SHA-256 checked.
+- Network access on first configure. CMake downloads the Agility SDK and DXC NuGet packages, the D3D12 Memory Allocator source archive, plus WinPixEventRuntime when `DE_ENABLE_GPU_MARKERS` is on (default). Each download is SHA-256 checked.
 
 The repo does not pin a Visual Studio or Windows SDK version.
 
@@ -222,6 +222,7 @@ Example: `cmake -S . -B ./build -DDE_ENABLE_GPU_MARKERS=OFF`.
 | WinPixEventRuntime 1.0.240308001 | NuGet download at configure (SHA-256 checked), into `build/_deps/` |
 | DirectX 12 Agility SDK 1.620.2 (`Microsoft.Direct3D.D3D12`, `D3D12_SDK_VERSION` 620) | NuGet download at configure (SHA-256 checked), `cmake/AgilitySdk.cmake`. Microsoft DirectX SDK license; `D3D12Core.dll` / `d3d12SDKLayers.dll` are redistributable, headers MIT |
 | DXC 1.9.2609.5 (`Microsoft.Direct3D.DXC`, release v1.9.2609) | NuGet download at configure (SHA-256 checked), `cmake/Dxc.cmake`. LLVM (NCSA) + MIT; `dxil.dll` under the Microsoft license, redistributable |
+| D3D12 Memory Allocator 3.3.0 (GPUOpen, commit `6009492`) | GitHub archive download at configure (SHA-256 checked), `cmake/D3D12MA.cmake`; built into `DarkRender` (only `Render/GpuAllocator.cpp` includes it). MIT, Copyright (c) 2019-2026 Advanced Micro Devices, Inc. |
 
 Some art folders are gitignored (for example `content/models/BirchTree`, `NaturePack`, `Grass`, `RockMoss`, and some `content/audio/` folders). If a foliage model is missing, the renderer logs a warning and uses a procedural prototype instead.
 
