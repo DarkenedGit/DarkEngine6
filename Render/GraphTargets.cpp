@@ -1,5 +1,7 @@
 #include "Render/GraphTargets.h"
 
+#include "Render/EnhancedBarrierEmitter.h"
+
 #include "Core/Log.h"
 
 namespace Dark
@@ -109,8 +111,6 @@ namespace Dark
     {
         GraphTarget t;
         t.id         = registerTexture(name, desc);
-        t.initial    = static_cast<D3D12_RESOURCE_STATES>(desc.initialState);
-        t.state      = t.initial;
         t.generation = generation(t.id);
         return t;
     }
@@ -118,7 +118,6 @@ namespace Dark
     void GraphTargets::unregisterTarget(GraphTarget& target)
     {
         unregisterTexture(target.id);
-        target.state      = target.initial;
         target.generation = 0;
     }
 
@@ -128,7 +127,6 @@ namespace Dark
         if (g == target.generation)
             return false;
         target.generation = g;
-        target.state      = target.initial;
         return true;
     }
 
@@ -136,16 +134,9 @@ namespace Dark
     {
         refresh(target);
         ID3D12Resource* res = resource(target.id);
-        if (!cmd || !res || target.state == after)
+        if (!cmd || !res)
             return;
-        D3D12_RESOURCE_BARRIER b{};
-        b.Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        b.Transition.pResource   = res;
-        b.Transition.StateBefore = target.state;
-        b.Transition.StateAfter  = after;
-        b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-        cmd->ResourceBarrier(1, &b);
-        target.state = after;
+        recordTransitionTo(cmd, res, after); // tracked since creation (D3D12TargetBackend)
     }
 
     HistoryView GraphTargets::historyView(const Rg::HistoryTargets& history) const

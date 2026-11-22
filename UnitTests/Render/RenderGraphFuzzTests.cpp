@@ -97,7 +97,8 @@ namespace
     const Use    kBufReads[]  = { Use::PixelSrv, Use::ComputeSrv, Use::AnySrv, Use::CopySrc, Use::IndirectArgs, Use::VertexIndex };
     const Use    kBufWrites[] = { Use::Uav, Use::CopyDst };
     const Layout kLayouts[]   = { Layout::Common,           Layout::GenericRead,    Layout::RenderTarget, Layout::UnorderedAccess, Layout::DepthStencilWrite,
-                                  Layout::DepthStencilRead, Layout::ShaderResource, Layout::CopySource,   Layout::CopyDest };
+                                  Layout::DepthStencilRead, Layout::ShaderResource, Layout::CopySource,   Layout::CopyDest,
+                                  Layout::DirectQueueGenericRead, Layout::DirectQueueGenericReadComputeQueueAccessible };
 
     template <size_t N> Use pickUse(Rng& rng, const Use (&uses)[N], Queue q)
     {

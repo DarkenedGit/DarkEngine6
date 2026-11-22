@@ -62,6 +62,8 @@ static_assert(same(Layout::DepthStencilRead, D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_
 static_assert(same(Layout::ShaderResource, D3D12_BARRIER_LAYOUT_SHADER_RESOURCE));
 static_assert(same(Layout::CopySource, D3D12_BARRIER_LAYOUT_COPY_SOURCE));
 static_assert(same(Layout::CopyDest, D3D12_BARRIER_LAYOUT_COPY_DEST));
+static_assert(same(Layout::DirectQueueGenericRead, D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_GENERIC_READ));
+static_assert(same(Layout::DirectQueueGenericReadComputeQueueAccessible, D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_GENERIC_READ_COMPUTE_QUEUE_ACCESSIBLE));
 
 static_assert(same(kAllMips, 0xFFFFu));
 static_assert(same(Queue::Graphics, 0u) && same(Queue::AsyncCompute, 1u));

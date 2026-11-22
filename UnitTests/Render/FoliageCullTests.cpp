@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "Math/AABox3f.h"
+#include "Render/EnhancedBarrierEmitter.h"
 #include "Math/Matrix4f.h"
 #include "Math/Sphere3f.h"
 #include "Render/Camera3D.h"
@@ -290,13 +291,7 @@ TEST(FoliageCull, GrassEmitsNoShadowIndices)
     ASSERT_TRUE(cameraGrass);
 
     auto transition = [](ID3D12GraphicsCommandList* list, ID3D12Resource* resource, D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after) {
-        D3D12_RESOURCE_BARRIER barrier{};
-        barrier.Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        barrier.Transition.pResource   = resource;
-        barrier.Transition.StateBefore = before;
-        barrier.Transition.StateAfter  = after;
-        barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-        list->ResourceBarrier(1, &barrier);
+        recordTransition(list, resource, before, after);
     };
     transition(cmd.Get(), args, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT, D3D12_RESOURCE_STATE_COPY_SOURCE);
     transition(cmd.Get(), indices, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_SOURCE);
@@ -473,13 +468,7 @@ TEST(FoliageCull, PointLightSphereSharedAcrossFaces)
     ASSERT_TRUE(backRead);
 
     auto transition = [](ID3D12GraphicsCommandList* list, ID3D12Resource* resource, D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after) {
-        D3D12_RESOURCE_BARRIER barrier{};
-        barrier.Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        barrier.Transition.pResource   = resource;
-        barrier.Transition.StateBefore = before;
-        barrier.Transition.StateAfter  = after;
-        barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-        list->ResourceBarrier(1, &barrier);
+        recordTransition(list, resource, before, after);
     };
     transition(cmd.Get(), args, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT, D3D12_RESOURCE_STATE_COPY_SOURCE);
     transition(cmd.Get(), indices, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_SOURCE);

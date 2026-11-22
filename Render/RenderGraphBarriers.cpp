@@ -205,7 +205,8 @@ namespace Dark::Rg
             s = { Sync::DepthStencil, Access::DepthStencilWrite, Layout::DepthStencilWrite };
             break;
         case Use::DepthRead:
-            s = { Sync::DepthStencil | Sync::PixelShading, Access::DepthStencilRead | Access::ShaderResource, Layout::DepthStencilRead };
+            // Depth test and sampling at once: DEPTH_STENCIL_READ allows depth-stencil-read access only.
+            s = { Sync::DepthStencil | Sync::PixelShading, Access::DepthStencilRead | Access::ShaderResource, Layout::DirectQueueGenericRead };
             break;
         case Use::Uav:
             s = { compute ? Sync::ComputeShading : Sync::AllShading, Access::UnorderedAccess, Layout::UnorderedAccess };
@@ -259,9 +260,13 @@ namespace Dark::Rg
             out.layout = Layout::GenericRead;
             return true;
         }
-        if (pair(Layout::DepthStencilRead, Layout::ShaderResource))
+        // Read-only depth together with shader reads: DIRECT_QUEUE_GENERIC_READ, since DEPTH_STENCIL_READ
+        // allows depth-stencil-read access only (graphics only; the caller's queue check refuses the
+        // merge when a compute reader is in the group). Depth read + copy source still splits.
+        if (pair(Layout::DepthStencilRead, Layout::ShaderResource) || pair(Layout::DepthStencilRead, Layout::DirectQueueGenericRead) ||
+            pair(Layout::DirectQueueGenericRead, Layout::ShaderResource))
         {
-            out.layout = Layout::DepthStencilRead;
+            out.layout = Layout::DirectQueueGenericRead;
             return true;
         }
         return false;
@@ -278,10 +283,12 @@ namespace Dark::Rg
         case Layout::ShaderResource:
         case Layout::CopySource:
         case Layout::CopyDest:
+        case Layout::DirectQueueGenericReadComputeQueueAccessible:
             return true;
         case Layout::RenderTarget:
         case Layout::DepthStencilWrite:
         case Layout::DepthStencilRead:
+        case Layout::DirectQueueGenericRead:
             return queue == Queue::Graphics;
         }
         return false;
@@ -324,7 +331,13 @@ namespace Dark::Rg
             allowed = Access::DepthStencilWrite | Access::DepthStencilRead;
             break;
         case Layout::DepthStencilRead:
-            allowed = Access::DepthStencilRead | Access::ShaderResource;
+            allowed = Access::DepthStencilRead; // the spec's layout table: nothing else
+            break;
+        case Layout::DirectQueueGenericRead:
+        case Layout::DirectQueueGenericReadComputeQueueAccessible:
+            // Read-only depth is only legal on a direct list; layoutLegalOnQueue covers 19, and a
+            // compute list using 31 cannot name depth-stencil-read access (accessLegalOnQueue).
+            allowed = Access::ShaderResource | Access::CopySource | Access::DepthStencilRead;
             break;
         case Layout::ShaderResource:
             allowed = Access::ShaderResource;
@@ -372,6 +385,93 @@ namespace Dark::Rg
                 *why = "DISCARD on a buffer";
             return false;
         }
+        return true;
+    }
+
+    bool legacyStateEquivalent(uint32_t states, ResourceKind kind, UseState& out)
+    {
+        // D3D12_RESOURCE_STATES bits (d3d12.h; mirrored by value like the Sync/Access/Layout enums).
+        constexpr uint32_t kVertexAndConstant = 0x1, kIndex = 0x2, kRenderTarget = 0x4, kUav = 0x8, kDepthWrite = 0x10, kDepthRead = 0x20, kNonPixelSrv = 0x40,
+                           kPixelSrv = 0x80, kIndirect = 0x200, kCopyDest = 0x400, kCopySource = 0x800;
+        constexpr uint32_t kKnown  = kVertexAndConstant | kIndex | kRenderTarget | kUav | kDepthWrite | kDepthRead | kNonPixelSrv | kPixelSrv | kIndirect | kCopyDest | kCopySource;
+        constexpr uint32_t kWrites = kRenderTarget | kUav | kDepthWrite | kCopyDest;
+        out = {};
+        if ((states & ~kKnown) != 0)
+            return false;
+        const uint32_t writes = states & kWrites;
+        if ((writes & (writes - 1)) != 0)
+            return false; // two write states at once
+        if (writes != 0 && states != writes)
+            return false; // write states are exclusive in the legacy model
+        if (states == 0)
+        {
+            // COMMON / PRESENT: everything before must finish (the legacy meaning).
+            out.sync   = Sync::All;
+            out.access = Access::Common;
+            out.layout = kind == ResourceKind::Texture ? Layout::Common : Layout::Undefined;
+            return true;
+        }
+        const bool texture = kind == ResourceKind::Texture;
+        Sync       sync    = Sync::None;
+        Access     access  = Access::Common;
+        const auto add     = [&](uint32_t bit, Sync s, Access a, bool textureOk)
+        {
+            if ((states & bit) == 0)
+                return;
+            sync = sync | s;
+            if (!texture || textureOk)
+                access = access | a;
+        };
+        add(kVertexAndConstant, Sync::AllShading, Access::VertexBuffer | Access::ConstantBuffer, false);
+        add(kIndex, Sync::IndexInput, Access::IndexBuffer, false);
+        add(kRenderTarget, Sync::RenderTarget, Access::RenderTarget, true);
+        add(kUav, Sync::AllShading, Access::UnorderedAccess, true);
+        add(kDepthWrite, Sync::DepthStencil, Access::DepthStencilWrite, true);
+        add(kDepthRead, Sync::DepthStencil, Access::DepthStencilRead, true);
+        add(kNonPixelSrv, Sync::NonPixelShading, Access::ShaderResource, true);
+        add(kPixelSrv, Sync::PixelShading, Access::ShaderResource, true);
+        add(kIndirect, Sync::ExecuteIndirect, Access::IndirectArgument, false);
+        add(kCopyDest, Sync::Copy, Access::CopyDest, true);
+        add(kCopySource, Sync::Copy, Access::CopySource, true);
+        if (!texture)
+        {
+            if (any(access & (Access::RenderTarget | Access::DepthStencilRead | Access::DepthStencilWrite)))
+                return false;
+            out = { sync, access, Layout::Undefined };
+            return true;
+        }
+        if (access == Access::Common)
+            return false; // only buffer bits (vertex/index/indirect) on a texture
+        Layout layout = Layout::Undefined;
+        if (states & kDepthWrite)
+            layout = Layout::DepthStencilWrite;
+        else if (states & kDepthRead)
+        {
+            // DEPTH_STENCIL_READ allows depth-stencil-read access only. Sampled as well: the public
+            // direct-queue generic read layout; with NON_PIXEL_SHADER_RESOURCE the compute-accessible
+            // variant, as the spec's own legacy translation does.
+            if (states == kDepthRead)
+                layout = Layout::DepthStencilRead;
+            else if (states & kNonPixelSrv)
+                layout = Layout::DirectQueueGenericReadComputeQueueAccessible;
+            else
+                layout = Layout::DirectQueueGenericRead;
+        }
+        else if (states & kRenderTarget)
+            layout = Layout::RenderTarget;
+        else if (states & kUav)
+            layout = Layout::UnorderedAccess;
+        else if (states & kCopyDest)
+            layout = Layout::CopyDest;
+        else if (access == Access::CopySource)
+            layout = Layout::CopySource;
+        else if (access == Access::ShaderResource)
+            layout = Layout::ShaderResource;
+        else
+            layout = Layout::GenericRead;
+        if (!accessAllowedInLayout(access, layout))
+            return false; // e.g. COPY_SOURCE with DEPTH_READ: no single public layout
+        out = { sync, access, layout };
         return true;
     }
 
@@ -515,6 +615,10 @@ namespace Dark::Rg
             return "COPY_SOURCE";
         case Layout::CopyDest:
             return "COPY_DEST";
+        case Layout::DirectQueueGenericRead:
+            return "DIRECT_QUEUE_GENERIC_READ";
+        case Layout::DirectQueueGenericReadComputeQueueAccessible:
+            return "DIRECT_QUEUE_GENERIC_READ_COMPUTE_QUEUE_ACCESSIBLE";
         }
         return "?";
     }

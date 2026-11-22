@@ -67,7 +67,8 @@ namespace Dark::Rg
             uint32_t pass  = kNoPass;
             Queue    queue = Queue::Graphics;
             UseState state;
-            bool     write = false;
+            bool     write  = false;
+            bool     opaque = false; // OwnBarriers pass: its owner records the barriers (tracked state)
         };
 
         // A run of accesses served by one layout: a single write, or consecutive reads.
@@ -91,7 +92,8 @@ namespace Dark::Rg
         std::vector<std::vector<ResAccess>>        resAccess;
         std::vector<std::pair<uint32_t, uint32_t>> edges;        // live dependency edges incl. barrier edges
         std::vector<uint16_t>                      aliasedAfter; // previous occupant of the alias slot
-        std::vector<bool>                          opaqueRes;    // touched by an OwnBarriers pass: no barrier records
+        std::vector<bool>                          opaqueRes;    // touched by an OwnBarriers pass (Phase 6: boundary barriers)
+        std::vector<bool>                          declaredRes;  // touched by a declared (non-opaque) pass
 
         explicit Impl(RenderGraph& graph) :
             g(graph)
@@ -344,29 +346,39 @@ namespace Dark::Rg
                         ok = false;
                     }
                 }
+                const bool opaque = hasFlag(node.flags, PassFlags::OwnBarriers);
                 for (const Merged& m : merged)
-                    resAccess[m.resource].push_back({ p, queue, m.state, m.write });
+                    resAccess[m.resource].push_back({ p, queue, m.state, m.write, opaque });
             }
-            // OwnBarriers passes keep their state transitions in their own code (Phases 4-6), so the graph
-            // plans no barriers for a resource they touch. A resource shared with a declared pass would
-            // need a barrier at the boundary, which arrives with the Phase 6 emitter.
+            // OwnBarriers passes keep their state transitions in their own code (Phases 4-6) through the
+            // ResourceStateTracker. A resource they share with declared passes gets a "tracked" barrier
+            // before each declared run that follows an opaque access: its before-state is read from the
+            // tracker at execute time (Phase 6). Opaque passes are graphics-only, so a declared
+            // AsyncCompute user of such a resource is still an error (its layout change could need the
+            // graphics queue, which the compiler cannot know).
             opaqueRes.assign(g.m_resources.size(), false);
+            declaredRes.assign(g.m_resources.size(), false);
             for (size_t r = 0; r < g.m_resources.size(); ++r)
             {
-                uint32_t opaquePass = kNoPass, declaredPass = kNoPass;
+                uint32_t opaquePass = kNoPass, computePass = kNoPass;
                 for (const ResAccess& a : resAccess[r])
                 {
-                    if (hasFlag(g.m_passes[a.pass].flags, PassFlags::OwnBarriers))
+                    if (a.opaque)
                         opaquePass = a.pass;
                     else
-                        declaredPass = a.pass;
+                    {
+                        declaredRes[r] = true;
+                        // The declared queue, so the error shows while asyncCompute is still off.
+                        if (g.m_passes[a.pass].declaredQueue == Queue::AsyncCompute)
+                            computePass = a.pass;
+                    }
                 }
                 opaqueRes[r] = opaquePass != kNoPass;
-                if (opaquePass != kNoPass && declaredPass != kNoPass)
+                if (opaquePass != kNoPass && computePass != kNoPass)
                 {
-                    g.addError(ErrorCode::MixedOpaqueUse, declaredPass, static_cast<uint16_t>(r),
-                               "'" + std::string(g.m_resources[r].name) + "' is used by OwnBarriers pass " + passText(opaquePass) + " and declared pass " + passText(declaredPass) +
-                                   "; mixing needs boundary barriers (Phase 6)");
+                    g.addError(ErrorCode::MixedOpaqueUse, computePass, static_cast<uint16_t>(r),
+                               "'" + std::string(g.m_resources[r].name) + "' is used by OwnBarriers pass " + passText(opaquePass) + " and AsyncCompute pass " + passText(computePass) +
+                                   "; convert the opaque pass first (its layouts are only known on the graphics queue)");
                     ok = false;
                 }
             }
@@ -423,10 +435,16 @@ namespace Dark::Rg
 
         std::vector<Segment> buildSegments(uint16_t res) const
         {
+            return buildSegments(res, 0, static_cast<uint32_t>(resAccess[res].size()));
+        }
+
+        // Segments over the accesses [begin, end) of the resource's list.
+        std::vector<Segment> buildSegments(uint16_t res, uint32_t begin, uint32_t end) const
+        {
             const ResourceNode&  node = g.m_resources[res];
             const auto&          acc  = resAccess[res];
             std::vector<Segment> segs;
-            for (uint32_t i = 0; i < acc.size(); ++i)
+            for (uint32_t i = begin; i < end; ++i)
             {
                 const ResAccess& a        = acc[i];
                 const bool       readOnly = !a.write;
@@ -436,7 +454,7 @@ namespace Dark::Rg
                 {
                     merge = combineReadStates(segs.back().combined, a.state, node.kind, combined);
                     // The shared layout must be legal on every queue in the group (no DEPTH_STENCIL_READ
-                    // for a compute reader).
+                    // or DIRECT_QUEUE_GENERIC_READ for a compute reader).
                     const Segment& s = segs.back();
                     for (uint32_t q = 0; q < kQueueCount && merge; ++q)
                         if ((s.hasQueue[q] || kQ(a.queue) == q) && node.kind == ResourceKind::Texture)
@@ -496,7 +514,11 @@ namespace Dark::Rg
             for (uint16_t res = 0; res < g.m_resources.size(); ++res)
             {
                 if (opaqueRes[res])
+                {
+                    if (declaredRes[res])
+                        planMixedBarriers(res);
                     continue;
+                }
                 const ResourceNode&  node = g.m_resources[res];
                 std::vector<Segment> segs = buildSegments(res);
 
@@ -513,16 +535,7 @@ namespace Dark::Rg
                         syncOnlyTransition(res, Layout::Undefined, seg, pend);
                     else
                         textureTransition(res, prev, seg, pend);
-                    for (uint32_t q = 0; q < kQueueCount; ++q)
-                    {
-                        if (!seg.hasQueue[q])
-                            continue;
-                        Pending& p = pend[q];
-                        p.state    = p.has ? unionState(p.state, seg.perQueue[q]) : seg.perQueue[q];
-                        p.wrote    = p.wrote || !isReadOnlyState(seg.perQueue[q]);
-                        p.lastPass = seg.last[q];
-                        p.has      = true;
-                    }
+                    notePending(seg, pend);
                 }
                 // Whatever reads a persistent resource after this frame (present, readback, next frame)
                 // is ordered after the graphics epilogue, so the epilogue waits for its last compute use.
@@ -532,6 +545,96 @@ namespace Dark::Rg
                 if (node.kind == ResourceKind::Texture && node.hasFinal)
                     finalTransition(res, segs.empty() ? start : segs.back(), segs.empty(), pend);
             }
+        }
+
+        void notePending(const Segment& seg, Pending* pend) const
+        {
+            for (uint32_t q = 0; q < kQueueCount; ++q)
+            {
+                if (!seg.hasQueue[q])
+                    continue;
+                Pending& p = pend[q];
+                p.state    = p.has ? unionState(p.state, seg.perQueue[q]) : seg.perQueue[q];
+                p.wrote    = p.wrote || !isReadOnlyState(seg.perQueue[q]);
+                p.lastPass = seg.last[q];
+                p.has      = true;
+            }
+        }
+
+        // A resource used by OwnBarriers passes and declared passes (Phase 6). Opaque runs record
+        // nothing (their owner transitions through the tracker). Each declared run that follows an
+        // opaque access starts with one tracked barrier on the graphics queue (before-state from the
+        // tracker at execute time); inside a run the usual planning applies. A run at the start of
+        // the frame starts from the import's initial layout like any other resource.
+        void planMixedBarriers(uint16_t res)
+        {
+            const ResourceNode& node = g.m_resources[res];
+            const auto&         acc  = resAccess[res];
+            const uint32_t      n    = static_cast<uint32_t>(acc.size());
+            Pending             pend[kQueueCount];
+            bool                lastWasOpaque = false;
+            Segment             lastSeg;
+            bool                haveLastSeg = false;
+            uint32_t            i           = 0;
+            while (i < n)
+            {
+                if (acc[i].opaque)
+                {
+                    // The opaque pass's own barriers wait for graphics work; compute work on the
+                    // resource has to be finished by a sync point first.
+                    const Pending& pc = pend[kQ(Queue::AsyncCompute)];
+                    if (pc.has)
+                        edges.push_back({ pc.lastPass, acc[i].pass });
+                    pend[0] = pend[1] = {};
+                    while (i < n && acc[i].opaque)
+                        ++i;
+                    lastWasOpaque = true;
+                    haveLastSeg   = false;
+                    continue;
+                }
+                uint32_t end = i;
+                while (end < n && !acc[end].opaque)
+                    ++end;
+                std::vector<Segment> segs = buildSegments(res, i, end);
+                for (size_t s = 0; s < segs.size(); ++s)
+                {
+                    const Segment& seg = segs[s];
+                    if (s == 0 && lastWasOpaque)
+                    {
+                        const uint32_t pg = seg.hasQueue[kQ(Queue::Graphics)] ? seg.first[kQ(Queue::Graphics)] : kNoPass;
+                        const uint32_t pn = pg != kNoPass ? pg : seg.first[kQ(Queue::AsyncCompute)];
+                        const UseState after = seg.hasQueue[kQ(Queue::Graphics)] ? seg.perQueue[kQ(Queue::Graphics)] : noAccess(seg.layout);
+                        BarrierRec     rec   = makeRec(res, Queue::Graphics, BarrierPlacement::BeforePass, pn, noAccess(Layout::Undefined), after);
+                        rec.tracked          = true;
+                        emit(rec);
+                        if (seg.hasQueue[kQ(Queue::AsyncCompute)])
+                            edges.push_back({ pn, seg.first[kQ(Queue::AsyncCompute)] });
+                    }
+                    else if (node.kind == ResourceKind::Buffer)
+                    {
+                        syncOnlyTransition(res, Layout::Undefined, seg, pend);
+                    }
+                    else
+                    {
+                        Segment start;
+                        start.layout   = node.initial;
+                        start.readOnly = node.lifetime != Lifetime::Transient;
+                        textureTransition(res, s == 0 ? start : segs[s - 1], seg, pend);
+                    }
+                    notePending(seg, pend);
+                }
+                lastSeg       = segs.back();
+                haveLastSeg   = true;
+                lastWasOpaque = false;
+                i             = end;
+            }
+            const Pending& pc = pend[kQ(Queue::AsyncCompute)];
+            if (node.lifetime != Lifetime::Transient && pc.has)
+                edges.push_back({ pc.lastPass, kEpilogue });
+            // The final layout only when the frame ends on a declared run (an opaque owner moves the
+            // resource itself, through the tracker).
+            if (node.kind == ResourceKind::Texture && node.hasFinal && haveLastSeg && !lastWasOpaque)
+                finalTransition(res, lastSeg, false, pend);
         }
 
         void issue(uint16_t res, Queue q, BarrierPlacement placement, uint32_t pass, Pending* pend, Layout before, const UseState& after, bool discard)

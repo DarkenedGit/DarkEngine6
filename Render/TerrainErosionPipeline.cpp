@@ -1,4 +1,5 @@
 #include "Render/TerrainErosionPipeline.h"
+#include "Render/EnhancedBarrierEmitter.h"
 #include "Render/ShaderCompile.h"
 #include "Core/Log.h"
 
@@ -18,10 +19,7 @@ namespace Dark
 
         void UavBarrier(ID3D12GraphicsCommandList* cmd, ID3D12Resource* resource)
         {
-            D3D12_RESOURCE_BARRIER b{};
-            b.Type          = D3D12_RESOURCE_BARRIER_TYPE_UAV;
-            b.UAV.pResource = resource;
-            cmd->ResourceBarrier(1, &b);
+            recordUavBarrier(cmd, resource);
         }
     } // namespace
 
@@ -229,20 +227,22 @@ namespace Dark
         const UINT gy = (constants.height + 7u) / 8u;
         cmd->Dispatch(gx, gy, 1);
 
-        D3D12_RESOURCE_BARRIER bars[4]{};
-        ID3D12Resource*        res[4] = { height.resource(), water.resource(), flux.resource(), sediment.resource() };
-        for (int i = 0; i < 4; ++i)
+        ID3D12Resource* res[4] = { height.resource(), water.resource(), flux.resource(), sediment.resource() };
         {
-            bars[i].Type          = D3D12_RESOURCE_BARRIER_TYPE_UAV;
-            bars[i].UAV.pResource = res[i];
+            EnhancedBarrierList bars(cmd);
+            for (ID3D12Resource* r : res)
+                bars.uav(r, Rg::ResourceKind::Texture);
         }
-        cmd->ResourceBarrier(4, bars);
 
         ErosionGpuConstants transConst = constants;
         transConst.stage               = 1;
         cmd->SetComputeRoot32BitConstants(kRootConstants, kConstantCount, &transConst, 0);
         cmd->Dispatch(gx, gy, 1);
-        cmd->ResourceBarrier(4, bars);
+        {
+            EnhancedBarrierList bars(cmd);
+            for (ID3D12Resource* r : res)
+                bars.uav(r, Rg::ResourceKind::Texture);
+        }
         return true;
     }
 

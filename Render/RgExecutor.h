@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Render/EnhancedBarrierEmitter.h"
 #include "Render/RenderGraph.h"
 
 #include <cstdint>
@@ -9,22 +10,31 @@ namespace Dark
 
     class Renderer;
 
-    // The D3D12 frame-graph executor (render-graph plan Phase 4): runs the compiled passes on the
-    // renderer's main command list, which Renderer::endFrame still closes and submits (after the
+    // The D3D12 frame-graph executor (render-graph plan Phases 4 and 6): runs the compiled passes on
+    // the renderer's main command list, which Renderer::endFrame still closes and submits (after the
     // shadow worker's list). It follows SplitExecutor's rule of one list per cross-queue segment, but
     // until the compute queue lands (Phase 10) there is only the graphics queue: a split, a signal
-    // or a wait is an error, as is a barrier record. Every Phase 4 pass is opaque (OwnBarriers), so
-    // the graph plans none; the enhanced barrier emitter is Phase 6. A pass with a GPU scope gets a
-    // profiler scope around its execute.
+    // or a wait is an error. Barrier batches go through the EnhancedBarrierEmitter, which takes the
+    // before-state of tracked resources from the frame ResourceStateTracker (Phase 6). A pass with a
+    // GPU scope gets a profiler scope around its execute.
     class RgExecutor final : public Rg::SplitExecutor
     {
     public:
-        void                       beginFrame(Renderer& renderer);
+        void                       beginFrame(Renderer& renderer, const Rg::RenderGraph& graph);
         ID3D12GraphicsCommandList* commandList(Rg::Queue queue) const override;
         // False when this frame asked for something the Phase 4 executor cannot do (logged once each).
         bool ok() const
         {
             return m_ok;
+        }
+        // Barriers recorded and rg.validate layout mismatches, since the start (Phase 6 exit gate).
+        uint32_t barriersEmitted() const
+        {
+            return m_emitter.emitted();
+        }
+        uint32_t validateMismatches() const
+        {
+            return m_emitter.mismatches();
         }
 
     protected:
@@ -38,7 +48,11 @@ namespace Dark
     private:
         void fail(uint32_t what, const char* message);
 
-        Renderer* m_renderer = nullptr;
+        static ID3D12Resource* resolve(const void* context, uint16_t resource);
+
+        Renderer*              m_renderer = nullptr;
+        const Rg::RenderGraph* m_graph    = nullptr;
+        EnhancedBarrierEmitter m_emitter;
         bool      m_ok       = true;
         uint32_t  m_logged   = 0; // one bit per failure kind
     };

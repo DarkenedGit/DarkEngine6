@@ -101,7 +101,7 @@ namespace Dark::Rg
         None        = 0,
         SideEffect  = 1, // never culled; its work is visible outside the graph
         NeverCull   = 2,
-        OwnBarriers = 4, // opaque pass during migration (Phases 4-6): graphics only, no barrier records
+        OwnBarriers = 4, // opaque pass during migration (Phases 4-6): graphics only; its owner records barriers through the ResourceStateTracker
     };
     constexpr PassFlags operator|(PassFlags a, PassFlags b)
     {
@@ -180,6 +180,10 @@ namespace Dark::Rg
         ShaderResource    = 6,
         CopySource        = 7,
         CopyDest          = 8,
+        // Read-only depth that is also sampled (DEPTH_STENCIL_READ allows depth-stencil-read access
+        // only). Direct queue only; 31 is also usable on compute lists (non-depth reads there).
+        DirectQueueGenericRead                       = 19,
+        DirectQueueGenericReadComputeQueueAccessible = 31,
     };
 
     constexpr Sync operator|(Sync a, Sync b)
@@ -237,6 +241,10 @@ namespace Dark::Rg
         UseState         after;
         bool             discard = false; // LAYOUT_UNDEFINED first use: D3D12_TEXTURE_BARRIER_FLAG_DISCARD
         bool             aliased = false; // first use of memory another transient used earlier this frame
+        // The before-state is only known at execute time: the previous access was an OwnBarriers
+        // (opaque) pass, so the executor takes it from the ResourceStateTracker (Phase 6). The
+        // compiled `before` is then NO_ACCESS/UNDEFINED as a placeholder and is never recorded.
+        bool tracked = false;
     };
 
     // Barriers merged per pass: every record at one (placement, pass, queue) is one Barrier() call.
@@ -272,7 +280,7 @@ namespace Dark::Rg
         IncompatibleUses, // one pass uses one resource in two incompatible ways
         IllegalOnQueue,   // use not legal on the pass's queue (e.g. RenderTarget on AsyncCompute)
         OwnBarriersOnCompute,
-        MixedOpaqueUse, // one resource used by an OwnBarriers pass and a declared pass (Phase 6 adds boundary barriers)
+        MixedOpaqueUse, // one resource used by an OwnBarriers pass and a declared AsyncCompute pass
         Cycle,
         HistoryDescMismatch, // history(name) twice in one frame with different descs
         TooManyResources,

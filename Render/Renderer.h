@@ -2,6 +2,7 @@
 #include "Render/DebugRenderState.h"
 #include "Render/DepthState.h"
 #include "Render/RenderTargetPool.h"
+#include "Render/ResourceStateTracker.h"
 #include "Render/RhiDevice.h"
 #include "Core/UiPalette.h"
 
@@ -18,6 +19,7 @@ namespace Dark
 {
 
     class Window;
+    class DescriptorRingHeap;
     class GraphTargets;
     class SceneBuffers;
     class Texture2D;
@@ -205,6 +207,8 @@ namespace Dark
         D3D12_CPU_DESCRIPTOR_HANDLE depthReadOnlyDsv() const;
         // Graph-owned persistent targets (render-graph plan Phase 5). Null on a test shell.
         GraphTargets*               targets() const { return m_targets.get(); }
+        // The shader-visible descriptor ring (render-graph plan §3.9); null when it failed to create.
+        DescriptorRingHeap*         descriptorRing() const { return m_descriptorRing.get(); }
         // GPU drains taken by resize(); the Phase 5 gate expects exactly one per resize.
         uint32_t                    resizeDrainCount() const { return m_resizeDrains; }
         ID3D12Resource*             albedoResource() const;
@@ -295,6 +299,7 @@ namespace Dark
         ComPtr<ID3D12Device>              m_device;
         RhiCaps                           m_caps;
         std::unique_ptr<GraphTargets>     m_targets; // after m_device; shut down explicitly in ~Renderer
+        std::unique_ptr<DescriptorRingHeap> m_descriptorRing; // after m_device
         ComPtr<ID3D12CommandQueue>        m_commandQueue;
         ComPtr<ID3D12CommandQueue>        m_copyQueue;
         ComPtr<ID3D12Fence>               m_copyFence;
@@ -307,10 +312,12 @@ namespace Dark
         std::vector<DeferredGpu>          m_deferredGpu;
         ComPtr<IDXGISwapChain3>           m_swapChain;
         ComPtr<ID3D12DescriptorHeap>      m_rtvHeap;
+        // Enhanced-barrier state of the back buffers and every graph target (Phase 6); the main thread's
+        // frame tracker from initD3D12 until the destructor.
+        ResourceStateTracker              m_stateTracker;
         ComPtr<ID3D12Resource>            m_renderTargets[kFrameCount];
         Rg::TargetId                      m_depthId;
         D3D12_CPU_DESCRIPTOR_HANDLE       m_depthSrvCpu{};
-        D3D12_RESOURCE_STATES             m_depthState = D3D12_RESOURCE_STATE_DEPTH_WRITE;
         ComPtr<ID3D12CommandAllocator>    m_commandAllocators[kFrameCount];
         ComPtr<ID3D12GraphicsCommandList> m_commandList;
         ComPtr<ID3D12CommandAllocator>    m_texUpdateCopyAlloc[kFrameCount];

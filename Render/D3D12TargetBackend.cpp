@@ -1,6 +1,7 @@
 #include "Render/D3D12TargetBackend.h"
 
 #include "Core/Log.h"
+#include "Render/EnhancedBarrierEmitter.h"
 #include "Render/GpuAllocator.h"
 
 #include <algorithm>
@@ -221,13 +222,20 @@ namespace Dark
             target->dsv         = target->targetLease.cpu().ptr;
             target->readOnlyDsv = target->readOnlyLease.cpu().ptr;
         }
+        // The frame ResourceStateTracker owns the target's state from here (Phase 6): owners and the
+        // graph read their before-states from it.
+        trackResource(target->native, static_cast<D3D12_RESOURCE_STATES>(desc.initialState));
         return target;
     }
 
     void D3D12TargetBackend::retire(std::unique_ptr<Rg::TargetStorage> storage)
     {
-        if (storage)
-            m_impl->retired.push_back({ m_impl->retireFence, std::move(storage) });
+        if (!storage)
+            return;
+        // Nothing records on a retired target; forget it now so a new resource at the same address
+        // never inherits its state.
+        forgetResource(storage->native);
+        m_impl->retired.push_back({ m_impl->retireFence, std::move(storage) });
     }
 
     void D3D12TargetBackend::retireAfter(uint64_t lastSubmittedFence)

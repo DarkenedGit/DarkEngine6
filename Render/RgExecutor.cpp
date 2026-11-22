@@ -7,9 +7,10 @@
 namespace Dark
 {
 
-    void RgExecutor::beginFrame(Renderer& renderer)
+    void RgExecutor::beginFrame(Renderer& renderer, const Rg::RenderGraph& graph)
     {
         m_renderer = &renderer;
+        m_graph    = &graph;
         m_ok       = true;
         resetSplits();
     }
@@ -30,11 +31,20 @@ namespace Dark
         DE_LOG_ERROR(LogCategory::Render, "RgExecutor: {} (logs once)", message);
     }
 
+    ID3D12Resource* RgExecutor::resolve(const void* context, uint16_t resource)
+    {
+        return static_cast<const Rg::RenderGraph*>(context)->nativeResource(resource);
+    }
+
     void RgExecutor::recordBarriers(const Rg::BarrierBatch& batch, const Rg::BarrierRec* records)
     {
-        (void)batch;
-        (void)records;
-        fail(0, "the graph planned barriers, but every Phase 4 pass is OwnBarriers; the enhanced barrier emitter is Phase 6");
+        ID3D12GraphicsCommandList* cmd = commandList(batch.queue);
+        if (!cmd || !m_graph)
+        {
+            fail(0, "a barrier batch without the graphics list (async compute is Phase 10)");
+            return;
+        }
+        m_emitter.record(cmd, records, batch.count, &RgExecutor::resolve, m_graph, m_graph->options().validate);
     }
 
     void RgExecutor::passBegin(const Rg::PassContext& ctx)

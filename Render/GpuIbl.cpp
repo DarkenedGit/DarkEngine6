@@ -1,4 +1,5 @@
 #include "Render/GpuIbl.h"
+#include "Render/EnhancedBarrierEmitter.h"
 #include "Assets/Image.h"
 #include "Core/Log.h"
 #include "Math/Color.h"
@@ -79,7 +80,7 @@ namespace Dark
                 clearPtr     = &clear;
             }
 
-            if (FailedHr(device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc, state, clearPtr, IID_PPV_ARGS(&out)), "CreateCommittedResource (ibl cube)"))
+            if (FailedHr(createCommittedResource(device, heap, D3D12_HEAP_FLAG_NONE, desc, state, clearPtr, IID_PPV_ARGS(&out)), "CreateCommittedResource (ibl cube)"))
                 return false;
             if (name)
                 out->SetName(name);
@@ -88,13 +89,7 @@ namespace Dark
 
         void Transition(ID3D12GraphicsCommandList* cmd, ID3D12Resource* resource, D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after)
         {
-            D3D12_RESOURCE_BARRIER b{};
-            b.Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-            b.Transition.pResource   = resource;
-            b.Transition.StateBefore = before;
-            b.Transition.StateAfter  = after;
-            b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-            cmd->ResourceBarrier(1, &b);
+            recordTransition(cmd, resource, before, after);
         }
 
         void DrawCubeFaces(ID3D12GraphicsCommandList* cmd, const IblBakePipeline& pipe, ID3D12PipelineState* pso, uint32_t srvSlot, uint32_t mip, uint32_t size,

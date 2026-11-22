@@ -1,4 +1,6 @@
 #include "Render/Renderer.h"
+#include "Render/DescriptorRingHeap.h"
+#include "Render/EnhancedBarrierEmitter.h"
 #include "Render/GpuIbl.h"
 #include "Render/GraphTargets.h"
 #include "Render/GpuResourceCache.h"
@@ -153,6 +155,8 @@ namespace Dark
         m_sceneBuffers.reset();
         if (m_targets)
             m_targets->shutdown();
+        if (frameStateTracker() == &m_stateTracker)
+            setFrameStateTracker(nullptr);
         if (m_fenceEvent)
         {
             CloseHandle(m_fenceEvent);
@@ -171,6 +175,11 @@ namespace Dark
             DE_LOG_ERROR(LogCategory::Render, "Renderer: window has no HWND");
             return false;
         }
+
+        // Every barrier is an enhanced barrier (D13); the tracker holds the state of the back buffers
+        // and graph targets from creation on (this thread only: the shadow worker sees none).
+        m_stateTracker.clear();
+        setFrameStateTracker(&m_stateTracker);
 
         configureDiagnostics();
 
@@ -276,6 +285,12 @@ namespace Dark
         }
         if (!createDepthResources())
             return false;
+
+        // One shader-visible CBV/SRV/UAV heap for converted pipelines (Phase 6). Nothing requires it
+        // yet, so a failure is logged and the renderer carries on without it.
+        m_descriptorRing = std::make_unique<DescriptorRingHeap>();
+        if (!m_descriptorRing->init(m_device.Get()))
+            m_descriptorRing.reset();
 
         if (!checkHr(m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_commandAllocators[m_frameIndex].Get(), nullptr, IID_PPV_ARGS(&m_commandList)), "CreateCommandList"))
             return false;
@@ -399,6 +414,7 @@ namespace Dark
             wchar_t bbName[32];
             swprintf_s(bbName, L"DE.BackBuffer%u", i);
             nameObject(m_renderTargets[i].Get(), bbName);
+            trackResource(m_renderTargets[i].Get(), D3D12_RESOURCE_STATE_PRESENT); // swap chain buffers start in COMMON
             m_device->CreateRenderTargetView(m_renderTargets[i].Get(), nullptr, rtvHandle);
             rtvHandle.ptr += m_rtvDescriptorSize;
         }
@@ -440,8 +456,8 @@ namespace Dark
 
     void Renderer::refreshDepthViews()
     {
+        // The depth target's state is in the frame tracker (from its creation in DEPTH_WRITE).
         m_depthSrvCpu = m_targets ? m_targets->srv(m_depthId) : D3D12_CPU_DESCRIPTOR_HANDLE{};
-        m_depthState  = D3D12_RESOURCE_STATE_DEPTH_WRITE;
     }
 
     ID3D12Resource* Renderer::depthResource() const
@@ -480,7 +496,10 @@ namespace Dark
         broadcastFenceValueAfterWait(m_fenceValues, kFrameCount, m_frameIndex);
 
         for (uint32_t i = 0; i < kFrameCount; ++i)
+        {
+            forgetResource(m_renderTargets[i].Get());
             m_renderTargets[i].Reset();
+        }
 
         const HRESULT hr = m_swapChain->ResizeBuffers(
             kFrameCount, width, height, DXGI_FORMAT_R8G8B8A8_UNORM, m_swapChainFlags);
@@ -566,6 +585,8 @@ namespace Dark
             m_targets->retireAfter(m_fenceValues[m_frameIndex]);
             m_targets->collect(m_fence->GetCompletedValue());
         }
+        if (m_descriptorRing)
+            m_descriptorRing->retire(m_fence->GetCompletedValue());
 
         // m_frameIndex was advanced in moveToNextFrame(), which already waited until
         // this slot's prior GPU work finished. Safe to reset its allocator now.
@@ -577,26 +598,13 @@ namespace Dark
         m_commandList->RSSetViewports(1, &m_viewport);
         m_commandList->RSSetScissorRects(1, &m_scissor);
 
-        D3D12_RESOURCE_BARRIER barriers[2]{};
-        UINT barrierCount = 0;
-        barriers[barrierCount].Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        barriers[barrierCount].Transition.pResource   = m_renderTargets[m_frameIndex].Get();
-        barriers[barrierCount].Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
-        barriers[barrierCount].Transition.StateAfter  = D3D12_RESOURCE_STATE_RENDER_TARGET;
-        barriers[barrierCount].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-        ++barrierCount;
-        ID3D12Resource* depth = depthResource();
-        if (depth && m_depthState != D3D12_RESOURCE_STATE_DEPTH_WRITE)
         {
-            barriers[barrierCount].Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-            barriers[barrierCount].Transition.pResource   = depth;
-            barriers[barrierCount].Transition.StateBefore = m_depthState;
-            barriers[barrierCount].Transition.StateAfter  = D3D12_RESOURCE_STATE_DEPTH_WRITE;
-            barriers[barrierCount].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-            ++barrierCount;
-            m_depthState = D3D12_RESOURCE_STATE_DEPTH_WRITE;
+            // PRESENT -> RENDER_TARGET and depth back to DEPTH_WRITE, one Barrier() call.
+            EnhancedBarrierList barriers(m_commandList.Get());
+            barriers.transitionTo(m_renderTargets[m_frameIndex].Get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
+            if (ID3D12Resource* depth = depthResource())
+                barriers.transitionTo(depth, D3D12_RESOURCE_STATE_DEPTH_WRITE);
         }
-        m_commandList->ResourceBarrier(barrierCount, barriers);
 
         D3D12_CPU_DESCRIPTOR_HANDLE rtv = m_rtvHeap->GetCPUDescriptorHandleForHeapStart();
         rtv.ptr += static_cast<SIZE_T>(m_frameIndex) * m_rtvDescriptorSize;
@@ -680,16 +688,9 @@ namespace Dark
     void Renderer::transitionDepth(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after)
     {
         ID3D12Resource* depth = depthResource();
-        if (!cmd || !depth || m_depthState == after)
+        if (!cmd || !depth)
             return;
-        D3D12_RESOURCE_BARRIER b{};
-        b.Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        b.Transition.pResource   = depth;
-        b.Transition.StateBefore = m_depthState;
-        b.Transition.StateAfter  = after;
-        b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-        cmd->ResourceBarrier(1, &b);
-        m_depthState = after;
+        recordTransitionTo(cmd, depth, after);
     }
 
     bool Renderer::endFrame()
@@ -718,15 +719,8 @@ namespace Dark
         // A capture copies this back buffer before Present; no extra work without a request.
         recordBackBufferCapture();
 
-        // RENDER_TARGET -> PRESENT
-        D3D12_RESOURCE_BARRIER barrier{};
-        barrier.Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        barrier.Flags                  = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-        barrier.Transition.pResource   = m_renderTargets[m_frameIndex].Get();
-        barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
-        barrier.Transition.StateAfter  = D3D12_RESOURCE_STATE_PRESENT;
-        barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-        m_commandList->ResourceBarrier(1, &barrier);
+        // RENDER_TARGET -> PRESENT (before-state from the tracker)
+        recordTransitionTo(m_commandList.Get(), m_renderTargets[m_frameIndex].Get(), D3D12_RESOURCE_STATE_PRESENT);
         closeProfileFrame();
         profileTimersResolve(m_commandList.Get());
 
@@ -862,6 +856,9 @@ namespace Dark
         const UINT64 currentFenceValue = m_fenceValues[m_frameIndex];
         if (!checkHr(m_commandQueue->Signal(m_fence.Get(), currentFenceValue), "Queue Signal"))
             return false;
+        // The frame's descriptor tables are free once this signal completes.
+        if (m_descriptorRing)
+            m_descriptorRing->endFrame(currentFenceValue);
 
         // Advance to the swap-chain's next buffer.
         m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
@@ -944,24 +941,11 @@ namespace Dark
 
         if (listType == D3D12_COMMAND_LIST_TYPE_DIRECT)
         {
-            D3D12_RESOURCE_BARRIER barriers[2]{};
-            UINT                   n = 0;
-            barriers[n].Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-            barriers[n].Transition.pResource   = dstA;
-            barriers[n].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
-            barriers[n].Transition.StateAfter  = D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER;
-            barriers[n].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-            ++n;
+            EnhancedBarrierList barriers(list.Get());
+            barriers.transition(dstA, Rg::ResourceKind::Buffer, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER);
             if (dstB)
-            {
-                barriers[n].Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-                barriers[n].Transition.pResource   = dstB;
-                barriers[n].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
-                barriers[n].Transition.StateAfter  = D3D12_RESOURCE_STATE_INDEX_BUFFER;
-                barriers[n].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-                ++n;
-            }
-            list->ResourceBarrier(n, barriers);
+                barriers.transition(dstB, Rg::ResourceKind::Buffer, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_INDEX_BUFFER);
+            barriers.record();
         }
 
         if (!checkHr(list->Close(), "Close buffer copy list"))
@@ -992,13 +976,7 @@ namespace Dark
 
         auto transition = [](ID3D12GraphicsCommandList* list, ID3D12Resource* resource, D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after)
         {
-            D3D12_RESOURCE_BARRIER barrier{};
-            barrier.Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-            barrier.Transition.pResource   = resource;
-            barrier.Transition.StateBefore = before;
-            barrier.Transition.StateAfter  = after;
-            barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-            list->ResourceBarrier(1, &barrier);
+            recordTransition(list, resource, before, after); // untracked upload target: legacy states translated
         };
 
         ComPtr<ID3D12CommandAllocator>    alloc;
@@ -1139,13 +1117,7 @@ namespace Dark
 
         auto transition = [](ID3D12GraphicsCommandList* list, ID3D12Resource* resource, D3D12_RESOURCE_STATES stateBefore, D3D12_RESOURCE_STATES stateAfter)
         {
-            D3D12_RESOURCE_BARRIER barrier{};
-            barrier.Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-            barrier.Transition.pResource   = resource;
-            barrier.Transition.StateBefore = stateBefore;
-            barrier.Transition.StateAfter  = stateAfter;
-            barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-            list->ResourceBarrier(1, &barrier);
+            recordTransition(list, resource, stateBefore, stateAfter); // untracked upload target: legacy states translated
         };
 
         // Same graphics-queue rule as submitTextureCopies. before is COMMON or SRV.
@@ -1419,12 +1391,12 @@ namespace Dark
             transitionDepth(m_commandList.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
             m_commandList->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
 #if defined(_DEBUG)
-            DE_ASSERT(m_depthState == D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            DE_ASSERT(trackedInState(depthResource(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
             {
-                DE_ASSERT(m_sceneBuffers->albedoState() == D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-                DE_ASSERT(m_sceneBuffers->attribState() == D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-                DE_ASSERT(m_sceneBuffers->velocityState() == D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-                DE_ASSERT(m_sceneBuffers->aoState() == D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+                DE_ASSERT(trackedInState(m_sceneBuffers->albedo(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
+                DE_ASSERT(trackedInState(m_sceneBuffers->attrib(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
+                DE_ASSERT(trackedInState(m_sceneBuffers->velocity(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
+                DE_ASSERT(trackedInState(m_sceneBuffers->ao(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
             }
 #endif
         }
