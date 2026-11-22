@@ -92,12 +92,6 @@ namespace Dark
         D3D12_GPU_DESCRIPTOR_HANDLE localShadowTableGpu() const { return m_localShadowGpu; }
         ID3D12DescriptorHeap*       lightingHeap() const { return m_lightingHeap.Get(); }
         const float*                hdrClear() const { return m_hdrClear; }
-        D3D12_RESOURCE_STATES       hdrState() const { return m_state[kHdr]; }
-        D3D12_RESOURCE_STATES       albedoState() const { return m_state[kAlbedo]; }
-        D3D12_RESOURCE_STATES       attribState() const { return m_state[kAttrib]; }
-        D3D12_RESOURCE_STATES       velocityState() const { return m_state[kVelocity]; }
-        D3D12_RESOURCE_STATES       postState() const { return m_state[kPost]; }
-        D3D12_RESOURCE_STATES       aoState() const { return m_state[kAo]; }
 
         void transitionHdr(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after) { transition(cmd, kHdr, after); }
         void transitionAlbedo(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after) { transition(cmd, kAlbedo, after); }
@@ -136,7 +130,6 @@ namespace Dark
 
         GraphTargets*                m_targets = nullptr;
         Rg::TargetId                 m_ids[kSlotCount];
-        D3D12_RESOURCE_STATES        m_state[kSlotCount] = {};
         ComPtr<ID3D12DescriptorHeap> m_lightingHeap;
         D3D12_GPU_DESCRIPTOR_HANDLE  m_lightingGpu{};
         D3D12_GPU_DESCRIPTOR_HANDLE  m_heightGpu{};

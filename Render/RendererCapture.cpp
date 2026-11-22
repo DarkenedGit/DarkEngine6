@@ -1,4 +1,5 @@
 #include "Render/Renderer.h"
+#include "Render/EnhancedBarrierEmitter.h"
 
 #include "Assets/Image.h"
 #include "Core/Log.h"
@@ -67,13 +68,7 @@ namespace Dark
             return;
         m_captureReadback->SetName(L"DE.FrameCapture.Readback");
 
-        D3D12_RESOURCE_BARRIER barrier{};
-        barrier.Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        barrier.Transition.pResource   = backBuffer;
-        barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-        barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
-        barrier.Transition.StateAfter  = D3D12_RESOURCE_STATE_COPY_SOURCE;
-        m_commandList->ResourceBarrier(1, &barrier);
+        recordTransitionTo(m_commandList.Get(), backBuffer, D3D12_RESOURCE_STATE_COPY_SOURCE);
         D3D12_TEXTURE_COPY_LOCATION src{};
         src.pResource        = backBuffer;
         src.Type             = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
@@ -83,9 +78,7 @@ namespace Dark
         dst.Type            = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
         dst.PlacedFootprint = m_captureFootprint;
         m_commandList->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
-        barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
-        barrier.Transition.StateAfter  = D3D12_RESOURCE_STATE_RENDER_TARGET;
-        m_commandList->ResourceBarrier(1, &barrier);
+        recordTransitionTo(m_commandList.Get(), backBuffer, D3D12_RESOURCE_STATE_RENDER_TARGET);
         m_captureRecorded = true;
     }
 

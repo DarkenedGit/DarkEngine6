@@ -1,4 +1,6 @@
 #include "Render/SceneBuffers.h"
+
+#include "Render/EnhancedBarrierEmitter.h"
 #include "Render/GraphTargets.h"
 #include "Math/Color.h"
 #include "Core/Log.h"
@@ -66,8 +68,6 @@ namespace Dark
         m_iblPrefCpu     = {};
         m_iblLutCpu      = {};
         m_lightingAlbedoRaw = false;
-        for (D3D12_RESOURCE_STATES& state : m_state)
-            state = D3D12_RESOURCE_STATE_COMMON;
         m_hdrClear[0] = 0.0f;
         m_hdrClear[1] = 0.0f;
         m_hdrClear[2] = 0.0f;
@@ -106,17 +106,12 @@ namespace Dark
 
     void SceneBuffers::transition(ID3D12GraphicsCommandList* cmd, Slot slot, D3D12_RESOURCE_STATES after)
     {
+        // The targets are graph targets, tracked from creation: the frame ResourceStateTracker holds
+        // their state (Phase 6), so a target recreated by a resize starts from its real creation state.
         ID3D12Resource* res = resource(slot);
-        if (!cmd || !res || m_state[slot] == after)
+        if (!cmd || !res)
             return;
-        D3D12_RESOURCE_BARRIER b{};
-        b.Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        b.Transition.pResource   = res;
-        b.Transition.StateBefore = m_state[slot];
-        b.Transition.StateAfter  = after;
-        b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-        cmd->ResourceBarrier(1, &b);
-        m_state[slot] = after;
+        recordTransitionTo(cmd, res, after);
     }
 
     bool SceneBuffers::create(GraphTargets& targets, D3D12_CPU_DESCRIPTOR_HANDLE depthSrvCpu, const float hdrClear[4])
@@ -193,8 +188,6 @@ namespace Dark
         ID3D12Device* device = m_targets ? m_targets->device() : nullptr;
         if (!device)
             return false;
-        for (D3D12_RESOURCE_STATES& state : m_state)
-            state = D3D12_RESOURCE_STATE_RENDER_TARGET;
         // Called with the GPU idle (create, or Renderer::resize after its drain), so the old table can go now.
         m_lightingHeap.Reset();
         D3D12_DESCRIPTOR_HEAP_DESC lightDesc{};

@@ -11,15 +11,15 @@
 namespace Dark
 {
 
-    // One graph-registered target as an opaque pass sees it: the id plus the D3D12 state the owner
-    // tracks (Phase 6 moves barriers into the graph). A recreated target (resize) starts again in
-    // its desc's initial state; GraphTargets::refresh() notices that through the generation.
+    // One graph-registered target as an opaque pass sees it: the id plus the generation its views
+    // were built for. Its state lives in the frame ResourceStateTracker (Phase 6): the backend tracks
+    // a target from creation (in its desc's initial state) and forgets it when retired, so a
+    // recreated target (resize) starts again from its real state. GraphTargets::refresh() tells the
+    // owner to rebuild its views.
     struct GraphTarget
     {
-        Rg::TargetId          id;
-        D3D12_RESOURCE_STATES initial    = D3D12_RESOURCE_STATE_COMMON;
-        D3D12_RESOURCE_STATES state      = D3D12_RESOURCE_STATE_COMMON;
-        uint64_t              generation = 0;
+        Rg::TargetId id;
+        uint64_t     generation = 0;
     };
 
     // A history pair as a pass binds it: read prev (when prevValid), write curr. Both targets rest in

@@ -1,4 +1,5 @@
 #include "Render/FoliagePipeline.h"
+#include "Render/EnhancedBarrierEmitter.h"
 
 #include "Assets/AssetManager.h"
 #include "Assets/Material.h"
@@ -187,23 +188,14 @@ namespace Dark
         {
             if (!cmd || !resource || before == after)
                 return;
-            D3D12_RESOURCE_BARRIER barrier{};
-            barrier.Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-            barrier.Transition.pResource   = resource;
-            barrier.Transition.StateBefore = before;
-            barrier.Transition.StateAfter  = after;
-            barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-            cmd->ResourceBarrier(1, &barrier);
+            recordTransition(cmd, resource, before, after);
         }
 
         void uavBarrier(ID3D12GraphicsCommandList* cmd, ID3D12Resource* resource)
         {
             if (!cmd || !resource)
                 return;
-            D3D12_RESOURCE_BARRIER barrier{};
-            barrier.Type          = D3D12_RESOURCE_BARRIER_TYPE_UAV;
-            barrier.UAV.pResource = resource;
-            cmd->ResourceBarrier(1, &barrier);
+            recordUavBarrier(cmd, resource);
         }
 
         bool foliageArgWritable(D3D12_RESOURCE_STATES state)

@@ -1,4 +1,5 @@
 #include "Render/ShadowSystem.h"
+#include "Render/EnhancedBarrierEmitter.h"
 #include "Render/Camera3D.h"
 #include "Render/DepthState.h"
 #include "Render/Profile.h"
@@ -228,16 +229,12 @@ void ShadowSystem::beginCapture(ID3D12GraphicsCommandList* cmd, bool profile)
     if (m_state[m_frame] == D3D12_RESOURCE_STATE_DEPTH_WRITE)
         return;
 
-    D3D12_RESOURCE_BARRIER barriers[kMaxShadowCascades]{};
-    for (int i = 0; i < m_cascadeCount; ++i)
     {
-        barriers[i].Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        barriers[i].Transition.pResource   = m_resource.Get();
-        barriers[i].Transition.StateBefore = m_state[m_frame];
-        barriers[i].Transition.StateAfter  = D3D12_RESOURCE_STATE_DEPTH_WRITE;
-        barriers[i].Transition.Subresource = sliceIndex(i);
+        // Per slice (untracked: the worker thread records these, and the tracker is whole-resource).
+        EnhancedBarrierList barriers(cmd);
+        for (int i = 0; i < m_cascadeCount; ++i)
+            barriers.transition(m_resource.Get(), Rg::ResourceKind::Texture, m_state[m_frame], D3D12_RESOURCE_STATE_DEPTH_WRITE, sliceIndex(i));
     }
-    cmd->ResourceBarrier(static_cast<UINT>(m_cascadeCount), barriers);
     m_state[m_frame] = D3D12_RESOURCE_STATE_DEPTH_WRITE;
 }
 
@@ -288,16 +285,12 @@ void ShadowSystem::endCapture(ID3D12GraphicsCommandList* cmd)
     }
     if (m_state[m_frame] != D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE)
     {
-        D3D12_RESOURCE_BARRIER barriers[kMaxShadowCascades]{};
-        for (int i = 0; i < m_cascadeCount; ++i)
         {
-            barriers[i].Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-            barriers[i].Transition.pResource   = m_resource.Get();
-            barriers[i].Transition.StateBefore = m_state[m_frame];
-            barriers[i].Transition.StateAfter  = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
-            barriers[i].Transition.Subresource = sliceIndex(i);
+            // Per slice (untracked: the worker thread records these, and the tracker is whole-resource).
+            EnhancedBarrierList barriers(cmd);
+            for (int i = 0; i < m_cascadeCount; ++i)
+                barriers.transition(m_resource.Get(), Rg::ResourceKind::Texture, m_state[m_frame], D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, sliceIndex(i));
         }
-        cmd->ResourceBarrier(static_cast<UINT>(m_cascadeCount), barriers);
         m_state[m_frame] = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
     }
     if (m_profileShadows)

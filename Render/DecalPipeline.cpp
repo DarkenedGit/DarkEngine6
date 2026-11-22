@@ -1,4 +1,5 @@
 #include "Render/DecalPipeline.h"
+#include "Render/EnhancedBarrierEmitter.h"
 #include "Render/DecalGpuList.h"
 #include "Render/DecalLibrary.h"
 #include "Render/DepthState.h"
@@ -353,12 +354,9 @@ namespace Dark
     {
         if (!cmd || !m_albedoRes || !m_attribRes)
             return;
-        D3D12_RESOURCE_BARRIER bars[2]{};
-        bars[0].Type          = D3D12_RESOURCE_BARRIER_TYPE_UAV;
-        bars[0].UAV.pResource = m_albedoRes;
-        bars[1].Type          = D3D12_RESOURCE_BARRIER_TYPE_UAV;
-        bars[1].UAV.pResource = m_attribRes;
-        cmd->ResourceBarrier(2, bars);
+        EnhancedBarrierList bars(cmd);
+        bars.uav(m_albedoRes, Rg::ResourceKind::Texture);
+        bars.uav(m_attribRes, Rg::ResourceKind::Texture);
     }
 
 } // namespace Dark

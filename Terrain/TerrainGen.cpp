@@ -1,4 +1,5 @@
 #include "Terrain/TerrainGen.h"
+#include "Render/EnhancedBarrierEmitter.h"
 #include "Core/Log.h"
 #include "Math/MathHelper.h"
 #include "Render/TerrainErosionPipeline.h"
@@ -464,13 +465,7 @@ namespace Dark::Terrain
 
         void Transition(ID3D12GraphicsCommandList* cmd, ID3D12Resource* resource, D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after)
         {
-            D3D12_RESOURCE_BARRIER b{};
-            b.Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-            b.Transition.pResource   = resource;
-            b.Transition.StateBefore = before;
-            b.Transition.StateAfter  = after;
-            b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-            cmd->ResourceBarrier(1, &b);
+            recordTransition(cmd, resource, before, after);
         }
 
         bool FailedHr(HRESULT hr, const char* what)

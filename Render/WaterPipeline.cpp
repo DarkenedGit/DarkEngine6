@@ -1,4 +1,5 @@
 #include "Render/WaterPipeline.h"
+#include "Render/EnhancedBarrierEmitter.h"
 #include "Render/Camera3D.h"
 #include "Render/DepthState.h"
 #include "Render/PsoUtil.h"
@@ -443,16 +444,14 @@ bool WaterPipeline::createSsrDummies(ID3D12Device* device)
 
     rd.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
     if (FailedHr(
-            device->CreateCommittedResource(
-                &heap, D3D12_HEAP_FLAG_NONE, &rd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, nullptr, IID_PPV_ARGS(&m_dummySsrColor)),
+            createCommittedResource(device, heap, D3D12_HEAP_FLAG_NONE, rd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, nullptr, IID_PPV_ARGS(&m_dummySsrColor)),
             "CreateCommittedResource water SSR color dummy"))
     {
         return false;
     }
     rd.Format = DXGI_FORMAT_R32_FLOAT;
     if (FailedHr(
-            device->CreateCommittedResource(
-                &heap, D3D12_HEAP_FLAG_NONE, &rd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, nullptr, IID_PPV_ARGS(&m_dummySsrDepth)),
+            createCommittedResource(device, heap, D3D12_HEAP_FLAG_NONE, rd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, nullptr, IID_PPV_ARGS(&m_dummySsrDepth)),
             "CreateCommittedResource water SSR depth dummy"))
     {
         m_dummySsrColor.Reset();

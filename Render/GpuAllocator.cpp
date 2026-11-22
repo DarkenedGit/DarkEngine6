@@ -1,5 +1,7 @@
 #include "Render/GpuAllocator.h"
 
+#include "Render/EnhancedBarrierEmitter.h"
+
 #include "Core/Log.h"
 
 #include <D3D12MemAlloc.h>
@@ -132,7 +134,18 @@ namespace Dark
         D3D12MA::ALLOCATION_DESC alloc{};
         alloc.HeapType              = D3D12_HEAP_TYPE_DEFAULT;
         D3D12MA::Allocation* result = nullptr;
-        const HRESULT        hr     = toAllocator(m_allocator.Get())->CreateResource(&alloc, &desc, initial, clear, &result, IID_NULL, nullptr);
+        HRESULT              hr     = E_FAIL;
+        if (createNeedsLayout(desc, initial))
+        {
+            // A legacy shader-resource / copy creation state has only an internal LEGACY_* layout that
+            // enhanced barriers cannot name (Phase 6, D13): create with the public layout instead.
+            const D3D12_RESOURCE_DESC1 desc1 = resourceDesc1(desc);
+            hr = toAllocator(m_allocator.Get())->CreateResource3(&alloc, &desc1, initialLayout(initial), clear, 0, nullptr, &result, IID_NULL, nullptr);
+        }
+        else
+        {
+            hr = toAllocator(m_allocator.Get())->CreateResource(&alloc, &desc, initial, clear, &result, IID_NULL, nullptr);
+        }
         if (FAILED(hr) || !result || !result->GetResource())
         {
             DE_LOG_ERROR(LogCategory::Render, "GpuAllocator: CreateResource failed for {}x{} format {} (HRESULT 0x{:08X})", static_cast<uint64_t>(desc.Width), desc.Height,

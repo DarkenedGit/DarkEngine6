@@ -1,4 +1,5 @@
 #include "Render/LocalShadowSystem.h"
+#include "Render/EnhancedBarrierEmitter.h"
 
 #include "Core/Log.h"
 #include "ECS/Components.h"
@@ -177,8 +178,7 @@ bool LocalShadowSystem::createDummy(ID3D12Device* device)
     desc.Layout           = D3D12_TEXTURE_LAYOUT_UNKNOWN;
 
     if (FailedHr(
-            device->CreateCommittedResource(
-                &heap, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&m_dummy)),
+            createCommittedResource(device, heap, D3D12_HEAP_FLAG_NONE, desc, D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&m_dummy)),
             "CreateCommittedResource local shadow dummy"))
         return false;
 
@@ -251,13 +251,7 @@ bool LocalShadowSystem::createDummy(ID3D12Device* device)
     src.PlacedFootprint = footprint;
     list->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
 
-    D3D12_RESOURCE_BARRIER barrier{};
-    barrier.Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    barrier.Transition.pResource   = m_dummy.Get();
-    barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
-    barrier.Transition.StateAfter  = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
-    barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-    list->ResourceBarrier(1, &barrier);
+    recordTransition(list.Get(), m_dummy.Get(), D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 
     bool ok = !FailedHr(list->Close(), "Close (local shadow dummy)");
     if (ok)
@@ -733,17 +727,13 @@ void LocalShadowSystem::beginCapture(ID3D12GraphicsCommandList* cmd)
     }
     if (m_state[m_frame] != D3D12_RESOURCE_STATE_DEPTH_WRITE)
     {
-        D3D12_RESOURCE_BARRIER barriers[kLocalShadowSlicesPerFrame]{};
         const int slices = slicesPerFrame();
-        for (int i = 0; i < slices; ++i)
         {
-            barriers[i].Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-            barriers[i].Transition.pResource   = m_resource.Get();
-            barriers[i].Transition.StateBefore = m_state[m_frame];
-            barriers[i].Transition.StateAfter  = D3D12_RESOURCE_STATE_DEPTH_WRITE;
-            barriers[i].Transition.Subresource = sliceIndex(i);
+            // Per slice (untracked: the worker thread records these, and the tracker is whole-resource).
+            EnhancedBarrierList barriers(cmd);
+            for (int i = 0; i < slices; ++i)
+                barriers.transition(m_resource.Get(), Rg::ResourceKind::Texture, m_state[m_frame], D3D12_RESOURCE_STATE_DEPTH_WRITE, sliceIndex(i));
         }
-        cmd->ResourceBarrier(static_cast<UINT>(slices), barriers);
         m_state[m_frame] = D3D12_RESOURCE_STATE_DEPTH_WRITE;
     }
 
@@ -798,17 +788,13 @@ void LocalShadowSystem::endCapture(ID3D12GraphicsCommandList* cmd)
     }
     if (m_state[m_frame] != D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE)
     {
-        D3D12_RESOURCE_BARRIER barriers[kLocalShadowSlicesPerFrame]{};
         const int slices = slicesPerFrame();
-        for (int i = 0; i < slices; ++i)
         {
-            barriers[i].Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-            barriers[i].Transition.pResource   = m_resource.Get();
-            barriers[i].Transition.StateBefore = m_state[m_frame];
-            barriers[i].Transition.StateAfter  = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
-            barriers[i].Transition.Subresource = sliceIndex(i);
+            // Per slice (untracked: the worker thread records these, and the tracker is whole-resource).
+            EnhancedBarrierList barriers(cmd);
+            for (int i = 0; i < slices; ++i)
+                barriers.transition(m_resource.Get(), Rg::ResourceKind::Texture, m_state[m_frame], D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, sliceIndex(i));
         }
-        cmd->ResourceBarrier(static_cast<UINT>(slices), barriers);
         m_state[m_frame] = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
     }
     if (m_profileCapture)

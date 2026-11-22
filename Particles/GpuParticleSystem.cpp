@@ -1,4 +1,5 @@
 #include "Particles/GpuParticleSystem.h"
+#include "Render/EnhancedBarrierEmitter.h"
 
 #include "Assets/AssetManager.h"
 #include "Core/Log.h"
@@ -140,13 +141,7 @@ namespace Dark
         {
             if (!cmd || !resource || state == after)
                 return;
-            D3D12_RESOURCE_BARRIER barrier{};
-            barrier.Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-            barrier.Transition.pResource   = resource;
-            barrier.Transition.StateBefore = state;
-            barrier.Transition.StateAfter  = after;
-            barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-            cmd->ResourceBarrier(1, &barrier);
+            recordTransition(cmd, resource, state, after);
             state = after;
         }
 
@@ -154,10 +149,7 @@ namespace Dark
         {
             if (!cmd || !resource)
                 return;
-            D3D12_RESOURCE_BARRIER barrier{};
-            barrier.Type          = D3D12_RESOURCE_BARRIER_TYPE_UAV;
-            barrier.UAV.pResource = resource;
-            cmd->ResourceBarrier(1, &barrier);
+            recordUavBarrier(cmd, resource);
         }
 
         bool markOnce(std::vector<EntityID>& ids, EntityID id)
@@ -195,7 +187,7 @@ namespace Dark
             desc.SampleDesc       = { 1, 0 };
             desc.Layout           = D3D12_TEXTURE_LAYOUT_UNKNOWN;
             ComPtr<ID3D12Resource> res;
-            if (FailedHr(device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, nullptr, IID_PPV_ARGS(&res)), what))
+            if (FailedHr(createCommittedResource(device, heap, D3D12_HEAP_FLAG_NONE, desc, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, nullptr, IID_PPV_ARGS(&res)), what))
                 return nullptr;
             return res;
         }

@@ -1,4 +1,5 @@
 #include "Render/DrawList.h"
+#include "Render/EnhancedBarrierEmitter.h"
 
 #include "Assets/Material.h"
 #include "Core/Log.h"
@@ -88,13 +89,7 @@ void transitionBuffer(ID3D12GraphicsCommandList* cmd, ID3D12Resource* resource, 
 {
     if (!cmd || !resource || before == after)
         return;
-    D3D12_RESOURCE_BARRIER barrier{};
-    barrier.Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    barrier.Transition.pResource   = resource;
-    barrier.Transition.StateBefore = before;
-    barrier.Transition.StateAfter  = after;
-    barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-    cmd->ResourceBarrier(1, &barrier);
+    recordTransition(cmd, resource, before, after);
 }
 
 void drawStaticBatch(const Mesh& mesh, ID3D12GraphicsCommandList* cmd, bool indirect, ID3D12CommandSignature* signature, ID3D12Resource* args, UINT64 argOffset, uint32_t visible)

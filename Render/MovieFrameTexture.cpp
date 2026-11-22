@@ -1,4 +1,5 @@
 #include "Render/MovieFrameTexture.h"
+#include "Render/EnhancedBarrierEmitter.h"
 #include "Render/Profile.h"
 #include "Render/Renderer.h"
 #include "Render/ShaderCompile.h"
@@ -24,13 +25,7 @@ namespace Dark
 
         void Transition(ID3D12GraphicsCommandList* list, ID3D12Resource* resource, D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after)
         {
-            D3D12_RESOURCE_BARRIER barrier{};
-            barrier.Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-            barrier.Transition.pResource   = resource;
-            barrier.Transition.StateBefore = before;
-            barrier.Transition.StateAfter  = after;
-            barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-            list->ResourceBarrier(1, &barrier);
+            recordTransition(list, resource, before, after);
         }
 
         void CreateBgraSrv(ID3D12Device* device, ID3D12Resource* resource, D3D12_CPU_DESCRIPTOR_HANDLE dest)

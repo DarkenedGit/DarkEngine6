@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "Math/Matrix4f.h"
+#include "Render/EnhancedBarrierEmitter.h"
 #include "Math/Vector3f.h"
 #include "Math/Vector4f.h"
 #include "Particles/GpuParticleSystem.h"
@@ -77,13 +78,7 @@ void transition(ID3D12GraphicsCommandList* cmd, ID3D12Resource* resource, D3D12_
 {
     if (!cmd || !resource || before == after)
         return;
-    D3D12_RESOURCE_BARRIER barrier{};
-    barrier.Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    barrier.Transition.pResource   = resource;
-    barrier.Transition.StateBefore = before;
-    barrier.Transition.StateAfter  = after;
-    barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-    cmd->ResourceBarrier(1, &barrier);
+    recordTransition(cmd, resource, before, after);
 }
 
 void ndcFromPixel(int x, int y, float width, float height, float& ndcX, float& ndcY)
@@ -375,10 +370,7 @@ TEST(ParticleDepthWarp, FiniteDifferenceMatchesCpu)
     cmd->SetComputeRootUnorderedAccessView(ParticleGpuPipeline::kSimChildHead, childHead->GetGPUVirtualAddress());
     cmd->Dispatch(1, 1, 1);
 
-    D3D12_RESOURCE_BARRIER done{};
-    done.Type          = D3D12_RESOURCE_BARRIER_TYPE_UAV;
-    done.UAV.pResource = curr.Get();
-    cmd->ResourceBarrier(1, &done);
+    recordUavBarrier(cmd.Get(), curr.Get());
     transition(cmd.Get(), curr.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
     cmd->CopyBufferRegion(readback.Get(), 0, curr.Get(), 0, sizeof(seeds));
     ASSERT_TRUE(SUCCEEDED(cmd->Close()));
