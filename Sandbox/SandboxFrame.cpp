@@ -937,14 +937,12 @@ void SandboxFrame::render()
                                                   cf.lod          = app().m_frame.cloudLod();
                                                   m_scene.drawCloudVolumes(pass.cmd(), depthTable, app().renderer(), app().world(), app().m_sceneWorld.camera, viewProj, cf);
                                               });
-                      // The passes after Clouds are opaque and expect HDR bound with read-only depth.
-                      b.opaque("Clouds.BindHdr", {}, {}, [&](Rg::PassContext&) { app().renderer().bindHdrDepthRead(); });
                   });
 
     bool lateDepthWrite = false;
     if (app().m_vision.camouflage && m_scene.camouflage().isValid())
     {
-        frame.set(PassId::Camouflage, [&](Rg::PassContext& pass) {
+        const auto drawBody = [&](Rg::PassContext& pass, D3D12_GPU_DESCRIPTOR_HANDLE sceneTable) {
             ID3D12GraphicsCommandList* const cmd = pass.cmd();
             const Entity body = app().possessedBody();
             const TransformComponent* xf = body.valid() ? app().world().get<TransformComponent>(body) : nullptr;
@@ -960,12 +958,13 @@ void SandboxFrame::render()
                     ag->prevWorld      = worldMat;
                     ag->prevWorldValid = true;
                 }
-                lateDepthWrite = m_scene.camouflage().drawModel(cmd, app().renderer(), gpu, m_skinRing, *model, pose, worldMat, viewProj, camPos, app().m_sceneWorld.cloudTime, fill);
+                lateDepthWrite = m_scene.camouflage().drawModel(cmd, sceneTable, gpu, m_skinRing, *model, pose, worldMat, viewProj, camPos, app().m_sceneWorld.cloudTime, fill);
             }
-        });
+        };
+        frame.declare(PassId::Camouflage, [&, drawBody](FeatureBuilder& b) { m_scene.addCamouflagePasses(b, app().renderer(), drawBody); });
     }
 
-    frame.set(PassId::Translucent, [&](Rg::PassContext& pass) {
+    const auto drawTranslucent = [&](Rg::PassContext& pass) {
         ID3D12GraphicsCommandList* const cmd = pass.cmd();
         const GpuScope translucent(cmd, "Translucent", ProfileColor::Translucent);
         MeshFrameConstants lit{};
@@ -1021,9 +1020,10 @@ void SandboxFrame::render()
             else
                 drawModelForward(cmd, gpu, m_meshTransparentPipeline, m_shadows, *model, true, worldMat, viewProj, lit, fill);
         }
-    });
+    };
+    frame.declare(PassId::Translucent, [&, drawTranslucent](FeatureBuilder& b) { m_scene.addHdrOverlayPasses(b, app().renderer(), "Translucent", drawTranslucent); });
 
-    frame.set(PassId::DebugOverlays, [&](Rg::PassContext& pass) {
+    const auto drawOverlays = [&](Rg::PassContext& pass) {
         ID3D12GraphicsCommandList* const cmd = pass.cmd();
         if (app().m_chaseOk && (app().m_demo.demoScene() || app().m_showDevTools))
         {
@@ -1033,12 +1033,14 @@ void SandboxFrame::render()
         m_walkDebug.draw(cmd, app().renderer(), AI::walkabilityMeshSource(&app().m_chase.ai().walkability()), viewProj);
         app().m_demo.drawSkeletonOverlay(cmd, viewProj);
         m_scene.drawDecalVolumes(cmd, app().renderer(), app().m_chase.linePipeline(), viewProj);
-    });
+    };
+    frame.declare(PassId::DebugOverlays, [&, drawOverlays](FeatureBuilder& b) { m_scene.addHdrOverlayPasses(b, app().renderer(), "DebugOverlays", drawOverlays); });
 
-    frame.set(PassId::Particles, [&](Rg::PassContext& pass) {
+    const auto drawParticles = [&](Rg::PassContext& pass, D3D12_CPU_DESCRIPTOR_HANDLE depthSrv, D3D12_CPU_DESCRIPTOR_HANDLE attribSrv) {
         ID3D12GraphicsCommandList* const cmd = pass.cmd();
         const GpuScope particles(cmd, "Particles", ProfileColor::Particles);
-        app().m_frame.gpuParticles().simulateAndDraw(cmd, app().renderer(), app().m_sceneWorld.camera, app().world(), app().assets(), lateDepthWrite);
+        app().m_frame.gpuParticles().simulateAndDraw(cmd, app().renderer(), app().m_sceneWorld.camera, app().world(), app().assets(), lateDepthWrite,
+                                                     GpuParticleFrame{ &pass, depthSrv, attribSrv });
         app().m_frame.particles().beginFrame(app().renderer().frameIndex());
     if (app().m_play.feedback().blood.aliveCount() > 0)
         app().m_frame.particles().draw(cmd, app().m_sceneWorld.camera, app().m_play.feedback().blood, false);
@@ -1059,7 +1061,8 @@ void SandboxFrame::render()
 
         if (!app().deferredDecals())
             app().m_play.feedback().splats.draw(cmd, app().m_sceneWorld.camera);
-    });
+    };
+    frame.declare(PassId::Particles, [&, drawParticles](FeatureBuilder& b) { m_scene.addParticlesPasses(b, app().renderer(), drawParticles); });
 
     if (underDraw > 0.0f && m_scene.underwater().isValid())
     {

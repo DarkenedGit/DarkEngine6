@@ -46,27 +46,27 @@ namespace Dark
 
         bool create(ID3D12Device* device, DXGI_FORMAT colorFormat);
         void release();
-        // The scene copy is a graph target (render-graph plan Phase 5), registered on first use.
-        bool ensureCopy(Renderer& renderer);
-        bool captureScene(ID3D12GraphicsCommandList* cmd, Renderer& renderer);
-        // True only after bindHdr(true) ran this call. False means depth was not rewritten.
-        bool drawModel(ID3D12GraphicsCommandList* cmd, Renderer& renderer, GpuResourceCache& gpu, SkinningUploadRing& ring, const Model& model,
-                       const AnimPose* pose, const Math::Matrix4f& world, const Math::Matrix4f& viewProj, const Math::Vector3f& cameraPos, float time,
-                       DebugFill fill = DebugFill::Solid);
+        // The HDR copy the body refracts, registered on first use. False when the target registry or
+        // the copy is missing.
+        bool                        ensureCopy(Renderer& renderer);
+        ID3D12Resource*             copyResource() const;
+        D3D12_CPU_DESCRIPTOR_HANDLE copySrv() const;
+        // sceneTable: a one-SRV ring table with the HDR copy (t0). HDR and writable depth are bound.
+        // True when it reached the draws: depth may then hold the body, which the G-buffer does not.
+        bool drawModel(ID3D12GraphicsCommandList* cmd, D3D12_GPU_DESCRIPTOR_HANDLE sceneTable, GpuResourceCache& gpu, SkinningUploadRing& ring, const Model& model, const AnimPose* pose,
+                       const Math::Matrix4f& world, const Math::Matrix4f& viewProj, const Math::Vector3f& cameraPos, float time, DebugFill fill = DebugFill::Solid);
 
         bool isValid() const { return m_psoSkinned != nullptr && m_rootSignature != nullptr; }
 
     private:
-        bool bindDraw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, ID3D12PipelineState* pso) const;
+        bool bindDraw(ID3D12GraphicsCommandList* cmd, D3D12_GPU_DESCRIPTOR_HANDLE sceneTable, ID3D12PipelineState* pso) const;
 
-        ComPtr<ID3D12RootSignature>  m_rootSignature;
-        ComPtr<ID3D12PipelineState>  m_psoSkinned;
-        ComPtr<ID3D12PipelineState>  m_psoStatic;
-        ComPtr<ID3D12DescriptorHeap> m_srvHeap;
-        D3D12_GPU_DESCRIPTOR_HANDLE  m_srvGpu{};
-        GraphTargets*                m_targets = nullptr;
-        GraphTarget                  m_copy;
-        DXGI_FORMAT                  m_format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+        ComPtr<ID3D12RootSignature> m_rootSignature;
+        ComPtr<ID3D12PipelineState> m_psoSkinned;
+        ComPtr<ID3D12PipelineState> m_psoStatic;
+        GraphTargets*               m_targets = nullptr;
+        GraphTarget                 m_copy;
+        DXGI_FORMAT                 m_format = DXGI_FORMAT_R16G16B16A16_FLOAT;
     };
 
 } // namespace Dark

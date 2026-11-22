@@ -655,6 +655,15 @@ void SceneRenderer::bindHdrDepthRead(Rg::PassContext& c, const Renderer& rendere
     c.cmd()->RSSetScissorRects(1, &renderer.scissor());
 }
 
+void SceneRenderer::bindHdrDepthWrite(Rg::PassContext& c, const Renderer& renderer, Rg::TextureHandle hdr, Rg::TextureHandle depth)
+{
+    const D3D12_CPU_DESCRIPTOR_HANDLE rtv = rgRtv(c, hdr);
+    const D3D12_CPU_DESCRIPTOR_HANDLE dsv = cpuHandle(c.dsv(depth, false));
+    c.cmd()->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
+    c.cmd()->RSSetViewports(1, &renderer.viewport());
+    c.cmd()->RSSetScissorRects(1, &renderer.scissor());
+}
+
 D3D12_GPU_DESCRIPTOR_HANDLE SceneRenderer::shadowTable(Rg::PassContext& c, const Renderer& renderer)
 {
     return rgTable(c, { renderer.lightingViews().shadow });
@@ -677,7 +686,14 @@ Rg::TextureHandle SceneRenderer::importUnderwaterCopy(FeatureBuilder& b, Rendere
     return importTracked(b.graph(), "DE.Underwater.HdrCopy", m_underwater.copyResource(), textureViews(m_underwater.copySrv()));
 }
 
-void SceneRenderer::copyHdr(Rg::PassContext& c, const UnderwaterTargets& d)
+Rg::TextureHandle SceneRenderer::importCamouflageCopy(FeatureBuilder& b, Renderer& renderer)
+{
+    if (!m_camouflage.isValid() || !m_camouflage.ensureCopy(renderer))
+        return {};
+    return importTracked(b.graph(), "DE.Camouflage.SceneCopy", m_camouflage.copyResource(), textureViews(m_camouflage.copySrv()));
+}
+
+void SceneRenderer::copyHdr(Rg::PassContext& c, const HdrCopyTargets& d)
 {
     c.cmd()->CopyResource(c.resource(d.copy), c.resource(d.hdr));
 }

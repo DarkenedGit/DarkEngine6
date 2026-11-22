@@ -159,7 +159,7 @@ public:
     // (published as SsrCaptureOutput). Adds no pass when SSR is unavailable.
     void addSsrCapturePasses(FeatureBuilder& b, Renderer& renderer);
 
-    // Sky, Water, Clouds and Underwater draw into HDR with read-only depth (Render/HdrDrawInputs.h).
+    // The passes after lighting draw into HDR with read-only depth (Render/HdrDrawInputs.h).
     // Each pass binds its targets, builds its ring tables and runs the host's callable, which is
     // stored until execute(). Without scene targets the entry is an opaque pass that logs once.
     // Sky: `draw(Rg::PassContext&, D3D12_GPU_DESCRIPTOR_HANDLE shadowTable)`, HDR + read-only depth bound.
@@ -201,6 +201,52 @@ public:
                                 draw(c, rgSrvTable(c, { d.depth }));
                             }))
             b.opaque("Clouds", {}, {}, [](Rg::PassContext&) { logMissingSceneTargets("Clouds"); });
+    }
+    // Camouflage: copies HDR, then `draw(Rg::PassContext&, D3D12_GPU_DESCRIPTOR_HANDLE sceneTable)`
+    // (the copy, for CamouflagePipeline::drawModel) with HDR and writable depth bound: the body
+    // writes depth, and the passes after it test against the new version.
+    template <class Draw> void addCamouflagePasses(FeatureBuilder& b, Renderer& renderer, Draw&& draw)
+    {
+        Renderer* const         rr   = &renderer;
+        const Rg::TextureHandle copy = importCamouflageCopy(b, renderer);
+        if (!copy.valid() || !Dark::addCamouflagePasses(
+                                 b, copy, [](Rg::PassContext& c, const HdrCopyTargets& d) { copyHdr(c, d); },
+                                 [rr, draw = std::forward<Draw>(draw)](Rg::PassContext& c, const HdrCopyTargets& d)
+                                 {
+                                     bindHdrDepthWrite(c, *rr, d.hdr, d.depth);
+                                     draw(c, rgSrvTable(c, { d.copy }));
+                                 }))
+            b.opaque("Camouflage", {}, {}, [](Rg::PassContext&) { logMissingSceneTargets("Camouflage"); });
+    }
+    // Translucent, DebugOverlays and the Editor grid and gizmos: `draw(Rg::PassContext&)` with HDR +
+    // read-only depth bound. `name` must outlive the frame (a literal).
+    template <class Draw> void addHdrOverlayPasses(FeatureBuilder& b, Renderer& renderer, const char* name, Draw&& draw)
+    {
+        Renderer* const rr = &renderer;
+        if (!addHdrDrawPass(b, name, false,
+                            [rr, draw = std::forward<Draw>(draw)](Rg::PassContext& c, const HdrDrawTargets& d)
+                            {
+                                bindHdrDepthRead(c, *rr, d.hdr, d.depth);
+                                draw(c);
+                            }))
+            b.opaque(name, {}, {}, [name](Rg::PassContext&) { logMissingSceneTargets(name); });
+    }
+    // Particles: `draw(Rg::PassContext&, D3D12_CPU_DESCRIPTOR_HANDLE depthSrv, D3D12_CPU_DESCRIPTOR_HANDLE
+    // attribSrv)` with HDR + read-only depth bound. The GPU sim samples depth and the G-buffer attrib
+    // from compute, so both are declared for compute as well.
+    template <class Draw> void addParticlesPasses(FeatureBuilder& b, Renderer& renderer, Draw&& draw)
+    {
+        Renderer* const rr = &renderer;
+        HdrDrawUses     uses;
+        uses.computeDepth  = true;
+        uses.computeAttrib = true;
+        if (!addHdrDrawPass(b, "Particles", uses,
+                            [rr, draw = std::forward<Draw>(draw)](Rg::PassContext& c, const HdrDrawTargets& d)
+                            {
+                                bindHdrDepthRead(c, *rr, d.hdr, d.depth);
+                                draw(c, rgSrvCpu(c, d.depth), rgSrvCpu(c, d.attrib));
+                            }))
+            b.opaque("Particles", {}, {}, [](Rg::PassContext&) { logMissingSceneTargets("Particles"); });
     }
     // Underwater: copies HDR, draws the fog from the copy with `frame(Rg::PassContext&)` (an
     // UnderwaterFrame, read at execute), then `ceiling(Rg::PassContext&, const WaterTables&)` with HDR
@@ -341,11 +387,13 @@ private:
     // Graph views of HDR (and the read-only depth target), with the viewport.
     static void                        bindHdr(Rg::PassContext& c, const Renderer& renderer, Rg::TextureHandle hdr);
     static void                        bindHdrDepthRead(Rg::PassContext& c, const Renderer& renderer, Rg::TextureHandle hdr, Rg::TextureHandle depth);
+    static void                        bindHdrDepthWrite(Rg::PassContext& c, const Renderer& renderer, Rg::TextureHandle hdr, Rg::TextureHandle depth);
     static D3D12_GPU_DESCRIPTOR_HANDLE shadowTable(Rg::PassContext& c, const Renderer& renderer);
     WaterTables                        waterTables(Rg::PassContext& c, const Renderer& renderer, Rg::TextureHandle depth, Rg::TextureHandle sceneColor) const;
     // This frame's import of the underwater HDR copy; invalid when it cannot be made.
     Rg::TextureHandle importUnderwaterCopy(FeatureBuilder& b, Renderer& renderer);
-    static void       copyHdr(Rg::PassContext& c, const UnderwaterTargets& d);
+    Rg::TextureHandle importCamouflageCopy(FeatureBuilder& b, Renderer& renderer);
+    static void       copyHdr(Rg::PassContext& c, const HdrCopyTargets& d);
     void              drawUnderwater(Rg::PassContext& c, const Renderer& renderer, const UnderwaterTargets& d, const UnderwaterFrame& frame) const;
     void storeDecalStats(uint32_t drawn, uint32_t culled, uint32_t inside, uint32_t triangles);
 

@@ -4,7 +4,8 @@
 
 #include <utility>
 
-// The passes that draw into the lit HDR image with read-only depth (Sky, Water, Clouds, Underwater).
+// The passes that draw into the lit HDR image after the lighting passes: Sky, Water, Clouds,
+// Camouflage, Translucent, the debug overlays, the Editor grid and gizmos, Particles and Underwater.
 // CPU only, so the native graph tests drive the same declarations SceneRenderer uses.
 
 namespace Dark
@@ -17,12 +18,20 @@ namespace Dark
         Rg::TextureHandle sceneColor;
     };
 
-    // hdr: read and written as the render target (these passes blend onto it, or keep pixels they
-    // skip). depth: the read-only depth target, also sampled. sceneColor: this frame's capture when
-    // the pass asked for it and SsrCapture published one.
+    // What an HDR draw pass uses besides HDR (a render target, read and written: these passes blend
+    // onto it or keep the pixels they skip) and read-only depth (tested and sampled by pixel shaders).
+    struct HdrDrawUses
+    {
+        bool sceneColor    = false; // this frame's SSR capture, when SsrCapture published one
+        bool depthWrite    = false; // depth tested and written instead (the camouflaged body)
+        bool computeDepth  = false; // depth also sampled by compute work recorded in the pass
+        bool computeAttrib = false; // the G-buffer attrib target sampled by compute work
+    };
+
+    // The versions a pass used. sceneColor / attrib are invalid when not used.
     struct HdrDrawTargets
     {
-        Rg::TextureHandle hdr, depth, sceneColor;
+        Rg::TextureHandle hdr, depth, sceneColor, attrib;
 
         bool valid() const
         {
@@ -36,35 +45,65 @@ namespace Dark
         return capture ? capture->sceneColor : Rg::TextureHandle{};
     }
 
-    // One pass drawing into HDR with read-only depth. `exec(PassContext&, const HdrDrawTargets&)` gets
-    // the versions it uses. Returns false (and adds nothing) without HDR or depth.
-    template <class Exec> bool addHdrDrawPass(FeatureBuilder& b, const char* name, bool readsCapture, Exec&& exec)
+    namespace HdrDraw
+    {
+        // Depth (and the extra reads `uses` names) for one pass; returns the depth version after it.
+        inline Rg::TextureHandle declareDepth(Rg::PassBuilder& pb, Rg::TextureHandle depth, const HdrDrawUses& uses)
+        {
+            if (uses.depthWrite)
+                return pb.readWrite(depth, Rg::Use::DepthWrite);
+            const Rg::TextureHandle h = pb.read(depth, Rg::Use::DepthRead);
+            if (uses.computeDepth)
+                pb.read(depth, Rg::Use::ComputeSrv); // one layout (DIRECT_QUEUE_GENERIC_READ) serves both
+            return h;
+        }
+    } // namespace HdrDraw
+
+    // One pass drawing into HDR. `exec(PassContext&, const HdrDrawTargets&)` gets the versions it uses.
+    // A pass that writes depth publishes the new version for the passes after it. Returns false (and
+    // adds nothing) without HDR or depth, or without attrib when it asks for it.
+    template <class Exec> bool addHdrDrawPass(FeatureBuilder& b, const char* name, const HdrDrawUses& uses, Exec&& exec)
     {
         HdrDrawTargets in;
         in.hdr   = b.handle(RenderResource::Hdr);
         in.depth = b.handle(RenderResource::Depth);
+        if (uses.computeAttrib)
+        {
+            in.attrib = b.handle(RenderResource::Attrib);
+            if (!in.attrib.valid())
+                return false;
+        }
         if (!in.valid())
             return false;
-        if (readsCapture)
+        if (uses.sceneColor)
             in.sceneColor = publishedSceneColor(b);
         HdrDrawTargets out;
         b.addPass<HdrDrawTargets>(
             name,
             [&](Rg::PassBuilder& pb, HdrDrawTargets& d)
             {
-                d.depth      = pb.read(in.depth, Rg::Use::DepthRead);
+                d.depth      = HdrDraw::declareDepth(pb, in.depth, uses);
                 d.sceneColor = in.sceneColor.valid() ? pb.read(in.sceneColor, Rg::Use::PixelSrv) : Rg::TextureHandle{};
+                d.attrib     = in.attrib.valid() ? pb.read(in.attrib, Rg::Use::ComputeSrv) : Rg::TextureHandle{};
                 d.hdr        = pb.readWrite(in.hdr, Rg::Use::RenderTarget);
                 out          = d;
             },
             std::forward<Exec>(exec));
         b.set(RenderResource::Hdr, out.hdr);
+        if (uses.depthWrite)
+            b.set(RenderResource::Depth, out.depth);
         return true;
     }
 
-    // The underwater entry: a copy of HDR, then one pass that samples the copy and depth, rewrites HDR
-    // and draws the water ceiling onto it (which samples this frame's capture when there is one).
-    struct UnderwaterTargets
+    template <class Exec> bool addHdrDrawPass(FeatureBuilder& b, const char* name, bool readsCapture, Exec&& exec)
+    {
+        HdrDrawUses uses;
+        uses.sceneColor = readsCapture;
+        return addHdrDrawPass(b, name, uses, std::forward<Exec>(exec));
+    }
+
+    // A copy of HDR, then one pass that samples the copy and rewrites HDR (Camouflage, Underwater).
+    struct HdrCopyTargets
     {
         Rg::TextureHandle hdr, depth, copy, sceneColor;
 
@@ -73,42 +112,69 @@ namespace Dark
             return hdr.valid() && depth.valid() && copy.valid();
         }
     };
+    using UnderwaterTargets = HdrCopyTargets;
 
     // `copy`: the HDR copy target imported for this frame. `copyExec(PassContext&, const
-    // UnderwaterTargets&)` records the copy (hdr and copy are set); `exec` draws. Returns false (and
-    // adds nothing) when a target is missing.
-    template <class CopyExec, class Exec> bool addUnderwaterPasses(FeatureBuilder& b, Rg::TextureHandle copy, CopyExec&& copyExec, Exec&& exec)
+    // HdrCopyTargets&)` records the copy (hdr and copy are set); `exec` draws (`uses` as for
+    // addHdrDrawPass; the compute reads are not offered). Returns false (and adds nothing) when a
+    // target is missing.
+    template <class CopyExec, class Exec>
+    bool addHdrCopyPasses(FeatureBuilder& b, const char* copyName, const char* drawName, Rg::TextureHandle copy, const HdrDrawUses& uses, CopyExec&& copyExec, Exec&& exec)
     {
-        UnderwaterTargets in;
-        in.hdr        = b.handle(RenderResource::Hdr);
-        in.depth      = b.handle(RenderResource::Depth);
-        in.copy       = copy;
-        in.sceneColor = publishedSceneColor(b);
+        HdrCopyTargets in;
+        in.hdr   = b.handle(RenderResource::Hdr);
+        in.depth = b.handle(RenderResource::Depth);
+        in.copy  = copy;
+        if (uses.sceneColor)
+            in.sceneColor = publishedSceneColor(b);
         if (!in.valid())
             return false;
         Rg::TextureHandle copied;
-        b.addPass<UnderwaterTargets>(
-            "Underwater.Copy",
-            [&](Rg::PassBuilder& pb, UnderwaterTargets& d)
+        b.addPass<HdrCopyTargets>(
+            copyName,
+            [&](Rg::PassBuilder& pb, HdrCopyTargets& d)
             {
                 d.hdr  = pb.read(in.hdr, Rg::Use::CopySrc);
                 d.copy = copied = pb.write(in.copy, Rg::Use::CopyDst);
             },
             std::forward<CopyExec>(copyExec));
-        UnderwaterTargets out;
-        b.addPass<UnderwaterTargets>(
-            "Underwater",
-            [&](Rg::PassBuilder& pb, UnderwaterTargets& d)
+        HdrDrawUses drawUses   = uses;
+        drawUses.computeDepth  = false;
+        drawUses.computeAttrib = false;
+        HdrCopyTargets out;
+        b.addPass<HdrCopyTargets>(
+            drawName,
+            [&](Rg::PassBuilder& pb, HdrCopyTargets& d)
             {
                 d.copy       = pb.read(copied, Rg::Use::PixelSrv);
-                d.depth      = pb.read(in.depth, Rg::Use::DepthRead);
+                d.depth      = HdrDraw::declareDepth(pb, in.depth, drawUses);
                 d.sceneColor = in.sceneColor.valid() ? pb.read(in.sceneColor, Rg::Use::PixelSrv) : Rg::TextureHandle{};
                 d.hdr        = pb.readWrite(in.hdr, Rg::Use::RenderTarget);
                 out          = d;
             },
             std::forward<Exec>(exec));
         b.set(RenderResource::Hdr, out.hdr);
+        if (drawUses.depthWrite)
+            b.set(RenderResource::Depth, out.depth);
         return true;
+    }
+
+    // The underwater entry: the fog samples the copy and depth, then the water ceiling draws onto HDR
+    // (sampling this frame's capture when there is one).
+    template <class CopyExec, class Exec> bool addUnderwaterPasses(FeatureBuilder& b, Rg::TextureHandle copy, CopyExec&& copyExec, Exec&& exec)
+    {
+        HdrDrawUses uses;
+        uses.sceneColor = true;
+        return addHdrCopyPasses(b, "Underwater.Copy", "Underwater", copy, uses, std::forward<CopyExec>(copyExec), std::forward<Exec>(exec));
+    }
+
+    // The camouflage entry: the body samples the copy (refraction) and writes depth, so the passes
+    // after it test against the body.
+    template <class CopyExec, class Exec> bool addCamouflagePasses(FeatureBuilder& b, Rg::TextureHandle copy, CopyExec&& copyExec, Exec&& exec)
+    {
+        HdrDrawUses uses;
+        uses.depthWrite = true;
+        return addHdrCopyPasses(b, "Camouflage.Copy", "Camouflage", copy, uses, std::forward<CopyExec>(copyExec), std::forward<Exec>(exec));
     }
 
 } // namespace Dark

@@ -14,6 +14,7 @@
 #include "Render/GpuResourceCache.h"
 #include "Render/Profile.h"
 #include "Render/Renderer.h"
+#include "Render/RgViews.h"
 #include "Render/Texture2D.h"
 
 #include <cstddef>
@@ -270,7 +271,7 @@ namespace Dark
 
     bool GpuParticleSystem::create(Renderer& renderer)
     {
-        if (m_ready && m_pipeline.isValid() && m_viewHeap)
+        if (m_ready && m_pipeline.isValid() && m_viewCpuHeap)
             return true;
 
         ID3D12Device* device = renderer.device();
@@ -319,6 +320,7 @@ namespace Dark
         m_consumedEpoch       = 0;
         m_drawnFrame          = ~0u;
         m_loggedSprite        = false;
+        m_loggedNoPass        = false;
     }
 
     GpuParticleSystem::Pool* GpuParticleSystem::findPool(EntityID id)
@@ -394,21 +396,13 @@ namespace Dark
         if (!device)
             return false;
 
-        const UINT count = kViewBase + kMaxSecondaryPools * kViewsPerPool;
-        D3D12_DESCRIPTOR_HEAP_DESC gpuDesc{};
-        gpuDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-        gpuDesc.NumDescriptors = count;
-        gpuDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-        if (FailedHr(device->CreateDescriptorHeap(&gpuDesc, IID_PPV_ARGS(&m_viewHeap)), "CreateDescriptorHeap gpu particles"))
-            return false;
-
-        D3D12_DESCRIPTOR_HEAP_DESC cpuDesc = gpuDesc;
-        cpuDesc.Flags                      = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+        // Non-shader-visible: the sim's tables and the counter clears copy these into the frame ring.
+        D3D12_DESCRIPTOR_HEAP_DESC cpuDesc{};
+        cpuDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+        cpuDesc.NumDescriptors = kViewBase + kMaxSecondaryPools * kViewsPerPool;
+        cpuDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
         if (FailedHr(device->CreateDescriptorHeap(&cpuDesc, IID_PPV_ARGS(&m_viewCpuHeap)), "CreateDescriptorHeap gpu particle cpu"))
-        {
-            destroyGpuViews();
             return false;
-        }
         m_viewInc = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
         m_dummyDepth  = createDummyTexture(device, DXGI_FORMAT_R32_FLOAT, "CreateCommittedResource particle dummy depth");
@@ -423,11 +417,8 @@ namespace Dark
         m_dummyAttrib->SetName(L"DE.Particle.DummyAttrib");
         m_dummyUav->SetName(L"DE.Particle.DummyUav");
 
-        // CPU heap slots are the copy sources. Shader-visible slots are seeded so a missed copy is still a valid SRV.
-        createTextureSrv(device, m_dummyDepth.Get(), DXGI_FORMAT_R32_FLOAT, cpuAt(m_viewCpuHeap.Get(), 0, m_viewInc));
-        createTextureSrv(device, m_dummyAttrib.Get(), DXGI_FORMAT_R8G8B8A8_UNORM, cpuAt(m_viewCpuHeap.Get(), 1, m_viewInc));
-        createTextureSrv(device, m_dummyDepth.Get(), DXGI_FORMAT_R32_FLOAT, cpuAt(m_viewHeap.Get(), 0, m_viewInc));
-        createTextureSrv(device, m_dummyAttrib.Get(), DXGI_FORMAT_R8G8B8A8_UNORM, cpuAt(m_viewHeap.Get(), 1, m_viewInc));
+        createTextureSrv(device, m_dummyDepth.Get(), DXGI_FORMAT_R32_FLOAT, viewCpu(0));
+        createTextureSrv(device, m_dummyAttrib.Get(), DXGI_FORMAT_R8G8B8A8_UNORM, viewCpu(1));
         return true;
     }
 
@@ -436,7 +427,6 @@ namespace Dark
         m_dummyDepth.Reset();
         m_dummyAttrib.Reset();
         m_dummyUav.Reset();
-        m_viewHeap.Reset();
         m_viewCpuHeap.Reset();
         m_viewInc = 0;
         for (uint32_t i = 0; i < kMaxSecondaryPools; ++i)
@@ -500,11 +490,22 @@ namespace Dark
         return cpuAt(m_viewCpuHeap.Get(), index, m_viewInc);
     }
 
-    D3D12_GPU_DESCRIPTOR_HANDLE GpuParticleSystem::viewGpu(uint32_t index) const
+    D3D12_GPU_DESCRIPTOR_HANDLE GpuParticleSystem::simTable(const GpuParticleFrame& frame, bool attrib) const
     {
-        D3D12_GPU_DESCRIPTOR_HANDLE handle = m_viewHeap->GetGPUDescriptorHandleForHeapStart();
-        handle.ptr += static_cast<UINT64>(index) * m_viewInc;
-        return handle;
+        if (!frame.pass || !m_viewCpuHeap)
+            return {};
+        // t1 depth, t2 attrib (ParticleGpuPipeline::kSimTextures).
+        const D3D12_CPU_DESCRIPTOR_HANDLE depth = frame.depth.ptr != 0 ? frame.depth : viewCpu(0);
+        const D3D12_CPU_DESCRIPTOR_HANDLE gbuf  = attrib && frame.attrib.ptr != 0 ? frame.attrib : viewCpu(1);
+        return rgTable(*frame.pass, { depth, gbuf });
+    }
+
+    D3D12_GPU_DESCRIPTOR_HANDLE GpuParticleSystem::clearTable(const GpuParticleFrame& frame, uint32_t index) const
+    {
+        // ClearUnorderedAccessViewUint needs the view in the bound (ring) heap and in a CPU-only heap.
+        if (!frame.pass || !m_viewCpuHeap)
+            return {};
+        return rgTable(*frame.pass, { viewCpu(index) });
     }
 
     bool GpuParticleSystem::createBuffers(ID3D12Device* device, Pool& pool, const ParticleEmitterDesc& desc, uint32_t generation)
@@ -517,7 +518,7 @@ namespace Dark
 
         const bool     want     = wantsSecondary(desc);
         const uint32_t childCap = want ? desc.secondary.maxParticles : 0u;
-        if (want && (childCap == 0 || childCap > kMaxSecondaryParticles || !m_viewHeap || !m_viewCpuHeap))
+        if (want && (childCap == 0 || childCap > kMaxSecondaryParticles || !m_viewCpuHeap))
             return false;
 
         int newSlot = -1;
@@ -569,11 +570,9 @@ namespace Dark
             for (uint32_t slot = 0; slot < kFrameCount; ++slot)
             {
                 const uint32_t index = counterDescIndex(newSlot, slot);
-                createCounterUav(device, counters[slot].Get(), cpuAt(m_viewHeap.Get(), index, m_viewInc));
                 createCounterUav(device, counters[slot].Get(), viewCpu(index));
             }
             const uint32_t headIndex = headDescIndex(newSlot);
-            createCounterUav(device, childHead.Get(), cpuAt(m_viewHeap.Get(), headIndex, m_viewInc));
             createCounterUav(device, childHead.Get(), viewCpu(headIndex));
         }
 
@@ -891,7 +890,8 @@ namespace Dark
         return count;
     }
 
-    bool GpuParticleSystem::simulateAndDraw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, World& world, AssetManager& assets, bool lateDepthWrite)
+    bool GpuParticleSystem::simulateAndDraw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, World& world, AssetManager& assets, bool lateDepthWrite,
+                                            const GpuParticleFrame& views)
     {
         if (!g_testHook)
         {
@@ -1070,20 +1070,25 @@ namespace Dark
             return true;
         }
 
-        // Depth sample is this frame's R32_FLOAT. The binds stay transitions and OM only.
-        if (!g_testHook)
-        {
-            renderer.bindHdrDepthCompute();
-        }
-
         bool anyAttrib = false;
         for (const Job& job : jobs)
         {
             if (job.simulate && job.useAttrib)
                 anyAttrib = true;
         }
-        if (anyAttrib)
-            renderer.transitionAttrib(cmd, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+
+        D3D12_GPU_DESCRIPTOR_HANDLE simTextures{};
+        if (prepared && cmd)
+        {
+            simTextures = simTable(views, anyAttrib);
+            if (simTextures.ptr == 0)
+            {
+                if (!m_loggedNoPass)
+                    DE_LOG_ERROR(LogCategory::Render, "GpuParticleSystem: no pass ring for the sim tables; GPU emitters are skipped");
+                m_loggedNoPass = true;
+                return false;
+            }
+        }
 
         const uint32_t writeSlot = frame % kFrameCount;
         const uint32_t otherSlot = (writeSlot + 1u) % kFrameCount;
@@ -1222,7 +1227,7 @@ namespace Dark
             cmd->SetComputeRootUnorderedAccessView(ParticleGpuPipeline::kSimCurr, write->GetGPUVirtualAddress());
             const uint32_t step[8] = { spawnCount, reset, capacity, reaction, useAttrib, collide, flags, 0u };
             cmd->SetComputeRoot32BitConstants(ParticleGpuPipeline::kSimStep, 8, step, 0);
-            cmd->SetComputeRootDescriptorTable(ParticleGpuPipeline::kSimTextures, viewGpu(0));
+            cmd->SetComputeRootDescriptorTable(ParticleGpuPipeline::kSimTextures, simTextures);
             bindUavs(pool);
             const UINT groups = static_cast<UINT>((capacity + kThreads - 1u) / kThreads);
             cmd->Dispatch(groups, 1, 1);
@@ -1235,26 +1240,6 @@ namespace Dark
             uavBarrier(cmd, pool.events[writeSlot].Get());
             uavBarrier(cmd, pool.counters[writeSlot].Get());
         };
-
-        if (prepared && cmd && m_viewHeap && renderer.device())
-        {
-            D3D12_CPU_DESCRIPTOR_HANDLE depthSrc = renderer.depthSrvCpu();
-            if (depthSrc.ptr == 0)
-                depthSrc = viewCpu(0);
-            renderer.device()->CopyDescriptorsSimple(1, cpuAt(m_viewHeap.Get(), 0, m_viewInc), depthSrc, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-
-            D3D12_CPU_DESCRIPTOR_HANDLE attribSrc = viewCpu(1);
-            if (anyAttrib)
-            {
-                const D3D12_CPU_DESCRIPTOR_HANDLE real = renderer.attribSrvCpu();
-                if (real.ptr != 0)
-                    attribSrc = real;
-            }
-            renderer.device()->CopyDescriptorsSimple(1, cpuAt(m_viewHeap.Get(), 1, m_viewInc), attribSrc, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-
-            ID3D12DescriptorHeap* heaps[] = { m_viewHeap.Get() };
-            cmd->SetDescriptorHeaps(1, heaps);
-        }
 
         if (prepared)
         {
@@ -1290,7 +1275,7 @@ namespace Dark
                     // This slot only. The other counter, childHead, and the event buffer stay.
                     const UINT zeros[4] = { 0, 0, 0, 0 };
                     const uint32_t index = counterDescIndex(pool.descSlot, writeSlot);
-                    cmd->ClearUnorderedAccessViewUint(viewGpu(index), viewCpu(index), pool.counters[writeSlot].Get(), zeros, 0, nullptr);
+                    cmd->ClearUnorderedAccessViewUint(clearTable(views, index), viewCpu(index), pool.counters[writeSlot].Get(), zeros, 0, nullptr);
                     uavBarrier(cmd, pool.counters[writeSlot].Get());
                 }
 
@@ -1325,7 +1310,7 @@ namespace Dark
                         // Create leaves the head undefined. A per-frame clear would rewind the ring.
                         const UINT zeros[4] = { 0, 0, 0, 0 };
                         const uint32_t index = headDescIndex(pool.descSlot);
-                        cmd->ClearUnorderedAccessViewUint(viewGpu(index), viewCpu(index), pool.childHead.Get(), zeros, 0, nullptr);
+                        cmd->ClearUnorderedAccessViewUint(clearTable(views, index), viewCpu(index), pool.childHead.Get(), zeros, 0, nullptr);
                         pool.childHeadCleared = true;
                     }
                     uavBarrier(cmd, pool.childHead.Get());
@@ -1337,7 +1322,7 @@ namespace Dark
                     cmd->SetComputeRootUnorderedAccessView(ParticleGpuPipeline::kSimCurr, childWrite->GetGPUVirtualAddress());
                     const uint32_t step[8] = { 0u, 0u, kMaxSecondaryPerFrameHard, static_cast<uint32_t>(ParticleCollisionReaction::SpawnSecondary), 0u, collide, 1u, 0u };
                     cmd->SetComputeRoot32BitConstants(ParticleGpuPipeline::kSimStep, 8, step, 0);
-                    cmd->SetComputeRootDescriptorTable(ParticleGpuPipeline::kSimTextures, viewGpu(0));
+                    cmd->SetComputeRootDescriptorTable(ParticleGpuPipeline::kSimTextures, simTextures);
                     bindUavs(pool);
                     const UINT consumeGroups = (kMaxSecondaryPerFrameHard + kThreads - 1u) / kThreads;
                     cmd->Dispatch(consumeGroups, 1, 1);

@@ -1281,27 +1281,33 @@ TEST(FrameFeatures, GBufferAndDecalHelpersAddNothingWithoutTargets)
 namespace
 {
     // The Sandbox list from Sky to Underwater declared the way SceneRenderer does it
-    // (HdrDrawInputs.h): SsrCapture publishes its scene color, Sky / Water / Clouds draw into HDR with
-    // read-only depth, Underwater copies HDR first. The other entries are opaque. Depth comes in as
-    // the lighting passes leave it (a shader resource), HDR as a render target.
+    // (HdrDrawInputs.h): SsrCapture publishes its scene color; Sky, Water, Clouds, Translucent,
+    // DebugOverlays and Particles draw into HDR with read-only depth (Particles also samples depth and
+    // attrib from compute); Camouflage and Underwater copy HDR first, and Camouflage writes depth. The
+    // other entries are opaque. Depth and attrib come in as the lighting passes leave them (shader
+    // resources), HDR as a render target.
     struct DeclaredHdrDrawFrame
     {
         HostFrame                host;
         std::vector<std::string> ran;
-        HdrDrawTargets           sky{}, water{}, clouds{};
+        HdrDrawTargets           sky{}, water{}, clouds{}, translucent{}, overlays{}, particles{};
+        HdrCopyTargets           camoCopy{}, camo{};
         UnderwaterTargets        underCopy{}, under{};
         Rg::TextureHandle        captured;
         bool                     skyAdded = false, waterAdded = false, cloudsAdded = false, underAdded = false;
+        bool                     camoAdded = false, translucentAdded = false, overlaysAdded = false, particlesAdded = false;
 
-        bool run(bool capture, bool underwater = false)
+        bool run(bool capture, bool underwater = false, bool camouflage = false)
         {
             uint32_t           count = 0;
             const FeaturePass* list  = sandboxFeatures(count);
             ran.clear();
-            sky = water = clouds = {};
+            sky = water = clouds = translucent = overlays = particles = {};
+            camoCopy = camo = {};
             underCopy = under = {};
             captured          = {};
             skyAdded = waterAdded = cloudsAdded = underAdded = false;
+            camoAdded = translucentAdded = overlaysAdded = particlesAdded = false;
             Rg::RenderGraph& g                               = host.graph;
             g.beginFrame(1280, 720);
             host.features.begin(list, count);
@@ -1314,7 +1320,8 @@ namespace
                     layout = Rg::Layout::RenderTarget;
                 host.features.importResource(g, res, fakeResource(r), absDesc(1280, 720, fmt), layout);
             }
-            for (const PassId id : without(listIds(list, count), { PassId::Sky, PassId::SsrCapture, PassId::Water, PassId::Clouds, PassId::Underwater }))
+            for (const PassId id : without(listIds(list, count), { PassId::Sky, PassId::SsrCapture, PassId::Water, PassId::Clouds, PassId::Camouflage, PassId::Translucent, PassId::DebugOverlays,
+                                                                   PassId::Particles, PassId::Underwater }))
                 host.features.set(id, [this, id](Rg::PassContext&) { ran.push_back(passName(id)); });
             host.features.declare(PassId::Sky,
                                   [this](FeatureBuilder& fb)
@@ -1366,7 +1373,55 @@ namespace
                                                                        ran.push_back("Clouds");
                                                                        clouds = d;
                                                                    });
-                                      fb.opaque("Clouds.BindHdr", {}, {}, [this](Rg::PassContext&) { ran.push_back("Clouds.BindHdr"); });
+                                  });
+            // Camouflage off: the host declares nothing and the optional entry is absent.
+            if (camouflage)
+                host.features.declare(PassId::Camouflage,
+                                      [this](FeatureBuilder& fb)
+                                      {
+                                          const Rg::TextureHandle copy =
+                                              fb.graph().importTexture("DE.Camouflage.SceneCopy", absDesc(1280, 720, kRgba), fakeResource(62), Rg::Layout::ShaderResource, Rg::Layout::Undefined);
+                                          camoAdded = addCamouflagePasses(
+                                              fb, copy,
+                                              [this](Rg::PassContext&, const HdrCopyTargets& d)
+                                              {
+                                                  ran.push_back("Camouflage.Copy");
+                                                  camoCopy = d;
+                                              },
+                                              [this](Rg::PassContext&, const HdrCopyTargets& d)
+                                              {
+                                                  ran.push_back("Camouflage");
+                                                  camo = d;
+                                              });
+                                      });
+            const auto overlay = [this](PassId id, const char* name, HdrDrawTargets* out, bool* added)
+            {
+                host.features.declare(id,
+                                      [this, name, out, added](FeatureBuilder& fb)
+                                      {
+                                          *added = addHdrDrawPass(fb, name, false,
+                                                                  [this, name, out](Rg::PassContext&, const HdrDrawTargets& d)
+                                                                  {
+                                                                      ran.push_back(name);
+                                                                      *out = d;
+                                                                  });
+                                      });
+            };
+            overlay(PassId::Translucent, "Translucent", &translucent, &translucentAdded);
+            overlay(PassId::DebugOverlays, "DebugOverlays", &overlays, &overlaysAdded);
+            host.features.declare(PassId::Particles,
+                                  [this](FeatureBuilder& fb)
+                                  {
+                                      HdrDrawUses uses;
+                                      uses.computeDepth  = true;
+                                      uses.computeAttrib = true;
+
+                                      particlesAdded = addHdrDrawPass(fb, "Particles", uses,
+                                                                      [this](Rg::PassContext&, const HdrDrawTargets& d)
+                                                                      {
+                                                                          ran.push_back("Particles");
+                                                                          particles = d;
+                                                                      });
                                   });
             host.features.declare(PassId::Underwater,
                                   [this, underwater](FeatureBuilder& fb)
@@ -1439,8 +1494,7 @@ TEST(FrameFeatures, SkyWaterAndCloudsDrawOntoHdrInListOrder)
     EXPECT_LT(f.at("Sky"), f.at("SsrCapture"));
     EXPECT_LT(f.at("SsrCapture"), f.at("Water"));
     EXPECT_LT(f.at("Water"), f.at("Clouds"));
-    EXPECT_LT(f.at("Clouds"), f.at("Clouds.BindHdr"));
-    EXPECT_LT(f.at("Clouds.BindHdr"), f.at("Camouflage"));
+    EXPECT_LT(f.at("Clouds"), f.at("Translucent"));
     // Each blends onto the HDR the one before wrote, and the depth target is never written.
     EXPECT_EQ(f.water.hdr.index, f.sky.hdr.index);
     EXPECT_EQ(f.water.hdr.version, f.sky.hdr.version + 1);
@@ -1466,9 +1520,116 @@ TEST(FrameFeatures, DepthMovesToReadOnlyOnceBeforeSkyAndStaysThere)
     ASSERT_EQ(sky.size(), 1u);
     EXPECT_EQ(sky[0].after.layout, Rg::Layout::DirectQueueGenericRead);
     EXPECT_TRUE(sky[0].tracked);
-    // Water depth-tests, Clouds samples: the same layout serves both, so no barrier between them.
-    EXPECT_TRUE(f.into("Depth", "Water").empty());
-    EXPECT_TRUE(f.into("Depth", "Clouds").empty());
+    // Water depth-tests, Clouds samples, Particles also samples from compute: one layout serves
+    // them all, so no barrier between them, and the one into Sky covers the compute reads too.
+    EXPECT_TRUE(any(sky[0].after.sync & Rg::Sync::ComputeShading));
+    EXPECT_TRUE(any(sky[0].after.sync & Rg::Sync::DepthStencil));
+    for (const char* pass : { "Water", "Clouds", "Translucent", "DebugOverlays", "Particles" })
+        EXPECT_TRUE(f.into("Depth", pass).empty()) << pass;
+}
+
+TEST(FrameFeatures, TheHdrTailRunsDeclaredInListOrderWithoutTheBridge)
+{
+    DeclaredHdrDrawFrame f;
+    ASSERT_TRUE(f.run(true, true, true));
+    EXPECT_TRUE(f.host.features.orderOk());
+    ASSERT_TRUE(f.camoAdded && f.translucentAdded && f.overlaysAdded && f.particlesAdded);
+    EXPECT_LT(f.at("Clouds"), f.at("Camouflage.Copy"));
+    EXPECT_LT(f.at("Camouflage.Copy"), f.at("Camouflage"));
+    EXPECT_LT(f.at("Camouflage"), f.at("Translucent"));
+    EXPECT_LT(f.at("Translucent"), f.at("DebugOverlays"));
+    EXPECT_LT(f.at("DebugOverlays"), f.at("Particles"));
+    EXPECT_LT(f.at("Particles"), f.at("Underwater.Copy"));
+    EXPECT_FALSE(f.hasPass("Clouds.BindHdr"));
+    // Every pass after Clouds is declared: none is left that needs HDR bound for it.
+    for (const char* pass : { "Camouflage.Copy", "Camouflage", "Translucent", "DebugOverlays", "Particles", "Underwater.Copy", "Underwater" })
+    {
+        const std::string a  = f.accesses(pass);
+        const size_t      at = a.find("\"flags\":");
+        ASSERT_NE(at, std::string::npos) << pass;
+        const uint32_t flags = static_cast<uint32_t>(std::stoul(a.substr(at + 8)));
+        EXPECT_EQ(flags & static_cast<uint32_t>(Rg::PassFlags::OwnBarriers), 0u) << pass;
+    }
+    // The copy reads the HDR Clouds wrote; each draw after it blends onto the one before.
+    EXPECT_EQ(f.camoCopy.hdr, f.clouds.hdr);
+    EXPECT_EQ(f.translucent.hdr.version, f.camo.hdr.version + 1);
+    EXPECT_EQ(f.overlays.hdr.version, f.translucent.hdr.version + 1);
+    EXPECT_EQ(f.particles.hdr.version, f.overlays.hdr.version + 1);
+    for (const char* pass : { "Translucent", "DebugOverlays", "Particles" })
+    {
+        const std::string a     = f.accesses(pass);
+        const std::string hdr   = accessOf(a, f.host.graph.findResource("Hdr"));
+        const std::string depth = accessOf(a, f.host.graph.findResource("Depth"));
+        EXPECT_NE(hdr.find("\"use\":\"RenderTarget\",\"read\":true,\"write\":true"), std::string::npos) << pass << ": " << hdr;
+        EXPECT_NE(depth.find("\"use\":\"DepthRead\",\"read\":true,\"write\":false"), std::string::npos) << pass << ": " << depth;
+    }
+}
+
+TEST(FrameFeatures, CamouflageWritesDepthAndTheTailTestsAgainstIt)
+{
+    DeclaredHdrDrawFrame f;
+    ASSERT_TRUE(f.run(true, false, true));
+    ASSERT_TRUE(f.camoAdded);
+    // The body writes a new depth version; Translucent onward read it.
+    EXPECT_EQ(f.camo.depth.index, f.clouds.depth.index);
+    EXPECT_EQ(f.camo.depth.version, f.clouds.depth.version + 1);
+    EXPECT_EQ(f.translucent.depth, f.camo.depth);
+    EXPECT_EQ(f.overlays.depth, f.camo.depth);
+    EXPECT_EQ(f.particles.depth, f.camo.depth);
+    const std::string depth = accessOf(f.accesses("Camouflage"), f.host.graph.findResource("Depth"));
+    EXPECT_NE(depth.find("\"use\":\"DepthWrite\",\"read\":true,\"write\":true"), std::string::npos) << depth;
+
+    const std::vector<Rg::BarrierRec> toWrite = f.into("Depth", "Camouflage");
+    ASSERT_EQ(toWrite.size(), 1u);
+    EXPECT_EQ(toWrite[0].before.layout, Rg::Layout::DirectQueueGenericRead);
+    EXPECT_EQ(toWrite[0].after.layout, Rg::Layout::DepthStencilWrite);
+    EXPECT_FALSE(toWrite[0].tracked);
+    // Back to read-only once, before Translucent, for every read up to Particles' compute sampling.
+    const std::vector<Rg::BarrierRec> toRead = f.into("Depth", "Translucent");
+    ASSERT_EQ(toRead.size(), 1u);
+    EXPECT_EQ(toRead[0].before.layout, Rg::Layout::DepthStencilWrite);
+    EXPECT_EQ(toRead[0].after.layout, Rg::Layout::DirectQueueGenericRead);
+    EXPECT_TRUE(any(toRead[0].after.sync & Rg::Sync::ComputeShading));
+    EXPECT_TRUE(f.into("Depth", "DebugOverlays").empty());
+    EXPECT_TRUE(f.into("Depth", "Particles").empty());
+
+    // The copy: HDR to copy source and the copy target to copy dest, then back for the draw.
+    const std::vector<Rg::BarrierRec> hdrCopy = f.into("Hdr", "Camouflage.Copy");
+    ASSERT_EQ(hdrCopy.size(), 1u);
+    EXPECT_EQ(hdrCopy[0].before.layout, Rg::Layout::RenderTarget);
+    EXPECT_EQ(hdrCopy[0].after.layout, Rg::Layout::CopySource);
+    const std::vector<Rg::BarrierRec> dstCopy = f.into("DE.Camouflage.SceneCopy", "Camouflage.Copy");
+    ASSERT_EQ(dstCopy.size(), 1u);
+    EXPECT_EQ(dstCopy[0].after.layout, Rg::Layout::CopyDest);
+    const std::vector<Rg::BarrierRec> hdrDraw = f.into("Hdr", "Camouflage");
+    ASSERT_EQ(hdrDraw.size(), 1u);
+    EXPECT_EQ(hdrDraw[0].before.layout, Rg::Layout::CopySource);
+    EXPECT_EQ(hdrDraw[0].after.layout, Rg::Layout::RenderTarget);
+    const std::vector<Rg::BarrierRec> srcDraw = f.into("DE.Camouflage.SceneCopy", "Camouflage");
+    ASSERT_EQ(srcDraw.size(), 1u);
+    EXPECT_EQ(srcDraw[0].before.layout, Rg::Layout::CopyDest);
+    EXPECT_EQ(srcDraw[0].after.layout, Rg::Layout::ShaderResource);
+    EXPECT_EQ(f.camo.copy, f.camoCopy.copy);
+    EXPECT_EQ(f.camo.hdr.version, f.camoCopy.hdr.version + 1);
+}
+
+TEST(FrameFeatures, ParticlesSampleDepthAndAttribFromCompute)
+{
+    DeclaredHdrDrawFrame f;
+    ASSERT_TRUE(f.run(true));
+    ASSERT_TRUE(f.particlesAdded);
+    ASSERT_TRUE(f.particles.attrib.valid());
+    EXPECT_FALSE(f.translucent.attrib.valid());
+    const std::string a      = f.accesses("Particles");
+    const std::string attrib = accessOf(a, f.host.graph.findResource("Attrib"));
+    EXPECT_NE(attrib.find("\"use\":\"ComputeSrv\",\"read\":true,\"write\":false"), std::string::npos) << attrib;
+    EXPECT_NE(a.find("\"use\":\"ComputeSrv\""), std::string::npos) << a;
+    // Lighting (opaque) read attrib last: a tracked barrier into a compute-visible shader resource.
+    const std::vector<Rg::BarrierRec> b = f.into("Attrib", "Particles");
+    ASSERT_EQ(b.size(), 1u);
+    EXPECT_TRUE(b[0].tracked);
+    EXPECT_EQ(b[0].after.layout, Rg::Layout::ShaderResource);
+    EXPECT_TRUE(any(b[0].after.sync & Rg::Sync::ComputeShading));
 }
 
 TEST(FrameFeatures, WaterReadsThisFramesCaptureThroughAPlannedBarrier)
@@ -1545,7 +1706,7 @@ TEST(FrameFeatures, HdrDrawHelpersAddNothingWithoutHdrAndDepth)
         host.features.begin(list, count);
         if (withHdr)
             host.features.importResource(g, RenderResource::Hdr, fakeResource(1), absDesc(1280, 720, kRgba), Rg::Layout::RenderTarget);
-        bool drawAdded = true, underAdded = true;
+        bool drawAdded = true, underAdded = true, camoAdded = true, particlesAdded = true;
         host.features.declare(PassId::Sky,
                               [&](FeatureBuilder& fb)
                               {
@@ -1560,8 +1721,126 @@ TEST(FrameFeatures, HdrDrawHelpersAddNothingWithoutHdrAndDepth)
                                   underAdded = addUnderwaterPasses(fb, copy, [](Rg::PassContext&, const UnderwaterTargets&) {}, [](Rg::PassContext&, const UnderwaterTargets&) {});
                                   fb.opaque("Underwater", {}, {}, [](Rg::PassContext&) {});
                               });
+        host.features.declare(PassId::Camouflage,
+                              [&](FeatureBuilder& fb)
+                              {
+                                  const Rg::TextureHandle copy =
+                                      fb.graph().importTexture("DE.Camouflage.SceneCopy", absDesc(1280, 720, kRgba), fakeResource(62), Rg::Layout::ShaderResource, Rg::Layout::Undefined);
+                                  camoAdded = addCamouflagePasses(fb, copy, [](Rg::PassContext&, const HdrCopyTargets&) {}, [](Rg::PassContext&, const HdrCopyTargets&) {});
+                              });
+        host.features.declare(PassId::Particles,
+                              [&](FeatureBuilder& fb)
+                              {
+                                  HdrDrawUses uses;
+                                  uses.computeDepth  = true;
+                                  uses.computeAttrib = true;
+
+                                  particlesAdded = addHdrDrawPass(fb, "Particles", uses, [](Rg::PassContext&, const HdrDrawTargets&) {});
+                                  fb.opaque("Particles", {}, {}, [](Rg::PassContext&) {});
+                              });
         host.features.compileFrame(g, "test");
         EXPECT_FALSE(drawAdded) << withHdr;
         EXPECT_FALSE(underAdded) << withHdr;
+        EXPECT_FALSE(camoAdded) << withHdr;
+        EXPECT_FALSE(particlesAdded) << withHdr;
     }
+}
+
+TEST(FrameFeatures, ParticlesAddNothingWithoutAttrib)
+{
+    // HDR and depth but no G-buffer attrib: the compute sampling cannot be declared.
+    HostFrame          host;
+    Rg::RenderGraph&   g     = host.graph;
+    uint32_t           count = 0;
+    const FeaturePass* list  = sandboxFeatures(count);
+    g.beginFrame(1280, 720);
+    host.features.begin(list, count);
+    host.features.importResource(g, RenderResource::Hdr, fakeResource(1), absDesc(1280, 720, kRgba), Rg::Layout::RenderTarget);
+    host.features.importResource(g, RenderResource::Depth, fakeResource(2), absDesc(1280, 720, kD32), Rg::Layout::ShaderResource);
+    bool withAttrib = true, plain = false;
+    host.features.declare(PassId::Particles,
+                          [&](FeatureBuilder& fb)
+                          {
+                              HdrDrawUses uses;
+                              uses.computeDepth  = true;
+                              uses.computeAttrib = true;
+
+                              withAttrib = addHdrDrawPass(fb, "Particles", uses, [](Rg::PassContext&, const HdrDrawTargets&) {});
+                              plain      = addHdrDrawPass(fb, "Particles.Plain", HdrDrawUses{}, [](Rg::PassContext&, const HdrDrawTargets&) {});
+                          });
+    host.features.compileFrame(g, "test");
+    EXPECT_FALSE(withAttrib);
+    EXPECT_TRUE(plain);
+}
+
+TEST(FrameFeatures, EditorGridAndGizmosDrawOntoHdrBeforeTheOverlays)
+{
+    HostFrame                host;
+    Rg::RenderGraph&         g     = host.graph;
+    uint32_t                 count = 0;
+    const FeaturePass*       list  = editorFeatures(count);
+    std::vector<std::string> ran;
+    HdrDrawTargets           grid{}, gizmos{}, overlays{};
+    g.beginFrame(1280, 720);
+    host.features.begin(list, count);
+    for (uint32_t r = 0; r < kRenderResourceCount; ++r)
+    {
+        const auto     res    = static_cast<RenderResource>(r);
+        const uint32_t fmt    = res == RenderResource::Swap ? kBgra8 : (res == RenderResource::Depth ? kD32 : kRgba);
+        Rg::Layout     layout = Rg::Layout::ShaderResource;
+        if (res == RenderResource::Swap || res == RenderResource::Hdr)
+            layout = Rg::Layout::RenderTarget;
+        host.features.importResource(g, res, fakeResource(r), absDesc(1280, 720, fmt), layout);
+    }
+    const std::initializer_list<PassId> declared = { PassId::EditorGrid, PassId::EditorGizmos, PassId::DebugOverlays };
+    for (const PassId id : without(listIds(list, count), declared))
+        host.features.set(id, [&ran, id](Rg::PassContext&) { ran.push_back(passName(id)); });
+    const auto draw = [&](PassId id, const char* name, HdrDrawTargets* out)
+    {
+        host.features.declare(id,
+                              [&ran, name, out](FeatureBuilder& fb)
+                              {
+                                  addHdrDrawPass(fb, name, false,
+                                                 [&ran, name, out](Rg::PassContext&, const HdrDrawTargets& d)
+                                                 {
+                                                     ran.push_back(name);
+                                                     *out = d;
+                                                 });
+                              });
+    };
+    draw(PassId::EditorGrid, "EditorGrid", &grid);
+    draw(PassId::EditorGizmos, "EditorGizmos", &gizmos);
+    draw(PassId::DebugOverlays, "DebugOverlays", &overlays);
+    ASSERT_TRUE(host.features.compileFrame(g, "test"));
+    ASSERT_TRUE(g.execute());
+    EXPECT_TRUE(host.features.orderOk());
+    const auto at = [&](const char* n) { return std::find(ran.begin(), ran.end(), std::string(n)) - ran.begin(); };
+    EXPECT_LT(at("Clouds"), at("EditorGrid"));
+    EXPECT_LT(at("EditorGrid"), at("EditorGizmos"));
+    EXPECT_LT(at("EditorGizmos"), at("DebugOverlays"));
+    EXPECT_LT(at("DebugOverlays"), at("Translucent"));
+    ASSERT_TRUE(grid.valid() && gizmos.valid() && overlays.valid());
+    EXPECT_EQ(gizmos.hdr.version, grid.hdr.version + 1);
+    EXPECT_EQ(overlays.hdr.version, gizmos.hdr.version + 1);
+    EXPECT_EQ(gizmos.depth, grid.depth);
+    EXPECT_EQ(overlays.depth, grid.depth);
+    // Opaque Clouds before the grid: one tracked barrier into read-only depth, none after it.
+    const std::vector<Rg::BarrierRec> depth    = recordsOn(g, "Depth");
+    uint32_t                          intoGrid = 0, intoOthers = 0;
+    for (const Rg::BarrierRec& b : depth)
+    {
+        if (b.pass == Rg::kNoPass || b.pass >= g.passCount())
+            continue;
+        const std::string name = g.passName(b.pass);
+        if (name == "EditorGrid")
+        {
+            ++intoGrid;
+            EXPECT_EQ(b.after.layout, Rg::Layout::DirectQueueGenericRead);
+            EXPECT_TRUE(b.tracked);
+        }
+        else if (name == "EditorGizmos" || name == "DebugOverlays")
+            ++intoOthers;
+    }
+    EXPECT_EQ(intoGrid, 1u);
+    EXPECT_EQ(intoOthers, 0u);
 }
