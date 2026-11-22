@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 
 #include "Render/FrameFeatures.h"
+#include "Render/PostMatrices.h"
+#include "RenderGraphTestUtil.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -702,4 +704,109 @@ TEST(FrameFeatures, GtaoEntryWritesItsHistoryAndASkippedFrameDropsTheNextPrev)
     EXPECT_FALSE(f.gtao.prev.valid());
     ASSERT_TRUE(f.run(false));
     EXPECT_TRUE(f.gtao.prev.valid());
+}
+
+// ---------------------------------------------------------------- PR #48 review
+
+// The Post matrices as SceneRenderer::addPostPasses uses them: built in the declare callback (graph
+// build time) and filled in the pass exec, after a host's GBuffer pass wrote the jittered view-proj.
+// Fails if PostMatrices inverts or copies the matrix when it is built (the Phase 6 part 2 bug).
+TEST(FrameFeatures, PostMatricesBuiltAtDeclareFillTheViewProjGBufferWrote)
+{
+    uint32_t           count = 0;
+    const FeaturePass* list  = sandboxFeatures(count);
+    for (const bool havePrev : { false, true })
+    {
+        HostFrame        host;
+        Rg::RenderGraph& g = host.graph;
+        g.beginFrame(1280, 720);
+        host.features.begin(list, count);
+        for (uint32_t r = 0; r < kRenderResourceCount; ++r)
+        {
+            const auto     res = static_cast<RenderResource>(r);
+            const uint32_t fmt = res == RenderResource::Swap ? kBgra8 : (res == RenderResource::Depth ? kD32 : kRgba);
+            host.features.importResource(g, res, fakeResource(r), absDesc(1280, 720, fmt), Rg::Layout::RenderTarget);
+        }
+        Math::Matrix4f       viewProj = Math::Matrix4f::ScaleMatrix(1.0f); // the host's, before GBuffer runs
+        const Math::Matrix4f prev     = Math::Matrix4f::ScaleMatrix(8.0f);
+        float                inv[16]{};
+        float                prevOut[16]{};
+        for (const PassId id : without(listIds(list, count), { PassId::Post }))
+            host.features.set(id,
+                              [&, id](Rg::PassContext&)
+                              {
+                                  if (id == PassId::GBuffer)
+                                      viewProj = Math::Matrix4f::ScaleMatrix(4.0f); // beginCameraFrame + jitter
+                              });
+        host.features.declare(PassId::Post,
+                              [&](FeatureBuilder& fb)
+                              {
+                                  const PostMatrices matrices(viewProj, havePrev, prev);
+                                  fb.addPass<Rg::NoData>(
+                                      "Post.Taa",
+                                      [&](Rg::PassBuilder& b, Rg::NoData&)
+                                      {
+                                          b.read(fb.handle(RenderResource::Hdr), Rg::Use::PixelSrv);
+                                          fb.set(RenderResource::Swap, b.write(fb.handle(RenderResource::Swap), Rg::Use::RenderTarget));
+                                      },
+                                      [matrices, &inv, &prevOut](Rg::PassContext&, const Rg::NoData&) { matrices.fill(inv, prevOut); });
+                              });
+        ASSERT_TRUE(host.features.compileFrame(g, "test"));
+        ASSERT_TRUE(g.execute());
+        EXPECT_FLOAT_EQ(inv[0], 0.25f) << "havePrev=" << havePrev;
+        EXPECT_FLOAT_EQ(inv[5], 0.25f);
+        EXPECT_FLOAT_EQ(inv[10], 0.25f);
+        EXPECT_FLOAT_EQ(prevOut[0], havePrev ? 8.0f : 4.0f);
+    }
+}
+
+// The SsrCapture entry's unbind pass: the graph records a declared pass's BeforePass barriers after
+// the opaque pass inserted just before it has executed, so HDR is no longer bound as a render
+// target when its RT->SRV barrier is recorded (the old captureSceneColor unbound first too).
+TEST(FrameFeatures, OpaquePassJustBeforeADeclaredReaderRunsBeforeItsBarrier)
+{
+    uint32_t           count = 0;
+    const FeaturePass* list  = sandboxFeatures(count);
+    HostFrame          host;
+    Rg::RenderGraph&   g = host.graph;
+    g.beginFrame(1280, 720);
+    host.features.begin(list, count);
+    for (uint32_t r = 0; r < kRenderResourceCount; ++r)
+    {
+        const auto     res = static_cast<RenderResource>(r);
+        const uint32_t fmt = res == RenderResource::Swap ? kBgra8 : (res == RenderResource::Depth ? kD32 : kRgba);
+        host.features.importResource(g, res, fakeResource(r), absDesc(1280, 720, fmt), Rg::Layout::RenderTarget);
+    }
+    for (const PassId id : without(listIds(list, count), { PassId::SsrCapture }))
+        host.features.set(id, [](Rg::PassContext&) {});
+    host.features.declare(PassId::SsrCapture,
+                          [&](FeatureBuilder& fb)
+                          {
+                              fb.opaque("SsrCapture.Unbind", {}, {}, [](Rg::PassContext&) {});
+                              Rg::TextureHandle dst = fb.graph().importTexture("DE.Ssr.SceneColor1", absDesc(640, 360, kRgba), fakeResource(60), Rg::Layout::ShaderResource, Rg::Layout::Undefined);
+                              fb.addPass<Rg::NoData>(
+                                  "SsrCapture",
+                                  [&](Rg::PassBuilder& b, Rg::NoData&)
+                                  {
+                                      b.read(fb.handle(RenderResource::Hdr), Rg::Use::PixelSrv);
+                                      dst = b.write(dst, Rg::Use::RenderTarget);
+                                  },
+                                  [](Rg::PassContext&, const Rg::NoData&) {});
+                          });
+    ASSERT_TRUE(host.features.compileFrame(g, "test"));
+    Rg::Test::Recorder rec(g);
+    ASSERT_TRUE(g.execute(&rec));
+    const int sky     = rec.find("E Sky");
+    const int unbind  = rec.find("E SsrCapture.Unbind");
+    const int capture = rec.find("P SsrCapture");
+    int       hdr     = -1;
+    for (size_t i = 0; i < rec.events.size(); ++i)
+        if (rec.events[i].rfind("B before SsrCapture ", 0) == 0 && rec.events[i].find("Hdr") != std::string::npos)
+            hdr = static_cast<int>(i);
+    ASSERT_GE(sky, 0);
+    ASSERT_GE(unbind, 0);
+    ASSERT_GE(hdr, 0);
+    EXPECT_LT(sky, unbind);
+    EXPECT_LT(unbind, hdr);
+    EXPECT_LT(hdr, capture);
 }

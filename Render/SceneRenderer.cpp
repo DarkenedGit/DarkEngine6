@@ -5,6 +5,7 @@
 #include "Render/FrameComposer.h"
 #include "Render/GraphTargets.h"
 #include "Render/MeshGen.h"
+#include "Render/PostMatrices.h"
 #include "Render/Profile.h"
 #include "Render/Renderer.h"
 #include "Render/RgViews.h"
@@ -17,73 +18,57 @@ namespace Dark
 {
 namespace
 {
-void copyMatrix(float dst[16], const Math::Matrix4f& m);
-
-// The camera matrices a declared pass needs, read when it executes (see addPostPasses).
-struct PostMatrices
-{
-    const Math::Matrix4f* viewProj = nullptr; // the host's, filled by its GBuffer pass
-    bool                  havePrev = false;
-    Math::Matrix4f        prev{};
-
-    void fill(float inv[16], float prevOut[16]) const
+    void copyMatrix(float dst[16], const Math::Matrix4f& m)
     {
-        copyMatrix(inv, viewProj->Inverse());
-        copyMatrix(prevOut, havePrev ? prev : *viewProj);
+        m.store(dst);
     }
-};
 
-void copyMatrix(float dst[16], const Math::Matrix4f& m)
-{
-    m.store(dst);
-}
-
-struct DecalEventBlob
-{
-    uint64_t color;
-    char     name[16];
-};
-static_assert(sizeof(DecalEventBlob) == 24, "DE.Decals blob");
-
-void beginDecalEvent(ID3D12GraphicsCommandList* cmd)
-{
-    DecalEventBlob blob{};
-    blob.color = 0xFFC62828ull;
-    std::memcpy(blob.name, "DE.Decals", sizeof("DE.Decals"));
-    cmd->BeginEvent(1, &blob, static_cast<UINT>(sizeof(blob)));
-}
-
-void decalVolumeColor(DecalKind kind, float color[3])
-{
-    color[0] = 1.0f;
-    color[1] = 1.0f;
-    color[2] = 1.0f;
-    switch (kind)
+    struct DecalEventBlob
     {
-    case DecalKind::Footmark:
-        color[0] = 0.45f;
-        color[1] = 0.32f;
-        color[2] = 0.18f;
-        break;
-    case DecalKind::Blood:
-        color[0] = 0.7f;
-        color[1] = 0.05f;
-        color[2] = 0.05f;
-        break;
-    case DecalKind::Impact:
-        color[0] = 0.75f;
-        color[1] = 0.75f;
-        color[2] = 0.8f;
-        break;
-    case DecalKind::Burn:
+        uint64_t color;
+        char     name[16];
+    };
+    static_assert(sizeof(DecalEventBlob) == 24, "DE.Decals blob");
+
+    void beginDecalEvent(ID3D12GraphicsCommandList* cmd)
+    {
+        DecalEventBlob blob{};
+        blob.color = 0xFFC62828ull;
+        std::memcpy(blob.name, "DE.Decals", sizeof("DE.Decals"));
+        cmd->BeginEvent(1, &blob, static_cast<UINT>(sizeof(blob)));
+    }
+
+    void decalVolumeColor(DecalKind kind, float color[3])
+    {
         color[0] = 1.0f;
-        color[1] = 0.35f;
-        color[2] = 0.05f;
-        break;
-    case DecalKind::Count:
-        break;
+        color[1] = 1.0f;
+        color[2] = 1.0f;
+        switch (kind)
+        {
+        case DecalKind::Footmark:
+            color[0] = 0.45f;
+            color[1] = 0.32f;
+            color[2] = 0.18f;
+            break;
+        case DecalKind::Blood:
+            color[0] = 0.7f;
+            color[1] = 0.05f;
+            color[2] = 0.05f;
+            break;
+        case DecalKind::Impact:
+            color[0] = 0.75f;
+            color[1] = 0.75f;
+            color[2] = 0.8f;
+            break;
+        case DecalKind::Burn:
+            color[0] = 1.0f;
+            color[1] = 0.35f;
+            color[2] = 0.05f;
+            break;
+        case DecalKind::Count:
+            break;
+        }
     }
-}
 } // namespace
 
 bool SceneRenderer::createCorePipelines(Renderer& renderer, const char* tag)
@@ -668,6 +653,11 @@ void SceneRenderer::addSsrCapturePasses(FeatureBuilder& b, Renderer& renderer)
     const SsrTarget    written = ssr->beginCapture(); // water and next frame's trace read it
     TextureHandle      dst     = importTracked(b.graph(), SsrPipeline::name(written), ssr->resource(written), textureViews(ssr->srv(written), ssr->rtv(written)));
 
+    // Sky (and LocalVolumes' bindHdr(true)) left HDR bound as the render target. The graph records
+    // the capture's HDR RT->SRV barrier before the capture's exec, so unbind in a pass of its own
+    // first, as captureSceneColor did before transitionHdr.
+    b.opaque("SsrCapture.Unbind", {}, {}, [](Rg::PassContext& c) { c.cmd()->OMSetRenderTargets(0, nullptr, FALSE, nullptr); });
+
     struct Capture
     {
         TextureHandle hdr, dst;
@@ -936,7 +926,7 @@ void SceneRenderer::addPostPasses(FeatureBuilder& b, Renderer& renderer, const M
     // in its GBuffer pass (beginCameraFrame applies the TAA jitter there), so the matrices are read
     // in the pass execs through this pointer, never here. The previous view-proj is captured now:
     // the host calls endCameraFrame after execute().
-    const PostMatrices   matrices{ &viewProj, m_havePrevViewProj, m_prevViewProj };
+    const PostMatrices   matrices(viewProj, m_havePrevViewProj, m_prevViewProj);
     const bool           holdTemporal = m_holdTemporal;
     if (m_autoExposureEnabled)
         syncAutoExposureSize(renderer);
