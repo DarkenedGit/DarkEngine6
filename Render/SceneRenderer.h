@@ -94,8 +94,10 @@ public:
     // graph plans every barrier. tonemap.usePostHdr is set here. meterAutoExposure records this
     // frame's 1x1. The host reads the previous sample and writes tonemap.exposure before the call,
     // so bloom and tonemap share that exposure. FrameView::holdTemporal (see requestHistories)
-    // forces a TAA reset and skips motion blur so a strobe is not smeared. Setup time: the settings
-    // and the previous view-proj are captured now; call endCameraFrame after execute().
+    // forces a TAA reset and skips motion blur so a strobe is not smeared. Runs while execute()
+    // builds the graph, before any pass executes: the settings and the previous view-proj are
+    // captured now, but `viewProj` is read when the passes execute (hosts fill it in their GBuffer
+    // pass), so it must outlive execute(). Call endCameraFrame after execute().
     void addPostPasses(FeatureBuilder& b, Renderer& renderer, const Math::Matrix4f& viewProj, TonemapSettings tonemap, bool meterAutoExposure = false);
 
     // Right after FrameComposer::begin: requests this frame's TAA / GTAO / SSR graph histories

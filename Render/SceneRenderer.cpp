@@ -17,6 +17,22 @@ namespace Dark
 {
 namespace
 {
+void copyMatrix(float dst[16], const Math::Matrix4f& m);
+
+// The camera matrices a declared pass needs, read when it executes (see addPostPasses).
+struct PostMatrices
+{
+    const Math::Matrix4f* viewProj = nullptr; // the host's, filled by its GBuffer pass
+    bool                  havePrev = false;
+    Math::Matrix4f        prev{};
+
+    void fill(float inv[16], float prevOut[16]) const
+    {
+        copyMatrix(inv, viewProj->Inverse());
+        copyMatrix(prevOut, havePrev ? prev : *viewProj);
+    }
+};
+
 void copyMatrix(float dst[16], const Math::Matrix4f& m)
 {
     m.store(dst);
@@ -685,10 +701,11 @@ void SceneRenderer::addPostPasses(FeatureBuilder& b, Renderer& renderer, const M
     using Rg::Use;
     using R = RenderResource;
 
-    // Captured now: the passes execute later in this frame's graph, after Gtao/Ssr (which read
-    // m_havePrevViewProj at execute), and the host calls endCameraFrame after execute().
-    const Math::Matrix4f prevViewProj = m_havePrevViewProj ? m_prevViewProj : viewProj;
-    const Math::Matrix4f invViewProj  = viewProj.Inverse();
+    // This runs while execute() builds the graph, before any pass executes. The host fills viewProj
+    // in its GBuffer pass (beginCameraFrame applies the TAA jitter there), so the matrices are read
+    // in the pass execs through this pointer, never here. The previous view-proj is captured now:
+    // the host calls endCameraFrame after execute().
+    const PostMatrices   matrices{ &viewProj, m_havePrevViewProj, m_prevViewProj };
     const bool           holdTemporal = m_holdTemporal;
     if (m_autoExposureEnabled)
         syncAutoExposureSize(renderer);
@@ -843,8 +860,6 @@ void SceneRenderer::addPostPasses(FeatureBuilder& b, Renderer& renderer, const M
     if (useTaa)
     {
         TaaSettings taa{};
-        copyMatrix(taa.invViewProj, invViewProj);
-        copyMatrix(taa.prevViewProj, prevViewProj);
         taa.blend = 0.1f;
         // A held frame (and the one after it) gets no valid prev from the graph (FrameView::holdTemporal).
         const TextureHandle histPrev = b.prev(R::TaaHistory);
@@ -870,9 +885,11 @@ void SceneRenderer::addPostPasses(FeatureBuilder& b, Renderer& renderer, const M
                 d.post = post = pb.write(post, Use::RenderTarget);
                 d.hist = histOut = pb.write(histCurr, Use::RenderTarget);
             },
-            [pipe, taa, resetPrev, width, height, openP](PassContext& c, const Taa& d) {
+            [pipe, taa, matrices, resetPrev, width, height, openP](PassContext& c, const Taa& d) {
                 if (openP)
                     profileGpuBegin(c.cmd(), "Post", ProfileColor::Post);
+                TaaSettings s = taa;
+                matrices.fill(s.invViewProj, s.prevViewProj);
                 TaaTargets t{};
                 t.srvTable   = d.prev.valid() ? rgSrvTable(c, { d.hdr, d.prev, d.velocity, d.depth })
                                               : rgTable(c, { rgSrvCpu(c, d.hdr), resetPrev, rgSrvCpu(c, d.velocity), rgSrvCpu(c, d.depth) });
@@ -880,7 +897,7 @@ void SceneRenderer::addPostPasses(FeatureBuilder& b, Renderer& renderer, const M
                 t.historyRtv = rgRtv(c, d.hist);
                 t.width      = width;
                 t.height     = height;
-                pipe->draw(c.cmd(), taa, t);
+                pipe->draw(c.cmd(), s, t);
             });
         b.set(R::Post, post);
         b.set(R::TaaHistory, histOut);
@@ -894,8 +911,6 @@ void SceneRenderer::addPostPasses(FeatureBuilder& b, Renderer& renderer, const M
     if (useMb)
     {
         MotionBlurSettings mb{};
-        copyMatrix(mb.invViewProj, invViewProj);
-        copyMatrix(mb.prevViewProj, prevViewProj);
         mb.strength  = 1.0f;
         mb.maxPixels = 40.0f;
         mb.readPost  = useTaa;
@@ -916,15 +931,17 @@ void SceneRenderer::addPostPasses(FeatureBuilder& b, Renderer& renderer, const M
                 d.depth    = pb.read(depth, Use::PixelSrv);
                 d.dst = dst = pb.write(dst, Use::RenderTarget);
             },
-            [pipe, mb, width, height, openP](PassContext& c, const Mb& d) {
+            [pipe, mb, matrices, width, height, openP](PassContext& c, const Mb& d) {
                 if (openP)
                     profileGpuBegin(c.cmd(), "Post", ProfileColor::Post);
+                MotionBlurSettings s = mb;
+                matrices.fill(s.invViewProj, s.prevViewProj);
                 MotionBlurTargets t{};
                 t.srvTable = rgSrvTable(c, { d.src, d.velocity, d.depth });
                 t.rtv      = rgRtv(c, d.dst);
                 t.width    = width;
                 t.height   = height;
-                pipe->draw(c.cmd(), mb, t);
+                pipe->draw(c.cmd(), s, t);
             });
         b.set(useTaa ? R::Hdr : R::Post, dst);
         usedPostHdr = !useTaa;

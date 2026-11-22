@@ -512,3 +512,49 @@ TEST(FrameFeatures, DeclareAndSetReplaceEachOther)
     EXPECT_FALSE(features.isDeclared(PassId::Post));
     EXPECT_FALSE(features.declare(PassId::EditorGrid, [](FeatureBuilder&) {})); // not in the Sandbox list
 }
+
+// The timing contract a declare callback relies on (the Phase 6 part 2 bug: Post captured the
+// host's view-proj at setup, before the GBuffer pass that fills it had run). A declare callback
+// runs while execute() builds the graph, before any pass executes; values a host fills in an
+// earlier pass's execute are only visible from a declared pass's execute, through a reference.
+TEST(FrameFeatures, DeclareRunsBeforeAnyPassExecutesSoHostValuesAreReadAtExecute)
+{
+    uint32_t           count = 0;
+    const FeaturePass* list  = sandboxFeatures(count);
+    HostFrame          host;
+    Rg::RenderGraph&   g = host.graph;
+    g.beginFrame(1280, 720);
+    host.features.begin(list, count);
+    for (uint32_t r = 0; r < kRenderResourceCount; ++r)
+    {
+        const auto     res = static_cast<RenderResource>(r);
+        const uint32_t fmt = res == RenderResource::Swap ? kBgra8 : (res == RenderResource::Depth ? kD32 : kRgba);
+        host.features.importResource(g, res, fakeResource(r), absDesc(1280, 720, fmt), Rg::Layout::RenderTarget);
+    }
+    int filledByGBuffer = 0; // stands in for the host's viewProj
+    int seenAtSetup     = -1;
+    int seenAtExecute   = -1;
+    for (const PassId id : without(listIds(list, count), { PassId::Post }))
+        host.features.set(id, [&, id](Rg::PassContext&) {
+            if (id == PassId::GBuffer)
+                filledByGBuffer = 42;
+        });
+    host.features.declare(PassId::Post,
+                          [&](FeatureBuilder& fb)
+                          {
+                              seenAtSetup           = filledByGBuffer;
+                              const int* atExecute  = &filledByGBuffer;
+                              fb.addPass<Rg::NoData>(
+                                  "Tonemap",
+                                  [&](Rg::PassBuilder& b, Rg::NoData&)
+                                  {
+                                      b.read(fb.handle(RenderResource::Hdr), Rg::Use::PixelSrv);
+                                      fb.set(RenderResource::Swap, b.write(fb.handle(RenderResource::Swap), Rg::Use::RenderTarget));
+                                  },
+                                  [&seenAtExecute, atExecute](Rg::PassContext&, const Rg::NoData&) { seenAtExecute = *atExecute; });
+                          });
+    ASSERT_TRUE(host.features.compileFrame(g, "test"));
+    EXPECT_EQ(seenAtSetup, 0); // GBuffer has not executed yet
+    ASSERT_TRUE(g.execute());
+    EXPECT_EQ(seenAtExecute, 42);
+}
