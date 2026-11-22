@@ -1,5 +1,6 @@
 #include "Render/Renderer.h"
 #include "Render/GpuIbl.h"
+#include "Render/GraphTargets.h"
 #include "Render/GpuResourceCache.h"
 #include "Render/IblBake.h"
 #include "Render/Profile.h"
@@ -148,6 +149,10 @@ namespace Dark
             m_gpuResources->clear();
             m_gpuResources.reset();
         }
+        // GPU is idle: release the scene targets, then every graph target and the D3D12MA allocator.
+        m_sceneBuffers.reset();
+        if (m_targets)
+            m_targets->shutdown();
         if (m_fenceEvent)
         {
             CloseHandle(m_fenceEvent);
@@ -262,15 +267,13 @@ namespace Dark
             nameObject(m_commandAllocators[i].Get(), allocName);
         }
 
-        // DSV heap + depth buffer (slot 0 write, slot 1 READ_ONLY_DEPTH for depth-as-SRV)
-        D3D12_DESCRIPTOR_HEAP_DESC dsvHeapDesc{};
-        dsvHeapDesc.NumDescriptors = 2;
-        dsvHeapDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
-        dsvHeapDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-        if (!checkHr(m_device->CreateDescriptorHeap(&dsvHeapDesc, IID_PPV_ARGS(&m_dsvHeap)), "CreateDescriptorHeap DSV"))
+        // Graph-owned persistent targets (D3D12MA) and the depth buffer (write DSV, READ_ONLY_DEPTH DSV, SRV).
+        m_targets = std::make_unique<GraphTargets>();
+        if (!m_targets->init(m_device.Get(), m_width, m_height))
+        {
+            DE_LOG_ERROR(LogCategory::Render, "Renderer: graph targets (D3D12MA) init failed");
             return false;
-        nameObject(m_dsvHeap.Get(), L"DE.DsvHeap");
-        m_dsvDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
+        }
         if (!createDepthResources())
             return false;
 
@@ -349,6 +352,7 @@ namespace Dark
             m_fenceValues[i] = 0;
         }
         m_fenceValues[m_frameIndex] = 1;
+        m_targets->retireAfter(m_fenceValues[m_frameIndex]);
 
         m_fenceEvent = CreateEventW(nullptr, FALSE, FALSE, nullptr);
         if (!m_fenceEvent)
@@ -409,70 +413,50 @@ namespace Dark
 
     bool Renderer::createDepthResources()
     {
-        if (!m_device || !m_dsvHeap || m_width == 0 || m_height == 0)
+        if (!m_targets || !m_targets->valid() || m_width == 0 || m_height == 0)
             return false;
 
-        D3D12_HEAP_PROPERTIES heapProps{};
-        heapProps.Type = D3D12_HEAP_TYPE_DEFAULT;
-
-        D3D12_RESOURCE_DESC depthDesc{};
-        depthDesc.Dimension        = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-        depthDesc.Width            = m_width;
-        depthDesc.Height           = m_height;
-        depthDesc.DepthOrArraySize = 1;
-        depthDesc.MipLevels        = 1;
-        depthDesc.Format           = DXGI_FORMAT_R32_TYPELESS;
-        depthDesc.SampleDesc       = { 1, 0 };
-        depthDesc.Layout           = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-        depthDesc.Flags            = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
-
-        D3D12_CLEAR_VALUE clear{};
-        clear.Format               = DXGI_FORMAT_D32_FLOAT;
-        clear.DepthStencil.Depth   = depthClearValue();
-        clear.DepthStencil.Stencil = 0;
-
-        if (FAILED(m_device->CreateCommittedResource(
-                &heapProps, D3D12_HEAP_FLAG_NONE, &depthDesc, D3D12_RESOURCE_STATE_DEPTH_WRITE, &clear,
-                IID_PPV_ARGS(&m_depthStencil))))
+        Rg::TargetDesc desc;
+        desc.size         = Rg::TargetSize::OutputFloor;
+        desc.format       = static_cast<uint32_t>(DXGI_FORMAT_R32_TYPELESS);
+        desc.srvFormat    = static_cast<uint32_t>(DXGI_FORMAT_R32_FLOAT);
+        desc.targetFormat = static_cast<uint32_t>(DXGI_FORMAT_D32_FLOAT);
+        desc.flags        = static_cast<uint32_t>(D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
+        desc.initialState = static_cast<uint32_t>(D3D12_RESOURCE_STATE_DEPTH_WRITE);
+        desc.srv          = true;
+        desc.dsv          = true;
+        desc.clear        = true;
+        desc.depth        = depthClearValue();
+        m_depthId         = m_targets->registerTexture("DE.Depth", desc);
+        if (!m_depthId.valid())
         {
-            DE_LOG_ERROR(LogCategory::Render, "Renderer: CreateCommittedResource depth failed");
+            DE_LOG_ERROR(LogCategory::Render, "Renderer: depth target create failed");
             return false;
         }
-
-        D3D12_CPU_DESCRIPTOR_HANDLE dsvWrite = m_dsvHeap->GetCPUDescriptorHandleForHeapStart();
-        D3D12_CPU_DESCRIPTOR_HANDLE dsvRead  = dsvWrite;
-        dsvRead.ptr += m_dsvDescriptorSize;
-
-        D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc{};
-        dsvDesc.Format        = DXGI_FORMAT_D32_FLOAT;
-        dsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
-        dsvDesc.Flags         = D3D12_DSV_FLAG_NONE;
-        m_device->CreateDepthStencilView(m_depthStencil.Get(), &dsvDesc, dsvWrite);
-        dsvDesc.Flags = D3D12_DSV_FLAG_READ_ONLY_DEPTH;
-        m_device->CreateDepthStencilView(m_depthStencil.Get(), &dsvDesc, dsvRead);
-
-        m_depthSrvHeap.Reset();
-        D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc{};
-        srvHeapDesc.NumDescriptors = 1;
-        srvHeapDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-        srvHeapDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-        if (FAILED(m_device->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&m_depthSrvHeap))))
-        {
-            DE_LOG_ERROR(LogCategory::Render, "Renderer: CreateDescriptorHeap depth SRV failed");
-            return false;
-        }
-        m_depthSrvCpu = m_depthSrvHeap->GetCPUDescriptorHandleForHeapStart();
-        D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
-        srvDesc.Format                    = DXGI_FORMAT_R32_FLOAT;
-        srvDesc.ViewDimension             = D3D12_SRV_DIMENSION_TEXTURE2D;
-        srvDesc.Shader4ComponentMapping   = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-        srvDesc.Texture2D.MipLevels       = 1;
-        m_device->CreateShaderResourceView(m_depthStencil.Get(), &srvDesc, m_depthSrvCpu);
-        nameObject(m_depthStencil.Get(), L"DE.Depth");
-        nameObject(m_depthSrvHeap.Get(), L"DE.DepthSrvHeap");
-        m_depthState = D3D12_RESOURCE_STATE_DEPTH_WRITE;
+        refreshDepthViews();
         DE_LOG_INFO(LogCategory::Render, "Renderer: depth D32_FLOAT clear=0 reverse-Z");
         return true;
+    }
+
+    void Renderer::refreshDepthViews()
+    {
+        m_depthSrvCpu = m_targets ? m_targets->srv(m_depthId) : D3D12_CPU_DESCRIPTOR_HANDLE{};
+        m_depthState  = D3D12_RESOURCE_STATE_DEPTH_WRITE;
+    }
+
+    ID3D12Resource* Renderer::depthResource() const
+    {
+        return m_targets ? m_targets->resource(m_depthId) : nullptr;
+    }
+
+    D3D12_CPU_DESCRIPTOR_HANDLE Renderer::depthDsv() const
+    {
+        return m_targets ? m_targets->dsv(m_depthId) : D3D12_CPU_DESCRIPTOR_HANDLE{};
+    }
+
+    D3D12_CPU_DESCRIPTOR_HANDLE Renderer::depthReadOnlyDsv() const
+    {
+        return m_targets ? m_targets->readOnlyDsv(m_depthId) : D3D12_CPU_DESCRIPTOR_HANDLE{};
     }
 
     bool Renderer::resize(uint32_t width, uint32_t height)
@@ -489,14 +473,14 @@ namespace Dark
             return false;
         }
 
+        // The one GPU drain per resize (render-graph plan Phase 5): swapchain buffers and every
+        // graph-registered target are recreated inside this window; owners rebuild views on use.
         waitForGpu();
+        ++m_resizeDrains;
         broadcastFenceValueAfterWait(m_fenceValues, kFrameCount, m_frameIndex);
 
         for (uint32_t i = 0; i < kFrameCount; ++i)
             m_renderTargets[i].Reset();
-        m_depthStencil.Reset();
-        m_depthSrvHeap.Reset();
-        m_depthSrvCpu = {};
 
         const HRESULT hr = m_swapChain->ResizeBuffers(
             kFrameCount, width, height, DXGI_FORMAT_R8G8B8A8_UNORM, m_swapChainFlags);
@@ -510,15 +494,26 @@ namespace Dark
         m_height = height;
         m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
 
-        if (!createRenderTargets() || !createDepthResources())
+        if (!createRenderTargets())
         {
-            DE_LOG_ERROR(LogCategory::Render, "Renderer: resize recreate targets failed");
+            DE_LOG_ERROR(LogCategory::Render, "Renderer: resize recreate back buffers failed");
             return false;
         }
+        // Everything before the drain has completed: retired targets can go as soon as they are retired.
+        m_targets->retireAfter(m_fenceValues[m_frameIndex] - 1);
+        const bool targetsOk = m_targets->resizeAfterDrain(m_width, m_height);
+        m_targets->collect(m_fence->GetCompletedValue());
+        m_targets->retireAfter(m_fenceValues[m_frameIndex]);
+        if (!targetsOk)
+        {
+            DE_LOG_ERROR(LogCategory::Render, "Renderer: resize recreate graph targets failed");
+            return false;
+        }
+        refreshDepthViews();
 
         if (m_sceneBuffers)
         {
-            if (!m_sceneBuffers->create(m_device.Get(), m_width, m_height, m_depthSrvCpu, m_clearColor))
+            if (!m_sceneBuffers->rebuildViews(m_depthSrvCpu))
             {
                 DE_LOG_ERROR(LogCategory::Render, "Renderer: SceneBuffers resize failed");
                 m_sceneBuffers.reset();
@@ -532,7 +527,8 @@ namespace Dark
         }
 
         updateViewport();
-        DE_LOG_INFO(LogCategory::Render, "Renderer: resized to {}x{}", m_width, m_height);
+        DE_LOG_INFO(LogCategory::Render, "Renderer: resized to {}x{} (resize drains {})", m_width, m_height, m_resizeDrains);
+        m_targets->logStats("resize");
         return true;
     }
 
@@ -564,6 +560,12 @@ namespace Dark
         pumpDeferredReleases();
         if (m_gpuResources)
             m_gpuResources->tickRetired();
+        // Graph targets retired from here on are covered by this frame's fence signal.
+        if (m_targets)
+        {
+            m_targets->retireAfter(m_fenceValues[m_frameIndex]);
+            m_targets->collect(m_fence->GetCompletedValue());
+        }
 
         // m_frameIndex was advanced in moveToNextFrame(), which already waited until
         // this slot's prior GPU work finished. Safe to reset its allocator now.
@@ -583,10 +585,11 @@ namespace Dark
         barriers[barrierCount].Transition.StateAfter  = D3D12_RESOURCE_STATE_RENDER_TARGET;
         barriers[barrierCount].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
         ++barrierCount;
-        if (m_depthStencil && m_depthState != D3D12_RESOURCE_STATE_DEPTH_WRITE)
+        ID3D12Resource* depth = depthResource();
+        if (depth && m_depthState != D3D12_RESOURCE_STATE_DEPTH_WRITE)
         {
             barriers[barrierCount].Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-            barriers[barrierCount].Transition.pResource   = m_depthStencil.Get();
+            barriers[barrierCount].Transition.pResource   = depth;
             barriers[barrierCount].Transition.StateBefore = m_depthState;
             barriers[barrierCount].Transition.StateAfter  = D3D12_RESOURCE_STATE_DEPTH_WRITE;
             barriers[barrierCount].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
@@ -597,7 +600,7 @@ namespace Dark
 
         D3D12_CPU_DESCRIPTOR_HANDLE rtv = m_rtvHeap->GetCPUDescriptorHandleForHeapStart();
         rtv.ptr += static_cast<SIZE_T>(m_frameIndex) * m_rtvDescriptorSize;
-        D3D12_CPU_DESCRIPTOR_HANDLE dsv = m_dsvHeap->GetCPUDescriptorHandleForHeapStart();
+        const D3D12_CPU_DESCRIPTOR_HANDLE dsv = depthDsv();
 
         m_commandList->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
 
@@ -676,11 +679,12 @@ namespace Dark
 
     void Renderer::transitionDepth(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after)
     {
-        if (!cmd || !m_depthStencil || m_depthState == after)
+        ID3D12Resource* depth = depthResource();
+        if (!cmd || !depth || m_depthState == after)
             return;
         D3D12_RESOURCE_BARRIER b{};
         b.Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        b.Transition.pResource   = m_depthStencil.Get();
+        b.Transition.pResource   = depth;
         b.Transition.StateBefore = m_depthState;
         b.Transition.StateAfter  = after;
         b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
@@ -1181,12 +1185,24 @@ namespace Dark
             return false;
         }
 
-        if (m_sceneBuffers && m_sceneBuffers->matches(m_width, m_height))
+        // Graph-registered: Renderer::resize keeps them at the output size, so a valid set is final.
+        if (m_sceneBuffers && m_sceneBuffers->valid())
             return true;
+        if (!m_targets || !m_targets->valid())
+        {
+            DE_LOG_ERROR(LogCategory::Render, "createSceneTargets: graph targets not initialized");
+            return false;
+        }
 
-        waitForGpu();
+        // Unregister a broken set first (its targets retire behind the frame fence; its lighting table
+        // may still be referenced by in-flight lists, so that edge case drains).
+        if (m_sceneBuffers)
+        {
+            waitForGpu();
+            m_sceneBuffers.reset();
+        }
         auto buffers = std::make_unique<SceneBuffers>();
-        if (!buffers->create(m_device.Get(), m_width, m_height, m_depthSrvCpu, m_clearColor))
+        if (!buffers->create(*m_targets, m_depthSrvCpu, m_clearColor))
         {
             DE_LOG_ERROR(LogCategory::Render, "createSceneTargets: SceneBuffers create failed");
             m_sceneBuffers.reset();
@@ -1367,7 +1383,7 @@ namespace Dark
         D3D12_CPU_DESCRIPTOR_HANDLE rtvs[4] = {
             m_sceneBuffers->albedoRtv(), m_sceneBuffers->attribRtv(), m_sceneBuffers->velocityRtv(), m_sceneBuffers->aoRtv()
         };
-        D3D12_CPU_DESCRIPTOR_HANDLE dsv = m_dsvHeap->GetCPUDescriptorHandleForHeapStart();
+        const D3D12_CPU_DESCRIPTOR_HANDLE dsv = depthDsv();
         m_commandList->OMSetRenderTargets(4, rtvs, FALSE, &dsv);
     }
 
@@ -1395,7 +1411,7 @@ namespace Dark
         if (bindDepth)
         {
             transitionDepth(m_commandList.Get(), D3D12_RESOURCE_STATE_DEPTH_WRITE);
-            D3D12_CPU_DESCRIPTOR_HANDLE dsv = m_dsvHeap->GetCPUDescriptorHandleForHeapStart();
+            const D3D12_CPU_DESCRIPTOR_HANDLE dsv = depthDsv();
             m_commandList->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
         }
         else
@@ -1428,14 +1444,13 @@ namespace Dark
         m_commandList->RSSetScissorRects(1, &m_scissor);
 
         const D3D12_CPU_DESCRIPTOR_HANDLE rtv = m_sceneBuffers->hdrRtv();
-        D3D12_CPU_DESCRIPTOR_HANDLE       dsv = m_dsvHeap->GetCPUDescriptorHandleForHeapStart();
-        dsv.ptr += m_dsvDescriptorSize;
+        const D3D12_CPU_DESCRIPTOR_HANDLE dsv = depthReadOnlyDsv();
         m_commandList->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
     }
 
     void Renderer::bindHdrDepthCompute()
     {
-        if (!m_commandList || !m_sceneBuffers || !m_sceneBuffers->valid() || !m_depthStencil || !m_dsvHeap)
+        if (!m_commandList || !m_sceneBuffers || !m_sceneBuffers->valid() || !depthResource())
         {
             DE_LOG_ERROR(LogCategory::Render, "bindHdrDepthCompute: no SceneBuffers");
             return;
@@ -1448,8 +1463,7 @@ namespace Dark
         m_commandList->RSSetScissorRects(1, &m_scissor);
 
         const D3D12_CPU_DESCRIPTOR_HANDLE rtv = m_sceneBuffers->hdrRtv();
-        D3D12_CPU_DESCRIPTOR_HANDLE       dsv = m_dsvHeap->GetCPUDescriptorHandleForHeapStart();
-        dsv.ptr += m_dsvDescriptorSize;
+        const D3D12_CPU_DESCRIPTOR_HANDLE dsv = depthReadOnlyDsv();
         m_commandList->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
     }
 
@@ -1485,7 +1499,7 @@ namespace Dark
 
     void Renderer::bindDecalTargets()
     {
-        if (!m_commandList || !m_sceneBuffers || !m_sceneBuffers->valid() || !m_dsvHeap)
+        if (!m_commandList || !m_sceneBuffers || !m_sceneBuffers->valid() || !depthResource())
         {
             DE_LOG_ERROR(LogCategory::Render, "bindDecalTargets: no G-buffer");
             return;
@@ -1499,8 +1513,7 @@ namespace Dark
         m_commandList->RSSetViewports(1, &m_viewport);
         m_commandList->RSSetScissorRects(1, &m_scissor);
 
-        D3D12_CPU_DESCRIPTOR_HANDLE dsv = m_dsvHeap->GetCPUDescriptorHandleForHeapStart();
-        dsv.ptr += m_dsvDescriptorSize;
+        const D3D12_CPU_DESCRIPTOR_HANDLE dsv = depthReadOnlyDsv();
         m_commandList->OMSetRenderTargets(0, nullptr, FALSE, &dsv);
     }
 
@@ -1538,22 +1551,14 @@ namespace Dark
         m_commandList->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
     }
 
-    void Renderer::bindTaaTarget()
+    void Renderer::bindTaaTargets(D3D12_CPU_DESCRIPTOR_HANDLE historyRtv)
     {
         bindPostHdr();
-        if (m_sceneBuffers)
-            m_sceneBuffers->transitionHistory(m_commandList.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-    }
-
-    void Renderer::copyPostToHistory(ID3D12GraphicsCommandList* cmd)
-    {
-        if (!cmd || !m_sceneBuffers || !m_sceneBuffers->post() || !m_sceneBuffers->history())
+        if (!m_commandList || !m_sceneBuffers || !m_sceneBuffers->post() || historyRtv.ptr == 0)
             return;
-        m_sceneBuffers->transitionPost(cmd, D3D12_RESOURCE_STATE_COPY_SOURCE);
-        m_sceneBuffers->transitionHistory(cmd, D3D12_RESOURCE_STATE_COPY_DEST);
-        cmd->CopyResource(m_sceneBuffers->history(), m_sceneBuffers->post());
-        m_sceneBuffers->transitionPost(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-        m_sceneBuffers->transitionHistory(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        // MRT: post HDR + the graph's TAA history (current slot), replacing the old Post→History copy.
+        const D3D12_CPU_DESCRIPTOR_HANDLE rtvs[2] = { m_sceneBuffers->postRtv(), historyRtv };
+        m_commandList->OMSetRenderTargets(2, rtvs, FALSE, nullptr);
     }
 
     void Renderer::clearGBuffer()
@@ -1599,11 +1604,6 @@ namespace Dark
     D3D12_CPU_DESCRIPTOR_HANDLE Renderer::velocitySrvCpu() const
     {
         return m_sceneBuffers ? m_sceneBuffers->velocitySrvCpu() : D3D12_CPU_DESCRIPTOR_HANDLE{};
-    }
-
-    D3D12_CPU_DESCRIPTOR_HANDLE Renderer::historySrvCpu() const
-    {
-        return m_sceneBuffers ? m_sceneBuffers->historySrvCpu() : D3D12_CPU_DESCRIPTOR_HANDLE{};
     }
 
     D3D12_CPU_DESCRIPTOR_HANDLE Renderer::albedoSrvCpu() const

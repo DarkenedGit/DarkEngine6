@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Render/RenderTargetPool.h"
+
 #include <cstdint>
 #include <d3d12.h>
 #include <wrl/client.h>
@@ -9,18 +11,14 @@ namespace Dark
 
     using Microsoft::WRL::ComPtr;
 
-    // Offscreen 3D color + optional G-buffer. Owned by Renderer. Does not record command lists.
+    class GraphTargets;
+
+    // Offscreen 3D color + G-buffer. Owned by Renderer. Does not record command lists.
+    // The textures are graph-registered persistent targets (GraphTargets, render-graph plan Phase 5):
+    // Renderer::resize recreates them after its one GPU drain and then calls rebuildViews().
     class SceneBuffers
     {
     public:
-        static constexpr UINT kRtvHdr      = 0;
-        static constexpr UINT kRtvAlbedo   = 1;
-        static constexpr UINT kRtvAttrib   = 2;
-        static constexpr UINT kRtvVelocity = 3;
-        static constexpr UINT kRtvPost     = 4;
-        static constexpr UINT kRtvHistory  = 5;
-        static constexpr UINT kRtvAo       = 6;
-        static constexpr UINT kRtvCountGBuffer = 7;
         static constexpr UINT kLightingAlbedo = 0;
         static constexpr UINT kLightingAttrib = 1;
         static constexpr UINT kLightingDepth  = 2;
@@ -36,11 +34,12 @@ namespace Dark
         static constexpr UINT kLightingCount         = 12;
 
         SceneBuffers() = default;
+        ~SceneBuffers();
 
         SceneBuffers(const SceneBuffers&)            = delete;
         SceneBuffers& operator=(const SceneBuffers&) = delete;
 
-        // G-buffer ClearRTV colors. Must match the D3D12_CLEAR_VALUE used at CreateCommittedResource.
+        // G-buffer ClearRTV colors. Must match the optimized clear value the target is registered with.
         static constexpr float kAlbedoClear[4]   = { 0.0f, 0.0f, 0.0f, 0.0f };
         static constexpr float kAttribClear[4]   = { 0.5f, 0.5f, 1.0f, 0.0f };
         static constexpr float kVelocityClear[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
@@ -48,41 +47,41 @@ namespace Dark
         static constexpr float kAoClear[4]       = { 1.0f, 0.0f, 0.0f, 0.0f };
 
         // hdrClear is display-referred (same space as Renderer::setClearColor / swapchain). RGB is converted to linear for the HDR target.
-        // HDR, G-buffer, velocity, post, AO and TAA history. There is no HDR-only mode (forward path removed, D2).
-        bool create(ID3D12Device* device, uint32_t width, uint32_t height, D3D12_CPU_DESCRIPTOR_HANDLE depthSrvCpu, const float hdrClear[4]);
+        // HDR, G-buffer, velocity, post and AO at the output size of `targets`. The TAA history is a
+        // graph history pair (FrameComposer::history), not a scene buffer.
+        bool create(GraphTargets& targets, D3D12_CPU_DESCRIPTOR_HANDLE depthSrvCpu, const float hdrClear[4]);
+        // After GraphTargets::resizeAfterDrain (GPU idle): new lighting table, states back to RENDER_TARGET.
+        bool rebuildViews(D3D12_CPU_DESCRIPTOR_HANDLE depthSrvCpu);
         void reset();
 
-        bool     valid() const { return m_hdr != nullptr && m_albedo != nullptr && m_ao != nullptr; }
-        uint32_t width() const { return m_width; }
-        uint32_t height() const { return m_height; }
+        bool     valid() const;
+        uint32_t width() const;
+        uint32_t height() const;
         bool     matches(uint32_t width, uint32_t height) const
         {
-            return valid() && m_width == width && m_height == height;
+            return valid() && this->width() == width && this->height() == height;
         }
 
-        ID3D12Resource*             hdr() const { return m_hdr.Get(); }
-        ID3D12Resource*             albedo() const { return m_albedo.Get(); }
-        ID3D12Resource*             attrib() const { return m_attrib.Get(); }
-        ID3D12Resource*             velocity() const { return m_velocity.Get(); }
-        ID3D12Resource*             post() const { return m_post.Get(); }
-        ID3D12Resource*             history() const { return m_history.Get(); }
-        ID3D12Resource*             ao() const { return m_ao.Get(); }
-        D3D12_CPU_DESCRIPTOR_HANDLE hdrRtv() const { return m_hdrRtv; }
-        D3D12_CPU_DESCRIPTOR_HANDLE albedoRtv() const { return m_albedoRtv; }
-        D3D12_CPU_DESCRIPTOR_HANDLE attribRtv() const { return m_attribRtv; }
-        D3D12_CPU_DESCRIPTOR_HANDLE velocityRtv() const { return m_velocityRtv; }
-        D3D12_CPU_DESCRIPTOR_HANDLE postRtv() const { return m_postRtv; }
-        D3D12_CPU_DESCRIPTOR_HANDLE aoRtv() const { return m_aoRtv; }
-        D3D12_CPU_DESCRIPTOR_HANDLE hdrSrvCpu() const { return m_hdrSrvCpu; }
-        D3D12_CPU_DESCRIPTOR_HANDLE velocitySrvCpu() const { return m_velocitySrvCpu; }
-        D3D12_CPU_DESCRIPTOR_HANDLE postSrvCpu() const { return m_postSrvCpu; }
-        D3D12_CPU_DESCRIPTOR_HANDLE historySrvCpu() const { return m_historySrvCpu; }
-        D3D12_CPU_DESCRIPTOR_HANDLE historyRtv() const { return m_historyRtv; }
-        // FLAG_NONE heaps — legal CopyDescriptors sources (shader-visible lighting heap is not).
+        ID3D12Resource*             hdr() const { return resource(kHdr); }
+        ID3D12Resource*             albedo() const { return resource(kAlbedo); }
+        ID3D12Resource*             attrib() const { return resource(kAttrib); }
+        ID3D12Resource*             velocity() const { return resource(kVelocity); }
+        ID3D12Resource*             post() const { return resource(kPost); }
+        ID3D12Resource*             ao() const { return resource(kAo); }
+        D3D12_CPU_DESCRIPTOR_HANDLE hdrRtv() const { return rtv(kHdr); }
+        D3D12_CPU_DESCRIPTOR_HANDLE albedoRtv() const { return rtv(kAlbedo); }
+        D3D12_CPU_DESCRIPTOR_HANDLE attribRtv() const { return rtv(kAttrib); }
+        D3D12_CPU_DESCRIPTOR_HANDLE velocityRtv() const { return rtv(kVelocity); }
+        D3D12_CPU_DESCRIPTOR_HANDLE postRtv() const { return rtv(kPost); }
+        D3D12_CPU_DESCRIPTOR_HANDLE aoRtv() const { return rtv(kAo); }
+        D3D12_CPU_DESCRIPTOR_HANDLE hdrSrvCpu() const { return srv(kHdr); }
+        D3D12_CPU_DESCRIPTOR_HANDLE velocitySrvCpu() const { return srv(kVelocity); }
+        D3D12_CPU_DESCRIPTOR_HANDLE postSrvCpu() const { return srv(kPost); }
+        // Graph-owned CPU views — legal CopyDescriptors sources (shader-visible lighting heap is not).
         // Overlay albedo is raw UNORM (byte dump). Lighting heap slot 0 is UNORM_SRGB.
-        D3D12_CPU_DESCRIPTOR_HANDLE albedoSrvCpu() const { return m_albedoSrvCpu; }
-        D3D12_CPU_DESCRIPTOR_HANDLE attribSrvCpu() const { return m_attribSrvCpu; }
-        D3D12_CPU_DESCRIPTOR_HANDLE aoSrvCpu() const { return m_aoSrvCpu; }
+        D3D12_CPU_DESCRIPTOR_HANDLE albedoSrvCpu() const { return srv(kAlbedo); }
+        D3D12_CPU_DESCRIPTOR_HANDLE attribSrvCpu() const { return srv(kAttrib); }
+        D3D12_CPU_DESCRIPTOR_HANDLE aoSrvCpu() const { return srv(kAo); }
         D3D12_CPU_DESCRIPTOR_HANDLE lightingAoCpu() const { return m_lightingAoCpu; }
         D3D12_CPU_DESCRIPTOR_HANDLE lightingSsrCpu() const { return m_lightingSsrCpu; }
         D3D12_GPU_DESCRIPTOR_HANDLE lightingTableGpu() const { return m_lightingGpu; }
@@ -93,21 +92,19 @@ namespace Dark
         D3D12_GPU_DESCRIPTOR_HANDLE localShadowTableGpu() const { return m_localShadowGpu; }
         ID3D12DescriptorHeap*       lightingHeap() const { return m_lightingHeap.Get(); }
         const float*                hdrClear() const { return m_hdrClear; }
-        D3D12_RESOURCE_STATES       hdrState() const { return m_hdrState; }
-        D3D12_RESOURCE_STATES       albedoState() const { return m_albedoState; }
-        D3D12_RESOURCE_STATES       attribState() const { return m_attribState; }
-        D3D12_RESOURCE_STATES       velocityState() const { return m_velocityState; }
-        D3D12_RESOURCE_STATES       postState() const { return m_postState; }
-        D3D12_RESOURCE_STATES       historyState() const { return m_historyState; }
-        D3D12_RESOURCE_STATES       aoState() const { return m_aoState; }
+        D3D12_RESOURCE_STATES       hdrState() const { return m_state[kHdr]; }
+        D3D12_RESOURCE_STATES       albedoState() const { return m_state[kAlbedo]; }
+        D3D12_RESOURCE_STATES       attribState() const { return m_state[kAttrib]; }
+        D3D12_RESOURCE_STATES       velocityState() const { return m_state[kVelocity]; }
+        D3D12_RESOURCE_STATES       postState() const { return m_state[kPost]; }
+        D3D12_RESOURCE_STATES       aoState() const { return m_state[kAo]; }
 
-        void transitionHdr(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after);
-        void transitionAlbedo(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after);
-        void transitionAttrib(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after);
-        void transitionVelocity(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after);
-        void transitionPost(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after);
-        void transitionHistory(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after);
-        void transitionAo(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after);
+        void transitionHdr(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after) { transition(cmd, kHdr, after); }
+        void transitionAlbedo(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after) { transition(cmd, kAlbedo, after); }
+        void transitionAttrib(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after) { transition(cmd, kAttrib, after); }
+        void transitionVelocity(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after) { transition(cmd, kVelocity, after); }
+        void transitionPost(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after) { transition(cmd, kPost, after); }
+        void transitionAo(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after) { transition(cmd, kAo, after); }
 
         void setShadowSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu);
         void setLocalShadowSrvs(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE arraySrv, D3D12_CPU_DESCRIPTOR_HANDLE recordsSrv);
@@ -120,41 +117,27 @@ namespace Dark
         void packLightingHeap(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE depthSrvCpu);
 
     private:
-        void applyLightingAlbedoView(ID3D12Device* device);
-        bool createColorTarget(ID3D12Device* device, uint32_t width, uint32_t height, DXGI_FORMAT resourceFormat, DXGI_FORMAT viewFormat, const float clear[4], const wchar_t* name,
-                               ComPtr<ID3D12Resource>& out, D3D12_RESOURCE_STATES& state, D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET);
-        static void transition(ID3D12GraphicsCommandList* cmd, ID3D12Resource* res, D3D12_RESOURCE_STATES& state, D3D12_RESOURCE_STATES after);
+        enum Slot : uint32_t
+        {
+            kHdr,
+            kAlbedo,
+            kAttrib,
+            kVelocity,
+            kPost,
+            kAo,
+            kSlotCount,
+        };
 
-        ComPtr<ID3D12Resource>       m_hdr;
-        ComPtr<ID3D12Resource>       m_albedo;
-        ComPtr<ID3D12Resource>       m_attrib;
-        ComPtr<ID3D12Resource>       m_velocity;
-        ComPtr<ID3D12Resource>       m_post;
-        ComPtr<ID3D12Resource>       m_history;
-        ComPtr<ID3D12Resource>       m_ao;
-        ComPtr<ID3D12DescriptorHeap> m_rtvHeap;
-        ComPtr<ID3D12DescriptorHeap> m_hdrSrvHeap;
-        ComPtr<ID3D12DescriptorHeap> m_velocitySrvHeap;
-        ComPtr<ID3D12DescriptorHeap> m_postSrvHeap;
-        ComPtr<ID3D12DescriptorHeap> m_historySrvHeap;
-        ComPtr<ID3D12DescriptorHeap> m_albedoSrvHeap;
-        ComPtr<ID3D12DescriptorHeap> m_attribSrvHeap;
-        ComPtr<ID3D12DescriptorHeap> m_aoSrvHeap;
+        ID3D12Resource*             resource(Slot slot) const;
+        D3D12_CPU_DESCRIPTOR_HANDLE rtv(Slot slot) const;
+        D3D12_CPU_DESCRIPTOR_HANDLE srv(Slot slot) const;
+        void                        applyLightingAlbedoView(ID3D12Device* device);
+        void                        transition(ID3D12GraphicsCommandList* cmd, Slot slot, D3D12_RESOURCE_STATES after);
+
+        GraphTargets*                m_targets = nullptr;
+        Rg::TargetId                 m_ids[kSlotCount];
+        D3D12_RESOURCE_STATES        m_state[kSlotCount] = {};
         ComPtr<ID3D12DescriptorHeap> m_lightingHeap;
-        D3D12_CPU_DESCRIPTOR_HANDLE  m_hdrRtv{};
-        D3D12_CPU_DESCRIPTOR_HANDLE  m_albedoRtv{};
-        D3D12_CPU_DESCRIPTOR_HANDLE  m_attribRtv{};
-        D3D12_CPU_DESCRIPTOR_HANDLE  m_velocityRtv{};
-        D3D12_CPU_DESCRIPTOR_HANDLE  m_postRtv{};
-        D3D12_CPU_DESCRIPTOR_HANDLE  m_historyRtv{};
-        D3D12_CPU_DESCRIPTOR_HANDLE  m_aoRtv{};
-        D3D12_CPU_DESCRIPTOR_HANDLE  m_hdrSrvCpu{};
-        D3D12_CPU_DESCRIPTOR_HANDLE  m_velocitySrvCpu{};
-        D3D12_CPU_DESCRIPTOR_HANDLE  m_postSrvCpu{};
-        D3D12_CPU_DESCRIPTOR_HANDLE  m_historySrvCpu{};
-        D3D12_CPU_DESCRIPTOR_HANDLE  m_albedoSrvCpu{};
-        D3D12_CPU_DESCRIPTOR_HANDLE  m_attribSrvCpu{};
-        D3D12_CPU_DESCRIPTOR_HANDLE  m_aoSrvCpu{};
         D3D12_GPU_DESCRIPTOR_HANDLE  m_lightingGpu{};
         D3D12_GPU_DESCRIPTOR_HANDLE  m_heightGpu{};
         D3D12_GPU_DESCRIPTOR_HANDLE  m_aoGpu{};
@@ -171,17 +154,7 @@ namespace Dark
         D3D12_CPU_DESCRIPTOR_HANDLE  m_iblPrefCpu{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_iblLutCpu{};
         bool                         m_lightingAlbedoRaw = false;
-        D3D12_RESOURCE_STATES        m_hdrState      = D3D12_RESOURCE_STATE_COMMON;
-        D3D12_RESOURCE_STATES        m_albedoState   = D3D12_RESOURCE_STATE_COMMON;
-        D3D12_RESOURCE_STATES        m_attribState   = D3D12_RESOURCE_STATE_COMMON;
-        D3D12_RESOURCE_STATES        m_velocityState = D3D12_RESOURCE_STATE_COMMON;
-        D3D12_RESOURCE_STATES        m_postState     = D3D12_RESOURCE_STATE_COMMON;
-        D3D12_RESOURCE_STATES        m_historyState  = D3D12_RESOURCE_STATE_COMMON;
-        D3D12_RESOURCE_STATES        m_aoState       = D3D12_RESOURCE_STATE_COMMON;
-        UINT                         m_rtvIncr     = 0;
         UINT                         m_srvIncr     = 0;
-        uint32_t                     m_width       = 0;
-        uint32_t                     m_height      = 0;
         float                        m_hdrClear[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
     };
 

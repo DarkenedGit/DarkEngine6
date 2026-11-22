@@ -44,12 +44,27 @@ float2 ReconstructCameraVelocity(float2 pixel, float depth)
     return uvCurr - uvPrev;
 }
 
-float4 PSMain(PSInput input) : SV_TARGET
+// MRT: SV_Target0 = post HDR (consumed this frame), SV_Target1 = graph TAA history (read next frame).
+struct PSOutput
+{
+    float4 color   : SV_Target0;
+    float4 history : SV_Target1;
+};
+
+PSOutput Resolve(float3 rgb)
+{
+    PSOutput o;
+    o.color   = float4(rgb, 1);
+    o.history = o.color;
+    return o;
+}
+
+PSOutput PSMain(PSInput input)
 {
     int2   texel   = int2(input.position.xy);
     float3 current = gCurrent.Load(int3(texel, 0)).rgb;
     if (reset > 0.5f)
-        return float4(current, 1);
+        return Resolve(current);
 
     float  depth = gDepth.Load(int3(texel, 0)).r;
     float2 vel   = gVelocity.Load(int3(texel, 0)).rg;
@@ -85,5 +100,5 @@ float4 PSMain(PSInput input) : SV_TARGET
     if (!valid)
         w = 1.0f;
     float3 outRgb = lerp(history, current, w);
-    return float4(outRgb, 1);
+    return Resolve(outRgb);
 }

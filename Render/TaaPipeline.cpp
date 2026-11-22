@@ -19,6 +19,17 @@ namespace Dark
             DE_LOG_ERROR(LogCategory::Render, "{} failed (HRESULT 0x{:08X})", what, static_cast<unsigned>(hr));
             return true;
         }
+
+        void transitionHistory(ID3D12GraphicsCommandList* cmd, ID3D12Resource* res, D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after)
+        {
+            D3D12_RESOURCE_BARRIER b{};
+            b.Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            b.Transition.pResource   = res;
+            b.Transition.StateBefore = before;
+            b.Transition.StateAfter  = after;
+            b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+            cmd->ResourceBarrier(1, &b);
+        }
     } // namespace
 
     bool TaaPipeline::create(ID3D12Device* device)
@@ -93,8 +104,10 @@ namespace Dark
         pso.DepthStencilState.StencilEnable                  = FALSE;
         pso.InputLayout                                      = { nullptr, 0 };
         pso.PrimitiveTopologyType                            = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-        pso.NumRenderTargets                                 = 1;
+        pso.BlendState.RenderTarget[1].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+        pso.NumRenderTargets                                 = 2; // post + history (no Post→History copy)
         pso.RTVFormats[0]                                    = DXGI_FORMAT_R16G16B16A16_FLOAT;
+        pso.RTVFormats[1]                                    = DXGI_FORMAT_R16G16B16A16_FLOAT;
         pso.DSVFormat                                        = DXGI_FORMAT_UNKNOWN;
         pso.SampleDesc                                       = { 1, 0 };
         if (FailedHr(device->CreateGraphicsPipelineState(&pso, IID_PPV_ARGS(&m_pso)), "CreateGraphicsPipelineState (TAA)"))
@@ -127,13 +140,14 @@ namespace Dark
             return;
         ID3D12Device* device = renderer.device();
         const D3D12_CPU_DESCRIPTOR_HANDLE hdr  = renderer.hdrSrvCpu();
-        const D3D12_CPU_DESCRIPTOR_HANDLE hist = renderer.historySrvCpu();
+        const D3D12_CPU_DESCRIPTOR_HANDLE hist = settings.historyPrevSrv;
         const D3D12_CPU_DESCRIPTOR_HANDLE vel  = renderer.velocitySrvCpu();
-        if (!device || hdr.ptr == 0 || hist.ptr == 0 || vel.ptr == 0)
+        if (!device || hdr.ptr == 0 || hist.ptr == 0 || vel.ptr == 0 || settings.historyCurrRtv.ptr == 0 || !settings.historyCurr)
             return;
 
         const GpuScope taa(cmd, "TAA", ProfileColor::Taa);
-        renderer.bindTaaTarget();
+        transitionHistory(cmd, settings.historyCurr, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        renderer.bindTaaTargets(settings.historyCurrRtv);
 
         const UINT slot = renderer.frameIndex() % kBufferedFrames;
         D3D12_CPU_DESCRIPTOR_HANDLE cpu = m_cpu;
@@ -173,7 +187,7 @@ namespace Dark
         cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         cmd->DrawInstanced(3, 1, 0, 0);
 
-        renderer.copyPostToHistory(cmd);
+        transitionHistory(cmd, settings.historyCurr, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
     }
 
 } // namespace Dark

@@ -1,6 +1,7 @@
 #pragma once
 #include "Render/DebugRenderState.h"
 #include "Render/DepthState.h"
+#include "Render/RenderTargetPool.h"
 #include "Render/RhiDevice.h"
 #include "Core/UiPalette.h"
 
@@ -17,6 +18,7 @@ namespace Dark
 {
 
     class Window;
+    class GraphTargets;
     class SceneBuffers;
     class Texture2D;
     class GpuResourceCache;
@@ -198,7 +200,13 @@ namespace Dark
         void transitionAttrib(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after);
         void transitionHdr(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after);
         D3D12_CPU_DESCRIPTOR_HANDLE depthSrvCpu() const { return m_depthSrvCpu; }
-        ID3D12Resource*             depthResource() const { return m_depthStencil.Get(); }
+        ID3D12Resource*             depthResource() const;
+        D3D12_CPU_DESCRIPTOR_HANDLE depthDsv() const;
+        D3D12_CPU_DESCRIPTOR_HANDLE depthReadOnlyDsv() const;
+        // Graph-owned persistent targets (render-graph plan Phase 5). Null on a test shell.
+        GraphTargets*               targets() const { return m_targets.get(); }
+        // GPU drains taken by resize(); the Phase 5 gate expects exactly one per resize.
+        uint32_t                    resizeDrainCount() const { return m_resizeDrains; }
         ID3D12Resource*             albedoResource() const;
         ID3D12Resource*             attribResource() const;
         // Frame graph imports (render-graph plan Phase 4). Null when the target does not exist.
@@ -224,8 +232,8 @@ namespace Dark
         void bindDecalTargets();
         void bindPostHdr();
         void bindHdrColorTarget();
-        void bindTaaTarget();
-        void copyPostToHistory(ID3D12GraphicsCommandList* cmd);
+        // Post HDR + the TAA history RTV (graph history, current slot) as MRT.
+        void bindTaaTargets(D3D12_CPU_DESCRIPTOR_HANDLE historyRtv);
         void clearGBuffer();
         void clearHdr();
         void setShadowSrv(D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu);
@@ -250,7 +258,6 @@ namespace Dark
         D3D12_CPU_DESCRIPTOR_HANDLE hdrSrvCpu() const;
         D3D12_CPU_DESCRIPTOR_HANDLE postHdrSrvCpu() const;
         D3D12_CPU_DESCRIPTOR_HANDLE velocitySrvCpu() const;
-        D3D12_CPU_DESCRIPTOR_HANDLE historySrvCpu() const;
         D3D12_CPU_DESCRIPTOR_HANDLE albedoSrvCpu() const;
         D3D12_CPU_DESCRIPTOR_HANDLE attribSrvCpu() const;
         D3D12_CPU_DESCRIPTOR_HANDLE aoSrvCpu() const;
@@ -270,6 +277,7 @@ namespace Dark
         bool initD3D12(Window& window);
         bool createRenderTargets();
         bool createDepthResources();
+        void refreshDepthViews();
         void updateViewport();
         bool moveToNextFrame();
         bool signalTexUpdate(ID3D12CommandQueue* queue, const char* what);
@@ -286,6 +294,7 @@ namespace Dark
 
         ComPtr<ID3D12Device>              m_device;
         RhiCaps                           m_caps;
+        std::unique_ptr<GraphTargets>     m_targets; // after m_device; shut down explicitly in ~Renderer
         ComPtr<ID3D12CommandQueue>        m_commandQueue;
         ComPtr<ID3D12CommandQueue>        m_copyQueue;
         ComPtr<ID3D12Fence>               m_copyFence;
@@ -298,10 +307,8 @@ namespace Dark
         std::vector<DeferredGpu>          m_deferredGpu;
         ComPtr<IDXGISwapChain3>           m_swapChain;
         ComPtr<ID3D12DescriptorHeap>      m_rtvHeap;
-        ComPtr<ID3D12DescriptorHeap>      m_dsvHeap;
         ComPtr<ID3D12Resource>            m_renderTargets[kFrameCount];
-        ComPtr<ID3D12Resource>            m_depthStencil;
-        ComPtr<ID3D12DescriptorHeap>      m_depthSrvHeap;
+        Rg::TargetId                      m_depthId;
         D3D12_CPU_DESCRIPTOR_HANDLE       m_depthSrvCpu{};
         D3D12_RESOURCE_STATES             m_depthState = D3D12_RESOURCE_STATE_DEPTH_WRITE;
         ComPtr<ID3D12CommandAllocator>    m_commandAllocators[kFrameCount];
@@ -333,7 +340,7 @@ namespace Dark
 
         UINT     m_frameIndex        = 0;
         UINT     m_rtvDescriptorSize = 0;
-        UINT     m_dsvDescriptorSize = 0;
+        uint32_t m_resizeDrains      = 0;
         UINT     m_swapChainFlags    = 0;
         uint32_t m_width             = 0;
         uint32_t m_height            = 0;

@@ -8,6 +8,7 @@
 #include "Render/DebugRenderState.h"
 #include "Render/DeferredLightingPipeline.h"
 #include "Render/SceneBuffers.h"
+#include "Render/GraphTargets.h"
 #include "Render/SsrPipeline.h"
 #include "Render/SsrSettings.h"
 #include "Render/RhiDevice.h"
@@ -156,6 +157,7 @@ TEST(Ssr, Reset_ClearsLightingSsrOverride)
 
 TEST(Ssr, Create_NullDevice_DropsSsrOverride)
 {
+    Dark::GraphTargets          targets; // never initialized: no device
     SceneBuffers                buffers;
     D3D12_CPU_DESCRIPTOR_HANDLE ssr{};
     ssr.ptr = 0x1234;
@@ -163,7 +165,7 @@ TEST(Ssr, Create_NullDevice_DropsSsrOverride)
     EXPECT_EQ(buffers.lightingSsrCpu().ptr, ssr.ptr);
 
     const float hdrClear[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
-    EXPECT_FALSE(buffers.create(nullptr, 64, 64, {}, hdrClear));
+    EXPECT_FALSE(buffers.create(targets, {}, hdrClear));
     EXPECT_FALSE(buffers.valid());
     EXPECT_EQ(buffers.lightingSsrCpu().ptr, 0u);
     EXPECT_EQ(buffers.ssrTableGpu().ptr, 0u);
@@ -171,12 +173,13 @@ TEST(Ssr, Create_NullDevice_DropsSsrOverride)
 
 TEST(Ssr, Create_ZeroSize_DropsSsrOverride)
 {
+    Dark::GraphTargets          targets; // no device and a 0x0 output
     SceneBuffers                buffers;
     D3D12_CPU_DESCRIPTOR_HANDLE ssr{};
     ssr.ptr = 0x1234;
     buffers.setLightingSsrSrv(nullptr, ssr);
     EXPECT_EQ(buffers.lightingSsrCpu().ptr, ssr.ptr);
-    EXPECT_FALSE(buffers.create(nullptr, 0, 0, {}, nullptr));
+    EXPECT_FALSE(buffers.create(targets, {}, nullptr));
     EXPECT_EQ(buffers.lightingSsrCpu().ptr, 0u);
     EXPECT_EQ(buffers.ssrTableGpu().ptr, 0u);
 }
@@ -187,9 +190,11 @@ TEST(Ssr, Dummy_ConfZero)
     if (!device)
         GTEST_SKIP() << "no D3D12 device (WARP or hardware)";
 
+    Dark::GraphTargets targets; // declared first: owners unregister before it goes away
+    ASSERT_TRUE(targets.init(device.Get(), 64, 64));
     SceneBuffers buffers;
     const float  hdrClear[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
-    ASSERT_TRUE(buffers.create(device.Get(), 64, 64, {}, hdrClear));
+    ASSERT_TRUE(buffers.create(targets, {}, hdrClear));
     ASSERT_TRUE(buffers.valid());
     ASSERT_NE(buffers.hdrSrvCpu().ptr, 0u);
     ASSERT_NE(buffers.lightingHeap(), nullptr);
@@ -356,8 +361,9 @@ TEST(Ssr, EdgeFade_ZeroAtBorder)
 
 TEST(Ssr, Create_NullDevice_False)
 {
-    SsrPipeline ssr;
-    EXPECT_FALSE(ssr.create(nullptr, 128, 128));
+    Dark::GraphTargets targets;
+    SsrPipeline        ssr;
+    EXPECT_FALSE(ssr.create(targets));
     EXPECT_FALSE(ssr.isValid());
     EXPECT_EQ(ssr.fullSrvCpu().ptr, 0u);
     EXPECT_EQ(ssr.debugConfSrvCpu().ptr, 0u);
@@ -365,14 +371,24 @@ TEST(Ssr, Create_NullDevice_False)
     EXPECT_FALSE(ssr.hasSceneColor());
 }
 
-TEST(Ssr, Create_ZeroSize_False)
+TEST(Ssr, Release_WithoutCreate_Safe)
 {
     SsrPipeline ssr;
-    EXPECT_FALSE(ssr.create(nullptr, 0, 128));
-    EXPECT_FALSE(ssr.create(nullptr, 128, 0));
-    EXPECT_FALSE(ssr.create(nullptr, 0, 0));
+    ssr.release();
+    ssr.release();
     EXPECT_FALSE(ssr.isValid());
     EXPECT_EQ(ssr.fullSrvCpu().ptr, 0u);
+    EXPECT_FALSE(ssr.hasSceneColor());
+}
+
+TEST(Ssr, HistoryDesc_RestsAsShaderResource)
+{
+    const Dark::Rg::TargetDesc desc = SsrPipeline::historyDesc();
+    EXPECT_EQ(desc.size, Dark::Rg::TargetSize::OutputFloor);
+    EXPECT_EQ(desc.format, static_cast<uint32_t>(DXGI_FORMAT_R16G16B16A16_FLOAT));
+    EXPECT_EQ(desc.initialState, static_cast<uint32_t>(D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
+    EXPECT_TRUE(desc.rtv);
+    EXPECT_TRUE(desc.srv);
 }
 
 TEST(Ssr, Create_ZeroSize_WithDevice_False)
@@ -381,9 +397,10 @@ TEST(Ssr, Create_ZeroSize_WithDevice_False)
     if (!device)
         GTEST_SKIP() << "no D3D12 device (WARP or hardware)";
 
+    Dark::GraphTargets targets;
+    targets.init(device.Get(), 0, 64); // a 0-wide output: nothing can register
     SsrPipeline ssr;
-    EXPECT_FALSE(ssr.create(device.Get(), 0, 64));
-    EXPECT_FALSE(ssr.create(device.Get(), 64, 0));
+    EXPECT_FALSE(ssr.create(targets));
     EXPECT_FALSE(ssr.isValid());
     EXPECT_EQ(ssr.fullSrvCpu().ptr, 0u);
     EXPECT_FALSE(ssr.hasSceneColor());
@@ -405,17 +422,23 @@ TEST(Ssr, Create_ReadyHandles)
     if (!device)
         GTEST_SKIP() << "no D3D12 device (WARP or hardware)";
 
+    Dark::GraphTargets targets;
+    ASSERT_TRUE(targets.init(device.Get(), 128, 64));
     SsrPipeline ssr;
-    ASSERT_TRUE(ssr.create(device.Get(), 128, 64));
+    ASSERT_TRUE(ssr.create(targets));
     EXPECT_TRUE(ssr.isValid());
     EXPECT_NE(ssr.fullSrvCpu().ptr, 0u);
     EXPECT_NE(ssr.debugConfSrvCpu().ptr, 0u);
     EXPECT_NE(ssr.sceneColorSrvCpu().ptr, 0u);
     EXPECT_FALSE(ssr.hasSceneColor());
-    EXPECT_TRUE(ssr.resize(device.Get(), 128, 64));
-    ASSERT_TRUE(ssr.resize(device.Get(), 192, 96));
+    const uint32_t registered = targets.pool().count();
+    ASSERT_TRUE(targets.resizeAfterDrain(128, 64));
+    ASSERT_TRUE(targets.resizeAfterDrain(192, 96)); // recreated in place, still registered
+    EXPECT_EQ(targets.pool().count(), registered);
     EXPECT_TRUE(ssr.isValid());
     EXPECT_FALSE(ssr.hasSceneColor());
+    ssr.release();
+    EXPECT_EQ(targets.pool().count(), 0u);
 }
 
 TEST(Ssr, Floor_RdotVNear1_SkyMissNotOffscreen)

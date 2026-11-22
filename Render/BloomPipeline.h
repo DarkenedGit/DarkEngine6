@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Render/GraphTargets.h"
+
 #include <cstdint>
 #include <d3d12.h>
 #include <wrl/client.h>
@@ -23,51 +25,47 @@ namespace Dark
         static constexpr UINT  kMipCount        = 6; // extract + down[0..4]
 
         BloomPipeline() = default;
+        ~BloomPipeline();
+        BloomPipeline(const BloomPipeline&)            = delete;
+        BloomPipeline& operator=(const BloomPipeline&) = delete;
 
-        bool create(ID3D12Device* device, uint32_t width, uint32_t height);
-        bool resize(ID3D12Device* device, uint32_t width, uint32_t height);
+        // Graph targets (render-graph plan Phase 5): the mip chain is registered output-relative and
+        // Renderer::resize recreates it; draw() rewrites the static mip SRVs on a new generation.
+        bool create(GraphTargets& targets);
+        void release();
         // exposure scales kThreshold and kKnee by 1/exposure. Exposure 1 keeps those scene-luminance defaults.
         void draw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, float strength, float exposure) const;
 
-        bool isValid() const { return m_psoExtract != nullptr && m_mips[0].res != nullptr; }
+        bool isValid() const;
 
     private:
         static constexpr UINT kHdrSlots      = 2;
         static constexpr UINT kConstantCount = 8;
         static constexpr UINT kSrvCount      = kHdrSlots + kMipCount;
 
-        struct Mip
-        {
-            ComPtr<ID3D12Resource>        res;
-            uint32_t                      w     = 0;
-            uint32_t                      h     = 0;
-            mutable D3D12_RESOURCE_STATES state = D3D12_RESOURCE_STATE_COMMON;
-        };
-
         bool createPsos(ID3D12Device* device);
-        bool createTargets(ID3D12Device* device, uint32_t width, uint32_t height);
+        bool createTargets(ID3D12Device* device);
         void resetTargets();
+        void refreshViews() const;
+        uint32_t mipWidth(UINT index) const;
+        uint32_t mipHeight(UINT index) const;
         void transitionMip(ID3D12GraphicsCommandList* cmd, UINT index, D3D12_RESOURCE_STATES after) const;
-        D3D12_CPU_DESCRIPTOR_HANDLE rtvCpu(UINT mip) const;
         D3D12_GPU_DESCRIPTOR_HANDLE srvGpu(UINT slot) const;
         void drawFullscreen(ID3D12GraphicsCommandList* cmd, ID3D12PipelineState* pso, D3D12_GPU_DESCRIPTOR_HANDLE srcGpu,
                             D3D12_CPU_DESCRIPTOR_HANDLE rtv, uint32_t dstW, uint32_t dstH, uint32_t srcW, uint32_t srcH, float strength, float exposure) const;
 
+        GraphTargets*                m_targets = nullptr;
         ComPtr<ID3D12RootSignature>  m_rootSignature;
         ComPtr<ID3D12PipelineState>  m_psoExtract;
         ComPtr<ID3D12PipelineState>  m_psoDownsample;
         ComPtr<ID3D12PipelineState>  m_psoUpsample;
         ComPtr<ID3D12PipelineState>  m_psoComposite;
-        ComPtr<ID3D12DescriptorHeap> m_rtvHeap;
         ComPtr<ID3D12DescriptorHeap> m_srvHeap;
-        D3D12_CPU_DESCRIPTOR_HANDLE  m_rtvCpu{};
         D3D12_CPU_DESCRIPTOR_HANDLE  m_srvCpu{};
         D3D12_GPU_DESCRIPTOR_HANDLE  m_srvGpu{};
-        UINT                         m_rtvIncr = 0;
         UINT                         m_srvIncr = 0;
-        uint32_t                     m_width   = 0;
-        uint32_t                     m_height  = 0;
-        Mip                          m_mips[kMipCount]{};
+        mutable GraphTarget          m_mips[kMipCount]{};
+        mutable bool                 m_viewsWritten = false;
         mutable bool                 m_loggedSkip = false;
     };
 

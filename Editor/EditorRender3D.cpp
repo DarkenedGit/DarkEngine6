@@ -28,6 +28,7 @@
 #include "Render/TaaJitter.h"
 #include "Render/ModelDraw.h"
 #include "Render/FrameComposer.h"
+#include "Render/FrameView.h"
 #include "Render/Profile.h"
 #include "Render/MaterialSurface.h"
 #include "Render/GpuUpload.h"
@@ -411,7 +412,8 @@ void EditorApp::renderScene3D()
     uint32_t           featureCount = 0;
     const FeaturePass* featureList  = editorFeatures(featureCount);
     FrameComposer&     frame        = m_frameComposer;
-    frame.begin(renderer(), featureList, featureCount, m_shadows.resource(), m_scene.localShadows().resource());
+    frame.begin(renderer(), FrameView{}, featureList, featureCount, m_shadows.resource(), m_scene.localShadows().resource());
+    m_scene.requestHistories(frame, renderer());
 
     frame.set(PassId::Shadows, [&](Rg::PassContext& pass) {
         ID3D12GraphicsCommandList* const cmd = pass.cmd();

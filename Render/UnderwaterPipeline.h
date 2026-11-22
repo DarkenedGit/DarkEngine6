@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Render/GraphTargets.h"
+
 #include <cstdint>
 #include <d3d12.h>
 #include <wrl/client.h>
@@ -27,6 +29,10 @@ namespace Dark
         static constexpr UINT kRootSrv       = 1;
 
         UnderwaterPipeline() = default;
+        ~UnderwaterPipeline();
+        UnderwaterPipeline(const UnderwaterPipeline&)            = delete;
+        UnderwaterPipeline& operator=(const UnderwaterPipeline&) = delete;
+        void release();
 
         bool create(ID3D12Device* device);
         void draw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const UnderwaterFrame& frame);
@@ -39,20 +45,15 @@ namespace Dark
         static constexpr UINT kConstantCount  = 21;
 
         bool ensureCopy(Renderer& renderer);
-        void transitionCopy(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after);
 
         ComPtr<ID3D12RootSignature>  m_rootSignature;
         ComPtr<ID3D12PipelineState>  m_pso;
         ComPtr<ID3D12DescriptorHeap> m_srvHeap;
-        ComPtr<ID3D12DescriptorHeap> m_copySrvHeap;
-        ComPtr<ID3D12Resource>       m_copy;
         D3D12_CPU_DESCRIPTOR_HANDLE  m_cpu{};
         D3D12_GPU_DESCRIPTOR_HANDLE  m_gpu{};
-        D3D12_CPU_DESCRIPTOR_HANDLE  m_copyCpu{};
         UINT                         m_srvIncr = 0;
-        D3D12_RESOURCE_STATES        m_copyState = D3D12_RESOURCE_STATE_COMMON;
-        uint32_t                     m_copyW = 0;
-        uint32_t                     m_copyH = 0;
+        GraphTargets*                m_targets = nullptr; // set by the first ensureCopy
+        GraphTarget                  m_copy;              // graph target (render-graph plan Phase 5)
     };
 
 } // namespace Dark

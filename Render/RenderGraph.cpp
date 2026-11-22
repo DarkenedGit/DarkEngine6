@@ -9,6 +9,7 @@
 #include <cstring>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -273,7 +274,8 @@ namespace Dark::Rg
         {
             if (!e.requested)
                 continue;
-            const bool written = m_executed && e.currRes != kInvalidIndex && e.currRes < m_resources.size() && m_resources[e.currRes].versions.size() > 1;
+            const bool written =
+                m_executed && !e.unwritten && e.currRes != kInvalidIndex && e.currRes < m_resources.size() && m_resources[e.currRes].versions.size() > 1;
             if (written)
             {
                 e.initialized[e.cur] = true;
@@ -290,6 +292,7 @@ namespace Dark::Rg
         for (HistoryEntry& e : m_history)
         {
             e.requested = false;
+            e.unwritten = false;
             e.prevRes   = kInvalidIndex;
             e.currRes   = kInvalidIndex;
         }
@@ -634,6 +637,39 @@ namespace Dark::Rg
     {
         for (HistoryEntry& e : m_history)
             e.prevValid = false;
+    }
+
+    HistorySlots RenderGraph::historySlots(const char* name) const
+    {
+        HistorySlots slots;
+        const std::string_view key = name ? name : "";
+        for (const HistoryEntry& e : m_history)
+        {
+            if (e.name != key || !e.requested)
+                continue;
+            slots.curr      = e.ids[e.cur];
+            slots.prev      = e.ids[e.cur ^ 1];
+            slots.prevValid = e.prevRes != kInvalidIndex;
+        }
+        return slots;
+    }
+
+    void RenderGraph::markHistoryUnwritten(const char* name)
+    {
+        const std::string_view key = name ? name : "";
+        for (HistoryEntry& e : m_history)
+            if (e.name == key && e.requested)
+                e.unwritten = true;
+    }
+
+    void RenderGraph::liveHistorySlots(std::vector<uint32_t>& out) const
+    {
+        out.clear();
+        for (const HistoryEntry& e : m_history)
+        {
+            out.push_back(e.ids[0]);
+            out.push_back(e.ids[1]);
+        }
     }
 
     // ---------------------------------------------------------------- execute

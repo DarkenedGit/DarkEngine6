@@ -2,6 +2,8 @@
 
 #include "Core/Log.h"
 #include "ECS/World.h"
+#include "Render/FrameComposer.h"
+#include "Render/GraphTargets.h"
 #include "Render/MeshGen.h"
 #include "Render/Profile.h"
 #include "Render/Renderer.h"
@@ -110,13 +112,11 @@ bool SceneRenderer::createPostPipelines(Renderer& renderer, const char* tag)
         DE_LOG_FATAL("{}: TonemapPipeline create failed", tag);
         return false;
     }
-    if (!m_ssr.create(renderer.device(), renderer.width(), renderer.height()))
+    // Render-graph plan Phase 5: SSR, bloom, the meter and GTAO register their targets with the
+    // renderer's graph targets, which keep them at the output size (no per-owner resize).
+    GraphTargets* const targets = renderer.targets();
+    if (!targets || !m_ssr.create(*targets))
         DE_LOG_WARN(LogCategory::Render, "{}: SsrPipeline create failed — SSR disabled", tag);
-    else
-    {
-        m_ssrW = renderer.width();
-        m_ssrH = renderer.height();
-    }
     if (!m_lighting.create(renderer.device()))
     {
         DE_LOG_FATAL("{}: DeferredLightingPipeline create failed", tag);
@@ -140,27 +140,16 @@ bool SceneRenderer::createPostPipelines(Renderer& renderer, const char* tag)
     if (!CreateSpotVolumeCone(coneData, 16, true) || !Mesh::tryCreate(renderer, coneData, m_spotVolumeMesh))
         DE_LOG_ERROR(LogCategory::Render, "{}: spot volume mesh failed — local lights skipped", tag);
 
-    if (!m_bloom.create(renderer.device(), renderer.width(), renderer.height()))
+    if (!targets || !m_bloom.create(*targets))
         DE_LOG_WARN(LogCategory::Render, "{}: BloomPipeline create failed — bloom disabled", tag);
-    else
-    {
-        m_bloomW = renderer.width();
-        m_bloomH = renderer.height();
-    }
     if (m_autoExposureEnabled)
     {
-        if (!m_autoExposure.create(renderer.device(), renderer.width(), renderer.height()))
+        if (!targets || !m_autoExposure.create(*targets, &renderer))
             DE_LOG_WARN(LogCategory::Render, "{}: AutoExposurePipeline create failed — exposure correction stays 0", tag);
-        m_autoExposureW = renderer.width();
-        m_autoExposureH = renderer.height();
+        m_autoExposureGeneration = m_autoExposure.isValid() ? m_autoExposure.generation() : 0;
     }
-    if (!m_gtao.create(renderer.device(), renderer.width(), renderer.height()))
+    if (!targets || !m_gtao.create(*targets))
         DE_LOG_WARN(LogCategory::Render, "{}: GtaoPipeline create failed — SSAO disabled", tag);
-    else
-    {
-        m_gtaoW = renderer.width();
-        m_gtaoH = renderer.height();
-    }
     if (!m_motionBlur.create(renderer.device()))
         DE_LOG_WARN(LogCategory::Render, "{}: MotionBlurPipeline create failed — motion blur disabled", tag);
     if (!m_echo.create(renderer.device()))
@@ -282,16 +271,17 @@ void SceneRenderer::shutdown()
     m_decalStats               = {};
     m_cloudVolumes             = CloudVolumePipeline{};
     m_cloudVolumeGpu           = CloudVolumeGpuList{};
-    m_camouflage               = CamouflagePipeline{};
+    m_camouflage.release();
     m_pointVolumeMesh          = Mesh{};
     m_spotVolumeMesh           = Mesh{};
-    m_bloom                    = BloomPipeline{};
+    // Graph-target owners unregister in release() (they are not reassignable).
+    m_bloom.release();
     m_autoExposure.release();
-    m_gtao                     = GtaoPipeline{};
-    m_ssr                      = SsrPipeline{};
+    m_gtao.release();
+    m_ssr.release();
     m_motionBlur               = MotionBlurPipeline{};
-    m_echo                     = EchoPipeline{};
-    m_underwater               = UnderwaterPipeline{};
+    m_echo.release();
+    m_underwater.release();
     m_taa                      = TaaPipeline{};
     m_shadows                  = ShadowSystem{};
     m_localShadows             = LocalShadowSystem{};
@@ -302,22 +292,14 @@ void SceneRenderer::shutdown()
     m_haveWorldEnv             = false;
     m_prevViewProj             = Math::Matrix4f{};
     m_havePrevViewProj         = false;
-    m_taaHistoryValid          = false;
-    m_taaHistoryW              = 0;
-    m_taaHistoryH              = 0;
-    m_bloomW                   = 0;
-    m_bloomH                   = 0;
-    m_autoExposureW            = 0;
-    m_autoExposureH            = 0;
+    m_discardHistory           = false;
+    m_holdTemporal             = false;
+    m_frame                    = nullptr;
+    m_taaHistory               = {};
+    m_gtaoHistory              = {};
+    m_ssrHistory               = {};
+    m_autoExposureGeneration   = 0;
     m_autoExposureEnabled      = false;
-    m_gtaoW                    = 0;
-    m_gtaoH                    = 0;
-    m_gtaoWasEnabled           = false;
-    m_gtaoNeedReset            = true;
-    m_ssrW                     = 0;
-    m_ssrH                     = 0;
-    m_ssrWasEnabled            = false;
-    m_ssrNeedReset             = true;
     m_initialized              = false;
 }
 
@@ -326,43 +308,44 @@ bool SceneRenderer::wantsTaa(const Renderer& renderer) const
     return renderer.debugState().taa && m_taa.isValid();
 }
 
-void SceneRenderer::ensureGtaoSize(Renderer& renderer, ID3D12GraphicsCommandList* cmd)
+void SceneRenderer::requestHistories(FrameComposer& frame, Renderer& renderer)
 {
-    const uint32_t w = renderer.width();
-    const uint32_t h = renderer.height();
-    if (w == m_gtaoW && h == m_gtaoH)
+    // Render-graph plan Phase 5: TAA, GTAO and SSR histories are graph histories. The graph decides
+    // validity (resize, hold, invalidate, a skipped write) and the ping-pong; the pairs live in the
+    // renderer's graph targets. Only what can run this frame is requested, so an off feature holds
+    // no history memory (its slots are collected at execute).
+    m_frame        = &frame;
+    m_holdTemporal = frame.view().holdTemporal;
+    if (m_discardHistory)
+    {
+        frame.invalidateHistory();
+        m_discardHistory = false;
+    }
+    m_taaHistory  = {};
+    m_gtaoHistory = {};
+    m_ssrHistory  = {};
+    if (!renderer.targets() || !renderer.hasSceneBuffers())
         return;
-    renderer.waitForGpu();
-    if (!m_gtao.resize(renderer.device(), w, h))
-        DE_LOG_WARN(LogCategory::Render, "SceneRenderer: GtaoPipeline resize failed — SSAO disabled");
-    m_gtaoW         = w;
-    m_gtaoH         = h;
-    m_gtaoNeedReset = true;
-    if (cmd)
-        m_gtao.clearAoFullIdentity(cmd);
+    if (wantsTaa(renderer))
+    {
+        const float zero4[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+        m_taaHistory = frame.history(RenderResource::TaaHistory, "Taa",
+                                     colorTargetDesc(DXGI_FORMAT_R16G16B16A16_FLOAT, Rg::TargetSize::OutputFloor, 1, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, zero4));
+    }
+    if (m_gtao.isValid() && renderer.debugState().ssaoEnabled)
+        m_gtaoHistory = frame.history(RenderResource::GtaoHistory, "Gtao", GtaoPipeline::historyDesc());
+    if (m_ssr.isValid() && renderer.debugState().ssrEnabled)
+        m_ssrHistory = frame.history(RenderResource::SsrHistory, "Ssr", SsrPipeline::historyDesc());
 }
 
-void SceneRenderer::ensureSsrSize(Renderer& renderer, ID3D12GraphicsCommandList* cmd)
+void SceneRenderer::markHistoryUnwritten(const Rg::HistoryTargets& history, const char* name)
 {
-    (void)cmd;
-    if (!renderer.hasSceneBuffers())
-        return;
-    const uint32_t w = renderer.width();
-    const uint32_t h = renderer.height();
-    if (w == m_ssrW && h == m_ssrH)
-        return;
-    renderer.waitForGpu();
-    if (!m_ssr.resize(renderer.device(), w, h))
-        DE_LOG_WARN(LogCategory::Render, "SceneRenderer: SsrPipeline resize failed — SSR disabled");
-    m_ssrW          = w;
-    m_ssrH          = h;
-    m_ssrNeedReset  = true;
+    if (m_frame && history.valid())
+        m_frame->markHistoryUnwritten(name);
 }
 
 Math::Matrix4f SceneRenderer::beginCameraFrame(Camera3D& camera, Renderer& renderer)
 {
-    ensureGtaoSize(renderer);
-    ensureSsrSize(renderer);
     camera.ClearSubpixelJitter();
     if (wantsTaa(renderer))
     {
@@ -383,36 +366,34 @@ void SceneRenderer::endCameraFrame(Camera3D& camera, const Math::Matrix4f& viewP
 void SceneRenderer::discardTemporalHistory()
 {
     m_havePrevViewProj = false;
-    m_taaHistoryValid  = false;
+    m_discardHistory   = true; // the next requestHistories invalidates the graph histories
 }
 
 void SceneRenderer::applyGtao(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, const Math::Matrix4f& prevViewProj,
                              const GtaoSettings& settings)
 {
-    ensureGtaoSize(renderer, cmd);
-
     GtaoSettings drawSettings = settings;
     drawSettings.enabled      = settings.enabled && renderer.debugState().ssaoEnabled;
 
     const bool skip = !cmd || !drawSettings.enabled || !m_gtao.isValid()
         || renderer.device() == nullptr || renderer.depthSrvCpu().ptr == 0 || renderer.attribSrvCpu().ptr == 0 || renderer.velocitySrvCpu().ptr == 0
-        || renderer.aoSrvCpu().ptr == 0;
-    if (skip)
+        || renderer.aoSrvCpu().ptr == 0 || !renderer.targets();
+    const HistoryView history = skip ? HistoryView{} : renderer.targets()->historyView(m_gtaoHistory);
+    if (skip || !history.valid())
     {
         // Restore authored MRT3. Do not bind a white SSAO tex (compose cleared to 1 would wipe ORM cavities).
         renderer.setLightingAoSrv(renderer.aoSrvCpu());
-        m_gtaoWasEnabled = false;
+        markHistoryUnwritten(m_gtaoHistory, "Gtao");
         if (cmd)
             m_gtao.clearAoFullIdentity(cmd); // overlay-when-off samples identity, not stale/garbage
         return;
     }
 
-    const bool resetHistory = !m_gtaoWasEnabled || m_gtaoNeedReset || !m_havePrevViewProj || (wantsTaa(renderer) && !m_taaHistoryValid);
-    m_gtaoWasEnabled        = true;
-    m_gtaoNeedReset         = false;
+    // The graph's prevValid covers first use, re-enable, resize and held frames.
+    const bool resetHistory = !history.prevValid || !m_havePrevViewProj || (wantsTaa(renderer) && !m_taaHistory.prevValid);
 
     cmd->OMSetRenderTargets(0, nullptr, FALSE, nullptr);
-    m_gtao.draw(cmd, renderer, camera, prevViewProj, drawSettings, resetHistory);
+    m_gtao.draw(cmd, renderer, camera, prevViewProj, drawSettings, history, resetHistory);
 
     const D3D12_CPU_DESCRIPTOR_HANDLE compose = m_gtao.composeSrvCpu();
     if (compose.ptr == 0)
@@ -427,28 +408,26 @@ void SceneRenderer::applyGtao(ID3D12GraphicsCommandList* cmd, Renderer& renderer
 void SceneRenderer::applySsr(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, const Math::Matrix4f& prevViewProj,
                              const SsrSettings& settings, const Sky::Environment* env)
 {
-    ensureSsrSize(renderer, cmd);
-
     SsrSettings drawSettings = settings;
     drawSettings.enabled     = settings.enabled && renderer.debugState().ssrEnabled;
 
     const bool skip = !cmd || !drawSettings.enabled || !m_ssr.isValid()
-        || renderer.device() == nullptr || renderer.depthSrvCpu().ptr == 0 || renderer.attribSrvCpu().ptr == 0 || renderer.velocitySrvCpu().ptr == 0;
-    if (skip)
+        || renderer.device() == nullptr || renderer.depthSrvCpu().ptr == 0 || renderer.attribSrvCpu().ptr == 0 || renderer.velocitySrvCpu().ptr == 0
+        || !renderer.targets();
+    const HistoryView history = skip ? HistoryView{} : renderer.targets()->historyView(m_ssrHistory);
+    if (skip || !history.valid())
     {
         renderer.setLightingSsrSrv(renderer.ssrDummyCpu());
-        m_ssrWasEnabled = false;
+        markHistoryUnwritten(m_ssrHistory, "Ssr");
         if (cmd)
             renderer.bindHdr(false);
         return;
     }
 
-    const bool resetHistory = !m_ssrWasEnabled || m_ssrNeedReset || !m_havePrevViewProj || (wantsTaa(renderer) && !m_taaHistoryValid);
-    m_ssrWasEnabled         = true;
-    m_ssrNeedReset          = false;
+    const bool resetHistory = !history.prevValid || !m_havePrevViewProj || (wantsTaa(renderer) && !m_taaHistory.prevValid);
 
     cmd->OMSetRenderTargets(0, nullptr, FALSE, nullptr);
-    m_ssr.draw(cmd, renderer, camera, prevViewProj, env, drawSettings, resetHistory);
+    m_ssr.draw(cmd, renderer, camera, prevViewProj, env, drawSettings, history, resetHistory);
 
     const D3D12_CPU_DESCRIPTOR_HANDLE full = m_ssr.fullSrvCpu();
     renderer.setLightingSsrSrv(full.ptr != 0 ? full : renderer.ssrDummyCpu());
@@ -457,7 +436,6 @@ void SceneRenderer::applySsr(ID3D12GraphicsCommandList* cmd, Renderer& renderer,
 
 void SceneRenderer::captureSsrSceneColor(ID3D12GraphicsCommandList* cmd, Renderer& renderer)
 {
-    ensureSsrSize(renderer, cmd);
     if (!cmd || !m_ssr.isValid() || !renderer.hasSceneBuffers())
         return;
     m_ssr.captureSceneColor(cmd, renderer);
@@ -490,7 +468,7 @@ void SceneRenderer::resolveDeferred(DeferredStep step, ID3D12GraphicsCommandList
         break;
     case DeferredStep::Lighting:
         m_resolveLighting = *in.lighting;
-        // applySsr may resize the history. Sample the enable bit after that.
+        // Sample the enable bit after applySsr (it is what applySsr drew with).
         fillSsrLightingConstants(m_resolveLighting, *in.ssr, renderer.debugState().ssrEnabled, m_ssr.isValid());
         drawDeferredLighting(cmd, renderer, m_resolveLighting);
         break;
@@ -686,54 +664,25 @@ void SceneRenderer::drawCloudVolumes(ID3D12GraphicsCommandList* cmd, Renderer& r
 
 bool SceneRenderer::syncAutoExposureSize(Renderer& renderer)
 {
-    if (!m_autoExposureEnabled)
+    // Renderer::resize recreates the pyramid (one GPU drain for every graph target); this only
+    // notices that through the generation and drops the stale 1x1. No wait here.
+    if (!m_autoExposureEnabled || !m_autoExposure.isValid())
         return false;
-    const uint32_t w = renderer.width();
-    const uint32_t h = renderer.height();
-    if (w == 0 || h == 0)
+    const uint64_t generation = m_autoExposure.generation();
+    if (generation == m_autoExposureGeneration)
         return false;
-    if (m_autoExposure.isValid() && w == m_autoExposureW && h == m_autoExposureH)
-        return false;
-    // A failed create already recorded this size. Wait for a real resize before trying again.
-    if (!m_autoExposure.isValid() && w == m_autoExposureW && h == m_autoExposureH && m_autoExposureW != 0)
-        return false;
-
-    renderer.waitForGpu();
-    const bool sizeChanged = m_autoExposureW != w || m_autoExposureH != h;
-    if (!m_autoExposure.resize(renderer.device(), w, h))
-    {
-        DE_LOG_WARN(LogCategory::Render, "SceneRenderer: AutoExposurePipeline resize failed — correction stays 0");
-        m_autoExposureW = w;
-        m_autoExposureH = h;
-        return true;
-    }
-    m_autoExposureW = w;
-    m_autoExposureH = h;
-    return sizeChanged;
+    m_autoExposureGeneration = generation;
+    m_autoExposure.invalidateReadback();
+    return true;
 }
 
-void SceneRenderer::applyPost(Renderer& renderer, ID3D12GraphicsCommandList* cmd, const Math::Matrix4f& viewProj, TonemapSettings tonemap, bool meterAutoExposure,
-                              bool holdTemporal)
+void SceneRenderer::applyPost(Renderer& renderer, ID3D12GraphicsCommandList* cmd, const Math::Matrix4f& viewProj, TonemapSettings tonemap, bool meterAutoExposure)
 {
     const Math::Matrix4f prevViewProj = m_havePrevViewProj ? m_prevViewProj : viewProj;
+    const bool           holdTemporal = m_holdTemporal;
+    if (m_autoExposureEnabled)
+        syncAutoExposureSize(renderer);
 
-    {
-        ensureGtaoSize(renderer, cmd);
-        const uint32_t bw = renderer.width();
-        const uint32_t bh = renderer.height();
-        if (bw != m_bloomW || bh != m_bloomH)
-        {
-            renderer.waitForGpu();
-            if (!m_bloom.resize(renderer.device(), bw, bh))
-                DE_LOG_WARN(LogCategory::Render, "SceneRenderer: BloomPipeline resize failed — bloom disabled");
-            m_bloomW = bw;
-            m_bloomH = bh;
-        }
-        if (m_autoExposureEnabled)
-            syncAutoExposureSize(renderer);
-    }
-
-    // Resize waits stay outside so a CPU stall is not recorded as post GPU work.
     const GpuScope post(cmd, "Post", ProfileColor::Post);
     {
         if (meterAutoExposure && m_autoExposure.isValid())
@@ -743,25 +692,24 @@ void SceneRenderer::applyPost(Renderer& renderer, ID3D12GraphicsCommandList* cmd
     }
 
     bool usedPostHdr = false;
-    const bool useTaa = wantsTaa(renderer);
+    const HistoryView taaHistory = wantsTaa(renderer) && renderer.targets() ? renderer.targets()->historyView(m_taaHistory) : HistoryView{};
+    const bool        useTaa     = taaHistory.valid();
     if (useTaa)
     {
-        if (renderer.width() != m_taaHistoryW || renderer.height() != m_taaHistoryH)
-        {
-            m_taaHistoryValid = false;
-            m_taaHistoryW     = renderer.width();
-            m_taaHistoryH     = renderer.height();
-        }
         TaaSettings taa{};
         copyMatrix(taa.invViewProj, viewProj.Inverse());
         copyMatrix(taa.prevViewProj, prevViewProj);
-        taa.blend = 0.1f;
-        taa.reset = holdTemporal || !m_taaHistoryValid;
+        taa.blend          = 0.1f;
+        // A held frame (and the one after it) gets no valid prev from the graph (FrameView::holdTemporal).
+        taa.reset          = !taaHistory.prevValid;
+        taa.historyPrevSrv = taaHistory.prevSrv;
+        taa.historyCurrRtv = taaHistory.currRtv;
+        taa.historyCurr    = taaHistory.curr;
         m_taa.draw(cmd, renderer, taa);
-        // A held frame's history is the strobe. Drop it so the next normal frame starts clean.
-        m_taaHistoryValid = !holdTemporal;
-        usedPostHdr       = true;
+        usedPostHdr = true;
     }
+    else
+        markHistoryUnwritten(m_taaHistory, "Taa");
 
     const bool useMb = !holdTemporal && renderer.debugState().motionBlur && m_motionBlur.isValid();
     if (useMb)

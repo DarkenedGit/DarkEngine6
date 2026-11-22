@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Render/GraphTargets.h"
+
 #include <cstdint>
 #include <d3d12.h>
 #include <wrl/client.h>
@@ -53,13 +55,17 @@ public:
     static_assert(kSnapshotDivisor >= 1u, "snapshot scale");
 
     EchoPipeline() = default;
+    ~EchoPipeline();
+    EchoPipeline(const EchoPipeline&)            = delete;
+    EchoPipeline& operator=(const EchoPipeline&) = delete;
 
     bool create(ID3D12Device* device);
+    void release();
     bool capture(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const EchoSnapshotFrame& frame);
     void composite(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const EchoCompositeFrame& frame);
 
     bool isValid() const { return m_snapPso != nullptr && m_compositePso != nullptr; }
-    bool hasSnapshot() const { return m_haveSnapshot && m_snap != nullptr; }
+    bool hasSnapshot() const;
 
 private:
     static constexpr UINT kBufferedFrames     = 2;
@@ -68,34 +74,24 @@ private:
     static constexpr UINT kSrvStride          = kCaptureSrvCount + kCompositeSrvCount;
     static constexpr UINT kSnapConstantCount  = 24;
     static constexpr UINT kViewConstantCount  = 44;
-    static constexpr UINT kCpuSrvCount        = 2; // snapshot, beauty copy
 
-    bool ensureSnapshot(Renderer& renderer);
-    bool ensureCopy(Renderer& renderer);
-    void transitionSnapshot(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after);
-    void transitionCopy(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after);
+    // Snapshot (floor(w / kSnapshotDivisor)) and beauty copy are graph targets (render-graph plan
+    // Phase 5), registered on first use.
+    bool ensureTargets(Renderer& renderer);
 
     ComPtr<ID3D12RootSignature>  m_snapRoot;
     ComPtr<ID3D12RootSignature>  m_compositeRoot;
     ComPtr<ID3D12PipelineState>  m_snapPso;
     ComPtr<ID3D12PipelineState>  m_compositePso;
-    ComPtr<ID3D12DescriptorHeap> m_rtvHeap;
-    ComPtr<ID3D12DescriptorHeap> m_cpuSrvHeap;
     ComPtr<ID3D12DescriptorHeap> m_srvHeap;
-    ComPtr<ID3D12Resource>       m_snap;
-    ComPtr<ID3D12Resource>       m_copy;
-    D3D12_CPU_DESCRIPTOR_HANDLE  m_rtv{};
-    D3D12_CPU_DESCRIPTOR_HANDLE  m_cpuSrv{};
     D3D12_CPU_DESCRIPTOR_HANDLE  m_gpuCpu{};
     D3D12_GPU_DESCRIPTOR_HANDLE  m_gpu{};
     UINT                         m_srvIncr = 0;
-    D3D12_RESOURCE_STATES        m_snapState = D3D12_RESOURCE_STATE_RENDER_TARGET;
-    D3D12_RESOURCE_STATES        m_copyState = D3D12_RESOURCE_STATE_COMMON;
-    uint32_t                     m_snapW     = 0;
-    uint32_t                     m_snapH     = 0;
-    uint32_t                     m_copyW     = 0;
-    uint32_t                     m_copyH     = 0;
-    bool                         m_haveSnapshot = false;
+    GraphTargets*                m_targets = nullptr;
+    GraphTarget                  m_snap;
+    GraphTarget                  m_copy;
+    uint64_t                     m_snapshotGeneration = 0;
+    bool                         m_haveSnapshot       = false;
 };
 
 } // namespace Dark

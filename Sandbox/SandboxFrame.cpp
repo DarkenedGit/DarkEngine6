@@ -60,6 +60,7 @@
 #include "Render/PbrLighting.h"
 #include "Render/ModelDraw.h"
 #include "Render/FrameComposer.h"
+#include "Render/FrameView.h"
 #include "Render/Profile.h"
 #include "Render/MaterialSurface.h"
 #include "Render/GpuResourceCache.h"
@@ -504,7 +505,11 @@ void SandboxFrame::render()
     uint32_t           featureCount = 0;
     const FeaturePass* featureList  = sandboxFeatures(featureCount);
     FrameComposer&     frame        = m_frameComposer;
-    frame.begin(app().renderer(), featureList, featureCount, m_shadows.resource(), m_scene.localShadows().resource());
+    FrameView          view;
+    // Echolocation strobes: no TAA / GTAO / SSR history from (or into) a held frame, no motion blur.
+    view.holdTemporal = app().m_vision.echo > 0.0f;
+    frame.begin(app().renderer(), view, featureList, featureCount, m_shadows.resource(), m_scene.localShadows().resource());
+    m_scene.requestHistories(frame, app().renderer());
 
     frame.set(PassId::Shadows, [&](Rg::PassContext& pass) {
         ID3D12GraphicsCommandList* const cmd = pass.cmd();
@@ -1214,7 +1219,7 @@ void SandboxFrame::render()
             }
         }
         const bool holdExposure = app().m_vision.infrared > 0.0f || app().m_vision.ultraviolet > 0.0f || app().m_vision.echo > 0.0f || app().m_play.runtime().underAmount > 0.0f;
-        m_scene.applyPost(app().renderer(), cmd, viewProj, post, deferredMeter && app().m_frame.autoExposure().mode == ExposureMode::Auto && !holdExposure, app().m_vision.echo > 0.0f);
+        m_scene.applyPost(app().renderer(), cmd, viewProj, post, deferredMeter && app().m_frame.autoExposure().mode == ExposureMode::Auto && !holdExposure);
 
         m_scene.endCameraFrame(app().m_sceneWorld.camera, viewProj);
     });

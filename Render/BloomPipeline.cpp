@@ -1,4 +1,5 @@
 #include "Render/BloomPipeline.h"
+#include "Render/GraphTargets.h"
 #include "Render/Profile.h"
 #include "Render/Renderer.h"
 #include "Render/ShaderCompile.h"
@@ -32,34 +33,73 @@ namespace Dark
             rt.BlendOpAlpha                    = D3D12_BLEND_OP_ADD;
         }
 
-        const wchar_t* kMipNames[BloomPipeline::kMipCount] = {
-            L"DE.Bloom.Extract", L"DE.Bloom.Down0", L"DE.Bloom.Down1", L"DE.Bloom.Down2", L"DE.Bloom.Down3", L"DE.Bloom.Down4",
+        const char* const kMipNames[BloomPipeline::kMipCount] = {
+            "DE.Bloom.Extract", "DE.Bloom.Down0", "DE.Bloom.Down1", "DE.Bloom.Down2", "DE.Bloom.Down3", "DE.Bloom.Down4",
         };
     } // namespace
 
-    void BloomPipeline::resetTargets()
+    BloomPipeline::~BloomPipeline()
     {
-        for (UINT i = 0; i < kMipCount; ++i)
-        {
-            m_mips[i].res.Reset();
-            m_mips[i].w     = 0;
-            m_mips[i].h     = 0;
-            m_mips[i].state = D3D12_RESOURCE_STATE_COMMON;
-        }
-        m_rtvHeap.Reset();
-        m_srvHeap.Reset();
-        m_rtvCpu  = {};
-        m_srvCpu  = {};
-        m_srvGpu  = {};
-        m_width   = 0;
-        m_height  = 0;
+        release();
     }
 
-    D3D12_CPU_DESCRIPTOR_HANDLE BloomPipeline::rtvCpu(UINT mip) const
+    void BloomPipeline::resetTargets()
     {
-        D3D12_CPU_DESCRIPTOR_HANDLE h = m_rtvCpu;
-        h.ptr += static_cast<SIZE_T>(mip) * m_rtvIncr;
-        return h;
+        for (GraphTarget& mip : m_mips)
+        {
+            if (m_targets)
+                m_targets->unregisterTarget(mip);
+            mip = {};
+        }
+        m_srvHeap.Reset();
+        m_srvCpu = {};
+        m_srvGpu = {};
+    }
+
+    void BloomPipeline::release()
+    {
+        resetTargets();
+        m_targets = nullptr;
+        m_psoExtract.Reset();
+        m_psoDownsample.Reset();
+        m_psoUpsample.Reset();
+        m_psoComposite.Reset();
+        m_rootSignature.Reset();
+    }
+
+    bool BloomPipeline::isValid() const
+    {
+        return m_psoExtract != nullptr && m_srvHeap != nullptr && m_targets != nullptr && m_targets->resource(m_mips[0].id) != nullptr;
+    }
+
+    uint32_t BloomPipeline::mipWidth(UINT index) const
+    {
+        return m_targets->width(m_mips[index].id);
+    }
+
+    uint32_t BloomPipeline::mipHeight(UINT index) const
+    {
+        return m_targets->height(m_mips[index].id);
+    }
+
+    void BloomPipeline::refreshViews() const
+    {
+        // Mip SRVs sit at fixed slots of the shader-visible table. A recreated mip (new generation)
+        // only happens inside Renderer::resize's drained window, so no in-flight list still reads
+        // the old slot contents when they are rewritten here.
+        bool recreated = false;
+        for (GraphTarget& mip : m_mips)
+            recreated = m_targets->refresh(mip) || recreated;
+        if (!recreated && m_viewsWritten)
+            return;
+        ID3D12Device* device = m_targets->device();
+        for (UINT i = 0; i < kMipCount; ++i)
+        {
+            D3D12_CPU_DESCRIPTOR_HANDLE dst = m_srvCpu;
+            dst.ptr += static_cast<SIZE_T>(kHdrSlots + i) * m_srvIncr;
+            device->CopyDescriptorsSimple(1, dst, m_targets->srv(m_mips[i].id), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        }
+        m_viewsWritten = true;
     }
 
     D3D12_GPU_DESCRIPTOR_HANDLE BloomPipeline::srvGpu(UINT slot) const
@@ -71,16 +111,8 @@ namespace Dark
 
     void BloomPipeline::transitionMip(ID3D12GraphicsCommandList* cmd, UINT index, D3D12_RESOURCE_STATES after) const
     {
-        if (!cmd || index >= kMipCount || !m_mips[index].res || m_mips[index].state == after)
-            return;
-        D3D12_RESOURCE_BARRIER b{};
-        b.Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        b.Transition.pResource   = m_mips[index].res.Get();
-        b.Transition.StateBefore = m_mips[index].state;
-        b.Transition.StateAfter  = after;
-        b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-        cmd->ResourceBarrier(1, &b);
-        m_mips[index].state = after;
+        if (index < kMipCount)
+            m_targets->transition(cmd, m_mips[index], after);
     }
 
     bool BloomPipeline::createPsos(ID3D12Device* device)
@@ -200,127 +232,62 @@ namespace Dark
         return true;
     }
 
-    bool BloomPipeline::createTargets(ID3D12Device* device, uint32_t width, uint32_t height)
+    bool BloomPipeline::createTargets(ID3D12Device* device)
     {
         resetTargets();
-        if (!device || width == 0 || height == 0)
-        {
-            DE_LOG_ERROR(LogCategory::Render, "BloomPipeline::createTargets: invalid device or size");
-            return false;
-        }
-
-        m_rtvIncr = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
         m_srvIncr = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-
-        D3D12_DESCRIPTOR_HEAP_DESC rtvDesc{};
-        rtvDesc.NumDescriptors = kMipCount;
-        rtvDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-        if (FailedHr(device->CreateDescriptorHeap(&rtvDesc, IID_PPV_ARGS(&m_rtvHeap)), "CreateDescriptorHeap bloom RTV"))
-            return false;
 
         D3D12_DESCRIPTOR_HEAP_DESC srvDesc{};
         srvDesc.NumDescriptors = kSrvCount;
         srvDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
         srvDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         if (FailedHr(device->CreateDescriptorHeap(&srvDesc, IID_PPV_ARGS(&m_srvHeap)), "CreateDescriptorHeap bloom SRV"))
-        {
-            m_rtvHeap.Reset();
             return false;
-        }
-
-        m_rtvCpu = m_rtvHeap->GetCPUDescriptorHandleForHeapStart();
+        m_srvHeap->SetName(L"DE.Bloom.Tables");
         m_srvCpu = m_srvHeap->GetCPUDescriptorHandleForHeapStart();
         m_srvGpu = m_srvHeap->GetGPUDescriptorHandleForHeapStart();
 
-        D3D12_HEAP_PROPERTIES heapProps{};
-        heapProps.Type = D3D12_HEAP_TYPE_DEFAULT;
-
+        // Mip k is max(floor(w / 2^(k+1)), 1): the old halving chain from w/2, as output-relative targets.
         const float clearColor[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-        uint32_t    mipW          = Math::Max(width / 2u, 1u);
-        uint32_t    mipH          = Math::Max(height / 2u, 1u);
-
         for (UINT i = 0; i < kMipCount; ++i)
         {
-            D3D12_RESOURCE_DESC rd{};
-            rd.Dimension        = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-            rd.Width            = mipW;
-            rd.Height           = mipH;
-            rd.DepthOrArraySize = 1;
-            rd.MipLevels        = 1;
-            rd.Format           = DXGI_FORMAT_R16G16B16A16_FLOAT;
-            rd.SampleDesc       = { 1, 0 };
-            rd.Layout           = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-            rd.Flags            = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
-
-            D3D12_CLEAR_VALUE clear{};
-            clear.Format   = DXGI_FORMAT_R16G16B16A16_FLOAT;
-            clear.Color[0] = clearColor[0];
-            clear.Color[1] = clearColor[1];
-            clear.Color[2] = clearColor[2];
-            clear.Color[3] = clearColor[3];
-
-            if (FailedHr(device->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE, &rd, D3D12_RESOURCE_STATE_RENDER_TARGET, &clear, IID_PPV_ARGS(&m_mips[i].res)),
-                         "CreateCommittedResource bloom mip"))
+            const Rg::TargetDesc desc =
+                colorTargetDesc(DXGI_FORMAT_R16G16B16A16_FLOAT, Rg::TargetSize::OutputFloor, 2u << i, D3D12_RESOURCE_STATE_RENDER_TARGET, clearColor);
+            m_mips[i] = m_targets->registerTarget(kMipNames[i], desc);
+            if (!m_mips[i].id.valid())
             {
                 resetTargets();
                 return false;
             }
-            m_mips[i].res->SetName(kMipNames[i]);
-            m_mips[i].w     = mipW;
-            m_mips[i].h     = mipH;
-            m_mips[i].state = D3D12_RESOURCE_STATE_RENDER_TARGET;
-
-            device->CreateRenderTargetView(m_mips[i].res.Get(), nullptr, rtvCpu(i));
-
-            D3D12_CPU_DESCRIPTOR_HANDLE srvCpu = m_srvCpu;
-            srvCpu.ptr += static_cast<SIZE_T>(kHdrSlots + i) * m_srvIncr;
-            D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
-            srv.Format                     = DXGI_FORMAT_R16G16B16A16_FLOAT;
-            srv.ViewDimension              = D3D12_SRV_DIMENSION_TEXTURE2D;
-            srv.Shader4ComponentMapping    = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-            srv.Texture2D.MipLevels        = 1;
-            device->CreateShaderResourceView(m_mips[i].res.Get(), &srv, srvCpu);
-
-            mipW = Math::Max(mipW / 2u, 1u);
-            mipH = Math::Max(mipH / 2u, 1u);
         }
-
-        m_width  = width;
-        m_height = height;
+        m_viewsWritten = false;
+        refreshViews();
         return true;
     }
 
-    bool BloomPipeline::create(ID3D12Device* device, uint32_t width, uint32_t height)
+    bool BloomPipeline::create(GraphTargets& targets)
     {
+        ID3D12Device* device = targets.device();
         if (!device)
         {
             DE_LOG_ERROR(LogCategory::Render, "BloomPipeline::create: null device");
-            resetTargets();
-            m_psoExtract.Reset();
-            m_psoDownsample.Reset();
-            m_psoUpsample.Reset();
-            m_psoComposite.Reset();
-            m_rootSignature.Reset();
+            release();
             return false;
         }
+        if (m_targets != &targets)
+            resetTargets();
+        m_targets = &targets;
         if (!m_psoExtract && !createPsos(device))
         {
             resetTargets();
             return false;
         }
-        if (!createTargets(device, width, height))
+        if (!createTargets(device))
             return false;
 
-        DE_LOG_INFO(LogCategory::Render, "BloomPipeline: ready {}x{} ({} mips)", width, height, kMipCount);
+        DE_LOG_INFO(LogCategory::Render, "BloomPipeline: ready {}x{} ({} mips, graph targets)", mipWidth(0), mipHeight(0), kMipCount);
         m_loggedSkip = false;
         return true;
-    }
-
-    bool BloomPipeline::resize(ID3D12Device* device, uint32_t width, uint32_t height)
-    {
-        if (m_psoExtract && m_mips[0].res && m_width == width && m_height == height)
-            return true;
-        return create(device, width, height);
     }
 
     void BloomPipeline::drawFullscreen(ID3D12GraphicsCommandList* cmd, ID3D12PipelineState* pso, D3D12_GPU_DESCRIPTOR_HANDLE srcGpu,
@@ -368,6 +335,7 @@ namespace Dark
         if (!device || hdrSrv.ptr == 0 || hdrRtv.ptr == 0)
             return;
 
+        refreshViews();
         const GpuScope bloom(cmd, "Bloom", ProfileColor::Bloom);
         const UINT hdrSlot = renderer.frameIndex() % kHdrSlots;
         D3D12_CPU_DESCRIPTOR_HANDLE hdrDst = m_srvCpu;
@@ -381,29 +349,29 @@ namespace Dark
 
         // Unbind HDR/DSV, then HDR → SRV for extract.
         transitionMip(cmd, 0, D3D12_RESOURCE_STATE_RENDER_TARGET);
-        const D3D12_CPU_DESCRIPTOR_HANDLE extractRtv = rtvCpu(0);
+        const D3D12_CPU_DESCRIPTOR_HANDLE extractRtv = m_targets->rtv(m_mips[0].id);
         cmd->OMSetRenderTargets(1, &extractRtv, FALSE, nullptr);
         renderer.transitionHdr(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 
-        drawFullscreen(cmd, m_psoExtract.Get(), srvGpu(hdrSlot), extractRtv, m_mips[0].w, m_mips[0].h, renderer.width(), renderer.height(), strength, exposure);
+        drawFullscreen(cmd, m_psoExtract.Get(), srvGpu(hdrSlot), extractRtv, mipWidth(0), mipHeight(0), renderer.width(), renderer.height(), strength, exposure);
 
         for (UINT i = 0; i < kDownCount; ++i)
         {
             transitionMip(cmd, i, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
             transitionMip(cmd, i + 1, D3D12_RESOURCE_STATE_RENDER_TARGET);
-            drawFullscreen(cmd, m_psoDownsample.Get(), srvGpu(kHdrSlots + i), rtvCpu(i + 1), m_mips[i + 1].w, m_mips[i + 1].h, m_mips[i].w, m_mips[i].h, strength, exposure);
+            drawFullscreen(cmd, m_psoDownsample.Get(), srvGpu(kHdrSlots + i), m_targets->rtv(m_mips[i + 1].id), mipWidth(i + 1), mipHeight(i + 1), mipWidth(i), mipHeight(i), strength, exposure);
         }
 
         for (UINT i = kMipCount - 1; i > 0; --i)
         {
             transitionMip(cmd, i, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
             transitionMip(cmd, i - 1, D3D12_RESOURCE_STATE_RENDER_TARGET);
-            drawFullscreen(cmd, m_psoUpsample.Get(), srvGpu(kHdrSlots + i), rtvCpu(i - 1), m_mips[i - 1].w, m_mips[i - 1].h, m_mips[i].w, m_mips[i].h, strength, exposure);
+            drawFullscreen(cmd, m_psoUpsample.Get(), srvGpu(kHdrSlots + i), m_targets->rtv(m_mips[i - 1].id), mipWidth(i - 1), mipHeight(i - 1), mipWidth(i), mipHeight(i), strength, exposure);
         }
 
         transitionMip(cmd, 0, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
         renderer.transitionHdr(cmd, D3D12_RESOURCE_STATE_RENDER_TARGET);
-        drawFullscreen(cmd, m_psoComposite.Get(), srvGpu(kHdrSlots + 0), hdrRtv, renderer.width(), renderer.height(), m_mips[0].w, m_mips[0].h, strength, exposure);
+        drawFullscreen(cmd, m_psoComposite.Get(), srvGpu(kHdrSlots + 0), hdrRtv, renderer.width(), renderer.height(), mipWidth(0), mipHeight(0), strength, exposure);
         // HDR remains RENDER_TARGET for TaaPipeline::draw → bindPostHdr.
     }
 

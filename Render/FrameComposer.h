@@ -1,8 +1,10 @@
 #pragma once
 
 #include "Render/FrameFeatures.h"
+#include "Render/FrameView.h"
 #include "Render/RenderGraph.h"
 #include "Render/RgExecutor.h"
+#include "Render/TemporalHistory.h"
 
 #include <cstdint>
 #include <utility>
@@ -22,7 +24,27 @@ namespace Dark
     class FrameComposer
     {
     public:
-        void begin(Renderer& renderer, const FeaturePass* list, uint32_t count, ID3D12Resource* shadowMap, ID3D12Resource* localShadowArray);
+        void begin(Renderer& renderer, const FrameView& view, const FeaturePass* list, uint32_t count, ID3D12Resource* shadowMap, ID3D12Resource* localShadowArray);
+        ~FrameComposer();
+
+        // A graph history (render-graph plan Phase 5) for one of the *History resources: the graph
+        // decides validity and ping-pong, the renderer's target registry holds both slots. Call
+        // after begin(), before execute(). Invalid when the history cannot exist this frame.
+        Rg::HistoryTargets history(RenderResource resource, const char* name, const Rg::TargetDesc& desc);
+        // Camera cut / scene change: history() requests after this see no valid prev.
+        void invalidateHistory()
+        {
+            m_graph.invalidateHistory();
+        }
+        // A pass skipped its declared history write at execute time.
+        void markHistoryUnwritten(const char* name)
+        {
+            m_graph.markHistoryUnwritten(name);
+        }
+        const FrameView& view() const
+        {
+            return m_view;
+        }
 
         template <class Fn> bool set(PassId id, Fn&& fn)
         {
@@ -48,7 +70,10 @@ namespace Dark
         Rg::RenderGraph m_graph;
         FeatureFrame    m_features;
         RgExecutor      m_executor;
-        Renderer*       m_renderer = nullptr;
+        Renderer*            m_renderer = nullptr;
+        FrameView            m_view;
+        bool                 m_holdNext = false; // the frame after a held one also starts without history
+        Rg::HistoryTargetSet m_histories;
     };
 
 } // namespace Dark

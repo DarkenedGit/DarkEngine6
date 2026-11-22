@@ -17,6 +17,11 @@ namespace Dark
         float prevViewProj[16]{};
         float blend = 0.1f; // current-frame weight
         bool  reset = false;
+        // Graph history (RenderGraph::history "TaaHistory"): read prev, write curr as SV_Target1.
+        // Both live in PIXEL_SHADER_RESOURCE between frames; draw moves curr to RENDER_TARGET and back.
+        D3D12_CPU_DESCRIPTOR_HANDLE historyPrevSrv{};
+        D3D12_CPU_DESCRIPTOR_HANDLE historyCurrRtv{};
+        ID3D12Resource*             historyCurr = nullptr;
     };
 
     class TaaPipeline

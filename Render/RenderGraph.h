@@ -144,6 +144,16 @@ namespace Dark::Rg
         TextureHandle curr; // write it this frame; it becomes next frame's prev
     };
 
+    // The persistent slot ids behind a history pair this frame (Phase 5: the target registry keys
+    // the two allocations by these ids). prev is the slot read this frame even when its contents
+    // are not valid, so a pass always has a bindable resource that is not its render target.
+    struct HistorySlots
+    {
+        uint32_t curr      = kNoPass;
+        uint32_t prev      = kNoPass;
+        bool     prevValid = false;
+    };
+
     struct CompileOptions
     {
         bool asyncCompute = false; // rg.asyncCompute: off = every pass forced onto Graphics (default until Phase 10)
@@ -432,6 +442,14 @@ namespace Dark::Rg
 
         HistoryPair history(const char* name, const TextureDesc& desc); // §3.6
         void        invalidateHistory();                                // camera cut / scene change; affects history() calls after it
+        // Slots of a history requested this frame; curr == kNoPass when it was not requested.
+        HistorySlots historySlots(const char* name) const;
+        // An opaque pass that skipped its work at execute time: the declared write did not happen,
+        // so next frame's prev is invalid (as for a frame that did not request the history).
+        void markHistoryUnwritten(const char* name);
+        // Every slot id a history entry still owns (both slots of each live entry). Ids not in this
+        // list belong to dropped or resized histories and their memory can go.
+        void liveHistorySlots(std::vector<uint32_t>& out) const;
         uint32_t    historyCount() const
         {
             return static_cast<uint32_t>(m_history.size());
@@ -607,6 +625,7 @@ namespace Dark::Rg
             uint8_t     cur            = 0;
             bool        prevValid      = false;
             bool        requested      = false;
+            bool        unwritten      = false; // markHistoryUnwritten this frame
             uint16_t    prevRes        = kInvalidIndex;
             uint16_t    currRes        = kInvalidIndex;
         };

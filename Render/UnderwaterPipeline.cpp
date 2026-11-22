@@ -2,6 +2,7 @@
 
 #include "Core/Log.h"
 #include "Math/MathHelper.h"
+#include "Render/GraphTargets.h"
 #include "Render/Profile.h"
 #include "Render/Renderer.h"
 #include "Render/ShaderCompile.h"
@@ -23,14 +24,7 @@ namespace Dark
 
     bool UnderwaterPipeline::create(ID3D12Device* device)
     {
-        m_rootSignature.Reset();
-        m_pso.Reset();
-        m_srvHeap.Reset();
-        m_copySrvHeap.Reset();
-        m_copy.Reset();
-        m_copyW     = 0;
-        m_copyH     = 0;
-        m_copyState = D3D12_RESOURCE_STATE_COMMON;
+        release();
         if (!device)
         {
             DE_LOG_ERROR(LogCategory::Render, "UnderwaterPipeline::create: null device");
@@ -116,83 +110,38 @@ namespace Dark
         m_gpu     = m_srvHeap->GetGPUDescriptorHandleForHeapStart();
         m_srvIncr = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
-        D3D12_DESCRIPTOR_HEAP_DESC copyHeap{};
-        copyHeap.NumDescriptors = 1;
-        copyHeap.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-        copyHeap.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-        if (FailedHr(device->CreateDescriptorHeap(&copyHeap, IID_PPV_ARGS(&m_copySrvHeap)), "CreateDescriptorHeap underwater copy SRV"))
-        {
-            m_pso.Reset();
-            m_rootSignature.Reset();
-            m_srvHeap.Reset();
-            return false;
-        }
-        m_copyCpu = m_copySrvHeap->GetCPUDescriptorHandleForHeapStart();
-
         DE_LOG_INFO(LogCategory::Render, "UnderwaterPipeline: ready");
         return true;
     }
 
-    bool UnderwaterPipeline::ensureCopy(Renderer& renderer)
+    UnderwaterPipeline::~UnderwaterPipeline()
     {
-        ID3D12Device* device = renderer.device();
-        const uint32_t w     = renderer.width();
-        const uint32_t h     = renderer.height();
-        if (!device || w == 0 || h == 0 || m_copyCpu.ptr == 0)
-            return false;
-        if (m_copy && m_copyW == w && m_copyH == h)
-            return true;
-
-        if (m_copy)
-            renderer.waitForGpu();
-        m_copy.Reset();
-        m_copyW     = 0;
-        m_copyH     = 0;
-        m_copyState = D3D12_RESOURCE_STATE_COMMON;
-
-        D3D12_HEAP_PROPERTIES heap{};
-        heap.Type = D3D12_HEAP_TYPE_DEFAULT;
-
-        D3D12_RESOURCE_DESC rd{};
-        rd.Dimension        = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-        rd.Width            = w;
-        rd.Height           = h;
-        rd.DepthOrArraySize = 1;
-        rd.MipLevels        = 1;
-        rd.Format           = DXGI_FORMAT_R16G16B16A16_FLOAT;
-        rd.SampleDesc       = { 1, 0 };
-        rd.Layout           = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-
-        if (FailedHr(device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &rd, D3D12_RESOURCE_STATE_COMMON, nullptr, IID_PPV_ARGS(&m_copy)),
-                     "CreateCommittedResource underwater HDR copy"))
-            return false;
-        m_copy->SetName(L"DE.Underwater.HdrCopy");
-
-        D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
-        srv.Format                  = DXGI_FORMAT_R16G16B16A16_FLOAT;
-        srv.ViewDimension           = D3D12_SRV_DIMENSION_TEXTURE2D;
-        srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-        srv.Texture2D.MipLevels     = 1;
-        device->CreateShaderResourceView(m_copy.Get(), &srv, m_copyCpu);
-
-        m_copyW     = w;
-        m_copyH     = h;
-        m_copyState = D3D12_RESOURCE_STATE_COMMON;
-        return true;
+        release();
     }
 
-    void UnderwaterPipeline::transitionCopy(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after)
+    void UnderwaterPipeline::release()
     {
-        if (!cmd || !m_copy || m_copyState == after)
-            return;
-        D3D12_RESOURCE_BARRIER b{};
-        b.Type                   = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        b.Transition.pResource   = m_copy.Get();
-        b.Transition.StateBefore = m_copyState;
-        b.Transition.StateAfter  = after;
-        b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-        cmd->ResourceBarrier(1, &b);
-        m_copyState = after;
+        if (m_targets)
+            m_targets->unregisterTarget(m_copy);
+        m_copy    = {};
+        m_targets = nullptr;
+        m_srvHeap.Reset();
+        m_pso.Reset();
+        m_rootSignature.Reset();
+    }
+
+    bool UnderwaterPipeline::ensureCopy(Renderer& renderer)
+    {
+        // Registered on first use (only underwater frames pay for it); Renderer::resize keeps it at
+        // the output size, so there is no lazy resize and no GPU wait here.
+        if (m_copy.id.valid())
+            return m_targets->resource(m_copy.id) != nullptr;
+        GraphTargets* targets = renderer.targets();
+        if (!targets || !targets->valid())
+            return false;
+        m_targets = targets;
+        m_copy    = targets->registerTarget("DE.Underwater.HdrCopy", copyTargetDesc(DXGI_FORMAT_R16G16B16A16_FLOAT, D3D12_RESOURCE_STATE_COMMON));
+        return m_copy.id.valid();
     }
 
     void UnderwaterPipeline::draw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const UnderwaterFrame& frame)
@@ -208,15 +157,15 @@ namespace Dark
         const GpuScope scope(cmd, "Underwater", ProfileColor::Underwater);
         cmd->OMSetRenderTargets(0, nullptr, FALSE, nullptr);
         renderer.transitionHdr(cmd, D3D12_RESOURCE_STATE_COPY_SOURCE);
-        transitionCopy(cmd, D3D12_RESOURCE_STATE_COPY_DEST);
-        cmd->CopyResource(m_copy.Get(), hdr);
-        transitionCopy(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        m_targets->transition(cmd, m_copy, D3D12_RESOURCE_STATE_COPY_DEST);
+        cmd->CopyResource(m_targets->resource(m_copy.id), hdr);
+        m_targets->transition(cmd, m_copy, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
         renderer.bindHdrColorTarget();
         // bindHdrColorTarget also transitions depth...
         const UINT slot = renderer.frameIndex() % kBufferedFrames;
         D3D12_CPU_DESCRIPTOR_HANDLE cpu = m_cpu;
         cpu.ptr += static_cast<SIZE_T>(slot * kSrvPerFrame) * m_srvIncr;
-        device->CopyDescriptorsSimple(1, cpu, m_copyCpu, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        device->CopyDescriptorsSimple(1, cpu, m_targets->srv(m_copy.id), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
         D3D12_CPU_DESCRIPTOR_HANDLE depthCpu = cpu;
         depthCpu.ptr += m_srvIncr;
         device->CopyDescriptorsSimple(1, depthCpu, depth, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
