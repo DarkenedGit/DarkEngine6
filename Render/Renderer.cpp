@@ -660,6 +660,14 @@ namespace Dark
         m_commandList->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
     }
 
+    void Renderer::bindBackBuffer()
+    {
+        const D3D12_CPU_DESCRIPTOR_HANDLE rtv = backBufferRtv();
+        if (!m_commandList || rtv.ptr == 0)
+            return;
+        m_commandList->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
+    }
+
     void Renderer::transitionVelocity(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after)
     {
         if (!m_sceneBuffers)

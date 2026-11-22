@@ -961,10 +961,10 @@ TEST(FrameFeatures, PostMatricesBuiltAtDeclareFillTheViewProjGBufferWrote)
     }
 }
 
-// The SsrCapture entry's unbind pass: the graph records a declared pass's BeforePass barriers after
-// the opaque pass inserted just before it has executed, so HDR is no longer bound as a render
-// target when its RT->SRV barrier is recorded (the old captureSceneColor unbound first too).
-TEST(FrameFeatures, OpaquePassJustBeforeADeclaredReaderRunsBeforeItsBarrier)
+// Sky (opaque) leaves HDR bound as a render target; the capture's HDR RT->SRV barrier is recorded
+// before the capture executes. The executor clears the output merger before that batch, so the
+// SsrCapture entry needs no unbind pass of its own.
+TEST(FrameFeatures, OpaquePassBeforeADeclaredReaderIsUnboundBeforeItsBarrier)
 {
     uint32_t           count = 0;
     const FeaturePass* list  = sandboxFeatures(count);
@@ -983,7 +983,6 @@ TEST(FrameFeatures, OpaquePassJustBeforeADeclaredReaderRunsBeforeItsBarrier)
     host.features.declare(PassId::SsrCapture,
                           [&](FeatureBuilder& fb)
                           {
-                              fb.opaque("SsrCapture.Unbind", {}, {}, [](Rg::PassContext&) {});
                               Rg::TextureHandle dst = fb.graph().importTexture("DE.Ssr.SceneColor1", absDesc(640, 360, kRgba), fakeResource(60), Rg::Layout::ShaderResource, Rg::Layout::Undefined);
                               fb.addPass<Rg::NoData>(
                                   "SsrCapture",
@@ -995,21 +994,18 @@ TEST(FrameFeatures, OpaquePassJustBeforeADeclaredReaderRunsBeforeItsBarrier)
                                   [](Rg::PassContext&, const Rg::NoData&) {});
                           });
     ASSERT_TRUE(host.features.compileFrame(g, "test"));
-    Rg::Test::Recorder rec(g);
+    Rg::Test::SplitRecorder rec(g, false); // only the opaque passes can have bound anything
     ASSERT_TRUE(g.execute(&rec));
     const int sky     = rec.find("E Sky");
-    const int unbind  = rec.find("E SsrCapture.Unbind");
     const int capture = rec.find("P SsrCapture");
     int       hdr     = -1;
     for (size_t i = 0; i < rec.events.size(); ++i)
         if (rec.events[i].rfind("B before SsrCapture ", 0) == 0 && rec.events[i].find("Hdr") != std::string::npos)
             hdr = static_cast<int>(i);
     ASSERT_GE(sky, 0);
-    ASSERT_GE(unbind, 0);
-    ASSERT_GE(hdr, 0);
-    EXPECT_LT(sky, unbind);
-    EXPECT_LT(unbind, hdr);
+    ASSERT_GT(hdr, sky);
     EXPECT_LT(hdr, capture);
+    EXPECT_EQ(rec.events[static_cast<size_t>(hdr) - 1], "U Graphics");
 }
 
 // ---------------------------------------------------------------- G-buffer and decals (Phase 6 part 5)

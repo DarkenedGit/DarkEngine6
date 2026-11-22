@@ -223,6 +223,16 @@ namespace Dark::Rg
     {
         return hasFlag(m_graph.m_passes[m_pass].flags, PassFlags::OwnBarriers);
     }
+    bool PassContext::bindsTargets() const
+    {
+        const RenderGraph::PassNode& p = m_graph.m_passes[m_pass];
+        if (hasFlag(p.flags, PassFlags::OwnBarriers))
+            return false;
+        for (const RenderGraph::AccessRec& a : p.accesses)
+            if (a.use == Use::RenderTarget || a.use == Use::DepthWrite || a.use == Use::DepthRead)
+                return true;
+        return false;
+    }
 
     uint32_t PassContext::width(TextureHandle h) const
     {

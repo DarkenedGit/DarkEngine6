@@ -121,7 +121,6 @@ public:
                             {
                                 beginGBufferPass(c, *rr, d);
                                 draw(c);
-                                unbindTargets(c);
                             }))
             b.opaque("GBuffer", {}, {}, [](Rg::PassContext&) { logMissingSceneTargets("GBuffer"); });
     }
@@ -264,10 +263,6 @@ private:
     bool decalPassReady() const;
     // Clears the G-buffer MRTs and binds them with depth (graph views), with the viewport.
     static void beginGBufferPass(Rg::PassContext& c, const Renderer& renderer, const GBufferTargets& d);
-    // Clears the output-merger bindings. The next pass's BeforePass barriers are recorded before it
-    // executes, so a pass that leaves its targets or DSV bound has them bound while the graph moves
-    // them out of render-target / depth layouts (the same reason as SsrCapture.Unbind).
-    static void unbindTargets(Rg::PassContext& c);
     static void logMissingSceneTargets(const char* entry);
     void storeDecalStats(uint32_t drawn, uint32_t culled, uint32_t inside, uint32_t triangles);
 

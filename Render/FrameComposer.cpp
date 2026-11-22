@@ -103,7 +103,11 @@ namespace Dark
         if (!m_features.compileFrame(m_graph, host))
             return false;
         m_executor.beginFrame(*m_renderer, m_graph);
-        if (!m_graph.execute(&m_executor))
+        const bool ran = m_graph.execute(&m_executor);
+        // The executor clears the output merger before barrier batches; the code after the graph
+        // (ImGui, HUD, movie) draws into the back buffer it expects bound.
+        m_renderer->bindBackBuffer();
+        if (!ran)
             return false;
         // No finish(): the main list is closed and submitted by Renderer::endFrame (after the shadow list).
         return m_executor.ok();
