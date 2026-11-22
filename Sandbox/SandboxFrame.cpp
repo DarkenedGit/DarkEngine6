@@ -837,19 +837,14 @@ void SandboxFrame::render()
         }
     });
 
-    // resolveDeferred runs these five in this order with the same input (lc filled by GBuffer).
+    // resolveDeferred runs Decals, Lighting and LocalVolumes with the same input (lc filled by GBuffer);
+    // Gtao and Ssr declare their uses (settings captured at build, the camera read at execute).
     frame.set(PassId::Decals, [&](Rg::PassContext& pass) {
         ID3D12GraphicsCommandList* const cmd = pass.cmd();
         m_scene.resolveDeferred(SceneRenderer::DeferredStep::Decals, cmd, app().renderer(), app().world(), app().m_sceneWorld.camera, resolve);
     });
-    frame.set(PassId::Gtao, [&](Rg::PassContext& pass) {
-        ID3D12GraphicsCommandList* const cmd = pass.cmd();
-        m_scene.resolveDeferred(SceneRenderer::DeferredStep::Gtao, cmd, app().renderer(), app().world(), app().m_sceneWorld.camera, resolve);
-    });
-    frame.set(PassId::Ssr, [&](Rg::PassContext& pass) {
-        ID3D12GraphicsCommandList* const cmd = pass.cmd();
-        m_scene.resolveDeferred(SceneRenderer::DeferredStep::Ssr, cmd, app().renderer(), app().world(), app().m_sceneWorld.camera, resolve);
-    });
+    frame.declare(PassId::Gtao, [&](FeatureBuilder& b) { m_scene.addGtaoPasses(b, app().renderer(), app().m_sceneWorld.camera, app().m_sceneWorld.ssao); });
+    frame.declare(PassId::Ssr, [&](FeatureBuilder& b) { m_scene.addSsrPasses(b, app().renderer(), app().m_sceneWorld.camera, app().m_sceneWorld.ssr, &app().m_sceneWorld.env); });
     frame.set(PassId::Lighting, [&](Rg::PassContext& pass) {
         ID3D12GraphicsCommandList* const cmd = pass.cmd();
         m_scene.resolveDeferred(SceneRenderer::DeferredStep::Lighting, cmd, app().renderer(), app().world(), app().m_sceneWorld.camera, resolve);
@@ -872,48 +867,56 @@ void SandboxFrame::render()
     D3D12_CPU_DESCRIPTOR_HANDLE waterSceneColor{};
     D3D12_CPU_DESCRIPTOR_HANDLE waterDepth{};
     const SsrSettings*          waterSsr = nullptr;
-    frame.set(PassId::SsrCapture, [&](Rg::PassContext& pass) {
-        ID3D12GraphicsCommandList* const cmd = pass.cmd();
-        if (app().renderer().debugState().localLights && app().renderer().debugState().lightingActive() && m_localLightGpu.isValid())
-        {
-            LocalLightCullInput in{};
-            in.frustum    = &frustum;
-            in.cameraPos  = camPos;
-            in.cameraLook = app().m_sceneWorld.camera.GetLook();
-            in.nearZ      = app().m_sceneWorld.camera.GetNearZ();
-            in.viewportW  = app().renderer().width();
-            in.viewportH  = app().renderer().height();
-            in.viewProj      = &viewProj;
-            in.localShadows  = &m_scene.localShadows();
-            in.fogBoxes      = m_scene.fogOccluders();
-            in.fogBoxCount   = m_scene.fogOccluderCount();
-            LocalLightDrawLists lists{};
-            if (gatherLocalLights(app().world(), in, lists) && lists.count > 0)
-            {
-                m_localLightGpu.upload(app().renderer().frameIndex(), lists);
-                waterLightCount = lists.waterCount;
-                std::memcpy(waterIndex, lists.waterIndex, sizeof(waterIndex));
-                waterLightsVa = m_localLightGpu.lightsGpuVa();
-            }
-        }
-        if (app().m_sceneWorld.terrain.heightTexture().valid())
-        {
-            heightHeap = app().m_sceneWorld.terrain.heightTexture().srvHeap();
-            heightGpu  = app().m_sceneWorld.terrain.heightTexture().gpuHandle();
-        }
-        else if (app().renderer().lightingHeap())
-        {
-            heightHeap = app().renderer().lightingHeap();
-            heightGpu  = app().renderer().heightTableGpu();
-        }
-        m_scene.captureSsrSceneColor(cmd, app().renderer());
-        if (m_scene.ssr().hasSceneColor())
-        {
-            waterSceneColor = m_scene.ssr().sceneColorSrvCpu();
-            waterDepth      = app().renderer().depthSrvCpu();
-            waterSsr        = &app().m_sceneWorld.ssr;
-        }
-    });
+    frame.declare(PassId::SsrCapture,
+                  [&](FeatureBuilder& b)
+                  {
+                      // CPU only: water's local lights, height table and SSR inputs. Runs at execute (viewProj is
+                      // filled by GBuffer), after the capture's setup swapped the scene-color slots, so
+                      // hasSceneColor / sceneColorSrvCpu name this frame's capture.
+                      b.opaque("SsrCapture.WaterInputs", {}, {},
+                               [&](Rg::PassContext&)
+                               {
+                                   if (app().renderer().debugState().localLights && app().renderer().debugState().lightingActive() && m_localLightGpu.isValid())
+                                   {
+                                       LocalLightCullInput in{};
+                                       in.frustum      = &frustum;
+                                       in.cameraPos    = camPos;
+                                       in.cameraLook   = app().m_sceneWorld.camera.GetLook();
+                                       in.nearZ        = app().m_sceneWorld.camera.GetNearZ();
+                                       in.viewportW    = app().renderer().width();
+                                       in.viewportH    = app().renderer().height();
+                                       in.viewProj     = &viewProj;
+                                       in.localShadows = &m_scene.localShadows();
+                                       in.fogBoxes     = m_scene.fogOccluders();
+                                       in.fogBoxCount  = m_scene.fogOccluderCount();
+                                       LocalLightDrawLists lists{};
+                                       if (gatherLocalLights(app().world(), in, lists) && lists.count > 0)
+                                       {
+                                           m_localLightGpu.upload(app().renderer().frameIndex(), lists);
+                                           waterLightCount = lists.waterCount;
+                                           std::memcpy(waterIndex, lists.waterIndex, sizeof(waterIndex));
+                                           waterLightsVa = m_localLightGpu.lightsGpuVa();
+                                       }
+                                   }
+                                   if (app().m_sceneWorld.terrain.heightTexture().valid())
+                                   {
+                                       heightHeap = app().m_sceneWorld.terrain.heightTexture().srvHeap();
+                                       heightGpu  = app().m_sceneWorld.terrain.heightTexture().gpuHandle();
+                                   }
+                                   else if (app().renderer().lightingHeap())
+                                   {
+                                       heightHeap = app().renderer().lightingHeap();
+                                       heightGpu  = app().renderer().heightTableGpu();
+                                   }
+                                   if (m_scene.ssr().hasSceneColor())
+                                   {
+                                       waterSceneColor = m_scene.ssr().sceneColorSrvCpu();
+                                       waterDepth      = app().renderer().depthSrvCpu();
+                                       waterSsr        = &app().m_sceneWorld.ssr;
+                                   }
+                               });
+                      m_scene.addSsrCapturePasses(b, app().renderer());
+                  });
     const bool waterSheet = app().m_sceneWorld.water.wetChunkCount() > 0;
     if (waterSheet || !app().m_sceneWorld.water.ribbons().empty())
     {

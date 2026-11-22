@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 
 #include "Render/FrameFeatures.h"
+#include "Render/PostMatrices.h"
+#include "RenderGraphTestUtil.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -511,4 +513,300 @@ TEST(FrameFeatures, DeclareAndSetReplaceEachOther)
     EXPECT_TRUE(features.isSet(PassId::Post));
     EXPECT_FALSE(features.isDeclared(PassId::Post));
     EXPECT_FALSE(features.declare(PassId::EditorGrid, [](FeatureBuilder&) {})); // not in the Sandbox list
+}
+
+// The timing contract a declare callback relies on (the Phase 6 part 2 bug: Post captured the
+// host's view-proj at setup, before the GBuffer pass that fills it had run). A declare callback
+// runs while execute() builds the graph, before any pass executes; values a host fills in an
+// earlier pass's execute are only visible from a declared pass's execute, through a reference.
+TEST(FrameFeatures, DeclareRunsBeforeAnyPassExecutesSoHostValuesAreReadAtExecute)
+{
+    uint32_t           count = 0;
+    const FeaturePass* list  = sandboxFeatures(count);
+    HostFrame          host;
+    Rg::RenderGraph&   g = host.graph;
+    g.beginFrame(1280, 720);
+    host.features.begin(list, count);
+    for (uint32_t r = 0; r < kRenderResourceCount; ++r)
+    {
+        const auto     res = static_cast<RenderResource>(r);
+        const uint32_t fmt = res == RenderResource::Swap ? kBgra8 : (res == RenderResource::Depth ? kD32 : kRgba);
+        host.features.importResource(g, res, fakeResource(r), absDesc(1280, 720, fmt), Rg::Layout::RenderTarget);
+    }
+    int filledByGBuffer = 0; // stands in for the host's viewProj
+    int seenAtSetup     = -1;
+    int seenAtExecute   = -1;
+    for (const PassId id : without(listIds(list, count), { PassId::Post }))
+        host.features.set(id, [&, id](Rg::PassContext&) {
+            if (id == PassId::GBuffer)
+                filledByGBuffer = 42;
+        });
+    host.features.declare(PassId::Post,
+                          [&](FeatureBuilder& fb)
+                          {
+                              seenAtSetup           = filledByGBuffer;
+                              const int* atExecute  = &filledByGBuffer;
+                              fb.addPass<Rg::NoData>(
+                                  "Tonemap",
+                                  [&](Rg::PassBuilder& b, Rg::NoData&)
+                                  {
+                                      b.read(fb.handle(RenderResource::Hdr), Rg::Use::PixelSrv);
+                                      fb.set(RenderResource::Swap, b.write(fb.handle(RenderResource::Swap), Rg::Use::RenderTarget));
+                                  },
+                                  [&seenAtExecute, atExecute](Rg::PassContext&, const Rg::NoData&) { seenAtExecute = *atExecute; });
+                          });
+    ASSERT_TRUE(host.features.compileFrame(g, "test"));
+    EXPECT_EQ(seenAtSetup, 0); // GBuffer has not executed yet
+    ASSERT_TRUE(g.execute());
+    EXPECT_EQ(seenAtExecute, 42);
+}
+
+// ---------------------------------------------------------------- converted entries (Phase 6 part 3)
+
+namespace
+{
+    // The Sandbox list with GTAO converted the way SceneRenderer::addGtaoPasses does it: declared
+    // steps on targets the entry imports, the history through the builder, then an opaque hand-off
+    // pass (OwnBarriers | SideEffect) that declares a read of the output for the opaque Lighting.
+    struct DeclaredGtaoFrame
+    {
+        HostFrame                host;
+        std::vector<std::string> ran;
+        Rg::HistoryPair          gtao;
+
+        bool run(bool skip)
+        {
+            uint32_t           count = 0;
+            const FeaturePass* list  = sandboxFeatures(count);
+            ran.clear();
+            Rg::RenderGraph& g = host.graph;
+            g.beginFrame(1280, 720);
+            host.features.begin(list, count);
+            for (uint32_t r = 0; r < kRenderResourceCount; ++r)
+            {
+                const auto     res = static_cast<RenderResource>(r);
+                const uint32_t fmt = res == RenderResource::Swap ? kBgra8 : (res == RenderResource::Depth ? kD32 : kRgba);
+                host.features.importResource(g, res, fakeResource(r), absDesc(1280, 720, fmt), Rg::Layout::RenderTarget);
+            }
+            gtao = g.history("Gtao", absDesc(1280, 720, kRgba));
+            host.features.setHistory(RenderResource::GtaoHistory, gtao);
+            for (const PassId id : without(listIds(list, count), { PassId::Gtao }))
+                host.features.set(id, [this, id](Rg::PassContext&) { ran.push_back(passName(id)); });
+            host.features.declare(PassId::Gtao,
+                                  [this, skip](FeatureBuilder& fb)
+                                  {
+                                      if (skip)
+                                      {
+                                          fb.graph().markHistoryUnwritten("Gtao");
+                                          fb.opaque("Gtao", {}, {}, [this](Rg::PassContext&) { ran.push_back("Gtao.Skip"); });
+                                          return;
+                                      }
+                                      Rg::RenderGraph&  graph = fb.graph();
+                                      Rg::TextureHandle half  = graph.importTexture("DE.Gtao.AoHalf", absDesc(640, 360, kRgba), fakeResource(50), Rg::Layout::ShaderResource, Rg::Layout::Undefined);
+                                      Rg::TextureHandle compose =
+                                          graph.importTexture("DE.Gtao.AoCompose", absDesc(1280, 720, kRgba), fakeResource(51), Rg::Layout::ShaderResource, Rg::Layout::Undefined);
+                                      fb.addPass<Rg::NoData>(
+                                          "Gtao.Produce",
+                                          [&](Rg::PassBuilder& b, Rg::NoData&)
+                                          {
+                                              b.read(fb.handle(RenderResource::Depth), Rg::Use::PixelSrv);
+                                              b.read(fb.handle(RenderResource::Attrib), Rg::Use::PixelSrv);
+                                              half = b.write(half, Rg::Use::RenderTarget);
+                                          },
+                                          [this](Rg::PassContext&, const Rg::NoData&) { ran.push_back("Gtao.Produce"); });
+                                      fb.addPass<Rg::NoData>(
+                                          "Gtao.Upsample",
+                                          [&](Rg::PassBuilder& b, Rg::NoData&)
+                                          {
+                                              b.read(half, Rg::Use::PixelSrv);
+                                              if (fb.prev(RenderResource::GtaoHistory).valid())
+                                                  b.read(fb.prev(RenderResource::GtaoHistory), Rg::Use::PixelSrv);
+                                              fb.set(RenderResource::GtaoHistory, b.write(fb.handle(RenderResource::GtaoHistory), Rg::Use::RenderTarget));
+                                          },
+                                          [this](Rg::PassContext&, const Rg::NoData&) { ran.push_back("Gtao.Upsample"); });
+                                      fb.addPass<Rg::NoData>(
+                                          "Gtao.Compose",
+                                          [&](Rg::PassBuilder& b, Rg::NoData&)
+                                          {
+                                              b.read(fb.handle(RenderResource::Ao), Rg::Use::PixelSrv);
+                                              b.read(fb.handle(RenderResource::GtaoHistory), Rg::Use::PixelSrv);
+                                              compose = b.write(compose, Rg::Use::RenderTarget);
+                                          },
+                                          [this](Rg::PassContext&, const Rg::NoData&) { ran.push_back("Gtao.Compose"); });
+                                      fb.addPass<Rg::NoData>(
+                                          "Gtao.Handoff",
+                                          [&](Rg::PassBuilder& b, Rg::NoData&)
+                                          {
+                                              b.flags(Rg::PassFlags::OwnBarriers | Rg::PassFlags::SideEffect);
+                                              b.read(compose, Rg::Use::PixelSrv);
+                                          },
+                                          [this](Rg::PassContext&, const Rg::NoData&) { ran.push_back("Gtao.Handoff"); });
+                                  });
+            if (!host.features.compileFrame(g, "test"))
+                return false;
+            return g.execute();
+        }
+
+        long at(const char* n) const
+        {
+            return std::find(ran.begin(), ran.end(), std::string(n)) - ran.begin();
+        }
+    };
+} // namespace
+
+TEST(FrameFeatures, GtaoEntryRunsItsStepsThenTheHandoffBeforeLighting)
+{
+    DeclaredGtaoFrame f;
+    ASSERT_TRUE(f.run(false));
+    EXPECT_TRUE(f.host.features.orderOk());
+    EXPECT_LT(f.at("Decals"), f.at("Gtao.Produce"));
+    EXPECT_LT(f.at("Gtao.Produce"), f.at("Gtao.Upsample"));
+    EXPECT_LT(f.at("Gtao.Upsample"), f.at("Gtao.Compose"));
+    EXPECT_LT(f.at("Gtao.Compose"), f.at("Gtao.Handoff"));
+    EXPECT_LT(f.at("Gtao.Handoff"), f.at("SSR"));
+    EXPECT_LT(f.at("SSR"), f.at("Lighting"));
+    EXPECT_EQ(static_cast<size_t>(f.at("Gtao.Handoff")) + 1, static_cast<size_t>(f.at("SSR")));
+}
+
+TEST(FrameFeatures, HandoffPassGetsNoGraphBarrierSoItMovesTheOutputItself)
+{
+    DeclaredGtaoFrame f;
+    ASSERT_TRUE(f.run(false));
+    const Rg::RenderGraph& g = f.host.graph;
+    // The compose is written by a declared pass (planned barrier from the import's layout) and
+    // read by the opaque hand-off: nothing is planned into the hand-off, it transitions itself.
+    const std::vector<Rg::BarrierRec> compose = recordsOn(g, "DE.Gtao.AoCompose");
+    ASSERT_FALSE(compose.empty());
+    EXPECT_EQ(g.passName(compose[0].pass), std::string("Gtao.Compose"));
+    EXPECT_EQ(compose[0].before.layout, Rg::Layout::ShaderResource);
+    EXPECT_EQ(compose[0].after.layout, Rg::Layout::RenderTarget);
+    for (const Rg::BarrierRec& b : g.barriers())
+        EXPECT_NE(g.passName(b.pass), std::string("Gtao.Handoff"));
+    // Depth was last touched by opaque passes: the first declared reader gets a tracked barrier.
+    const std::vector<Rg::BarrierRec> depth = recordsOn(g, "Depth");
+    ASSERT_FALSE(depth.empty());
+    EXPECT_TRUE(depth[0].tracked);
+    EXPECT_EQ(g.passName(depth[0].pass), std::string("Gtao.Produce"));
+}
+
+TEST(FrameFeatures, GtaoEntryWritesItsHistoryAndASkippedFrameDropsTheNextPrev)
+{
+    DeclaredGtaoFrame f;
+    ASSERT_TRUE(f.run(false));
+    EXPECT_FALSE(f.gtao.prev.valid());
+    ASSERT_TRUE(f.run(false));
+    EXPECT_TRUE(f.gtao.prev.valid()); // written by Gtao.Upsample last frame
+    // The skip path: one opaque pass (the entry still adds a pass), history marked unwritten.
+    ASSERT_TRUE(f.run(true));
+    EXPECT_TRUE(f.host.features.orderOk());
+    EXPECT_NE(static_cast<size_t>(f.at("Gtao.Skip")), f.ran.size());
+    ASSERT_TRUE(f.run(false));
+    EXPECT_FALSE(f.gtao.prev.valid());
+    ASSERT_TRUE(f.run(false));
+    EXPECT_TRUE(f.gtao.prev.valid());
+}
+
+// ---------------------------------------------------------------- PR #48 review
+
+// The Post matrices as SceneRenderer::addPostPasses uses them: built in the declare callback (graph
+// build time) and filled in the pass exec, after a host's GBuffer pass wrote the jittered view-proj.
+// Fails if PostMatrices inverts or copies the matrix when it is built (the Phase 6 part 2 bug).
+TEST(FrameFeatures, PostMatricesBuiltAtDeclareFillTheViewProjGBufferWrote)
+{
+    uint32_t           count = 0;
+    const FeaturePass* list  = sandboxFeatures(count);
+    for (const bool havePrev : { false, true })
+    {
+        HostFrame        host;
+        Rg::RenderGraph& g = host.graph;
+        g.beginFrame(1280, 720);
+        host.features.begin(list, count);
+        for (uint32_t r = 0; r < kRenderResourceCount; ++r)
+        {
+            const auto     res = static_cast<RenderResource>(r);
+            const uint32_t fmt = res == RenderResource::Swap ? kBgra8 : (res == RenderResource::Depth ? kD32 : kRgba);
+            host.features.importResource(g, res, fakeResource(r), absDesc(1280, 720, fmt), Rg::Layout::RenderTarget);
+        }
+        Math::Matrix4f       viewProj = Math::Matrix4f::ScaleMatrix(1.0f); // the host's, before GBuffer runs
+        const Math::Matrix4f prev     = Math::Matrix4f::ScaleMatrix(8.0f);
+        float                inv[16]{};
+        float                prevOut[16]{};
+        for (const PassId id : without(listIds(list, count), { PassId::Post }))
+            host.features.set(id,
+                              [&, id](Rg::PassContext&)
+                              {
+                                  if (id == PassId::GBuffer)
+                                      viewProj = Math::Matrix4f::ScaleMatrix(4.0f); // beginCameraFrame + jitter
+                              });
+        host.features.declare(PassId::Post,
+                              [&](FeatureBuilder& fb)
+                              {
+                                  const PostMatrices matrices(viewProj, havePrev, prev);
+                                  fb.addPass<Rg::NoData>(
+                                      "Post.Taa",
+                                      [&](Rg::PassBuilder& b, Rg::NoData&)
+                                      {
+                                          b.read(fb.handle(RenderResource::Hdr), Rg::Use::PixelSrv);
+                                          fb.set(RenderResource::Swap, b.write(fb.handle(RenderResource::Swap), Rg::Use::RenderTarget));
+                                      },
+                                      [matrices, &inv, &prevOut](Rg::PassContext&, const Rg::NoData&) { matrices.fill(inv, prevOut); });
+                              });
+        ASSERT_TRUE(host.features.compileFrame(g, "test"));
+        ASSERT_TRUE(g.execute());
+        EXPECT_FLOAT_EQ(inv[0], 0.25f) << "havePrev=" << havePrev;
+        EXPECT_FLOAT_EQ(inv[5], 0.25f);
+        EXPECT_FLOAT_EQ(inv[10], 0.25f);
+        EXPECT_FLOAT_EQ(prevOut[0], havePrev ? 8.0f : 4.0f);
+    }
+}
+
+// The SsrCapture entry's unbind pass: the graph records a declared pass's BeforePass barriers after
+// the opaque pass inserted just before it has executed, so HDR is no longer bound as a render
+// target when its RT->SRV barrier is recorded (the old captureSceneColor unbound first too).
+TEST(FrameFeatures, OpaquePassJustBeforeADeclaredReaderRunsBeforeItsBarrier)
+{
+    uint32_t           count = 0;
+    const FeaturePass* list  = sandboxFeatures(count);
+    HostFrame          host;
+    Rg::RenderGraph&   g = host.graph;
+    g.beginFrame(1280, 720);
+    host.features.begin(list, count);
+    for (uint32_t r = 0; r < kRenderResourceCount; ++r)
+    {
+        const auto     res = static_cast<RenderResource>(r);
+        const uint32_t fmt = res == RenderResource::Swap ? kBgra8 : (res == RenderResource::Depth ? kD32 : kRgba);
+        host.features.importResource(g, res, fakeResource(r), absDesc(1280, 720, fmt), Rg::Layout::RenderTarget);
+    }
+    for (const PassId id : without(listIds(list, count), { PassId::SsrCapture }))
+        host.features.set(id, [](Rg::PassContext&) {});
+    host.features.declare(PassId::SsrCapture,
+                          [&](FeatureBuilder& fb)
+                          {
+                              fb.opaque("SsrCapture.Unbind", {}, {}, [](Rg::PassContext&) {});
+                              Rg::TextureHandle dst = fb.graph().importTexture("DE.Ssr.SceneColor1", absDesc(640, 360, kRgba), fakeResource(60), Rg::Layout::ShaderResource, Rg::Layout::Undefined);
+                              fb.addPass<Rg::NoData>(
+                                  "SsrCapture",
+                                  [&](Rg::PassBuilder& b, Rg::NoData&)
+                                  {
+                                      b.read(fb.handle(RenderResource::Hdr), Rg::Use::PixelSrv);
+                                      dst = b.write(dst, Rg::Use::RenderTarget);
+                                  },
+                                  [](Rg::PassContext&, const Rg::NoData&) {});
+                          });
+    ASSERT_TRUE(host.features.compileFrame(g, "test"));
+    Rg::Test::Recorder rec(g);
+    ASSERT_TRUE(g.execute(&rec));
+    const int sky     = rec.find("E Sky");
+    const int unbind  = rec.find("E SsrCapture.Unbind");
+    const int capture = rec.find("P SsrCapture");
+    int       hdr     = -1;
+    for (size_t i = 0; i < rec.events.size(); ++i)
+        if (rec.events[i].rfind("B before SsrCapture ", 0) == 0 && rec.events[i].find("Hdr") != std::string::npos)
+            hdr = static_cast<int>(i);
+    ASSERT_GE(sky, 0);
+    ASSERT_GE(unbind, 0);
+    ASSERT_GE(hdr, 0);
+    EXPECT_LT(sky, unbind);
+    EXPECT_LT(unbind, hdr);
+    EXPECT_LT(hdr, capture);
 }

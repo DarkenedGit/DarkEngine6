@@ -94,8 +94,10 @@ public:
     // graph plans every barrier. tonemap.usePostHdr is set here. meterAutoExposure records this
     // frame's 1x1. The host reads the previous sample and writes tonemap.exposure before the call,
     // so bloom and tonemap share that exposure. FrameView::holdTemporal (see requestHistories)
-    // forces a TAA reset and skips motion blur so a strobe is not smeared. Setup time: the settings
-    // and the previous view-proj are captured now; call endCameraFrame after execute().
+    // forces a TAA reset and skips motion blur so a strobe is not smeared. Runs while execute()
+    // builds the graph, before any pass executes: the settings and the previous view-proj are
+    // captured now, but `viewProj` is read when the passes execute (hosts fill it in their GBuffer
+    // pass), so it must outlive execute(). Call endCameraFrame after execute().
     void addPostPasses(FeatureBuilder& b, Renderer& renderer, const Math::Matrix4f& viewProj, TonemapSettings tonemap, bool meterAutoExposure = false);
 
     // Right after FrameComposer::begin: requests this frame's TAA / GTAO / SSR graph histories
@@ -107,29 +109,35 @@ public:
     // dropped, and the host should zero its stored EV before adapting. Never waits.
     bool syncAutoExposureSize(Renderer& renderer);
 
-    // The deferred resolve as five graph passes (render-graph plan Phase 4), run every frame in this
-    // order with the same input: Decals (then the HDR bind and clear) -> Gtao -> Ssr -> Lighting ->
-    // LocalVolumes. Hosts fill LightingConstants. ssrEnv may be null. Lighting stores the constants
-    // it drew with (SSR bit sampled after applySsr) for LocalVolumes.
+    // The deferred resolve steps that are still opaque graph passes (render-graph plan Phase 4), run
+    // every frame in this order with the same input: Decals (then the HDR bind and clear) -> [Gtao
+    // -> Ssr, declared entries below] -> Lighting -> LocalVolumes. Hosts fill LightingConstants.
+    // Lighting stores the constants it drew with (SSR bit sampled after the Ssr entry) for LocalVolumes.
     enum class DeferredStep : uint8_t
     {
         Decals,
-        Gtao,
-        Ssr,
         Lighting,
         LocalVolumes,
     };
     void resolveDeferred(DeferredStep step, ID3D12GraphicsCommandList* cmd, Renderer& renderer, World& world, const Camera3D& camera, const DeferredResolveInput& in);
 
-    // After bindHdr(false), before lighting.draw. Compose authored*ssao into slot 5 when enabled;
-    // restore MRT3 on skip so a disable cannot stick a stale compose handle.
-    void applyGtao(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, const Math::Matrix4f& prevViewProj,
-                   const GtaoSettings& settings);
-
-    // After applyGtao, before lighting.draw. Skip binds dummy slot 9 and restores bindHdr(false).
-    void applySsr(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, const Math::Matrix4f& prevViewProj, const SsrSettings& settings,
-                  const Sky::Environment* env = nullptr);
-    void captureSsrSceneColor(ID3D12GraphicsCommandList* cmd, Renderer& renderer);
+    // The Gtao, Ssr and SsrCapture entries with declared uses (render-graph plan Phase 6 part 3),
+    // from the host's FrameComposer::declare callbacks. Each step is a graph pass binding a
+    // descriptor-ring table; the graph plans every barrier on the targets (imported from the
+    // ResourceStateTracker). Settings are captured now; the camera (jittered by the host's GBuffer
+    // pass) is read when the passes execute, so it must outlive execute(). Each entry ends with an
+    // opaque hand-off pass that leaves its output in PIXEL_SHADER_RESOURCE and the bindings the old
+    // code left (the graph plans no barrier into an opaque pass); it goes when Lighting / Water
+    // declare their uses.
+    // Gtao: compose authored*ssao into Lighting's slot 5 when enabled; on skip restore MRT3 (never a
+    // white SSAO tex) and clear AoFull to identity.
+    void addGtaoPasses(FeatureBuilder& b, Renderer& renderer, const Camera3D& camera, const GtaoSettings& settings);
+    // Ssr: trace -> upsample (-> confidence debug), Full to Lighting's slot 9; skip binds the dummy
+    // slot 9. Both restore bindHdr(false). env may be null.
+    void addSsrPasses(FeatureBuilder& b, Renderer& renderer, const Camera3D& camera, const SsrSettings& settings, const Sky::Environment* env = nullptr);
+    // SsrCapture: HDR -> half-res scene color for next frame's trace and this frame's water; then
+    // bindHdrDepthRead. Adds no pass when SSR is unavailable (the host adds its own then).
+    void addSsrCapturePasses(FeatureBuilder& b, Renderer& renderer);
 
     void drawDeferredLighting(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const LightingConstants& lc) const;
     void drawLocalLights(

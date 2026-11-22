@@ -1,9 +1,7 @@
 #include "Render/SsrPipeline.h"
-#include "Render/EnhancedBarrierEmitter.h"
 #include "Render/GraphTargets.h"
 #include "Render/Profile.h"
 #include "Render/Camera3D.h"
-#include "Render/Renderer.h"
 #include "Render/ShaderCompile.h"
 #include "Core/Log.h"
 #include "Math/MathHelper.h"
@@ -55,11 +53,6 @@ namespace Dark
             }
             pso.DSVFormat  = DXGI_FORMAT_UNKNOWN;
             pso.SampleDesc = { 1, 0 };
-        }
-
-        void transitionHistory(ID3D12GraphicsCommandList* cmd, ID3D12Resource* res, D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after)
-        {
-            recordTransition(cmd, res, before, after);
         }
 
         Math::Vector2f clipToUv(const Math::Vector4f& clip)
@@ -177,9 +170,8 @@ namespace Dark
 
     bool SsrPipeline::isValid() const
     {
-        return m_psoTrace && m_psoUpsample && m_psoDownsample && m_psoDebug && m_targets && m_targets->resource(m_half.id) && m_targets->resource(m_full.id)
-            && m_targets->resource(m_sceneColor[0].id) && m_targets->resource(m_sceneColor[1].id) && m_targets->resource(m_debug.id) && m_srvHeap && m_cbUpload
-            && m_cbMapped;
+        return m_psoTrace && m_psoUpsample && m_psoDownsample && m_psoDebug && m_targets && m_targets->resource(m_half.id) && m_targets->resource(m_full.id) &&
+               m_targets->resource(m_sceneColor[0].id) && m_targets->resource(m_sceneColor[1].id) && m_targets->resource(m_debug.id) && m_cbUpload && m_cbMapped;
     }
 
     bool SsrPipeline::hasSceneColor() const
@@ -217,25 +209,77 @@ namespace Dark
             m_targets->transition(cmd, m_debug, after);
     }
 
-    D3D12_GPU_DESCRIPTOR_HANDLE SsrPipeline::passSrvGpu(UINT frame, UINT pass) const
+    void SsrPipeline::transitionSceneColorRead(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after)
     {
-        D3D12_GPU_DESCRIPTOR_HANDLE h = m_srvGpu;
-        h.ptr += static_cast<SIZE_T>((frame * kPassCount + pass) * kSrvPerPass) * m_srvIncr;
-        return h;
+        if (m_targets)
+            m_targets->transition(cmd, m_sceneColor[m_sceneRead], after);
     }
 
-    D3D12_CPU_DESCRIPTOR_HANDLE SsrPipeline::passSrvCpu(UINT frame, UINT pass) const
+    const GraphTarget& SsrPipeline::target(SsrTarget which) const
     {
-        D3D12_CPU_DESCRIPTOR_HANDLE h = m_srvCpu;
-        h.ptr += static_cast<SIZE_T>((frame * kPassCount + pass) * kSrvPerPass) * m_srvIncr;
-        return h;
+        switch (which)
+        {
+        case SsrTarget::Half:
+            return m_half;
+        case SsrTarget::Full:
+            return m_full;
+        case SsrTarget::SceneColor0:
+            return m_sceneColor[0];
+        case SsrTarget::SceneColor1:
+            return m_sceneColor[1];
+        case SsrTarget::Debug:
+            break;
+        }
+        return m_debug;
     }
 
-    void SsrPipeline::copySrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE dst, D3D12_CPU_DESCRIPTOR_HANDLE src) const
+    ID3D12Resource* SsrPipeline::resource(SsrTarget which) const
     {
-        if (!device || dst.ptr == 0 || src.ptr == 0)
-            return;
-        device->CopyDescriptorsSimple(1, dst, src, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        return m_targets ? m_targets->resource(target(which).id) : nullptr;
+    }
+
+    D3D12_CPU_DESCRIPTOR_HANDLE SsrPipeline::srv(SsrTarget which) const
+    {
+        return m_targets ? m_targets->srv(target(which).id) : D3D12_CPU_DESCRIPTOR_HANDLE{};
+    }
+
+    D3D12_CPU_DESCRIPTOR_HANDLE SsrPipeline::rtv(SsrTarget which) const
+    {
+        return m_targets ? m_targets->rtv(target(which).id) : D3D12_CPU_DESCRIPTOR_HANDLE{};
+    }
+
+    const char* SsrPipeline::name(SsrTarget which)
+    {
+        switch (which)
+        {
+        case SsrTarget::Half:
+            return "DE.Ssr.Half";
+        case SsrTarget::Full:
+            return "DE.Ssr.Full";
+        case SsrTarget::SceneColor0:
+            return "DE.Ssr.SceneColor0";
+        case SsrTarget::SceneColor1:
+            return "DE.Ssr.SceneColor1";
+        case SsrTarget::Debug:
+            break;
+        }
+        return "DE.Ssr.Debug";
+    }
+
+    SsrTarget SsrPipeline::sceneColorRead() const
+    {
+        return m_sceneRead == 0 ? SsrTarget::SceneColor0 : SsrTarget::SceneColor1;
+    }
+
+    SsrTarget SsrPipeline::beginCapture()
+    {
+        const SsrTarget written = m_sceneWrite == 0 ? SsrTarget::SceneColor0 : SsrTarget::SceneColor1;
+        const UINT      tmp     = m_sceneRead;
+        m_sceneRead             = m_sceneWrite;
+        m_sceneWrite            = tmp;
+        m_hasSceneColor         = true;
+        m_sceneColorGeneration  = m_targets ? m_targets->generation(m_sceneColor[m_sceneRead].id) : 0;
+        return written;
     }
 
     void SsrPipeline::resetTargets()
@@ -252,10 +296,7 @@ namespace Dark
         m_full          = {};
         m_sceneColor[0] = {};
         m_sceneColor[1] = {};
-        m_debug         = {};
-        m_srvHeap.Reset();
-        m_srvCpu               = {};
-        m_srvGpu               = {};
+        m_debug                = {};
         m_sceneRead            = 0;
         m_sceneWrite           = 1;
         m_hasSceneColor        = false;
@@ -431,32 +472,19 @@ namespace Dark
         return true;
     }
 
-    bool SsrPipeline::createTargets(ID3D12Device* device)
+    bool SsrPipeline::createTargets()
     {
         resetTargets();
-        m_srvIncr = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-
-        // Per-frame pass tables, filled from the graph targets' CPU views every draw: size independent.
-        D3D12_DESCRIPTOR_HEAP_DESC srvDesc{};
-        srvDesc.NumDescriptors = kFrameCount * kPassCount * kSrvPerPass;
-        srvDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-        srvDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-        if (FailedHr(device->CreateDescriptorHeap(&srvDesc, IID_PPV_ARGS(&m_srvHeap)), "CreateDescriptorHeap SSR SRV"))
-            return false;
-        m_srvHeap->SetName(L"DE.Ssr.Tables");
-        m_srvCpu = m_srvHeap->GetCPUDescriptorHandleForHeapStart();
-        m_srvGpu = m_srvHeap->GetGPUDescriptorHandleForHeapStart();
-
         // Half-res targets round up (ceil(w/2)). SceneColor0/1 is SSR's own capture ping-pong (read by
         // water too), not a graph history: it is written mid-frame and read later in the same frame.
         const float                 zero4[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
         const DXGI_FORMAT           rgba16   = DXGI_FORMAT_R16G16B16A16_FLOAT;
         const D3D12_RESOURCE_STATES rt       = D3D12_RESOURCE_STATE_RENDER_TARGET;
-        m_half          = m_targets->registerTarget("DE.Ssr.Half", colorTargetDesc(rgba16, Rg::TargetSize::OutputCeil, 2, rt, zero4));
-        m_full          = m_targets->registerTarget("DE.Ssr.Full", colorTargetDesc(rgba16, Rg::TargetSize::OutputFloor, 1, rt, zero4));
-        m_sceneColor[0] = m_targets->registerTarget("DE.Ssr.SceneColor0", colorTargetDesc(rgba16, Rg::TargetSize::OutputCeil, 2, rt, zero4));
-        m_sceneColor[1] = m_targets->registerTarget("DE.Ssr.SceneColor1", colorTargetDesc(rgba16, Rg::TargetSize::OutputCeil, 2, rt, zero4));
-        m_debug         = m_targets->registerTarget("DE.Ssr.Debug", colorTargetDesc(DXGI_FORMAT_R8_UNORM, Rg::TargetSize::OutputFloor, 1, rt, zero4));
+        m_half                               = m_targets->registerTarget(name(SsrTarget::Half), colorTargetDesc(rgba16, Rg::TargetSize::OutputCeil, 2, rt, zero4));
+        m_full                               = m_targets->registerTarget(name(SsrTarget::Full), colorTargetDesc(rgba16, Rg::TargetSize::OutputFloor, 1, rt, zero4));
+        m_sceneColor[0]                      = m_targets->registerTarget(name(SsrTarget::SceneColor0), colorTargetDesc(rgba16, Rg::TargetSize::OutputCeil, 2, rt, zero4));
+        m_sceneColor[1]                      = m_targets->registerTarget(name(SsrTarget::SceneColor1), colorTargetDesc(rgba16, Rg::TargetSize::OutputCeil, 2, rt, zero4));
+        m_debug                              = m_targets->registerTarget(name(SsrTarget::Debug), colorTargetDesc(DXGI_FORMAT_R8_UNORM, Rg::TargetSize::OutputFloor, 1, rt, zero4));
         if (!m_half.id.valid() || !m_full.id.valid() || !m_sceneColor[0].id.valid() || !m_sceneColor[1].id.valid() || !m_debug.id.valid())
         {
             resetTargets();
@@ -487,12 +515,11 @@ namespace Dark
             release();
             return false;
         }
-        if (!createTargets(device))
+        if (!createTargets())
             return false;
 
-        DE_LOG_INFO(LogCategory::Render, "SsrPipeline: ready {}x{} (half {}x{}, graph targets)", targets.width(m_full.id), targets.height(m_full.id),
-                    targets.width(m_half.id), targets.height(m_half.id));
-        m_loggedSkip = false;
+        DE_LOG_INFO(LogCategory::Render, "SsrPipeline: ready {}x{} (half {}x{}, graph targets)", targets.width(m_full.id), targets.height(m_full.id), targets.width(m_half.id),
+                    targets.height(m_half.id));
         return true;
     }
 
@@ -521,201 +548,94 @@ namespace Dark
         out.cameraPos[2]         = pos.z;
     }
 
-    void SsrPipeline::bindPass(ID3D12GraphicsCommandList* cmd, ID3D12PipelineState* pso, UINT nRtv, const D3D12_CPU_DESCRIPTOR_HANDLE* rtvs, uint32_t w,
-                               uint32_t h, D3D12_GPU_DESCRIPTOR_HANDLE tableGpu) const
+    SsrFrameParams SsrPipeline::uploadParams(const Camera3D& camera, const Math::Matrix4f& prevViewProj, const Sky::Environment* env, const SsrSettings& settings, bool resetHistory,
+                                             uint32_t frameIndex)
     {
-        D3D12_VIEWPORT vp{};
-        vp.Width    = static_cast<float>(w);
-        vp.Height   = static_cast<float>(h);
-        vp.MaxDepth = 1.0f;
-        D3D12_RECT sc{ 0, 0, static_cast<LONG>(w), static_cast<LONG>(h) };
-        cmd->RSSetViewports(1, &vp);
-        cmd->RSSetScissorRects(1, &sc);
-        cmd->OMSetRenderTargets(nRtv, rtvs, FALSE, nullptr);
-        cmd->SetPipelineState(pso);
-        cmd->SetGraphicsRootDescriptorTable(kRootSrv, tableGpu);
-        cmd->DrawInstanced(3, 1, 0, 0);
-    }
-
-    void SsrPipeline::draw(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, const Math::Matrix4f& prevViewProj,
-                           const Sky::Environment* env, const SsrSettings& settings, const HistoryView& history, bool resetHistory)
-    {
-        if (!settings.enabled)
-            return;
-        if (!cmd || !isValid())
-        {
-            if (!isValid() && !m_loggedSkip)
-            {
-                DE_LOG_ERROR(LogCategory::Render, "SsrPipeline::draw: not valid — skipping");
-                m_loggedSkip = true;
-            }
-            return;
-        }
-        if (!renderer.hasSceneBuffers())
-            return;
-
-        ID3D12Device*                     device = renderer.device();
-        const D3D12_CPU_DESCRIPTOR_HANDLE depth  = renderer.depthSrvCpu();
-        const D3D12_CPU_DESCRIPTOR_HANDLE attrib = renderer.attribSrvCpu();
-        const D3D12_CPU_DESCRIPTOR_HANDLE vel    = renderer.velocitySrvCpu();
-        const D3D12_CPU_DESCRIPTOR_HANDLE scene  = m_targets->srv(m_sceneColor[m_sceneRead].id);
-        if (!device || depth.ptr == 0 || attrib.ptr == 0 || vel.ptr == 0 || scene.ptr == 0 || !history.valid())
-            return;
-        // Without a valid prev (graph SsrHistory) the shader ignores t3; it is still a real target.
-        resetHistory = resetHistory || !history.prevValid;
-        const uint32_t halfW = m_targets->width(m_half.id);
-        const uint32_t halfH = m_targets->height(m_half.id);
-        const uint32_t fullW = m_targets->width(m_full.id);
-        const uint32_t fullH = m_targets->height(m_full.id);
-
-        const GpuScope ssr(cmd, "SSR", ProfileColor::Ssr);
-        const UINT  frame = renderer.frameIndex() % kFrameCount;
+        if (!isValid())
+            return {};
         SsrGpuParams params{};
-        fillParams(params, camera, prevViewProj, settings, resetHistory, renderer.frameIndex());
+        fillParams(params, camera, prevViewProj, settings, resetHistory, frameIndex);
         params.hasSkyEval = env ? 1.0f : 0.0f;
-        const UINT cbOff = cbvByteOffset(renderer.frameIndex(), false);
+        const UINT cbOff  = cbvByteOffset(frameIndex, false);
         std::memcpy(m_cbMapped + cbOff, &params, sizeof(params));
-        const D3D12_GPU_VIRTUAL_ADDRESS cbVa = m_cbGpu + cbOff;
 
         SkyEvalParams sky{};
         fillSkyEvalParams(sky, env);
-        const UINT skyOff = skyEvalCbvByteOffset(renderer.frameIndex());
+        const UINT skyOff = skyEvalCbvByteOffset(frameIndex);
         std::memcpy(m_cbMapped + skyOff, &sky, sizeof(sky));
-        const D3D12_GPU_VIRTUAL_ADDRESS skyVa = m_cbGpu + skyOff;
-
-        cmd->SetGraphicsRootSignature(m_rootSignature.Get());
-        ID3D12DescriptorHeap* heaps[] = { m_srvHeap.Get() };
-        cmd->SetDescriptorHeaps(1, heaps);
-        cmd->SetGraphicsRootConstantBufferView(kRootCbv, cbVa);
-        cmd->SetGraphicsRootConstantBufferView(kRootSkyCbv, skyVa);
-        cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
-        m_targets->transition(cmd, m_sceneColor[m_sceneRead], D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-        {
-            D3D12_CPU_DESCRIPTOR_HANDLE table = passSrvCpu(frame, kPassTrace);
-            copySrv(device, table, depth);
-            D3D12_CPU_DESCRIPTOR_HANDLE t1 = table;
-            t1.ptr += m_srvIncr;
-            copySrv(device, t1, attrib);
-            D3D12_CPU_DESCRIPTOR_HANDLE t2 = t1;
-            t2.ptr += m_srvIncr;
-            copySrv(device, t2, scene);
-            D3D12_CPU_DESCRIPTOR_HANDLE t3 = t2;
-            t3.ptr += m_srvIncr;
-            copySrv(device, t3, scene);
-            D3D12_CPU_DESCRIPTOR_HANDLE t4 = t3;
-            t4.ptr += m_srvIncr;
-            copySrv(device, t4, scene);
-
-            m_targets->transition(cmd, m_half, D3D12_RESOURCE_STATE_RENDER_TARGET);
-            const D3D12_CPU_DESCRIPTOR_HANDLE rtv = m_targets->rtv(m_half.id);
-            bindPass(cmd, m_psoTrace.Get(), 1, &rtv, halfW, halfH, passSrvGpu(frame, kPassTrace));
-        }
-
-        {
-            m_targets->transition(cmd, m_half, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-            m_targets->transition(cmd, m_full, D3D12_RESOURCE_STATE_RENDER_TARGET);
-            transitionHistory(cmd, history.curr, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
-
-            D3D12_CPU_DESCRIPTOR_HANDLE table = passSrvCpu(frame, kPassUpsample);
-            copySrv(device, table, m_targets->srv(m_half.id));
-            D3D12_CPU_DESCRIPTOR_HANDLE t1 = table;
-            t1.ptr += m_srvIncr;
-            copySrv(device, t1, depth);
-            D3D12_CPU_DESCRIPTOR_HANDLE t2 = t1;
-            t2.ptr += m_srvIncr;
-            copySrv(device, t2, attrib);
-            D3D12_CPU_DESCRIPTOR_HANDLE t3 = t2;
-            t3.ptr += m_srvIncr;
-            copySrv(device, t3, history.prevSrv);
-            D3D12_CPU_DESCRIPTOR_HANDLE t4 = t3;
-            t4.ptr += m_srvIncr;
-            copySrv(device, t4, vel);
-
-            D3D12_CPU_DESCRIPTOR_HANDLE rtvs[2] = { m_targets->rtv(m_full.id), history.currRtv };
-            bindPass(cmd, m_psoUpsample.Get(), 2, rtvs, fullW, fullH, passSrvGpu(frame, kPassUpsample));
-            transitionHistory(cmd, history.curr, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-        }
-
-        m_targets->transition(cmd, m_full, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-        if (renderer.debugState().ssrDebug == 2)
-        {
-            const D3D12_CPU_DESCRIPTOR_HANDLE full  = m_targets->srv(m_full.id);
-            D3D12_CPU_DESCRIPTOR_HANDLE       table = passSrvCpu(frame, kPassDebug);
-            copySrv(device, table, full);
-            D3D12_CPU_DESCRIPTOR_HANDLE t1 = table;
-            t1.ptr += m_srvIncr;
-            copySrv(device, t1, full);
-            D3D12_CPU_DESCRIPTOR_HANDLE t2 = t1;
-            t2.ptr += m_srvIncr;
-            copySrv(device, t2, full);
-            D3D12_CPU_DESCRIPTOR_HANDLE t3 = t2;
-            t3.ptr += m_srvIncr;
-            copySrv(device, t3, full);
-            D3D12_CPU_DESCRIPTOR_HANDLE t4 = t3;
-            t4.ptr += m_srvIncr;
-            copySrv(device, t4, full);
-
-            m_targets->transition(cmd, m_debug, D3D12_RESOURCE_STATE_RENDER_TARGET);
-            const D3D12_CPU_DESCRIPTOR_HANDLE rtv = m_targets->rtv(m_debug.id);
-            bindPass(cmd, m_psoDebug.Get(), 1, &rtv, fullW, fullH, passSrvGpu(frame, kPassDebug));
-            m_targets->transition(cmd, m_debug, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-        }
+        return { m_cbGpu + cbOff, m_cbGpu + skyOff };
     }
 
-    void SsrPipeline::captureSceneColor(ID3D12GraphicsCommandList* cmd, Renderer& renderer)
+    SsrFrameParams SsrPipeline::paramsAddress(uint32_t frameIndex) const
     {
-        if (!cmd || !isValid())
-            return;
-        ID3D12Device*                     device = renderer.device();
-        const D3D12_CPU_DESCRIPTOR_HANDLE hdr    = renderer.hdrSrvCpu();
-        if (!device || hdr.ptr == 0)
-            return;
+        if (!isValid())
+            return {};
+        return { m_cbGpu + cbvByteOffset(frameIndex, false), m_cbGpu + skyEvalCbvByteOffset(frameIndex) };
+    }
 
-        const GpuScope capture(cmd, "SSR Capture", ProfileColor::Ssr);
-        cmd->OMSetRenderTargets(0, nullptr, FALSE, nullptr);
-        renderer.transitionHdr(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-
-        const UINT frame = renderer.frameIndex() % kFrameCount;
-        SsrGpuParams params{};
-        const uint32_t halfW = m_targets->width(m_half.id);
-        const uint32_t halfH = m_targets->height(m_half.id);
+    SsrFrameParams SsrPipeline::uploadCaptureParams(uint32_t frameIndex)
+    {
+        if (!isValid())
+            return {};
+        SsrGpuParams   params{};
+        const uint32_t halfW  = m_targets->width(m_half.id);
+        const uint32_t halfH  = m_targets->height(m_half.id);
         params.invSizeHalf[0] = 1.0f / static_cast<float>(Math::Max(halfW, 1u));
         params.invSizeHalf[1] = 1.0f / static_cast<float>(Math::Max(halfH, 1u));
         params.invSizeFull[0] = 1.0f / static_cast<float>(Math::Max(m_targets->width(m_full.id), 1u));
         params.invSizeFull[1] = 1.0f / static_cast<float>(Math::Max(m_targets->height(m_full.id), 1u));
-        const UINT cbOff = cbvByteOffset(renderer.frameIndex(), true);
+        const UINT cbOff      = cbvByteOffset(frameIndex, true);
         std::memcpy(m_cbMapped + cbOff, &params, sizeof(params));
-        const D3D12_GPU_VIRTUAL_ADDRESS cbVa = m_cbGpu + cbOff;
+        // The capture binds whatever sky constants this frame index holds (the root signature needs one).
+        return { m_cbGpu + cbOff, m_cbGpu + skyEvalCbvByteOffset(frameIndex) };
+    }
 
-        cmd->SetGraphicsRootSignature(m_rootSignature.Get());
-        ID3D12DescriptorHeap* heaps[] = { m_srvHeap.Get() };
-        cmd->SetDescriptorHeaps(1, heaps);
-        cmd->SetGraphicsRootConstantBufferView(kRootCbv, cbVa);
-        cmd->SetGraphicsRootConstantBufferView(kRootSkyCbv, m_cbGpu + skyEvalCbvByteOffset(renderer.frameIndex()));
-        cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
-        D3D12_CPU_DESCRIPTOR_HANDLE table = passSrvCpu(frame, kPassDownsample);
-        copySrv(device, table, hdr);
-        D3D12_CPU_DESCRIPTOR_HANDLE t = table;
-        for (UINT i = 1; i < kSrvPerPass; ++i)
+    void SsrPipeline::drawStep(ID3D12GraphicsCommandList* cmd, SsrStep step, const SsrFrameParams& params, D3D12_GPU_DESCRIPTOR_HANDLE table, D3D12_CPU_DESCRIPTOR_HANDLE rtv,
+                               D3D12_CPU_DESCRIPTOR_HANDLE historyRtv) const
+    {
+        if (!cmd || !isValid() || params.params == 0 || params.sky == 0 || table.ptr == 0 || rtv.ptr == 0)
+            return;
+        ID3D12PipelineState* pso  = nullptr;
+        UINT                 nRtv = 1;
+        GraphTarget          size = m_full;
+        switch (step)
         {
-            t.ptr += m_srvIncr;
-            copySrv(device, t, hdr);
+        case SsrStep::Trace:
+            pso  = m_psoTrace.Get();
+            size = m_half;
+            break;
+        case SsrStep::Upsample:
+            if (historyRtv.ptr == 0)
+                return;
+            pso  = m_psoUpsample.Get();
+            nRtv = 2;
+            break;
+        case SsrStep::Debug:
+            pso = m_psoDebug.Get();
+            break;
+        case SsrStep::Capture:
+            pso  = m_psoDownsample.Get();
+            size = m_half; // the captures are half res like Half
+            break;
         }
-
-        m_targets->transition(cmd, m_sceneColor[m_sceneWrite], D3D12_RESOURCE_STATE_RENDER_TARGET);
-        const D3D12_CPU_DESCRIPTOR_HANDLE rtv = m_targets->rtv(m_sceneColor[m_sceneWrite].id);
-        bindPass(cmd, m_psoDownsample.Get(), 1, &rtv, halfW, halfH, passSrvGpu(frame, kPassDownsample));
-        m_targets->transition(cmd, m_sceneColor[m_sceneWrite], D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-
-        const UINT tmp = m_sceneRead;
-        m_sceneRead    = m_sceneWrite;
-        m_sceneWrite   = tmp;
-        m_hasSceneColor        = true;
-        m_sceneColorGeneration = m_targets->generation(m_sceneColor[m_sceneRead].id);
-
-        renderer.bindHdrDepthRead();
+        const uint32_t w = m_targets->width(size.id);
+        const uint32_t h = m_targets->height(size.id);
+        D3D12_VIEWPORT vp{};
+        vp.Width    = static_cast<float>(w);
+        vp.Height   = static_cast<float>(h);
+        vp.MaxDepth = 1.0f;
+        D3D12_RECT                        sc{ 0, 0, static_cast<LONG>(w), static_cast<LONG>(h) };
+        const D3D12_CPU_DESCRIPTOR_HANDLE rtvs[2] = { rtv, historyRtv };
+        cmd->RSSetViewports(1, &vp);
+        cmd->RSSetScissorRects(1, &sc);
+        cmd->OMSetRenderTargets(nRtv, rtvs, FALSE, nullptr);
+        cmd->SetGraphicsRootSignature(m_rootSignature.Get());
+        cmd->SetPipelineState(pso);
+        cmd->SetGraphicsRootConstantBufferView(kRootCbv, params.params);
+        cmd->SetGraphicsRootConstantBufferView(kRootSkyCbv, params.sky);
+        cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        cmd->SetGraphicsRootDescriptorTable(kRootSrv, table);
+        cmd->DrawInstanced(3, 1, 0, 0);
     }
 
 } // namespace Dark
