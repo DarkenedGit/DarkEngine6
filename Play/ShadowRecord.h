@@ -20,6 +20,7 @@ namespace Dark
     class Camera3D;
     class DrawList;
     class JobSystem;
+    class LocalShadowSystem;
     class FoliagePipeline;
     class FoliagePrototypes;
     class GpuResourceCache;
@@ -89,6 +90,12 @@ namespace Dark
         bool profileFoliageCull,
         uint8_t& shadowViewIndex);
 
+    // The Shadows pass: the frame's GPU cull and the cascades (on the worker, the shadow list or
+    // mainCmd). Nothing when shadows are off this frame; the map keeps its last contents.
     void recordDirectionalShadows(ShadowCasterHost& host, ID3D12GraphicsCommandList* mainCmd, uint8_t& shadowViewIndex);
+
+    // The LocalShadows pass: clears this frame's slices and draws each selected face. Nothing when no
+    // face was selected.
+    void recordLocalShadows(ShadowCasterHost& host, LocalShadowSystem& local, ID3D12GraphicsCommandList* cmd, uint8_t& shadowViewIndex);
 
 } // namespace Dark

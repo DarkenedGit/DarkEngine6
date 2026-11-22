@@ -612,7 +612,7 @@ namespace
                                           return;
                                       litDeclared = true;
                                       fb.addPass<LightingReads>(
-                                          "Lighting", [&](Rg::PassBuilder& b, LightingReads& d) { litHdrOut = declareLightingUses(b, in, true, d); },
+                                          "Lighting", [&](Rg::PassBuilder& b, LightingReads& d) { litHdrOut = declareLightingUses(b, in, LightingPass::Lighting, d); },
                                           [this](Rg::PassContext&, const LightingReads& d)
                                           {
                                               ran.push_back("Lighting");
@@ -625,7 +625,7 @@ namespace
                                   {
                                       const LightingReads in = lightingReads(fb);
                                       fb.addPass<LightingReads>(
-                                          "LocalVolumes", [&](Rg::PassBuilder& b, LightingReads& d) { volHdrOut = declareLightingUses(b, in, false, d); },
+                                          "LocalVolumes", [&](Rg::PassBuilder& b, LightingReads& d) { volHdrOut = declareLightingUses(b, in, LightingPass::LocalVolumes, d); },
                                           [this](Rg::PassContext&, const LightingReads& d)
                                           {
                                               ran.push_back("LocalVolumes");
@@ -841,8 +841,8 @@ TEST(FrameFeatures, LightingPassesReadAndWriteHdr)
     g.addPass<Rg::NoData>(
         "Clear", [&](Rg::PassBuilder& b, Rg::NoData&) { hdr0 = b.write(b.create("Hdr", absDesc(1280, 720, kRgba)), Rg::Use::RenderTarget); }, [](Rg::PassContext&, const Rg::NoData&) {});
     in.hdr = hdr0;
-    g.addPass<LightingReads>("Lighting", [&](Rg::PassBuilder& b, LightingReads& d) { in.hdr = declareLightingUses(b, in, true, d); }, [](Rg::PassContext&, const LightingReads&) {});
-    g.addPass<LightingReads>("LocalVolumes", [&](Rg::PassBuilder& b, LightingReads& d) { in.hdr = declareLightingUses(b, in, false, d); }, [](Rg::PassContext&, const LightingReads&) {});
+    g.addPass<LightingReads>("Lighting", [&](Rg::PassBuilder& b, LightingReads& d) { in.hdr = declareLightingUses(b, in, LightingPass::Lighting, d); }, [](Rg::PassContext&, const LightingReads&) {});
+    g.addPass<LightingReads>("LocalVolumes", [&](Rg::PassBuilder& b, LightingReads& d) { in.hdr = declareLightingUses(b, in, LightingPass::LocalVolumes, d); }, [](Rg::PassContext&, const LightingReads&) {});
     g.addPass<Rg::NoData>(
         "Post",
         [&](Rg::PassBuilder& b, Rg::NoData&)
@@ -1086,7 +1086,7 @@ namespace
                                       const LightingReads in = lightingReads(fb);
                                       Rg::TextureHandle   hdr;
                                       fb.addPass<LightingReads>(
-                                          "Lighting", [&](Rg::PassBuilder& b, LightingReads& d) { hdr = declareLightingUses(b, in, true, d); },
+                                          "Lighting", [&](Rg::PassBuilder& b, LightingReads& d) { hdr = declareLightingUses(b, in, LightingPass::Lighting, d); },
                                           [this](Rg::PassContext&, const LightingReads& d)
                                           {
                                               ran.push_back("Lighting");
@@ -1326,7 +1326,7 @@ namespace
             host.features.declare(PassId::Sky,
                                   [this](FeatureBuilder& fb)
                                   {
-                                      skyAdded = addHdrDrawPass(fb, "Sky", false,
+                                      skyAdded = addHdrDrawPass(fb, "Sky", skyUses(),
                                                                 [this](Rg::PassContext&, const HdrDrawTargets& d)
                                                                 {
                                                                     ran.push_back("Sky");
@@ -1357,7 +1357,7 @@ namespace
             host.features.declare(PassId::Water,
                                   [this](FeatureBuilder& fb)
                                   {
-                                      waterAdded = addHdrDrawPass(fb, "Water", true,
+                                      waterAdded = addHdrDrawPass(fb, "Water", waterUses(),
                                                                   [this](Rg::PassContext&, const HdrDrawTargets& d)
                                                                   {
                                                                       ran.push_back("Water");
@@ -1394,12 +1394,12 @@ namespace
                                                   camo = d;
                                               });
                                       });
-            const auto overlay = [this](PassId id, const char* name, HdrDrawTargets* out, bool* added)
+            const auto overlay = [this](PassId id, const char* name, HdrDrawUses uses, HdrDrawTargets* out, bool* added)
             {
                 host.features.declare(id,
-                                      [this, name, out, added](FeatureBuilder& fb)
+                                      [this, name, uses, out, added](FeatureBuilder& fb)
                                       {
-                                          *added = addHdrDrawPass(fb, name, false,
+                                          *added = addHdrDrawPass(fb, name, uses,
                                                                   [this, name, out](Rg::PassContext&, const HdrDrawTargets& d)
                                                                   {
                                                                       ran.push_back(name);
@@ -1407,8 +1407,8 @@ namespace
                                                                   });
                                       });
             };
-            overlay(PassId::Translucent, "Translucent", &translucent, &translucentAdded);
-            overlay(PassId::DebugOverlays, "DebugOverlays", &overlays, &overlaysAdded);
+            overlay(PassId::Translucent, "Translucent", translucentUses(), &translucent, &translucentAdded);
+            overlay(PassId::DebugOverlays, "DebugOverlays", HdrDrawUses{}, &overlays, &overlaysAdded);
             host.features.declare(PassId::Particles,
                                   [this](FeatureBuilder& fb)
                                   {

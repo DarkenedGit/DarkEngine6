@@ -287,8 +287,8 @@ void SceneRenderer::shutdown()
     m_echo.release();
     m_underwater.release();
     m_taa                      = TaaPipeline{};
-    m_shadows                  = ShadowSystem{};
-    m_localShadows             = LocalShadowSystem{};
+    m_shadows.release();
+    m_localShadows.release();
     m_debugOverlay             = DebugOverlay{};
     m_terrainPipeline          = TerrainPipeline{};
     m_waterPipeline            = WaterPipeline{};
@@ -664,18 +664,42 @@ void SceneRenderer::bindHdrDepthWrite(Rg::PassContext& c, const Renderer& render
     c.cmd()->RSSetScissorRects(1, &renderer.scissor());
 }
 
-D3D12_GPU_DESCRIPTOR_HANDLE SceneRenderer::shadowTable(Rg::PassContext& c, const Renderer& renderer)
+namespace
 {
-    return rgTable(c, { renderer.lightingViews().shadow });
+    D3D12_CPU_DESCRIPTOR_HANDLE shadowSrv(const Rg::PassContext& c, const LightingViews& v, Rg::TextureHandle shadow)
+    {
+        return shadow.valid() ? rgSrvCpu(c, shadow) : v.shadow;
+    }
+} // namespace
+
+FrameShadows SceneRenderer::frameShadows() const
+{
+    FrameShadows f;
+    if (m_shadows.isValid())
+    {
+        f.map    = m_shadows.resource();
+        f.mapSrv = m_shadows.srvCpu().ptr;
+    }
+    if (m_localShadows.isValid())
+    {
+        f.localMap    = m_localShadows.resource();
+        f.localMapSrv = m_localShadows.srvCpu().ptr;
+    }
+    return f;
 }
 
-WaterTables SceneRenderer::waterTables(Rg::PassContext& c, const Renderer& renderer, Rg::TextureHandle depth, Rg::TextureHandle sceneColor) const
+D3D12_GPU_DESCRIPTOR_HANDLE SceneRenderer::shadowTable(Rg::PassContext& c, const Renderer& renderer, Rg::TextureHandle shadow)
+{
+    return rgTable(c, { shadowSrv(c, renderer.lightingViews(), shadow) });
+}
+
+WaterTables SceneRenderer::waterTables(Rg::PassContext& c, const Renderer& renderer, Rg::TextureHandle depth, Rg::TextureHandle sceneColor, Rg::TextureHandle shadow) const
 {
     // No capture this frame: the SSR slots hold the pipeline's dummies and ssrReady is false.
     const LightingViews v = renderer.lightingViews();
     WaterTables         t;
     t.sceneColor = sceneColor.valid();
-    t.table = rgTable(c, { v.height, v.shadow, t.sceneColor ? rgSrvCpu(c, sceneColor) : m_waterPipeline.ssrDummyColorCpu(), t.sceneColor ? rgSrvCpu(c, depth) : m_waterPipeline.ssrDummyDepthCpu() });
+    t.table = rgTable(c, { v.height, shadowSrv(c, v, shadow), t.sceneColor ? rgSrvCpu(c, sceneColor) : m_waterPipeline.ssrDummyColorCpu(), t.sceneColor ? rgSrvCpu(c, depth) : m_waterPipeline.ssrDummyDepthCpu() });
     return t;
 }
 
@@ -802,7 +826,7 @@ void SceneRenderer::addLightingPasses(FeatureBuilder& b, Renderer& renderer, con
     const DeferredResolveInput* const inp  = &in; // filled by the host's GBuffer pass: read at execute
     Rg::TextureHandle                 hdrOut;
     b.addPass<LightingReads>(
-        "Lighting", [&](PassBuilder& pb, LightingReads& d) { hdrOut = declareLightingUses(pb, reads, true, d); },
+        "Lighting", [&](PassBuilder& pb, LightingReads& d) { hdrOut = declareLightingUses(pb, reads, LightingPass::Lighting, d); },
         [self, rr, inp](PassContext& c, const LightingReads& d)
         {
             if (!resolveInputOk(*inp))
@@ -812,7 +836,7 @@ void SceneRenderer::addLightingPasses(FeatureBuilder& b, Renderer& renderer, con
             fillSsrLightingConstants(self->m_resolveLighting, *inp->ssr, rr->debugState().ssrEnabled, self->m_ssr.isValid());
             const LightingViews v = rr->lightingViews();
             // Register order t0..t9 (SceneBuffers::kLighting*).
-            const D3D12_GPU_DESCRIPTOR_HANDLE table = rgTable(c, { v.albedo, v.attrib, rgSrvCpu(c, d.depth), v.shadow, v.height, rgSrvCpu(c, d.ao), v.iblIrradiance, v.iblPrefilter, v.iblBrdfLut,
+            const D3D12_GPU_DESCRIPTOR_HANDLE table = rgTable(c, { v.albedo, v.attrib, rgSrvCpu(c, d.depth), shadowSrv(c, v, d.shadow), v.height, rgSrvCpu(c, d.ao), v.iblIrradiance, v.iblPrefilter, v.iblBrdfLut,
                                                                    d.ssr.valid() ? rgSrvCpu(c, d.ssr) : rr->ssrDummyCpu() });
             bindHdrTarget(c.cmd(), *rr, rgRtv(c, d.hdr));
             self->drawDeferredLighting(c.cmd(), table, self->m_resolveLighting);
@@ -837,7 +861,7 @@ void SceneRenderer::addLocalVolumesPasses(FeatureBuilder& b, Renderer& renderer,
     const DeferredResolveInput* const inp  = &in;
     Rg::TextureHandle                 hdrOut;
     b.addPass<LightingReads>(
-        "LocalVolumes", [&](PassBuilder& pb, LightingReads& d) { hdrOut = declareLightingUses(pb, reads, false, d); }, // additive
+        "LocalVolumes", [&](PassBuilder& pb, LightingReads& d) { hdrOut = declareLightingUses(pb, reads, LightingPass::LocalVolumes, d); }, // additive
         [self, rr, w, cam, inp](PassContext& c, const LightingReads& d)
         {
             if (!resolveInputOk(*inp))
@@ -847,7 +871,7 @@ void SceneRenderer::addLocalVolumesPasses(FeatureBuilder& b, Renderer& renderer,
                 return;
             const LightingViews v = rr->lightingViews();
             // LocalLightVolumePipeline::kTable* order.
-            const D3D12_GPU_DESCRIPTOR_HANDLE table = rgTable(c, { v.albedo, v.attrib, rgSrvCpu(c, d.depth), rgSrvCpu(c, d.ao), v.height, v.localShadow, v.localShadowRecords });
+            const D3D12_GPU_DESCRIPTOR_HANDLE table = rgTable(c, { v.albedo, v.attrib, rgSrvCpu(c, d.depth), rgSrvCpu(c, d.ao), v.height, d.localShadow.valid() ? rgSrvCpu(c, d.localShadow) : v.localShadow, v.localShadowRecords });
             bindHdrTarget(c.cmd(), *rr, rgRtv(c, d.hdr));
             self->drawLocalLights(c.cmd(), table, *rr, *w, *cam, *inp->viewProj, self->m_resolveLighting);
         });

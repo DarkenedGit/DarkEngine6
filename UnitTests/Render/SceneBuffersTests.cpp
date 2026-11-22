@@ -58,15 +58,14 @@ TEST(SceneBuffers, InvalidUntilCreated)
 TEST(SceneBuffers, HostViewsAreStoredAndSurviveAFailedCreate)
 {
     SceneBuffers                      buffers;
-    const D3D12_CPU_DESCRIPTOR_HANDLE shadow{ 0x1000 }, height{ 0x2000 }, irr{ 0x3000 }, pref{ 0x4000 }, lut{ 0x5000 }, arr{ 0x6000 }, rec{ 0x7000 };
-    buffers.setShadowSrv(shadow);
+    const D3D12_CPU_DESCRIPTOR_HANDLE height{ 0x2000 }, irr{ 0x3000 }, pref{ 0x4000 }, lut{ 0x5000 }, arr{ 0x6000 }, rec{ 0x7000 };
     buffers.setHeightSrv(height);
     buffers.setIblSrvs(irr, pref, lut);
     buffers.setLocalShadowSrvs(arr, rec);
     const auto check = [&]()
     {
         const LightingViews v = buffers.lightingViews();
-        EXPECT_EQ(v.shadow.ptr, shadow.ptr);
+        EXPECT_EQ(v.shadow.ptr, 0u); // no heap: the null view does not exist yet
         EXPECT_EQ(v.height.ptr, height.ptr);
         EXPECT_EQ(v.iblIrradiance.ptr, irr.ptr);
         EXPECT_EQ(v.iblPrefilter.ptr, pref.ptr);
@@ -106,9 +105,8 @@ TEST(SceneBuffers, UnsetLightingViewsAreNullSrvsWithDevice)
     EXPECT_NE(v.localShadowRecords.ptr, 0u);
     EXPECT_NE(v.albedo.ptr, buffers.albedoSrvCpu().ptr) << "lighting samples albedo through its own sRGB view";
 
-    const D3D12_CPU_DESCRIPTOR_HANDLE shadow{ v.localShadow.ptr };
-    buffers.setShadowSrv(shadow);
-    EXPECT_EQ(buffers.lightingViews().shadow.ptr, shadow.ptr);
+    // The directional shadow map is bound from the frame graph's import; this is only its fallback.
+    EXPECT_EQ(v.shadow.ptr, v.localShadow.ptr) << "both fall back to the null array view";
 
     // The raw-albedo debug view rewrites the same CPU slot; resize keeps it.
     buffers.setLightingAlbedoRaw(true);

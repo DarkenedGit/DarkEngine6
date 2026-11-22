@@ -259,7 +259,6 @@ void EditorApp::onInit()
         return;
     }
     renderer().gpuResources().setShadowSrv(m_shadows.srvCpu());
-    renderer().setShadowSrv(m_shadows.srvCpu());
     m_scene.localShadows().setDepthPipeline(&m_shadows.pipeline());
     {
         const LocalShadowSystem::CpuSrvs localSrvs = m_scene.localShadows().cpuSrvs();

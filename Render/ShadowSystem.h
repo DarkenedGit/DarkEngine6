@@ -20,7 +20,11 @@ class ShadowSystem
 public:
     ShadowSystem() = default;
 
+    // Creates the map in DEPTH_WRITE and tracks it in the frame's ResourceStateTracker: the graph
+    // plans its barriers, and the map starts every frame writable (Render/ShadowInputs.h).
     bool create(ID3D12Device* device, const ShadowSettings& settings = {});
+    // Stops tracking the map and releases everything (call instead of reassigning).
+    void release();
 
     // frameIndex must match Renderer::frameIndex() so in-flight frames do not
     // share a cascade slice or CBV slot.
@@ -32,7 +36,9 @@ public:
         float cloudCoverage,
         uint32_t frameIndex);
 
-    // After beginFrame: render each cascade, then restore the scene targets.
+    // Inside the Shadows pass, on whichever list records the cascades: beginCascade binds that
+    // cascade's DSV and clears it. No barriers: the map is writable for the whole pass.
+    // beginCapture / endCapture open and close the profile scope.
     void beginCapture(ID3D12GraphicsCommandList* cmd, bool profile = true);
     void beginCascade(ID3D12GraphicsCommandList* cmd, int cascade, bool profile = true);
     void endCapture(ID3D12GraphicsCommandList* cmd);
@@ -47,7 +53,7 @@ public:
     void writeSrv(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE dest) const;
 
     const ShadowPipeline& pipeline() const { return m_pipeline; }
-    // The shadow map, imported into the frame graph (render-graph plan Phase 4).
+    // The shadow map the frame graph imports (with srvCpu() as its view).
     ID3D12Resource*       resource() const { return m_resource.Get(); }
     const ShadowSettings& settings() const { return m_settings; }
     const CascadeData&    cascade(int i) const { return m_cascades[i]; }
@@ -66,7 +72,6 @@ public:
 
 private:
     bool createResources(ID3D12Device* device);
-    UINT sliceIndex(int cascade) const;
     UINT cbBytes() const;
     void closeProfileCascade(ID3D12GraphicsCommandList* cmd);
 
@@ -90,9 +95,6 @@ private:
     UINT                         m_dsvIncr  = 0;
     UINT8*                       m_cbMapped = nullptr;
     D3D12_GPU_VIRTUAL_ADDRESS    m_cbGpu    = 0;
-    D3D12_RESOURCE_STATES        m_state[kBufferedFrames]{
-        D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COMMON
-    };
 };
 
 } // namespace Dark

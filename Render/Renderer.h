@@ -237,7 +237,6 @@ namespace Dark
         void bindHdrColorTarget();
         // The HDR target's optimized clear (linear), for the Decals entry's clear pass.
         const float* hdrClearColor() const;
-        void setShadowSrv(D3D12_CPU_DESCRIPTOR_HANDLE shadowCpu);
         void setLocalShadowSrvs(D3D12_CPU_DESCRIPTOR_HANDLE arrayCpu, D3D12_CPU_DESCRIPTOR_HANDLE recordsCpu);
         void setHeightSrv(D3D12_CPU_DESCRIPTOR_HANDLE heightCpu);
         void setIblSrvs(D3D12_CPU_DESCRIPTOR_HANDLE irradianceCpu, D3D12_CPU_DESCRIPTOR_HANDLE prefilterCpu, D3D12_CPU_DESCRIPTOR_HANDLE brdfLutCpu);

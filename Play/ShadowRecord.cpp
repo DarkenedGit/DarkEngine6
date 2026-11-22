@@ -7,6 +7,7 @@
 #include "Core/Log.h"
 #include "ECS/Components.h"
 #include "ECS/World.h"
+#include "Math/MathHelper.h"
 #include "Play/FrameRecord.h"
 #include "Render/Camera3D.h"
 #include "Render/CullResourceSet.h"
@@ -14,6 +15,7 @@
 #include "Render/FoliagePipeline.h"
 #include "Render/FoliagePrototypes.h"
 #include "Render/GpuResourceCache.h"
+#include "Render/LocalShadowSystem.h"
 #include "Render/Mesh.h"
 #include "Render/ModelDraw.h"
 #include "Render/Renderer.h"
@@ -726,13 +728,35 @@ namespace Dark
             }
             host.shadows->endCapture(depthCmd);
         }
-        else if (host.shadows && host.shadows->isValid())
-        {
-            host.shadows->endCapture(depthCmd);
-        }
 
         if (separate)
             host.renderer->closeShadowList();
+    }
+
+    void recordLocalShadows(ShadowCasterHost& host, LocalShadowSystem& local, ID3D12GraphicsCommandList* cmd, uint8_t& shadowViewIndex)
+    {
+        if (!cmd || local.faceCountThisFrame() <= 0)
+            return;
+        local.beginCapture(cmd);
+        for (int f = 0; f < local.faceCountThisFrame(); ++f)
+        {
+            local.beginFace(cmd, f);
+            const LocalShadowFaceDraw& face          = local.face(f);
+            Sphere3f                   pointSphere;
+            const Sphere3f*            foliageSphere = nullptr;
+            if (face.firstFace && host.world)
+            {
+                const LocalLightComponent* light = host.world->get<LocalLightComponent>(face.light);
+                const TransformComponent*  xf    = host.world->get<TransformComponent>(face.light);
+                if (light && xf && light->type == LocalLightType::Point)
+                {
+                    pointSphere   = Sphere3f(xf->position, Min(light->range, 80.0f));
+                    foliageSphere = &pointSphere;
+                }
+            }
+            recordShadowCasterView(host, cmd, face.viewProj, face.frustum, foliageSphere, face.firstFace, true, shadowViewIndex);
+        }
+        local.endCapture(cmd);
     }
 
 } // namespace Dark

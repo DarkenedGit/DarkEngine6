@@ -405,56 +405,25 @@ void EditorApp::renderScene3D()
     EditorShadowUser shadowUser{ this, &acceptedProp };
     shadowHost.user = &shadowUser;
 
-    // The frame graph drives the frame (render-graph plan Phase 4): every step is an opaque pass on
-    // the main list, set here in recording order and run by frame.execute() below in feature-list
-    // order, which is also the order check. A pass body runs after this setup code, so it captures
-    // only function-scope state; values that cross passes are declared here and filled in order.
+    // The frame graph drives the frame: each entry is declared (or set, for the opaque ones left)
+    // here in recording order and run by frame.execute() below in feature-list order, which is also
+    // the order check. A pass body runs after this setup code, so it captures only function-scope
+    // state; values that cross passes are declared here and filled in order.
     uint32_t           featureCount = 0;
     const FeaturePass* featureList  = editorFeatures(featureCount);
     FrameComposer&     frame        = m_frameComposer;
-    frame.begin(renderer(), FrameView{}, featureList, featureCount, m_shadows.resource(), m_scene.localShadows().resource());
+    frame.begin(renderer(), FrameView{}, featureList, featureCount, m_scene.frameShadows());
     m_scene.requestHistories(frame, renderer());
 
-    frame.set(PassId::Shadows, [&](Rg::PassContext& pass) {
-        ID3D12GraphicsCommandList* const cmd = pass.cmd();
-        ensureDirectionalShadowModels(shadowHost);
-        recordDirectionalShadows(shadowHost, cmd, shadowViewIndex);
-    });
-
-    LocalShadowSystem& localShadows = m_scene.localShadows();
-    if (localShadows.faceCountThisFrame() > 0 || localShadows.isValid())
-    {
-        frame.set(PassId::LocalShadows, [&](Rg::PassContext& pass) {
-            ID3D12GraphicsCommandList* const cmd = pass.cmd();
-            if (localShadows.faceCountThisFrame() > 0)
-            {
-                localShadows.beginCapture(cmd);
-                for (int f = 0; f < localShadows.faceCountThisFrame(); ++f)
-                {
-                    localShadows.beginFace(cmd, f);
-                    const LocalShadowFaceDraw& face = localShadows.face(f);
-                    Sphere3f pointSphere;
-                    const Sphere3f* foliageSphere = nullptr;
-                    if (face.firstFace)
-                    {
-                        const LocalLightComponent* light = world().get<LocalLightComponent>(face.light);
-                        const TransformComponent* xf = world().get<TransformComponent>(face.light);
-                        if (light && xf && light->type == LocalLightType::Point)
-                        {
-                            pointSphere = Sphere3f(xf->position, Min(light->range, 80.0f));
-                            foliageSphere = &pointSphere;
-                        }
-                    }
-                    recordShadowCasterView(shadowHost, cmd, face.viewProj, face.frustum, foliageSphere, face.firstFace, true, shadowViewIndex);
-                }
-                localShadows.endCapture(cmd);
-            }
-            else if (localShadows.isValid())
-            {
-                localShadows.endCapture(cmd);
-            }
+    frame.declare(PassId::Shadows, [&](FeatureBuilder& b) {
+        m_scene.addShadowPasses(b, [&](ID3D12GraphicsCommandList* cmd) {
+            ensureDirectionalShadowModels(shadowHost);
+            recordDirectionalShadows(shadowHost, cmd, shadowViewIndex);
         });
-    }
+    });
+    frame.declare(PassId::LocalShadows, [&](FeatureBuilder& b) {
+        m_scene.addLocalShadowPasses(b, [&](ID3D12GraphicsCommandList* cmd) { recordLocalShadows(shadowHost, m_scene.localShadows(), cmd, shadowViewIndex); });
+    });
 
     const bool instanceColor = instanceStatic;
     const DebugFill fill = renderer().debugState().fill;
@@ -889,7 +858,7 @@ void EditorApp::renderScene3D()
             ++draws;
         }
     };
-    frame.declare(PassId::Translucent, [&, drawTranslucent](FeatureBuilder& b) { m_scene.addHdrOverlayPasses(b, renderer(), "Translucent", drawTranslucent); });
+    frame.declare(PassId::Translucent, [&, drawTranslucent](FeatureBuilder& b) { m_scene.addTranslucentPasses(b, renderer(), drawTranslucent); });
 
     const auto drawParticles = [&](Rg::PassContext& pass, D3D12_CPU_DESCRIPTOR_HANDLE depthSrv, D3D12_CPU_DESCRIPTOR_HANDLE attribSrv) {
         ID3D12GraphicsCommandList* const cmd = pass.cmd();

@@ -43,11 +43,18 @@ bool ShadowSystem::create(ID3D12Device* device, const ShadowSettings& settings)
     return createResources(device);
 }
 
+void ShadowSystem::release()
+{
+    forgetResource(m_resource.Get());
+    *this = ShadowSystem{};
+}
+
 bool ShadowSystem::createResources(ID3D12Device* device)
 {
     if (!device)
         return false;
 
+    forgetResource(m_resource.Get());
     m_resource.Reset();
     m_dsvHeap.Reset();
     m_srvHeap.Reset();
@@ -79,6 +86,7 @@ bool ShadowSystem::createResources(ID3D12Device* device)
     {
         return false;
     }
+    trackResource(m_resource.Get(), D3D12_RESOURCE_STATE_DEPTH_WRITE);
 
     D3D12_DESCRIPTOR_HEAP_DESC dsvHeapDesc{};
     dsvHeapDesc.NumDescriptors = static_cast<UINT>(m_cascadeCount * kBufferedFrames);
@@ -102,7 +110,6 @@ bool ShadowSystem::createResources(ID3D12Device* device)
             m_dsvCpu[frame][i] = dsv;
             dsv.ptr += m_dsvIncr;
         }
-        m_state[frame] = D3D12_RESOURCE_STATE_DEPTH_WRITE;
     }
 
     D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc{};
@@ -151,11 +158,6 @@ bool ShadowSystem::createResources(ID3D12Device* device)
 UINT ShadowSystem::cbBytes() const
 {
     return (sizeof(ShadowConstants) + 255u) & ~255u;
-}
-
-UINT ShadowSystem::sliceIndex(int cascade) const
-{
-    return static_cast<UINT>(m_frame * m_cascadeCount + cascade);
 }
 
 void ShadowSystem::update(
@@ -215,27 +217,12 @@ void ShadowSystem::closeProfileCascade(ID3D12GraphicsCommandList* cmd)
 
 void ShadowSystem::beginCapture(ID3D12GraphicsCommandList* cmd, bool profile)
 {
-    if (!cmd || !m_resource)
-        return;
-    // The atlas is created in DEPTH_WRITE, so the first capture (and any capture
-    // already in that state) skips the barrier but still records the cascades.
     // profile false keeps the worker off profileCpuBegin and PIX.
-    if (profile && !m_profileShadows)
-    {
-        profileCpuBegin("Shadows", ProfileColor::Shadows);
-        profileGpuBegin(cmd, "Shadows", ProfileColor::Shadows);
-        m_profileShadows = true;
-    }
-    if (m_state[m_frame] == D3D12_RESOURCE_STATE_DEPTH_WRITE)
+    if (!cmd || !m_resource || !profile || m_profileShadows)
         return;
-
-    {
-        // Per slice (untracked: the worker thread records these, and the tracker is whole-resource).
-        EnhancedBarrierList barriers(cmd);
-        for (int i = 0; i < m_cascadeCount; ++i)
-            barriers.transition(m_resource.Get(), Rg::ResourceKind::Texture, m_state[m_frame], D3D12_RESOURCE_STATE_DEPTH_WRITE, sliceIndex(i));
-    }
-    m_state[m_frame] = D3D12_RESOURCE_STATE_DEPTH_WRITE;
+    profileCpuBegin("Shadows", ProfileColor::Shadows);
+    profileGpuBegin(cmd, "Shadows", ProfileColor::Shadows);
+    m_profileShadows = true;
 }
 
 void ShadowSystem::beginCascade(ID3D12GraphicsCommandList* cmd, int cascade, bool profile)
@@ -269,30 +256,9 @@ void ShadowSystem::beginCascade(ID3D12GraphicsCommandList* cmd, int cascade, boo
 
 void ShadowSystem::endCapture(ID3D12GraphicsCommandList* cmd)
 {
-    // Close an open cascade even when the SRV barrier is skipped. A disabled-shadow
-    // frame calls endCapture without beginCapture; the flags stay false, so this is a no-op.
-    if (cmd)
-        closeProfileCascade(cmd);
-    if (!cmd || !m_resource)
-    {
-        if (cmd && m_profileShadows)
-        {
-            profileGpuEnd(cmd);
-            profileCpuEnd();
-            m_profileShadows = false;
-        }
+    if (!cmd)
         return;
-    }
-    if (m_state[m_frame] != D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE)
-    {
-        {
-            // Per slice (untracked: the worker thread records these, and the tracker is whole-resource).
-            EnhancedBarrierList barriers(cmd);
-            for (int i = 0; i < m_cascadeCount; ++i)
-                barriers.transition(m_resource.Get(), Rg::ResourceKind::Texture, m_state[m_frame], D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, sliceIndex(i));
-        }
-        m_state[m_frame] = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
-    }
+    closeProfileCascade(cmd);
     if (m_profileShadows)
     {
         profileGpuEnd(cmd);
