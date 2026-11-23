@@ -6,7 +6,7 @@
 | **Author** | Travis Johnston |
 | **Date** | 2026-10-04 |
 | **Status** | Approved |
-| **Area** | `Render/LocalShadow*`, `Render/LocalLight*`, `Render/ShadowPipeline`, `Render/FoliagePipeline`, `content/shaders/LocalLightVolume.hlsl`, `Scene/SceneFile`, Sandbox, Editor |
+| **Area** | `Render/LocalShadow*`, `Render/LocalLight*`, `Render/ShadowPipeline`, `Terrain/FoliagePipeline`, `content/shaders/LocalLightVolume.hlsl`, `Scene/SceneFile`, Sandbox, Editor |
 | **Audience** | Engine, Sandbox, and Editor owners who already know HybridDeferred |
 | **Supersedes** | The 2026-09-17 draft that previously lived in this file (spots only, `D16_UNORM` atlas). That draft is not the contract. |
 

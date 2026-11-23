@@ -125,7 +125,6 @@ static float sandboxSceneGroundY(void* user, float x, float z)
 #define m_taa m_frame.scene().taa()
 #define m_shadows m_frame.scene().shadows()
 #define m_debugOverlay m_frame.scene().debugOverlay()
-#define m_terrainPipeline m_frame.scene().terrainPipeline()
 #define m_waterPipeline m_frame.scene().waterPipeline()
 
 bool useAcesTonemap(const Renderer& r)
@@ -1844,6 +1843,12 @@ void SandboxApp::onInit()
             requestQuit();
             return;
         }
+        if (!m_frame.terrainPipeline().create(renderer().device()))
+        {
+            DE_LOG_FATAL("SandboxApp: TerrainPipeline create failed");
+            requestQuit();
+            return;
+        }
         m_frame.foliagePipeline().create(renderer().device());
         if (!m_frame.drawList().create(renderer().device()))
             DE_LOG_ERROR(LogCategory::Render, "SandboxApp: instanced mesh pipeline failed; static draws stay immediate");
@@ -2055,6 +2060,7 @@ void SandboxApp::onShutdown()
     m_frame.foliagePipeline().destroy();
     m_frame.grassPipeline().destroy();
     m_hud.m_menu.shutdown(renderer());
+    m_frame.terrainPipeline() = TerrainPipeline{};
     m_frame.scene().shutdown();
     m_hud.m_imgui.shutdown(renderer());
     m_hud.m_menuBackground   = Dark::Texture2D{};

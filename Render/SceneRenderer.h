@@ -32,7 +32,6 @@
 #include "Render/SkinningUploadRing.h"
 #include "Render/TaaPipeline.h"
 #include "Render/TemporalHistory.h"
-#include "Render/TerrainPipeline.h"
 #include "Render/TonemapPipeline.h"
 #include "Render/UnderwaterPipeline.h"
 #include "Render/WaterPipeline.h"
@@ -53,15 +52,16 @@ class FrameComposer;
 class Renderer;
 class World;
 
-// Shared mesh / lighting / post / (optional) terrain-water pipelines used by
+// Shared mesh / lighting / post / (optional) water pipelines used by
 // Sandbox and Editor. Hosts still own world draw order; this owns pipeline
 // lifetime and the deferred present/post path (auto exposure → bloom → TAA → motion blur → tonemap).
 struct SceneRendererDesc
 {
-    // When true, also create TerrainPipeline / WaterPipeline (Sandbox).
+    // When true, also create WaterPipeline; a failure fails init (Sandbox).
     bool createWorldEnvironment = false;
-    // TerrainPipeline only (Editor). Ignored when createWorldEnvironment is true.
-    bool createTerrainPipeline = false;
+    // WaterPipeline, optional: a failure is logged and the host has no water (Editor). Ignored when
+    // createWorldEnvironment is true.
+    bool createWaterPipeline = false;
     // Log prefix for create failures (e.g. "SandboxApp", "EditorApp").
     const char* logTag = "SceneRenderer";
     // Sandbox only. Editor leaves this false and does not build the meter.
@@ -338,7 +338,6 @@ public:
     LocalShadowSystem&        localShadows() { return m_localShadows; }
     DebugOverlay&             debugOverlay() { return m_debugOverlay; }
 
-    TerrainPipeline& terrainPipeline() { return m_terrainPipeline; }
     WaterPipeline&   waterPipeline() { return m_waterPipeline; }
 
     // The domain features the host registered (registerXxxFeatures) before init. init creates them
@@ -371,7 +370,6 @@ public:
     const LocalShadowSystem&        localShadows() const { return m_localShadows; }
     const DebugOverlay&             debugOverlay() const { return m_debugOverlay; }
 
-    const TerrainPipeline& terrainPipeline() const { return m_terrainPipeline; }
     const WaterPipeline&   waterPipeline() const { return m_waterPipeline; }
 
     const Math::Matrix4f& prevViewProj() const { return m_prevViewProj; }
@@ -386,7 +384,6 @@ public:
 private:
     bool createCorePipelines(Renderer& renderer, const char* tag);
     bool createPostPipelines(Renderer& renderer, const char* tag);
-    bool createTerrainPipelineOnly(Renderer& renderer, const char* tag);
     bool createWorldEnvPipelines(Renderer& renderer, const char* tag);
     void markHistoryUnwritten(const Rg::HistoryTargets& history, const char* name);
     void createDecalPass(Renderer& renderer, const char* tag);
@@ -437,7 +434,6 @@ private:
     int                      m_fogOccluderCount = 0;
     DebugOverlay             m_debugOverlay;
 
-    TerrainPipeline m_terrainPipeline;
     WaterPipeline   m_waterPipeline;
     bool            m_haveWorldEnv = false;
 

@@ -3,8 +3,8 @@
 #include "Math/Vector3f.h"
 #include "Render/DeferredLightingPipeline.h"
 #include "Render/Fog.h"
+#include "Render/HeightProvider.h"
 #include "Sky/Environment.h"
-#include "Terrain/HeightMap.h"
 
 #include <cstddef>
 
@@ -16,9 +16,26 @@ using Dark::heightFogAmount;
 using Dark::makeFogGpu;
 using Dark::valleyFogDensity;
 using Dark::LightingConstants;
+using Dark::HeightGrid;
+using Dark::IHeightProvider;
 using Dark::Sky::Environment;
-using Dark::Terrain::HeightMap;
-using Dark::Terrain::kMaxHeightMapSize;
+
+namespace
+{
+    class FakeHeights final : public IHeightProvider
+    {
+    public:
+        bool       valid = true;
+        HeightGrid grid;
+        bool heightGrid(HeightGrid& out) const override
+        {
+            if (!valid)
+                return false;
+            out = grid;
+            return true;
+        }
+    };
+} // namespace
 
 TEST(Fog, HeightFogAmountPeaksOnTheHorizon)
 {
@@ -86,28 +103,51 @@ TEST(Fog, FillFogHeightMap_CoarseAndDummy)
     dummy.heightWorldSizeX = 9.0f;
     fillFogHeightMap(dummy, nullptr);
     EXPECT_FLOAT_EQ(dummy.heightCellSize, 0.0f);
+    EXPECT_FLOAT_EQ(dummy.heightOriginX, 9.0f);
+    EXPECT_FLOAT_EQ(dummy.heightWorldSizeX, 9.0f);
 
-    HeightMap invalid;
-    dummy.heightCellSize = 9.0f;
+    FakeHeights invalid;
+    invalid.valid         = false;
+    invalid.grid.cellSize = 4.0f;
+    dummy.heightCellSize  = 9.0f;
     fillFogHeightMap(dummy, &invalid);
     EXPECT_FLOAT_EQ(dummy.heightCellSize, 0.0f);
+    EXPECT_FLOAT_EQ(dummy.heightOriginX, 9.0f);
 
-    HeightMap coarse;
-    ASSERT_TRUE(coarse.create(kMaxHeightMapSize, kMaxHeightMapSize, 2.0f, 1.0f));
-    coarse.setOrigin(Dark::Math::Vector3f{ -1024.0f, 0.0f, -1024.0f });
+    // Non-square, with a height origin, so X/Z and Y mix-ups show.
+    FakeHeights coarse;
+    coarse.grid.origin   = Dark::Math::Vector3f{ -1024.0f, 37.0f, -512.0f };
+    coarse.grid.cellSize = 2.0f;
+    coarse.grid.width    = 1025;
+    coarse.grid.height   = 513;
 
     FogGpu fog{};
     fillFogHeightMap(fog, &coarse);
     EXPECT_FLOAT_EQ(fog.heightOriginX, -1024.0f);
-    EXPECT_FLOAT_EQ(fog.heightOriginZ, -1024.0f);
+    EXPECT_FLOAT_EQ(fog.heightOriginZ, -512.0f);
     EXPECT_FLOAT_EQ(fog.heightCellSize, 2.0f);
     EXPECT_FLOAT_EQ(fog.heightWorldSizeX, 2048.0f);
-    EXPECT_FLOAT_EQ(fog.heightWorldSizeZ, 2048.0f);
+    EXPECT_FLOAT_EQ(fog.heightWorldSizeZ, 1024.0f);
 
     LightingConstants lc{};
     applyFogToLighting(lc, fog);
     EXPECT_EQ(sizeof(LightingConstants), 57u * sizeof(float));
     EXPECT_FLOAT_EQ(lc.heightOriginX, -1024.0f);
+    EXPECT_FLOAT_EQ(lc.heightOriginZ, -512.0f);
     EXPECT_FLOAT_EQ(lc.heightCellSize, 2.0f);
     EXPECT_FLOAT_EQ(lc.heightWorldSizeX, 2048.0f);
+    EXPECT_FLOAT_EQ(lc.heightWorldSizeZ, 1024.0f);
+}
+
+TEST(Fog, FillFogHeightMap_EmptyGridHasZeroWorldSize)
+{
+    FakeHeights empty;
+    empty.grid.cellSize = 3.0f;
+    FogGpu fog{};
+    fog.heightWorldSizeX = 9.0f;
+    fog.heightWorldSizeZ = 9.0f;
+    fillFogHeightMap(fog, &empty);
+    EXPECT_FLOAT_EQ(fog.heightCellSize, 3.0f);
+    EXPECT_FLOAT_EQ(fog.heightWorldSizeX, 0.0f);
+    EXPECT_FLOAT_EQ(fog.heightWorldSizeZ, 0.0f);
 }

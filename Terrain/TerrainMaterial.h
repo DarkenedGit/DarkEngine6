@@ -3,7 +3,7 @@
 #include "Assets/AssetHandle.h"
 #include "Assets/Image.h"
 #include "Render/PackedSrvHeap.h"
-#include "Render/TerrainPipeline.h"
+#include "Terrain/TerrainPipeline.h"
 #include "Render/Texture2D.h"
 #include "Terrain/SplatMap.h"
 

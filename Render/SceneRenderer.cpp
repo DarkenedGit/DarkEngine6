@@ -163,25 +163,9 @@ bool SceneRenderer::createPostPipelines(Renderer& renderer, const char* tag)
     return true;
 }
 
-bool SceneRenderer::createTerrainPipelineOnly(Renderer& renderer, const char* tag)
-{
-    if (!m_terrainPipeline.create(renderer.device()))
-    {
-        DE_LOG_FATAL("{}: TerrainPipeline create failed", tag);
-        return false;
-    }
-    if (!m_waterPipeline.create(renderer.device(), renderer.sceneColorFormat()))
-    {
-        DE_LOG_ERROR(LogCategory::Render, "{}: WaterPipeline create failed — no water in this host", tag);
-    }
-    return true;
-}
-
 bool SceneRenderer::createWorldEnvPipelines(Renderer& renderer, const char* tag)
 {
-    if (!createTerrainPipelineOnly(renderer, tag))
-        return false;
-    if (!m_waterPipeline.isValid())
+    if (!m_waterPipeline.create(renderer.device(), renderer.sceneColorFormat()))
     {
         DE_LOG_FATAL("{}: WaterPipeline create failed", tag);
         return false;
@@ -209,10 +193,10 @@ bool SceneRenderer::init(Renderer& renderer, const SceneRendererDesc& desc)
         if (!createWorldEnvPipelines(renderer, tag))
             return false;
     }
-    else if (desc.createTerrainPipeline)
+    else if (desc.createWaterPipeline)
     {
-        if (!createTerrainPipelineOnly(renderer, tag))
-            return false;
+        if (!m_waterPipeline.create(renderer.device(), renderer.sceneColorFormat()))
+            DE_LOG_ERROR(LogCategory::Render, "{}: WaterPipeline create failed — no water in this host", tag);
     }
     createDecalPass(renderer, tag);
     FeatureCreateInfo featureInfo;
@@ -288,7 +272,6 @@ void SceneRenderer::shutdown()
     m_shadows.release();
     m_localShadows.release();
     m_debugOverlay             = DebugOverlay{};
-    m_terrainPipeline          = TerrainPipeline{};
     m_waterPipeline            = WaterPipeline{};
     m_features.destroyAll();
     m_haveWorldEnv             = false;

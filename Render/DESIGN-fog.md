@@ -13,7 +13,7 @@ Lit fog on the view ray. One integrator combines a uniform distance haze, an exp
 
 ## Where it runs
 
-`Fog.hlsli` is included by the passes that shade a surface or the sky. `makeFogGpu` / `applyFogToLighting` pack `Sky::Environment` into those constant buffers. `fillFogHeightMap` adds the coarse height-field origin, cell size, and world size so the valley term can read terrain.
+`Fog.hlsli` is included by the passes that shade a surface or the sky. `makeFogGpu` / `applyFogToLighting` pack `Sky::Environment` into those constant buffers. `fillFogHeightMap` adds the coarse height-field origin, cell size, and world size so the valley term can read terrain. It reads them through `IHeightProvider` (`Render/HeightProvider.h`), which `Terrain::HeightMap` implements, so Render does not include Terrain headers.
 
 | Pass | Shader | What it fogs |
 |------|--------|----------------|

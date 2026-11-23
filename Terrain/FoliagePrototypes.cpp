@@ -1,4 +1,4 @@
-#include "Render/FoliagePrototypes.h"
+#include "Terrain/FoliagePrototypes.h"
 
 #include "Assets/AssetManager.h"
 #include "Assets/Material.h"

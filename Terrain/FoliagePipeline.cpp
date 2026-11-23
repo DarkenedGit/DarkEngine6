@@ -1,4 +1,4 @@
-#include "Render/FoliagePipeline.h"
+#include "Terrain/FoliagePipeline.h"
 #include "Render/EnhancedBarrierEmitter.h"
 
 #include "Assets/AssetManager.h"
@@ -9,7 +9,7 @@
 #include "Math/Sphere3f.h"
 #include "Render/Camera3D.h"
 #include "Render/DepthState.h"
-#include "Render/FoliagePrototypes.h"
+#include "Terrain/FoliagePrototypes.h"
 #include "Render/Frustum3f.h"
 #include "Render/GpuMaterial.h"
 #include "Render/GpuModel.h"

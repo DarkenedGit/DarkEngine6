@@ -159,7 +159,6 @@ using namespace Audio;
 #define m_motionBlur m_scene.motionBlur()
 #define m_taa m_scene.taa()
 #define m_shadows m_scene.shadows()
-#define m_terrainPipeline m_scene.terrainPipeline()
 #define m_waterPipeline m_scene.waterPipeline()
 
 SandboxApp& SandboxFrame::app() const

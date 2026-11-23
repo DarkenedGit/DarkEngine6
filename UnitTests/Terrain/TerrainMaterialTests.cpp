@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "Render/TerrainPipeline.h"
+#include "Terrain/TerrainPipeline.h"
 #include "Terrain/HeightBlend.h"
 #include "Terrain/TerrainMaterial.h"
 

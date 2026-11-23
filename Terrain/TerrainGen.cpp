@@ -2,7 +2,7 @@
 #include "Render/EnhancedBarrierEmitter.h"
 #include "Core/Log.h"
 #include "Math/MathHelper.h"
-#include "Render/TerrainErosionPipeline.h"
+#include "Terrain/TerrainErosionPipeline.h"
 #include "Render/Texture2D.h"
 
 #include <chrono>

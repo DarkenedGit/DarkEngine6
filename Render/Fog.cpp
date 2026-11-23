@@ -1,7 +1,7 @@
 #include "Render/Fog.h"
 #include "Render/DeferredLightingPipeline.h"
 #include "Render/EnvironmentProvider.h"
-#include "Terrain/HeightMap.h"
+#include "Render/HeightProvider.h"
 
 namespace Dark
 {
@@ -36,21 +36,22 @@ namespace Dark
         return fog;
     }
 
-    void fillFogHeightMap(FogGpu& fog, const Terrain::HeightMap* heightMap)
+    void fillFogHeightMap(FogGpu& fog, const IHeightProvider* heights)
     {
-        if (!heightMap || !heightMap->valid())
+        HeightGrid grid;
+        if (!heights || !heights->heightGrid(grid))
         {
             // Dummy 1x1 height SRV stays bound; FogSampleTerrainY skips when cellSize is 0.
             fog.heightCellSize = 0.0f;
             return;
         }
-        const float cellsX     = static_cast<float>(heightMap->width() > 0 ? heightMap->width() - 1 : 0);
-        const float cellsZ     = static_cast<float>(heightMap->height() > 0 ? heightMap->height() - 1 : 0);
-        fog.heightOriginX      = heightMap->origin().x;
-        fog.heightOriginZ      = heightMap->origin().z;
-        fog.heightCellSize     = heightMap->cellSize();
-        fog.heightWorldSizeX   = heightMap->cellSize() * cellsX;
-        fog.heightWorldSizeZ   = heightMap->cellSize() * cellsZ;
+        const float cellsX     = static_cast<float>(grid.width > 0 ? grid.width - 1 : 0);
+        const float cellsZ     = static_cast<float>(grid.height > 0 ? grid.height - 1 : 0);
+        fog.heightOriginX      = grid.origin.x;
+        fog.heightOriginZ      = grid.origin.z;
+        fog.heightCellSize     = grid.cellSize;
+        fog.heightWorldSizeX   = grid.cellSize * cellsX;
+        fog.heightWorldSizeZ   = grid.cellSize * cellsZ;
     }
 
     void applyFogToLighting(LightingConstants& lc, const FogGpu& fog)

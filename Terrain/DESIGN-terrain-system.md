@@ -9,7 +9,7 @@
 | **Date** | 2026-09-18 |
 | **Status** | Draft (rev 2 — look track only; review pass: `k<=0` splat branch, world tiling, TBN + triplanar-(a), Editor punch-list) |
 | **Priority** | P1 — quality of HybridDeferred terrain G-buffer (sibling of maps/IBL, not a geo rewrite) |
-| **Area** | `Terrain/*`, `Render/TerrainPipeline.*`, `Render/PackedSrvHeap.*`, `content/shaders/TerrainGBuffer.hlsl`, `content/shaders/Terrain.hlsl`, `Sandbox/SandboxApp.cpp`, `Editor/*` (new terrain panel + scene I/O), `Scene/SceneTypes.h`, `Scene/SceneFile.*`, `content/terrain/`, UnitTests |
+| **Area** | `Terrain/*` (including `Terrain/TerrainPipeline.*`), `Render/PackedSrvHeap.*`, `content/shaders/TerrainGBuffer.hlsl`, `content/shaders/Terrain.hlsl`, `Sandbox/SandboxApp.cpp`, `Editor/*` (new terrain panel + scene I/O), `Scene/SceneTypes.h`, `Scene/SceneFile.*`, `content/terrain/`, UnitTests |
 | **Audience** | Engine, Sandbox, Editor owners who already know this tree |
 | **Depends on** | [DESIGN-pbr-material-maps.md](../Render/DESIGN-pbr-material-maps.md) (**landed** — G-buffer MRT3 AO, RT1 oct/rough/metal). [DESIGN-ibl.md](../Render/DESIGN-ibl.md) (**landed** — HybridDeferred lights G-buffer attrib + AO; terrain already participates). [DESIGN-color-management.md](../Render/DESIGN-color-management.md) (**landed** — albedo `_SRGB`, data Linear). Does **not** depend on CDLOD, SSAO, or a new lighting model. |
 | **Supersedes** | In-tree `DESIGN-terrain-system.md` rev 1 and `DESIGN-terrain-cheatsheet.md` Plan A one-pager. Maps RFC **M13** “terrain splat out of scope / later RFC” — this is that RFC; still not `Dark::Material`. |
