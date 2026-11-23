@@ -9,24 +9,28 @@ Tagged cues report themselves when they play. Guards hear weapon fire, impacts, 
 
 ## Tag
 
-The tag lives on the cue (`SoundCueDesc::stimulus` in `Audio/SoundComponents.h`), not on the wav and not as a loudness argument at the call. `stimulusForCue` in `Play/CharacterAudio.h` is the table, keyed by owner and cue name. Player `fire` is a weapon. Hunter `fire` is empty, so a status tick is not a gunshot.
+The tag lives on the cue (`SoundCueDesc::stimulus` in `Audio/SoundComponents.h`), not on the wav and not as a loudness argument at the call. The rows are `content/ai/sound-stimuli.json`, keyed by owner (`player`, `hunter`, or `both`) and cue name. `stimulusForCue` reads that file. A name that is not listed does not alert. Hunter `fire` is omitted, so a status tick is not a gunshot.
+
+Edit the JSON and start play again, or spawn the character again. The loader prefers the authoring `content/` folder over the copy next to the executable, so the change does not wait for a rebuild. A bank that is already in the world keeps the row it copied at attach. An audible row forces that cue spatial, so the play has a position. Kind `none`, radius 0, or loudness 0 leaves the cue quiet. `positional: false` does the same.
 
 `Audio::SoundStimulus` (`Audio/SoundStimulus.h`) holds radius (meters), loudness, kind (`Footstep`, `Impact`, `Weapon`, `Voice`), and a positional flag. A stimulus is audible only when the kind is set, it is positional, and both radius and loudness are above zero.
 
+Shipped rows:
+
 | Cue | Owner | Kind | Radius | Loudness |
 | --- | --- | --- | --- | --- |
-| fire | Player | Weapon | 48 | 4 |
-| fire | Hunter | none | | |
-| swing | Player | Weapon | 12 | 3.4 |
-| impact | Player and hunter | Impact | 14 | 3.4 |
-| pain | Player and hunter | Voice | 28 | 5 |
-| grunt | Hunter | Voice | 18 | 3.4 |
-| death | Player | Voice | 36 | 5 |
-| status | Player and hunter | none | | |
+| fire | player | weapon | 48 | 4 |
+| swing | player | weapon | 12 | 3.4 |
+| impact | both | impact | 14 | 3.4 |
+| pain | both | voice | 28 | 5 |
+| grunt | hunter | voice | 18 | 3.4 |
+| death | player | voice | 36 | 5 |
 
 Loudness 3.4 is the floor. With the default noise curve (`noiseBase` 0.3), one in-range event of that loudness fills a Calm guard into Suspicious.
 
-Untagged, and left that way: footsteps, jump, land, splash, swim step, heal, growl, hunter land, clicks, music, barks, dialogue, the alarm `play2D`, crow caws, and rock or bottle impacts. Throwables still search through `postThrowableLanding`. Wolf growls and crow caws are not part of this.
+Omitted, and quiet until a row is added: hunter fire, status, footsteps, jump, land, splash, swim step, heal, growl, hunter land. Clicks, music, barks, dialogue, the alarm `play2D`, Editor preview, crow caws, and rock or bottle impacts are not this table. Throwables still search through `postThrowableLanding`. Tagging `step` or a ground footstep cue adds a second impulse on top of the exposure stride.
+
+The point-blank loudness floor (`kSoundAlertLoudness`, 2) and the wait curve (`soundInvestigateDelaySeconds`) stay in code.
 
 Player death is spatial, so the cue has a position to report. `play3D` stays untagged and has no source id. Editor preview does not set a stimulus.
 

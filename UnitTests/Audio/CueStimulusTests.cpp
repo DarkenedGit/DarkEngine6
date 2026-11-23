@@ -10,6 +10,8 @@
 #include "Play/CharacterAudio.h"
 #include "Terrain/TerrainGround.h"
 
+#include <string>
+
 using Dark::AssetManager;
 using Dark::AssetPinTable;
 using Dark::CueOwner;
@@ -19,6 +21,8 @@ using Dark::SoundCueDesc;
 using Dark::World;
 using Dark::addSoundCue;
 using Dark::findSoundCue;
+using Dark::loadCueStimuli;
+using Dark::reloadCueStimuli;
 using Dark::stimulusForCue;
 using Dark::Audio::AudioSystem;
 using Dark::Audio::StimulusKind;
@@ -46,6 +50,7 @@ namespace
 
 TEST(CueStimulus, Table)
 {
+    ASSERT_TRUE(reloadCueStimuli());
     expectKind(CueOwner::Player, "fire", StimulusKind::Weapon, 48.0f, 4.0f);
     expectNone(CueOwner::Hunter, "fire");
     expectKind(CueOwner::Player, "swing", StimulusKind::Weapon, 12.0f, 3.4f);
@@ -70,6 +75,7 @@ TEST(CueStimulus, Table)
 
 TEST(CueStimulus, ReplaceWritesStimulus)
 {
+    ASSERT_TRUE(reloadCueStimuli());
     SoundBankComponent bank;
     addSoundCue(bank, "fire", 1, 1.0f, true, stimulusForCue(CueOwner::Player, "fire"));
     ASSERT_TRUE(stimulusAudible(findSoundCue(bank, "fire")->stimulus));
@@ -90,8 +96,74 @@ TEST(CueStimulus, StatusDoesNotUseFire)
     }
 }
 
+TEST(CueStimulus, BadJsonKeepsTheLoadedTable)
+{
+    ASSERT_TRUE(reloadCueStimuli());
+    const Dark::Audio::SoundStimulus fire = stimulusForCue(CueOwner::Player, "fire");
+    ASSERT_TRUE(stimulusAudible(fire));
+    std::string error;
+    EXPECT_FALSE(loadCueStimuli("{\"version\":1,\"cues\":[{\"owner\":\"player\",\"name\":\"fire\",\"kind\":\"bang\",\"radius\":1,\"loudness\":1}]}", &error));
+    EXPECT_FALSE(error.empty());
+    EXPECT_FLOAT_EQ(stimulusForCue(CueOwner::Player, "fire").radius, fire.radius);
+    EXPECT_EQ(stimulusForCue(CueOwner::Player, "fire").kind, StimulusKind::Weapon);
+}
+
+TEST(CueStimulus, JsonTurnsOnAQuietCue)
+{
+    std::string error;
+    ASSERT_TRUE(loadCueStimuli(R"({
+        "version": 1,
+        "cues": [
+            { "owner": "hunter", "name": "growl", "kind": "voice", "radius": 22, "loudness": 3.4 },
+            { "owner": "both", "name": "impact", "kind": "impact", "radius": 9, "loudness": 3.4 },
+            { "owner": "player", "name": "heal", "kind": "voice", "radius": 16, "loudness": 4 },
+            { "owner": "player", "name": "jump", "kind": "impact", "radius": 10, "loudness": 3, "positional": false }
+        ]
+    })", &error)) << error;
+    expectKind(CueOwner::Hunter, "growl", StimulusKind::Voice, 22.0f, 3.4f);
+    expectKind(CueOwner::Player, "impact", StimulusKind::Impact, 9.0f, 3.4f);
+    expectKind(CueOwner::Hunter, "impact", StimulusKind::Impact, 9.0f, 3.4f);
+    expectNone(CueOwner::Player, "fire");
+    expectNone(CueOwner::Player, "jump");
+
+    World                     world;
+    AssetPinTable             pins;
+    AssetManager              assets;
+    AudioSystem               audio;
+    Dark::Terrain::TerrainGround ground;
+    Entity                    e = world.createEntity();
+    world.emplace<Dark::TransformComponent>(e, Dark::TransformComponent{});
+    Dark::attachPlayerSounds(world, pins, assets, audio, e, ground);
+    const SoundBankComponent* bank = world.get<SoundBankComponent>(e);
+    ASSERT_NE(bank, nullptr);
+    const SoundCueDesc* heal = findSoundCue(*bank, "heal");
+    ASSERT_NE(heal, nullptr);
+    EXPECT_TRUE(heal->spatial);
+    EXPECT_TRUE(stimulusAudible(heal->stimulus));
+    const SoundCueDesc* jump = findSoundCue(*bank, "jump");
+    ASSERT_NE(jump, nullptr);
+    EXPECT_FALSE(jump->spatial);
+    EXPECT_FALSE(stimulusAudible(jump->stimulus));
+
+    std::string duplicate;
+    EXPECT_FALSE(loadCueStimuli(R"({
+        "version": 1,
+        "cues": [
+            { "owner": "both", "name": "impact", "kind": "impact", "radius": 9, "loudness": 3.4 },
+            { "owner": "player", "name": "impact", "kind": "impact", "radius": 4, "loudness": 3.4 }
+        ]
+    })", &duplicate));
+    EXPECT_FALSE(duplicate.empty());
+    EXPECT_FLOAT_EQ(stimulusForCue(CueOwner::Hunter, "growl").radius, 22.0f);
+
+    ASSERT_TRUE(reloadCueStimuli());
+    expectNone(CueOwner::Hunter, "growl");
+    expectKind(CueOwner::Player, "fire", StimulusKind::Weapon, 48.0f, 4.0f);
+}
+
 TEST(CueStimulus, PlayerDeathIsSpatial)
 {
+    ASSERT_TRUE(reloadCueStimuli());
     World                     world;
     AssetPinTable             pins;
     AssetManager              assets;

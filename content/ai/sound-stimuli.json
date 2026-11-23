@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "cues": [
+    { "owner": "player", "name": "fire", "kind": "weapon", "radius": 48, "loudness": 4 },
+    { "owner": "player", "name": "swing", "kind": "weapon", "radius": 12, "loudness": 3.4 },
+    { "owner": "both", "name": "impact", "kind": "impact", "radius": 14, "loudness": 3.4 },
+    { "owner": "both", "name": "pain", "kind": "voice", "radius": 28, "loudness": 5 },
+    { "owner": "hunter", "name": "grunt", "kind": "voice", "radius": 18, "loudness": 3.4 },
+    { "owner": "player", "name": "death", "kind": "voice", "radius": 36, "loudness": 5 }
+  ]
+}
