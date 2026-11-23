@@ -6,7 +6,7 @@
 | **Author** | TBD |
 | **Date** | 2026-08-25 |
 | **Status** | Draft (rev 4) |
-| **Area** | `Render/` + `Core/Application` boot path |
+| **Area** | `Media/LoadingScreen*` + `Core/Application` boot path |
 | **Audience** | Engine, Sandbox, Sandbox2D, Editor owners |
 
 ---
@@ -17,7 +17,7 @@ DarkEngine6 currently creates a visible Win32 window, initializes D3D12, then bl
 
 Control flow is a **nested pump**, not a job scheduler: engine-dwell presents → **one** `onInit()` call (hosts re-enter `pumpBootFrame()` at checkpoints) → host-dwell presents → fade → teardown. Config and textures load **after** the first present. Skip keys zero remaining dwell; they never destroy GPU objects while `onInit` is still running.
 
-The system is config-driven (`content/loading/*.json`), owned by a small `Render/LoadingScreen` subsystem, driven by `Application` (so Sandbox / Sandbox2D / Editor / VisualDebugger do not fork splash code), and torn down before the first gameplay frame. It is explicitly **not** a level loader; a later world-load screen can reuse the presenter, not the boot state machine.
+The system is config-driven (`content/loading/*.json`), owned by a small `Media/LoadingScreen` subsystem, driven by `Application` (so Sandbox / Sandbox2D / Editor / VisualDebugger do not fork splash code), and torn down before the first gameplay frame. It is explicitly **not** a level loader; a later world-load screen can reuse the presenter, not the boot state machine.
 
 ---
 
@@ -187,8 +187,8 @@ These are the proposed defaults. Remaining product questions are listed at the e
 ### Placement
 
 ```
-Render/LoadingScreen.h / .cpp     presenter + animation + GPU resources
-Render/LoadingScreenConfig.h/.cpp JSON schema + deep merge + restricted path resolve
+Media/LoadingScreen.h / .cpp      presenter + animation + GPU resources
+Media/LoadingScreenConfig.h/.cpp  JSON schema + deep merge + restricted path resolve
 content/shaders/LoadingScreen.hlsl  textured/animated path (disk; optional)
 content/loading/engine.json         engine defaults (no host.image)
 content/loading/<hostId>.json       host override

@@ -20,7 +20,7 @@ This engine is still in progress. This README covers only what is in the tree to
 | `VisualDebugger` | exe | Connects to a running host over TCP for performance and debug data |
 | `UnitTests` | exe | GoogleTest suite (built when `DE_BUILD_TESTS` is on) |
 
-Hosts link only `DarkEngine`. Each engine `.cpp` compiles in exactly one target. One exception to the folder rule: `Render/LoadingScreen.cpp` is compiled into `DarkEngine` instead of `DarkRender`, because it calls the movie player and `DarkRender` cannot link back into `DarkEngine`. The layer graph is documented at the top of `cmake/DarkEngineTargets.cmake`.
+Hosts link only `DarkEngine`. Each engine `.cpp` compiles in exactly one target. Every `Render/*.cpp` compiles into `DarkRender`; the loading screen and the movie presenters, which call the movie player, live in `Media/` and compile into `DarkEngine`. The layer graph is documented at the top of `cmake/DarkEngineTargets.cmake`.
 
 HLSL lives in `content/shaders/`. Debug builds, the Editor and UnitTests compile it at runtime with DXC; Release game exes load DXIL baked at build time (see [Shaders](#shaders)).
 
