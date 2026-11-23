@@ -24,7 +24,7 @@
 #include "Play/PlayLook.h"
 #include "Play/PlayMotor.h"
 #include "Play/ShoulderCamera.h"
-#include "Play/FrameRecord.h"
+#include "Render/FrameRecord.h"
 #include "Play/ShadowRecord.h"
 #include "Play/TerrainStream.h"
 #include "Terrain/TerrainLodFile.h"

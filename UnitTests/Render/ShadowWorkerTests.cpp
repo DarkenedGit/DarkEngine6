@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "Core/JobSystem.h"
-#include "Play/FrameRecord.h"
+#include "Render/FrameRecord.h"
 #include "Render/CullResourceSet.h"
 
 #include <atomic>

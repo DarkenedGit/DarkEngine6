@@ -7,7 +7,7 @@
 #include "Core/MainThread.h"
 #include "Core/Version.h"
 #include "Input/InputCodes.h"
-#include "Play/FrameRecord.h"
+#include "Render/FrameRecord.h"
 #include "Render/GpuResourceCache.h"
 #include "Render/Profile.h"
 

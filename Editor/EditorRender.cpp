@@ -1,6 +1,6 @@
 #include "EditorApp.h"
 
-#include "Play/FrameRecord.h"
+#include "Render/FrameRecord.h"
 
 #include "Editor/EditorInternals.h"
 #include "Editor/EditorObject.h"

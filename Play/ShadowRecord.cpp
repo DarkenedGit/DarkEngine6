@@ -8,7 +8,7 @@
 #include "ECS/Components.h"
 #include "ECS/World.h"
 #include "Math/MathHelper.h"
-#include "Play/FrameRecord.h"
+#include "Render/FrameRecord.h"
 #include "Render/Camera3D.h"
 #include "Render/CullResourceSet.h"
 #include "Render/DrawList.h"
