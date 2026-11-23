@@ -107,8 +107,6 @@ void EditorApp::onInit()
 
     {
         SceneRendererDesc sceneDesc{};
-        sceneDesc.createWorldEnvironment = false;
-        sceneDesc.createWaterPipeline    = true;
         sceneDesc.logTag = "EditorApp";
         registerSkyFeatures(m_scene.features(), m_sky);
         if (!m_scene.init(renderer(), sceneDesc))
@@ -116,6 +114,7 @@ void EditorApp::onInit()
             requestQuit();
             return;
         }
+        m_waterRendering.create(renderer(), "EditorApp", false);
         if (!m_terrainPipeline.create(renderer().device()))
         {
             DE_LOG_FATAL("EditorApp: TerrainPipeline create failed");
@@ -448,6 +447,7 @@ void EditorApp::onShutdown()
     m_splat              = {};
     m_haveTerrain        = false;
     m_terrainPipeline    = TerrainPipeline{};
+    m_waterRendering.release();
     m_scene.shutdown();
     if (m_propMaterial)
         assets().unload(m_propMaterial->id);

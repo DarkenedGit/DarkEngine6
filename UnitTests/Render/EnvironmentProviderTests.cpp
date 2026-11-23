@@ -3,7 +3,7 @@
 #include "Render/Camera3D.h"
 #include "Render/EnvironmentProvider.h"
 #include "Render/Fog.h"
-#include "Render/WaterPipeline.h"
+#include "Water/WaterPipeline.h"
 #include "Math/MathHelper.h"
 
 #include <cstring>

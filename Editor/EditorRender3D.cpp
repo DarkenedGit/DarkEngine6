@@ -630,12 +630,12 @@ void EditorApp::renderScene3D()
     m_scene.features().declare(frame, view);
     frame.declare(PassId::SsrCapture, [&](FeatureBuilder& b) { m_scene.addSsrCapturePasses(b, renderer()); });
     const bool anyWater = m_sceneWorld.water.wetChunkCount() > 0 || !m_placedWater.empty() || !m_sceneWorld.water.ribbons().empty();
-    if (m_haveTerrain && m_scene.waterPipeline().isValid() && anyWater)
+    if (m_haveTerrain && m_waterRendering.pipeline().isValid() && anyWater)
     {
         frame.declare(PassId::Water,
                       [&](FeatureBuilder& b)
                       {
-                          m_scene.addWaterPasses(b, renderer(),
+                          m_waterRendering.addWaterPasses(b, renderer(),
                                                  [&](Rg::PassContext& pass, const WaterTables& tables)
                                                  {
                                                      const Frustum3f waterFrustum(m_camera.GetCullViewProj());

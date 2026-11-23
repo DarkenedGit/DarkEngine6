@@ -3,7 +3,7 @@
 #include "Render/ShaderCompile.h"
 #include "Sky/SkyPipeline.h"
 #include "Render/SsrPipeline.h"
-#include "Render/WaterPipeline.h"
+#include "Water/WaterPipeline.h"
 #include "Sky/CloudLayer.h"
 #include "Sky/Environment.h"
 #include "Render/RhiDevice.h"

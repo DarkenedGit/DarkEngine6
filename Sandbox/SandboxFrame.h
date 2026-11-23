@@ -14,6 +14,7 @@
 #include "Terrain/FoliagePrototypes.h"
 #include "Terrain/GrassPipeline.h"
 #include "Terrain/TerrainPipeline.h"
+#include "Water/WaterRendering.h"
 #include "Render/MeshConstants.h"
 #include "Render/SceneRenderer.h"
 #include "Render/WalkabilityDebug.h"
@@ -49,6 +50,7 @@ public:
     Dark::LeafRenderer&          leafRenderer() { return m_leafRenderer; }
     Dark::TerrainMaterial&       terrainMaterial() { return m_terrainMaterial; }
     Dark::TerrainPipeline&       terrainPipeline() { return m_terrainPipeline; }
+    Dark::WaterRendering&        water() { return m_water; }
     Dark::ParticleRenderer&      particles() { return m_particles; }
     Dark::GpuParticleSystem&     gpuParticles() { return m_gpuParticles; }
     Dark::CloudLodSettings&      cloudLod() { return m_cloudLod; }
@@ -68,6 +70,7 @@ private:
     Dark::LeafRenderer           m_leafRenderer;
     Dark::TerrainMaterial        m_terrainMaterial;
     Dark::TerrainPipeline        m_terrainPipeline;
+    Dark::WaterRendering         m_water;
     Dark::ParticleRenderer       m_particles;
     Dark::GpuParticleSystem      m_gpuParticles;
     Dark::CloudLodSettings       m_cloudLod{};

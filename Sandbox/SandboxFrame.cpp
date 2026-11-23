@@ -56,7 +56,7 @@
 #include "Render/TaaJitter.h"
 #include "Render/MeshGen.h"
 #include "Render/Fog.h"
-#include "Render/Underwater.h"
+#include "Water/Underwater.h"
 #include "Render/PbrLighting.h"
 #include "Render/ModelDraw.h"
 #include "Render/FrameComposer.h"
@@ -159,7 +159,6 @@ using namespace Audio;
 #define m_motionBlur m_scene.motionBlur()
 #define m_taa m_scene.taa()
 #define m_shadows m_scene.shadows()
-#define m_waterPipeline m_scene.waterPipeline()
 
 SandboxApp& SandboxFrame::app() const
 {
@@ -855,7 +854,7 @@ void SandboxFrame::render()
             uint32_t drawIndex = 0;
             if (waterSheet)
             {
-                app().m_sceneWorld.water.draw(cmd, m_waterPipeline, app().m_sceneWorld.camera, &frustum, &app().m_sceneWorld.env, &app().renderer().debugState(), waterLightsVa, waterLightCount,
+                app().m_sceneWorld.water.draw(cmd, m_water.pipeline(), app().m_sceneWorld.camera, &frustum, &app().m_sceneWorld.env, &app().renderer().debugState(), waterLightsVa, waterLightCount,
                                               waterIndex, app().renderer().frameIndex(), &tables, &m_shadows, waterSsr, drawIndex, thermal, ultraviolet, underDraw);
                 drawIndex = 1;
             }
@@ -873,13 +872,13 @@ void SandboxFrame::render()
                 }
                 WaterParams streamParams = app().m_sceneWorld.water.params();
                 streamParams.flowSpeed = stream.flowSpeed;
-                if (drawStreamRibbon(cmd, m_waterPipeline, stream.mesh, stream.bounds, streamParams, app().m_sceneWorld.camera, &frustum, &app().renderer().debugState(),
+                if (drawStreamRibbon(cmd, m_water.pipeline(), stream.mesh, stream.bounds, streamParams, app().m_sceneWorld.camera, &frustum, &app().renderer().debugState(),
                                      app().m_sceneWorld.water.time(), app().renderer().frameIndex(), drawIndex, &tables, &m_shadows, waterSsr, &app().m_sceneWorld.terrain.coarse(),
                                      &app().m_sceneWorld.env, thermal, ultraviolet))
                     ++drawIndex;
             }
         };
-        frame.declare(PassId::Water, [&, drawWater](FeatureBuilder& b) { m_scene.addWaterPasses(b, app().renderer(), drawWater); });
+        frame.declare(PassId::Water, [&, drawWater](FeatureBuilder& b) { m_water.addWaterPasses(b, app().renderer(), drawWater); });
     }
 
     CloudFrameInputs clouds;
@@ -1018,7 +1017,7 @@ void SandboxFrame::render()
     };
     frame.declare(PassId::Particles, [&, drawParticles](FeatureBuilder& b) { m_scene.addParticlesPasses(b, app().renderer(), drawParticles); });
 
-    if (underDraw > 0.0f && m_scene.underwater().isValid())
+    if (underDraw > 0.0f && m_water.underwater().isValid())
     {
         const auto underFrame = [&](Rg::PassContext&)
         {
@@ -1034,10 +1033,10 @@ void SandboxFrame::render()
         // The water surface seen from below.
         const auto drawCeiling = [&](Rg::PassContext& pass, const WaterTables& tables)
         {
-            app().m_sceneWorld.water.draw(pass.cmd(), m_waterPipeline, app().m_sceneWorld.camera, &frustum, &app().m_sceneWorld.env, &app().renderer().debugState(), waterLightsVa, waterLightCount,
+            app().m_sceneWorld.water.draw(pass.cmd(), m_water.pipeline(), app().m_sceneWorld.camera, &frustum, &app().m_sceneWorld.env, &app().renderer().debugState(), waterLightsVa, waterLightCount,
                                           waterIndex, app().renderer().frameIndex(), &tables, &m_shadows, waterSsr, 0, thermal, ultraviolet, underDraw, true);
         };
-        frame.declare(PassId::Underwater, [&, underFrame, drawCeiling](FeatureBuilder& b) { m_scene.addUnderwaterPasses(b, app().renderer(), underFrame, drawCeiling); });
+        frame.declare(PassId::Underwater, [&, underFrame, drawCeiling](FeatureBuilder& b) { m_water.addUnderwaterPasses(b, app().renderer(), underFrame, drawCeiling); });
     }
 
     // Phase 6 part 2: Post adds declared passes (SceneRenderer::addPostPasses) when execute() builds

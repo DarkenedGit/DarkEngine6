@@ -155,22 +155,9 @@ bool SceneRenderer::createPostPipelines(Renderer& renderer, const char* tag)
         DE_LOG_WARN(LogCategory::Render, "{}: MotionBlurPipeline create failed — motion blur disabled", tag);
     if (!m_echo.create(renderer.device()))
         DE_LOG_WARN(LogCategory::Render, "{}: EchoPipeline create failed — echolocation disabled", tag);
-    if (!m_underwater.create(renderer.device()))
-        DE_LOG_WARN(LogCategory::Render, "{}: UnderwaterPipeline create failed — underwater view disabled", tag);
     if (!m_taa.create(renderer.device()))
         DE_LOG_WARN(LogCategory::Render, "{}: TaaPipeline create failed — TAA disabled", tag);
 
-    return true;
-}
-
-bool SceneRenderer::createWorldEnvPipelines(Renderer& renderer, const char* tag)
-{
-    if (!m_waterPipeline.create(renderer.device(), renderer.sceneColorFormat()))
-    {
-        DE_LOG_FATAL("{}: WaterPipeline create failed", tag);
-        return false;
-    }
-    m_haveWorldEnv = true;
     return true;
 }
 
@@ -188,16 +175,6 @@ bool SceneRenderer::init(Renderer& renderer, const SceneRendererDesc& desc)
         return false;
     if (!createPostPipelines(renderer, tag))
         return false;
-    if (desc.createWorldEnvironment)
-    {
-        if (!createWorldEnvPipelines(renderer, tag))
-            return false;
-    }
-    else if (desc.createWaterPipeline)
-    {
-        if (!m_waterPipeline.create(renderer.device(), renderer.sceneColorFormat()))
-            DE_LOG_ERROR(LogCategory::Render, "{}: WaterPipeline create failed — no water in this host", tag);
-    }
     createDecalPass(renderer, tag);
     FeatureCreateInfo featureInfo;
     featureInfo.renderer = &renderer;
@@ -267,14 +244,11 @@ void SceneRenderer::shutdown()
     m_ssr.release();
     m_motionBlur               = MotionBlurPipeline{};
     m_echo.release();
-    m_underwater.release();
     m_taa                      = TaaPipeline{};
     m_shadows.release();
     m_localShadows.release();
     m_debugOverlay             = DebugOverlay{};
-    m_waterPipeline            = WaterPipeline{};
     m_features.destroyAll();
-    m_haveWorldEnv             = false;
     m_prevViewProj             = Math::Matrix4f{};
     m_havePrevViewProj         = false;
     m_discardHistory           = false;
@@ -706,39 +680,11 @@ FrameShadows SceneRenderer::frameShadows() const
     return f;
 }
 
-WaterTables SceneRenderer::waterTables(Rg::PassContext& c, const Renderer& renderer, Rg::TextureHandle depth, Rg::TextureHandle sceneColor, Rg::TextureHandle shadow) const
-{
-    // No capture this frame: the SSR slots hold the pipeline's dummies and ssrReady is false.
-    const LightingViews v = renderer.lightingViews();
-    WaterTables         t;
-    t.sceneColor = sceneColor.valid();
-    t.table = rgTable(c, { v.height, shadowSrv(c, v, shadow), t.sceneColor ? rgSrvCpu(c, sceneColor) : m_waterPipeline.ssrDummyColorCpu(), t.sceneColor ? rgSrvCpu(c, depth) : m_waterPipeline.ssrDummyDepthCpu() });
-    return t;
-}
-
-Rg::TextureHandle SceneRenderer::importUnderwaterCopy(FeatureBuilder& b, Renderer& renderer)
-{
-    if (!m_underwater.isValid() || !m_underwater.ensureCopy(renderer))
-        return {};
-    return importTracked(b.graph(), "DE.Underwater.HdrCopy", m_underwater.copyResource(), textureViews(m_underwater.copySrv()));
-}
-
 Rg::TextureHandle SceneRenderer::importCamouflageCopy(FeatureBuilder& b, Renderer& renderer)
 {
     if (!m_camouflage.isValid() || !m_camouflage.ensureCopy(renderer))
         return {};
     return importTracked(b.graph(), "DE.Camouflage.SceneCopy", m_camouflage.copyResource(), textureViews(m_camouflage.copySrv()));
-}
-
-void SceneRenderer::copyHdr(Rg::PassContext& c, const HdrCopyTargets& d)
-{
-    c.cmd()->CopyResource(c.resource(d.copy), c.resource(d.hdr));
-}
-
-void SceneRenderer::drawUnderwater(Rg::PassContext& c, const Renderer& renderer, const UnderwaterTargets& d, const UnderwaterFrame& frame) const
-{
-    bindHdr(c, renderer, d.hdr);
-    m_underwater.draw(c.cmd(), rgSrvTable(c, { d.copy, d.depth }), frame);
 }
 
 void SceneRenderer::beginGBufferPass(Rg::PassContext& c, const Renderer& renderer, const GBufferTargets& d)
