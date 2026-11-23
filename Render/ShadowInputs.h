@@ -11,10 +11,9 @@ struct ID3D12Resource;
 // The shadow-map writers as declared passes. CPU only, so the native graph tests drive the same
 // declarations SceneRenderer uses.
 //
-// The directional cascades may be recorded on the shadow list (on the main thread or the shadow
-// worker), which Renderer::endFrame submits ahead of the main list in the same ExecuteCommandLists.
-// Those cascades are recorded in FrameCull and still run before the G-buffer; only cascades on the
-// main list follow it.
+// The shadow worker records the directional cascades on the shadow list, which Renderer::endFrame
+// submits ahead of the main list in the same ExecuteCommandLists, so those still run before the
+// G-buffer. Without the worker the Shadows pass records them on the main list, after the G-buffer.
 // No barrier the graph records on the main list can come before that work, so the map starts every
 // frame in its write state: it is created in DEPTH_WRITE, and FrameComposer imports it with that
 // final layout, so the plan moves it back after the last reader. The Shadows pass then needs no
@@ -48,7 +47,7 @@ namespace Dark
     }
 
     // The FrameCull entry: one pass with no uses, ahead of the GBuffer pass that draws from its cull.
-    // It records the frame's GPU cull and the shadow-list or shadow-worker cascades.
+    // It records the frame's GPU cull or kicks the shadow worker.
     // `exec(PassContext&, const Rg::NoData&)`.
     template <class Exec> void addFrameCullPass(FeatureBuilder& b, Exec&& exec)
     {

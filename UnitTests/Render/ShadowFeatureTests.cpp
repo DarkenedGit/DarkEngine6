@@ -1,10 +1,13 @@
 #include <gtest/gtest.h>
 
+#include "Core/Log.h"
 #include "Render/FrameFeatures.h"
+#include "Render/FrameRecord.h"
 #include "Render/FrameView.h"
 #include "Render/LocalShadowSystem.h"
 #include "Render/RenderFeature.h"
 #include "Render/RenderGraph.h"
+#include "Render/Renderer.h"
 #include "Render/ShadowCasterSource.h"
 #include "Render/ShadowFeature.h"
 
@@ -13,8 +16,8 @@
 #include <vector>
 
 // ShadowFeature without a device: its three entries, where they sit in the frame, how they declare,
-// and that a frame without a renderer, shadow map or faces asks the caster source for nothing but one
-// prepareDirectional.
+// that a frame without a renderer, shadow map or faces asks the caster source for nothing but one
+// prepareDirectional, and that only the shadow worker opens the shadow list.
 
 using namespace Dark;
 
@@ -316,6 +319,39 @@ TEST(ShadowFeature, WithoutARendererOrShadowMapNothingRecords)
     feature.recordDirectional(fakeCmd());
     feature.recordLocal(fakeCmd());
     EXPECT_EQ(feature.viewIndex(), 1u);
+}
+
+namespace
+{
+    std::vector<std::string> g_renderLogs;
+
+    void captureRenderLog(LogLevel, LogCategory category, const char* message)
+    {
+        if (category == LogCategory::Render)
+            g_renderLogs.emplace_back(message);
+    }
+} // namespace
+
+TEST(ShadowFeature, WithoutTheWorkerTheShadowListIsNotOpened)
+{
+    // The test shell has no device, so opening the shadow list would log an error.
+    Renderer renderer(RendererTestDevice{});
+    ASSERT_TRUE(renderer.shadowSeparateList()) << "the default";
+    ASSERT_FALSE(shadowWorker());
+    FakeCasters casters;
+    ShadowFrame frame;
+    frame.renderer = &renderer;
+    frame.casters  = &casters;
+    ShadowFeature feature;
+    feature.setFrame(frame);
+
+    g_renderLogs.clear();
+    Log::addCapture(&captureRenderLog);
+    feature.recordFrameCull(fakeCmd());
+    feature.recordDirectional(fakeCmd());
+    Log::removeCapture(&captureRenderLog);
+    EXPECT_TRUE(g_renderLogs.empty()) << g_renderLogs.front();
+    EXPECT_EQ(casters.calls, std::vector<std::string>{ "prepare" });
 }
 
 TEST(ShadowFeature, CastersAreCapturedOnlyForTheWorker)

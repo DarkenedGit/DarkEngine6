@@ -2061,7 +2061,7 @@ namespace Dark
         return m_depthReady;
     }
 
-    void FoliagePipeline::drawPreparedDepth(ID3D12GraphicsCommandList* cmd, const Math::Matrix4f& lightViewProj, bool profileCull)
+    void FoliagePipeline::drawPreparedDepth(ID3D12GraphicsCommandList* cmd, const Math::Matrix4f& lightViewProj)
     {
         if (!cmd || !m_depthReady || !m_depthRenderer || !m_depthPrototypes)
             return;
@@ -2072,7 +2072,7 @@ namespace Dark
         if (m_depthCullPending)
         {
             m_depthCullPending = false;
-            tryGpuCull(cmd, gpu, prototypes, true, true, profileCull);
+            tryGpuCull(cmd, gpu, prototypes, true, true, true);
         }
         cmd->SetGraphicsRootSignature(m_depthRoot.Get());
         cmd->SetGraphicsRootConstantBufferView(kDepthView, viewConstantAddress());
