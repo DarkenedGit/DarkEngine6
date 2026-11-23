@@ -3,7 +3,6 @@
 #include "Render/DebugRenderState.h"
 #include "Render/LocalLightGather.h"
 #include "Render/SsrPipeline.h"
-#include "Sky/Environment.h"
 #include "Water/WaterWaves.h"
 
 #include <cstddef>
@@ -150,7 +149,7 @@ public:
         float time,
         const float lightDir[3],
         const WaterParams& params,
-        const Sky::Environment* env = nullptr,
+        const IEnvironmentProvider* env = nullptr,
         bool lighting = true);
     static void fillSsr(
         WaterFrameConstants& out,
@@ -158,7 +157,7 @@ public:
         const SsrSettings* settings,
         bool debugEnabled,
         bool hasSceneColor,
-        const Sky::Environment* env);
+        const IEnvironmentProvider* env);
 
 private:
     bool createConstantBuffers(ID3D12Device* device);

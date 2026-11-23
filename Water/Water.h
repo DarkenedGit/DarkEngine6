@@ -22,10 +22,7 @@ namespace Dark
     class ShadowSystem;
     struct SsrSettings;
 
-    namespace Sky
-    {
-    class Environment;
-    }
+    class IEnvironmentProvider;
 
     namespace Math
     {
@@ -110,7 +107,7 @@ namespace Dark
             WaterPipeline& pipeline,
             const Camera3D& camera,
             const Frustum3f* frustum = nullptr,
-            const Sky::Environment* env = nullptr,
+            const IEnvironmentProvider* env = nullptr,
             const DebugRenderState* debug = nullptr,
             D3D12_GPU_VIRTUAL_ADDRESS lightsVa = 0,
             uint32_t lightCount = 0,

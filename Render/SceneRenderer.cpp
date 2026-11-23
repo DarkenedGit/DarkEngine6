@@ -564,7 +564,7 @@ void SceneRenderer::addGtaoPasses(FeatureBuilder& b, Renderer& renderer, const C
     g.blackboard().set(GtaoOutput{ compose, full });
 }
 
-void SceneRenderer::addSsrPasses(FeatureBuilder& b, Renderer& renderer, const Camera3D& camera, const SsrSettings& settings, const Sky::Environment* env)
+void SceneRenderer::addSsrPasses(FeatureBuilder& b, Renderer& renderer, const Camera3D& camera, const SsrSettings& settings, const IEnvironmentProvider* env)
 {
     using Rg::PassBuilder;
     using Rg::PassContext;

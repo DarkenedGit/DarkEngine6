@@ -5,7 +5,6 @@
 #include "Render/Renderer.h"
 #include "Render/Fog.h"
 #include "Render/ShadowSystem.h"
-#include "Sky/Environment.h"
 #include "Terrain/HeightMap.h"
 #include "Core/Log.h"
 #include "Math/MathHelper.h"
@@ -409,7 +408,7 @@ using namespace Terrain;
         WaterPipeline& pipeline,
         const Camera3D& camera,
         const Frustum3f* frustum,
-        const Sky::Environment* env,
+        const IEnvironmentProvider* env,
         const DebugRenderState* debug,
         D3D12_GPU_VIRTUAL_ADDRESS lightsVa,
         uint32_t lightCount,

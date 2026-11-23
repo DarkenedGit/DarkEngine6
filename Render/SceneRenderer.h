@@ -79,7 +79,7 @@ struct DeferredResolveInput
     const Math::Matrix4f*   prevViewProj = nullptr;
     const GtaoSettings*     gtao         = nullptr;
     const SsrSettings*      ssr          = nullptr;
-    const Sky::Environment* ssrEnv       = nullptr;
+    const IEnvironmentProvider* ssrEnv       = nullptr;
     const LightingConstants* lighting    = nullptr;
 };
 
@@ -184,7 +184,7 @@ public:
     void addGtaoPasses(FeatureBuilder& b, Renderer& renderer, const Camera3D& camera, const GtaoSettings& settings);
     // Ssr: trace -> upsample (-> confidence debug), Full for Lighting's t9; on skip Lighting binds
     // the dummy. env may be null.
-    void addSsrPasses(FeatureBuilder& b, Renderer& renderer, const Camera3D& camera, const SsrSettings& settings, const Sky::Environment* env = nullptr);
+    void addSsrPasses(FeatureBuilder& b, Renderer& renderer, const Camera3D& camera, const SsrSettings& settings, const IEnvironmentProvider* env = nullptr);
     // SsrCapture: HDR -> half-res scene color for next frame's trace and this frame's water
     // (published as SsrCaptureOutput). Adds no pass when SSR is unavailable.
     void addSsrCapturePasses(FeatureBuilder& b, Renderer& renderer);

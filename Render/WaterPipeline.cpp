@@ -31,37 +31,6 @@ void copyMatrix(float dst[16], const Math::Matrix4f& m)
     m.store(dst);
 }
 
-void fillSkyEval(SkyEvalParams& out, const Sky::Environment* env)
-{
-    out = {};
-    if (!env)
-        return;
-    out.sunDir[0]     = env->sunDir().x;
-    out.sunDir[1]     = env->sunDir().y;
-    out.sunDir[2]     = env->sunDir().z;
-    out.coverage      = env->weather.cloudCoverage;
-    out.sunColor[0]   = env->sunColor().x;
-    out.sunColor[1]   = env->sunColor().y;
-    out.sunColor[2]   = env->sunColor().z;
-    out.turbidity     = env->weather.turbidity;
-    out.moonDir[0]    = env->moonDir().x;
-    out.moonDir[1]    = env->moonDir().y;
-    out.moonDir[2]    = env->moonDir().z;
-    out.rain          = env->weather.rain;
-    out.moonColor[0]  = env->moonColor().x;
-    out.moonColor[1]  = env->moonColor().y;
-    out.moonColor[2]  = env->moonColor().z;
-    out.windSpeed     = env->weather.windSpeed;
-    out.windDir[0]    = env->weather.windDir.x;
-    out.windDir[1]    = env->weather.windDir.y;
-    out.sunElevation  = env->sunElevation();
-    out.exposure      = 1.0f; // deferred sky pass: tonemap owns exposure
-    out.cloudTime     = env->timeOfDay;
-    Sky::CloudLayerGpu layer{};
-    Sky::writeCloudLayer(layer, *env);
-    std::memcpy(reinterpret_cast<uint8_t*>(&out) + offsetof(SkyEvalParams, clLightColor), &layer, sizeof(layer));
-}
-
 void writeTex2dSrv(ID3D12Device* device, ID3D12Resource* res, DXGI_FORMAT format, D3D12_CPU_DESCRIPTOR_HANDLE dest)
 {
     D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
@@ -518,7 +487,7 @@ void WaterPipeline::fillConstants(
     float time,
     const float lightDir[3],
     const WaterParams& params,
-    const Sky::Environment* env,
+    const IEnvironmentProvider* env,
     bool lighting)
 {
     std::memcpy(out.worldViewProj, worldViewProj, sizeof(float) * 16);
@@ -572,21 +541,22 @@ void WaterPipeline::fillConstants(
 
     if (env)
     {
-        out.lightDir[0]   = env->lightDir().x;
-        out.lightDir[1]   = env->lightDir().y;
-        out.lightDir[2]   = env->lightDir().z;
-        out.skyZenith[0]  = env->skyZenith().x;
-        out.skyZenith[1]  = env->skyZenith().y;
-        out.skyZenith[2]  = env->skyZenith().z;
-        out.skyHorizon[0] = env->skyHorizon().x;
-        out.skyHorizon[1] = env->skyHorizon().y;
-        out.skyHorizon[2] = env->skyHorizon().z;
+        const EnvironmentLighting l = env->lighting();
+        out.lightDir[0]   = l.lightDir.x;
+        out.lightDir[1]   = l.lightDir.y;
+        out.lightDir[2]   = l.lightDir.z;
+        out.skyZenith[0]  = l.skyZenith.x;
+        out.skyZenith[1]  = l.skyZenith.y;
+        out.skyZenith[2]  = l.skyZenith.z;
+        out.skyHorizon[0] = l.skyHorizon.x;
+        out.skyHorizon[1] = l.skyHorizon.y;
+        out.skyHorizon[2] = l.skyHorizon.z;
         // Dim body color a little under heavy cloud / rain so lakes match the sky.
-        const float dim = 1.0f - 0.35f * env->weather.cloudCoverage - 0.15f * env->weather.rain;
+        const float dim = 1.0f - 0.35f * l.cloudCoverage - 0.15f * l.rain;
         out.deepColor[0] *= dim;
         out.deepColor[1] *= dim;
         out.deepColor[2] *= dim;
-        out.specPower = 96.0f * (1.0f - 0.55f * env->weather.cloudCoverage);
+        out.specPower = 96.0f * (1.0f - 0.55f * l.cloudCoverage);
         const FogGpu fog      = makeFogGpu(env, params.waterLevel, lighting);
         out.fogColor[0]       = fog.fogColor[0];
         out.fogColor[1]       = fog.fogColor[1];
@@ -597,12 +567,12 @@ void WaterPipeline::fillConstants(
         out.heightFogHeight   = fog.heightFogHeight;
         out.volumetricFogDensity = fog.volumetricFogDensity;
         out.volumetricHeight  = fog.volumetricHeight;
-        out.lightColor[0]     = env->lightColor().x;
-        out.lightColor[1]     = env->lightColor().y;
-        out.lightColor[2]     = env->lightColor().z;
-        out.ambientColor[0]   = env->ambientColor().x;
-        out.ambientColor[1]   = env->ambientColor().y;
-        out.ambientColor[2]   = env->ambientColor().z;
+        out.lightColor[0]     = l.lightColor.x;
+        out.lightColor[1]     = l.lightColor.y;
+        out.lightColor[2]     = l.lightColor.z;
+        out.ambientColor[0]   = l.ambientColor.x;
+        out.ambientColor[1]   = l.ambientColor.y;
+        out.ambientColor[2]   = l.ambientColor.z;
     }
 
     for (int i = 0; i < kWaterWaveCount; ++i)
@@ -629,7 +599,7 @@ void WaterPipeline::fillSsr(
     const SsrSettings* settings,
     bool debugEnabled,
     bool hasSceneColor,
-    const Sky::Environment* env)
+    const IEnvironmentProvider* env)
 {
     const Math::Matrix4f viewProj = camera.GetViewProj();
     copyMatrix(out.invViewProj, viewProj.Inverse());
@@ -645,7 +615,9 @@ void WaterPipeline::fillSsr(
     out.maxRoughness = s.maxRoughness;
     out.ssrPad0      = 0.0f;
     out.ssrPad1      = 0.0f;
-    fillSkyEval(out.skyEval, env);
+    out.skyEval = {};
+    if (env)
+        env->skyEval(out.skyEval);
 }
 
 } // namespace Dark

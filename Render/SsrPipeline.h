@@ -3,6 +3,7 @@
 #include "Math/Matrix4f.h"
 #include "Math/Vector3f.h"
 #include "Math/Vector4f.h"
+#include "Render/EnvironmentProvider.h"
 #include "Render/GraphTargets.h"
 #include "Render/SsrSettings.h"
 
@@ -15,11 +16,6 @@ namespace Dark
 {
 
     class Camera3D;
-
-    namespace Sky
-    {
-        class Environment;
-    }
 
     using Microsoft::WRL::ComPtr;
 
@@ -42,32 +38,6 @@ namespace Dark
         float _padCam;
     };
     static_assert(sizeof(SsrGpuParams) == 64 * sizeof(float), "SsrGpuParams is 64 floats (256-byte CBV)");
-
-    struct SkyEvalParams
-    {
-        float sunDir[3];
-        float coverage;
-        float sunColor[3];
-        float turbidity;
-        float moonDir[3];
-        float rain;
-        float moonColor[3];
-        float windSpeed;
-        float windDir[2];
-        float sunElevation;
-        float exposure;
-        float cloudTime;
-        float _pad[3];
-        float clLightColor[4];
-        float clLightDir[4];
-        float clSkyTop[4];
-        float clSkyBottom[4];
-        float clWind[4];
-    };
-    static_assert(sizeof(SkyEvalParams) == 44 * sizeof(float), "SkyEvalParams is 44 floats");
-    static_assert(offsetof(SkyEvalParams, cloudTime) == 20 * sizeof(float), "cloudTime stays at float 20");
-    static_assert(offsetof(SkyEvalParams, clLightColor) == 24 * sizeof(float), "cloud tail starts at float 24");
-    static_assert(offsetof(SkyEvalParams, clWind) == offsetof(SkyEvalParams, clLightColor) + 16 * sizeof(float), "cloud tail is contiguous");
 
     enum class SsrMissKind : uint32_t
     {
@@ -219,7 +189,7 @@ namespace Dark
 
         // Declared graph passes (render-graph plan Phase 6 part 3). The uploads write this frame's
         // constants (call them from the step's execute: the camera is jittered by then).
-        SsrFrameParams uploadParams(const Camera3D& camera, const Math::Matrix4f& prevViewProj, const Sky::Environment* env, const SsrSettings& settings, bool resetHistory, uint32_t frameIndex);
+        SsrFrameParams uploadParams(const Camera3D& camera, const Math::Matrix4f& prevViewProj, const IEnvironmentProvider* env, const SsrSettings& settings, bool resetHistory, uint32_t frameIndex);
         SsrFrameParams uploadCaptureParams(uint32_t frameIndex);
         SsrFrameParams paramsAddress(uint32_t frameIndex) const; // what uploadParams returned this frame
         // Records `step` into rtv (and historyRtv for Upsample) from `table`. No barriers.

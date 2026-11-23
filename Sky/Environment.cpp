@@ -7,6 +7,8 @@
 #include "Scene/EntityMaster.h"
 
 #include <cmath>
+#include <cstddef>
+#include <cstring>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -483,6 +485,60 @@ Vector3f Environment::evaluateSky(const Vector3f& viewDir) const
     base = base * (1.0f - cover) + overcast * cover;
     (void)turb;
     return SaturateColor(base);
+}
+
+EnvironmentLighting Environment::lighting() const
+{
+    EnvironmentLighting l;
+    l.lightDir      = m_lightDir;
+    l.lightColor    = m_lightColor;
+    l.ambientColor  = m_ambientColor;
+    l.skyZenith     = m_skyZenith;
+    l.skyHorizon    = m_skyHorizon;
+    l.cloudCoverage = weather.cloudCoverage;
+    l.rain          = weather.rain;
+    return l;
+}
+
+EnvironmentFog Environment::fog() const
+{
+    EnvironmentFog f;
+    f.color             = m_fogColor;
+    f.density           = m_fogDensity;
+    f.heightDensity     = m_heightFogDensity;
+    f.heightFalloff     = m_heightFogFalloff;
+    f.volumetricDensity = m_volumetricFogDensity;
+    f.volumetricHeight  = m_volumetricFogHeight;
+    return f;
+}
+
+void Environment::skyEval(SkyEvalParams& out) const
+{
+    out              = {};
+    out.sunDir[0]    = m_sunDir.x;
+    out.sunDir[1]    = m_sunDir.y;
+    out.sunDir[2]    = m_sunDir.z;
+    out.coverage     = weather.cloudCoverage;
+    out.sunColor[0]  = m_sunColor.x;
+    out.sunColor[1]  = m_sunColor.y;
+    out.sunColor[2]  = m_sunColor.z;
+    out.turbidity    = weather.turbidity;
+    out.moonDir[0]   = m_moonDir.x;
+    out.moonDir[1]   = m_moonDir.y;
+    out.moonDir[2]   = m_moonDir.z;
+    out.rain         = weather.rain;
+    out.moonColor[0] = m_moonColor.x;
+    out.moonColor[1] = m_moonColor.y;
+    out.moonColor[2] = m_moonColor.z;
+    out.windSpeed    = weather.windSpeed;
+    out.windDir[0]   = weather.windDir.x;
+    out.windDir[1]   = weather.windDir.y;
+    out.sunElevation = m_sunElevation;
+    out.exposure     = 1.0f; // deferred sky pass: tonemap owns exposure
+    out.cloudTime    = timeOfDay;
+    CloudLayerGpu layer{};
+    writeCloudLayer(layer, *this);
+    std::memcpy(reinterpret_cast<unsigned char*>(&out) + offsetof(SkyEvalParams, clLightColor), &layer, sizeof(layer));
 }
 
 } // namespace Sky

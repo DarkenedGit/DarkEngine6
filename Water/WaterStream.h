@@ -21,10 +21,7 @@ namespace Dark
     struct SsrSettings;
     struct DebugRenderState;
 
-    namespace Sky
-    {
-    class Environment;
-    }
+    class IEnvironmentProvider;
 
     namespace Terrain
     {
@@ -87,7 +84,7 @@ namespace Dark
         const ShadowSystem* shadows,
         const SsrSettings* ssrSettings,
         const Terrain::HeightMap* heightMap,
-        const Sky::Environment* env,
+        const IEnvironmentProvider* env,
         float thermal = 0.0f,
         float ultraviolet = 0.0f);
 
