@@ -491,7 +491,7 @@ namespace Dark
         const ShadowSystem* shadows,
         const SsrSettings* ssrSettings,
         const Terrain::HeightMap* heightMap,
-        const Sky::Environment* env) const
+        const IEnvironmentProvider* env) const
     {
         if (!cmd || !pipeline.isValid() || !gpuValid())
             return false;

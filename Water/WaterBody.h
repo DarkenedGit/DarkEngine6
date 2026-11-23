@@ -23,10 +23,7 @@ namespace Dark
     struct SsrSettings;
     struct DebugRenderState;
 
-    namespace Sky
-    {
-    class Environment;
-    }
+    class IEnvironmentProvider;
 
     namespace Terrain
     {
@@ -91,7 +88,7 @@ namespace Dark
             const ShadowSystem* shadows,
             const SsrSettings* ssrSettings,
             const Terrain::HeightMap* heightMap,
-            const Sky::Environment* env) const;
+            const IEnvironmentProvider* env) const;
 
         int vertexCount() const;
         // LOD 0 of the single chunk. False when the body is more than one chunk.

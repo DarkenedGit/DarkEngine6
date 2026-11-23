@@ -626,7 +626,7 @@ void EditorApp::renderScene3D()
     sky.shadows    = &m_shadows;
     sky.waterLevel = m_sceneWorld.water.params().waterLevel;
     sky.fogScale   = 0.0f;
-    m_sky.setFrameInputs(sky);
+    m_sky.sky.setFrameInputs(sky);
     m_scene.features().declare(frame, view);
     frame.declare(PassId::SsrCapture, [&](FeatureBuilder& b) { m_scene.addSsrCapturePasses(b, renderer()); });
     const bool anyWater = m_sceneWorld.water.wetChunkCount() > 0 || !m_placedWater.empty() || !m_sceneWorld.water.ribbons().empty();
@@ -644,20 +644,15 @@ void EditorApp::renderScene3D()
                                                  });
                       });
     }
-    frame.declare(PassId::Clouds,
-                  [&](FeatureBuilder& b)
-                  {
-                      m_scene.addCloudsPasses(b, renderer(),
-                                              [&](Rg::PassContext& pass, D3D12_GPU_DESCRIPTOR_HANDLE depthTable)
-                                              {
-                                                  CloudVolumeFrame cf{};
-                                                  cf.sunDir       = lightDir;
-                                                  cf.sunColor     = sunColor;
-                                                  cf.ambientColor = ambientColor;
-                                                  cf.time         = m_sceneWorld.cloudTime;
-                                                  m_scene.drawCloudVolumes(pass.cmd(), depthTable, renderer(), world(), m_camera, viewProj, cf);
-                                              });
-                  });
+    CloudFrameInputs clouds;
+    clouds.world              = &world();
+    clouds.camera             = &m_camera;
+    clouds.viewProj           = &viewProj;
+    clouds.frame.sunDir       = lightDir;
+    clouds.frame.sunColor     = sunColor;
+    clouds.frame.ambientColor = ambientColor;
+    clouds.frame.time         = m_sceneWorld.cloudTime;
+    m_sky.clouds.setFrameInputs(clouds);
     if (m_showGrid && m_gridMesh.valid())
     {
         const auto drawGrid = [&](Rg::PassContext& pass) {

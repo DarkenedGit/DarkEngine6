@@ -131,10 +131,6 @@ bool SceneRenderer::createPostPipelines(Renderer& renderer, const char* tag)
         DE_LOG_ERROR(LogCategory::Render, "{}: LocalLightVolumePipeline create failed — local lights disabled", tag);
     if (!m_localLightGpu.create(renderer.device()))
         DE_LOG_ERROR(LogCategory::Render, "{}: LocalLightGpuList create failed — local lights disabled", tag);
-    if (!m_cloudVolumes.create(renderer.device(), renderer.sceneColorFormat()))
-        DE_LOG_ERROR(LogCategory::Render, "{}: CloudVolumePipeline create failed — cloud volumes disabled", tag);
-    if (!m_cloudVolumeGpu.create(renderer.device()))
-        DE_LOG_ERROR(LogCategory::Render, "{}: CloudVolumeGpuList create failed — cloud volumes disabled", tag);
     if (!m_camouflage.create(renderer.device(), renderer.sceneColorFormat()))
         DE_LOG_ERROR(LogCategory::Render, "{}: CamouflagePipeline create failed — camouflage disabled", tag);
 
@@ -277,8 +273,6 @@ void SceneRenderer::shutdown()
     m_decalCube                = Mesh{};
     m_decalVolumeMesh          = LineMesh{};
     m_decalStats               = {};
-    m_cloudVolumes             = CloudVolumePipeline{};
-    m_cloudVolumeGpu           = CloudVolumeGpuList{};
     m_camouflage.release();
     m_pointVolumeMesh          = Mesh{};
     m_spotVolumeMesh           = Mesh{};
@@ -564,7 +558,7 @@ void SceneRenderer::addGtaoPasses(FeatureBuilder& b, Renderer& renderer, const C
     g.blackboard().set(GtaoOutput{ compose, full });
 }
 
-void SceneRenderer::addSsrPasses(FeatureBuilder& b, Renderer& renderer, const Camera3D& camera, const SsrSettings& settings, const Sky::Environment* env)
+void SceneRenderer::addSsrPasses(FeatureBuilder& b, Renderer& renderer, const Camera3D& camera, const SsrSettings& settings, const IEnvironmentProvider* env)
 {
     using Rg::PassBuilder;
     using Rg::PassContext;
@@ -1078,12 +1072,6 @@ void SceneRenderer::drawDecalsPass(Rg::PassContext& c, Renderer& renderer, const
     if (drewOutside || drewInside)
         m_decalPipeline.uavBarrier(cmd);
     cmd->EndEvent();
-}
-
-void SceneRenderer::drawCloudVolumes(ID3D12GraphicsCommandList* cmd, D3D12_GPU_DESCRIPTOR_HANDLE depthTable, Renderer& renderer, World& world, const Camera3D& camera, const Math::Matrix4f& viewProj,
-                                     const CloudVolumeFrame& frame)
-{
-    m_cloudVolumes.draw(cmd, depthTable, renderer, world, m_cloudVolumeGpu, camera, viewProj, frame);
 }
 
 bool SceneRenderer::syncAutoExposureSize(Renderer& renderer)

@@ -65,7 +65,4 @@ namespace Dark
         SkyFrameInputs m_inputs;
     };
 
-    // The Sky module's features, in the order the host runs them.
-    void registerSkyFeatures(RenderFeatureRegistry& registry, SkyFeature& sky);
-
 } // namespace Dark

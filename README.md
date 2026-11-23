@@ -33,7 +33,7 @@ HLSL lives in `content/shaders/`. Debug builds, the Editor and UnitTests compile
   - Local lights drawn as light volumes (`LocalLightVolumePipeline`)
   - Deferred decals as oriented boxes (`DecalPipeline`, `DecalPool`)
   - GTAO, SSR (half-res, see `Render/DESIGN-reflections.md`), fog, IBL bake (`IblBake`, `GpuIbl`)
-  - Sky with a distant cloud layer (`Sky/CloudLayer`, `content/shaders/CloudLayer.hlsli`, see `Render/DESIGN-cloud-layer.md`), volumetric clouds (`CloudVolumePipeline`; the cloud volume in the default scene is disabled), water (`WaterPipeline`)
+  - Sky with a distant cloud layer (`Sky/CloudLayer`, `content/shaders/CloudLayer.hlsli`, see `Render/DESIGN-cloud-layer.md`), volumetric clouds (`Sky/CloudVolumeFeature`; the cloud volume in the default scene is disabled), water (`WaterPipeline`)
   - Terrain, terrain foliage instancing with alpha-cutout shadows (`FoliagePipeline`), GPU terrain erosion bake (`TerrainErosionPipeline`)
   - Procedural grass (`GrassPipeline`): blade LODs, per-tile Perlin wind, and bending around the player (see Terrain below and `Terrain/DESIGN-procedural-grass.md`)
   - Static and skinned meshes, sprites, lines, particles, camouflage

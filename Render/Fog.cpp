@@ -1,12 +1,12 @@
 #include "Render/Fog.h"
 #include "Render/DeferredLightingPipeline.h"
-#include "Sky/Environment.h"
+#include "Render/EnvironmentProvider.h"
 #include "Terrain/HeightMap.h"
 
 namespace Dark
 {
 
-    FogGpu makeFogGpu(const Sky::Environment* env, float waterLevel, bool lighting)
+    FogGpu makeFogGpu(const IEnvironmentProvider* env, float waterLevel, bool lighting)
     {
         FogGpu fog;
         fog.heightFogHeight  = waterLevel;
@@ -24,14 +24,15 @@ namespace Dark
             return fog;
         }
 
-        fog.fogColor[0]          = env->fogColor().x;
-        fog.fogColor[1]          = env->fogColor().y;
-        fog.fogColor[2]          = env->fogColor().z;
-        fog.fogDensity           = env->fogDensity();
-        fog.heightFogDensity     = env->heightFogDensity();
-        fog.heightFogFalloff     = env->heightFogFalloff();
-        fog.volumetricFogDensity = env->volumetricFogDensity();
-        fog.volumetricHeight     = env->volumetricFogHeight();
+        const EnvironmentFog f   = env->fog();
+        fog.fogColor[0]          = f.color.x;
+        fog.fogColor[1]          = f.color.y;
+        fog.fogColor[2]          = f.color.z;
+        fog.fogDensity           = f.density;
+        fog.heightFogDensity     = f.heightDensity;
+        fog.heightFogFalloff     = f.heightFalloff;
+        fog.volumetricFogDensity = f.volumetricDensity;
+        fog.volumetricHeight     = f.volumetricHeight;
         return fog;
     }
 

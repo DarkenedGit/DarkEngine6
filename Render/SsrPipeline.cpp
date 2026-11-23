@@ -6,7 +6,6 @@
 #include "Core/Log.h"
 #include "Math/MathHelper.h"
 #include "Math/Vector2f.h"
-#include "Sky/Environment.h"
 
 #include <cmath>
 #include <cstring>
@@ -59,37 +58,6 @@ namespace Dark
         {
             const float iw = 1.0f / clip.w;
             return Math::Vector2f(clip.x * iw * 0.5f + 0.5f, clip.y * iw * -0.5f + 0.5f);
-        }
-
-        void fillSkyEvalParams(SkyEvalParams& out, const Sky::Environment* env)
-        {
-            out = {};
-            if (!env)
-                return;
-            out.sunDir[0]     = env->sunDir().x;
-            out.sunDir[1]     = env->sunDir().y;
-            out.sunDir[2]     = env->sunDir().z;
-            out.coverage      = env->weather.cloudCoverage;
-            out.sunColor[0]   = env->sunColor().x;
-            out.sunColor[1]   = env->sunColor().y;
-            out.sunColor[2]   = env->sunColor().z;
-            out.turbidity     = env->weather.turbidity;
-            out.moonDir[0]    = env->moonDir().x;
-            out.moonDir[1]    = env->moonDir().y;
-            out.moonDir[2]    = env->moonDir().z;
-            out.rain          = env->weather.rain;
-            out.moonColor[0]  = env->moonColor().x;
-            out.moonColor[1]  = env->moonColor().y;
-            out.moonColor[2]  = env->moonColor().z;
-            out.windSpeed     = env->weather.windSpeed;
-            out.windDir[0]    = env->weather.windDir.x;
-            out.windDir[1]    = env->weather.windDir.y;
-            out.sunElevation  = env->sunElevation();
-            out.exposure      = 1.0f; // deferred sky pass: tonemap owns exposure
-            out.cloudTime     = env->timeOfDay;
-            Sky::CloudLayerGpu layer{};
-            Sky::writeCloudLayer(layer, *env);
-            std::memcpy(reinterpret_cast<uint8_t*>(&out) + offsetof(SkyEvalParams, clLightColor), &layer, sizeof(layer));
         }
     } // namespace
 
@@ -530,7 +498,7 @@ namespace Dark
         out.cameraPos[2]         = pos.z;
     }
 
-    SsrFrameParams SsrPipeline::uploadParams(const Camera3D& camera, const Math::Matrix4f& prevViewProj, const Sky::Environment* env, const SsrSettings& settings, bool resetHistory,
+    SsrFrameParams SsrPipeline::uploadParams(const Camera3D& camera, const Math::Matrix4f& prevViewProj, const IEnvironmentProvider* env, const SsrSettings& settings, bool resetHistory,
                                              uint32_t frameIndex)
     {
         if (!isValid())
@@ -542,7 +510,8 @@ namespace Dark
         std::memcpy(m_cbMapped + cbOff, &params, sizeof(params));
 
         SkyEvalParams sky{};
-        fillSkyEvalParams(sky, env);
+        if (env)
+            env->skyEval(sky);
         const UINT skyOff = skyEvalCbvByteOffset(frameIndex);
         std::memcpy(m_cbMapped + skyOff, &sky, sizeof(sky));
         return { m_cbGpu + cbOff, m_cbGpu + skyOff };

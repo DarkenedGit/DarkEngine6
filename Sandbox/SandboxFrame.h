@@ -7,7 +7,7 @@
 #include "Particles/LeafRenderer.h"
 #include "Particles/ParticleRenderer.h"
 #include "Render/AutoExposure.h"
-#include "Render/CloudVolumePipeline.h"
+#include "Sky/CloudVolumePipeline.h"
 #include "Render/DrawList.h"
 #include "Render/FoliagePipeline.h"
 #include "Render/FrameComposer.h"
@@ -17,7 +17,7 @@
 #include "Render/SceneRenderer.h"
 #include "Render/WalkabilityDebug.h"
 #include "Render/SkinnedInstanceBuffer.h"
-#include "Sky/SkyFeature.h"
+#include "Sky/SkyFeatures.h"
 #include "Terrain/TerrainMaterial.h"
 
 #include <d3d12.h>
@@ -37,7 +37,7 @@ public:
 
     Dark::SceneRenderer&              scene() { return m_scene; }
     const Dark::SceneRenderer&        scene() const { return m_scene; }
-    Dark::SkyFeature&                 sky() { return m_sky; }
+    Dark::SkyFeatures&                sky() { return m_sky; }
     Dark::DrawList&                   drawList() { return m_drawList; }
     Dark::SkinnedInstanceBuffer&      skinnedInstances() { return m_skinnedInstances; }
     std::unordered_map<Dark::EntityID, Dark::Math::Matrix4f>& prevWorldByEntity() { return m_prevWorldByEntity; }
@@ -74,7 +74,7 @@ private:
     Dark::DrawList                              m_drawList;
     Dark::SkinnedInstanceBuffer                 m_skinnedInstances;
     Dark::SceneRenderer                         m_scene;
-    Dark::SkyFeature                            m_sky;
+    Dark::SkyFeatures                           m_sky;
     Dark::FrameComposer                         m_frameComposer; // the frame graph (render-graph plan Phase 4)
     Dark::WalkabilityDebug                      m_walkDebug;
     std::unordered_map<Dark::EntityID, Dark::Math::Matrix4f> m_prevWorldByEntity;

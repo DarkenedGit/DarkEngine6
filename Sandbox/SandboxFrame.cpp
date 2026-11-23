@@ -564,7 +564,7 @@ void SandboxFrame::render()
         const float fogScale    = (app().renderer().debugState().lightingActive() ? 1.0f : 0.0f) * (1.0f - underDraw);
         ultraviolet = app().m_vision.ultraviolet > 0.0f ? app().m_vision.ultraviolet : 0.0f;
         thermal     = !(app().m_vision.ultraviolet > 0.0f) ? app().m_vision.infrared : 0.0f;
-        m_sky.setFrameInputs({ &app().m_sceneWorld.camera, &app().m_sceneWorld.env, &m_shadows, skyExposure, app().m_sceneWorld.water.params().waterLevel, fogScale, thermal, ultraviolet });
+        m_sky.sky.setFrameInputs({ &app().m_sceneWorld.camera, &app().m_sceneWorld.env, &m_shadows, skyExposure, app().m_sceneWorld.water.params().waterLevel, fogScale, thermal, ultraviolet });
         const Material* material = nullptr;
         if (app().m_demo.cube().valid())
         {
@@ -883,21 +883,16 @@ void SandboxFrame::render()
         frame.declare(PassId::Water, [&, drawWater](FeatureBuilder& b) { m_scene.addWaterPasses(b, app().renderer(), drawWater); });
     }
 
-    frame.declare(PassId::Clouds,
-                  [&](FeatureBuilder& b)
-                  {
-                      m_scene.addCloudsPasses(b, app().renderer(),
-                                              [&](Rg::PassContext& pass, D3D12_GPU_DESCRIPTOR_HANDLE depthTable)
-                                              {
-                                                  CloudVolumeFrame cf{};
-                                                  cf.sunDir       = app().m_sceneWorld.env.lightDir();
-                                                  cf.sunColor     = app().m_sceneWorld.env.lightColor();
-                                                  cf.ambientColor = app().m_sceneWorld.env.ambientColor();
-                                                  cf.time         = app().m_sceneWorld.cloudTime;
-                                                  cf.lod          = app().m_frame.cloudLod();
-                                                  m_scene.drawCloudVolumes(pass.cmd(), depthTable, app().renderer(), app().world(), app().m_sceneWorld.camera, viewProj, cf);
-                                              });
-                  });
+    CloudFrameInputs clouds;
+    clouds.world              = &app().world();
+    clouds.camera             = &app().m_sceneWorld.camera;
+    clouds.viewProj           = &viewProj;
+    clouds.frame.sunDir       = app().m_sceneWorld.env.lightDir();
+    clouds.frame.sunColor     = app().m_sceneWorld.env.lightColor();
+    clouds.frame.ambientColor = app().m_sceneWorld.env.ambientColor();
+    clouds.frame.time         = app().m_sceneWorld.cloudTime;
+    clouds.frame.lod          = app().m_frame.cloudLod();
+    m_sky.clouds.setFrameInputs(clouds);
 
     bool lateDepthWrite = false;
     if (app().m_vision.camouflage && m_scene.camouflage().isValid())

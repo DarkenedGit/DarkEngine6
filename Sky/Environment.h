@@ -2,6 +2,7 @@
 
 #include "Math/Vector2f.h"
 #include "Math/Vector3f.h"
+#include "Render/EnvironmentProvider.h"
 #include "Sky/CloudLayer.h"
 
 namespace Dark
@@ -33,7 +34,7 @@ const char* weatherPresetName(const WeatherState& weather);
 
 // Shared celestial + weather state. Call evaluate() after changing inputs
 // (tick() does this). Terrain, water, and the sky pass all read the outputs.
-class Environment
+class Environment final : public IEnvironmentProvider
 {
 public:
     float           timeOfDay  = kDefaultTimeOfDay; // hours, [0, 24)
@@ -89,6 +90,10 @@ public:
     void setVolumetricFogDensity(float v) { m_volumetricFogDensity = v; }
     void setVolumetricFogHeight(float v) { m_volumetricFogHeight = v; }
     void resetFogTune();
+
+    EnvironmentLighting lighting() const override;
+    EnvironmentFog      fog() const override;
+    void                skyEval(SkyEvalParams& out) const override;
 
     // Analytic sky / reflection color for a world-space view direction.
     Math::Vector3f evaluateSky(const Math::Vector3f& viewDir) const;

@@ -351,7 +351,7 @@ namespace Dark
         const ShadowSystem* shadows,
         const SsrSettings* ssrSettings,
         const Terrain::HeightMap* heightMap,
-        const Sky::Environment* env,
+        const IEnvironmentProvider* env,
         float thermal,
         float ultraviolet)
     {
