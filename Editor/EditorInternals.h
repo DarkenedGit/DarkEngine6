@@ -21,7 +21,6 @@
 #define m_motionBlur m_scene.motionBlur()
 #define m_taa m_scene.taa()
 #define m_shadows m_scene.shadows()
-#define m_skyPipeline m_scene.skyPipeline()
 
 #include "Editor/EditorObject.h"
 #include "ECS/Components.h"

@@ -9,6 +9,8 @@
 #include "Render/GBufferInputs.h"
 #include "Render/GtaoPipeline.h"
 #include "Render/HdrDrawInputs.h"
+#include "Render/HdrPassViews.h"
+#include "Render/RenderFeature.h"
 #include "Render/RgViews.h"
 #include "Render/ShadowInputs.h"
 #include "Render/SsrPipeline.h"
@@ -28,7 +30,6 @@
 #include "Render/ShadowSystem.h"
 #include "Render/SkinnedMeshPipeline.h"
 #include "Render/SkinningUploadRing.h"
-#include "Render/SkyPipeline.h"
 #include "Render/TaaPipeline.h"
 #include "Render/TemporalHistory.h"
 #include "Render/TerrainPipeline.h"
@@ -53,12 +54,12 @@ class FrameComposer;
 class Renderer;
 class World;
 
-// Shared mesh / lighting / post / (optional) terrain-water-sky pipelines used by
+// Shared mesh / lighting / post / (optional) terrain-water pipelines used by
 // Sandbox and Editor. Hosts still own world draw order; this owns pipeline
 // lifetime and the deferred present/post path (auto exposure → bloom → TAA → motion blur → tonemap).
 struct SceneRendererDesc
 {
-    // When true, also create TerrainPipeline / WaterPipeline / SkyPipeline (Sandbox).
+    // When true, also create TerrainPipeline / WaterPipeline (Sandbox).
     bool createWorldEnvironment = false;
     // TerrainPipeline only (Editor). Ignored when createWorldEnvironment is true.
     bool createTerrainPipeline = false;
@@ -66,6 +67,9 @@ struct SceneRendererDesc
     const char* logTag = "SceneRenderer";
     // Sandbox only. Editor leaves this false and does not build the meter.
     bool createAutoExposure = false;
+    // When true, a registered feature that fails to create fails init (Sandbox). Otherwise it is
+    // logged and its passes are skipped.
+    bool featuresRequired = false;
 };
 
 // ssrEnv may be null. The other pointers are required.
@@ -188,20 +192,8 @@ public:
     // The passes after lighting draw into HDR with read-only depth (Render/HdrDrawInputs.h).
     // Each pass binds its targets, builds its ring tables and runs the host's callable, which is
     // stored until execute(). Without scene targets the entry is an opaque pass that logs once.
-    // Sky, Water, Underwater and Translucent sample the shadow map (declared, so the graph moves it
+    // Water, Underwater and Translucent sample the shadow map (declared, so the graph moves it
     // there from the Shadows pass); without one they bind a null view.
-    // Sky: `draw(Rg::PassContext&, D3D12_GPU_DESCRIPTOR_HANDLE shadowTable)`, HDR + read-only depth bound.
-    template <class Draw> void addSkyPasses(FeatureBuilder& b, Renderer& renderer, Draw&& draw)
-    {
-        Renderer* const rr = &renderer;
-        if (!addHdrDrawPass(b, "Sky", skyUses(),
-                            [rr, draw = std::forward<Draw>(draw)](Rg::PassContext& c, const HdrDrawTargets& d)
-                            {
-                                bindHdrDepthRead(c, *rr, d.hdr, d.depth);
-                                draw(c, shadowTable(c, *rr, d.shadow));
-                            }))
-            b.opaque("Sky", {}, {}, [](Rg::PassContext&) { logMissingSceneTargets("Sky"); });
-    }
     // Water: `draw(Rg::PassContext&, const WaterTables&)`, HDR + read-only depth bound. The tables
     // carry this frame's SSR capture when SsrCapture published one.
     template <class Draw> void addWaterPasses(FeatureBuilder& b, Renderer& renderer, Draw&& draw)
@@ -368,7 +360,11 @@ public:
 
     TerrainPipeline& terrainPipeline() { return m_terrainPipeline; }
     WaterPipeline&   waterPipeline() { return m_waterPipeline; }
-    SkyPipeline&     skyPipeline() { return m_skyPipeline; }
+
+    // The domain features the host registered (registerXxxFeatures) before init. init creates them
+    // after the scene pipelines and shutdown destroys them; the host declares them each frame.
+    RenderFeatureRegistry&       features() { return m_features; }
+    const RenderFeatureRegistry& features() const { return m_features; }
 
     const MeshPipeline&             meshPipeline() const { return m_meshPipeline; }
     const MeshPipeline&             meshTransparentPipeline() const { return m_meshTransparentPipeline; }
@@ -399,7 +395,6 @@ public:
 
     const TerrainPipeline& terrainPipeline() const { return m_terrainPipeline; }
     const WaterPipeline&   waterPipeline() const { return m_waterPipeline; }
-    const SkyPipeline&     skyPipeline() const { return m_skyPipeline; }
 
     const Math::Matrix4f& prevViewProj() const { return m_prevViewProj; }
     bool                  havePrevViewProj() const { return m_havePrevViewProj; }
@@ -421,13 +416,6 @@ private:
     bool decalPassReady() const;
     // Clears the G-buffer MRTs and binds them with depth (graph views), with the viewport.
     static void beginGBufferPass(Rg::PassContext& c, const Renderer& renderer, const GBufferTargets& d);
-    static void logMissingSceneTargets(const char* entry);
-    // Graph views of HDR (and the read-only depth target), with the viewport.
-    static void                        bindHdr(Rg::PassContext& c, const Renderer& renderer, Rg::TextureHandle hdr);
-    static void                        bindHdrDepthRead(Rg::PassContext& c, const Renderer& renderer, Rg::TextureHandle hdr, Rg::TextureHandle depth);
-    static void                        bindHdrDepthWrite(Rg::PassContext& c, const Renderer& renderer, Rg::TextureHandle hdr, Rg::TextureHandle depth);
-    // `shadow` invalid: the null view (no shadow map this frame).
-    static D3D12_GPU_DESCRIPTOR_HANDLE shadowTable(Rg::PassContext& c, const Renderer& renderer, Rg::TextureHandle shadow);
     WaterTables waterTables(Rg::PassContext& c, const Renderer& renderer, Rg::TextureHandle depth, Rg::TextureHandle sceneColor, Rg::TextureHandle shadow) const;
     // This frame's import of the underwater HDR copy; invalid when it cannot be made.
     Rg::TextureHandle importUnderwaterCopy(FeatureBuilder& b, Renderer& renderer);
@@ -475,8 +463,9 @@ private:
 
     TerrainPipeline m_terrainPipeline;
     WaterPipeline   m_waterPipeline;
-    SkyPipeline     m_skyPipeline;
     bool            m_haveWorldEnv = false;
+
+    RenderFeatureRegistry m_features;
 
     Math::Matrix4f m_prevViewProj{};
     bool           m_havePrevViewProj = false;

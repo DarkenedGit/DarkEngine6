@@ -161,8 +161,6 @@ using namespace Audio;
 #define m_shadows m_scene.shadows()
 #define m_terrainPipeline m_scene.terrainPipeline()
 #define m_waterPipeline m_scene.waterPipeline()
-#define m_skyPipeline m_scene.skyPipeline()
-
 
 SandboxApp& SandboxFrame::app() const
 {
@@ -566,7 +564,7 @@ void SandboxFrame::render()
         const float fogScale    = (app().renderer().debugState().lightingActive() ? 1.0f : 0.0f) * (1.0f - underDraw);
         ultraviolet = app().m_vision.ultraviolet > 0.0f ? app().m_vision.ultraviolet : 0.0f;
         thermal     = !(app().m_vision.ultraviolet > 0.0f) ? app().m_vision.infrared : 0.0f;
-        m_skyPipeline.upload(app().renderer().frameIndex(), app().m_sceneWorld.camera, app().m_sceneWorld.env, skyExposure, app().m_sceneWorld.water.params().waterLevel, fogScale, thermal, ultraviolet);
+        m_sky.setFrameInputs({ &app().m_sceneWorld.camera, &app().m_sceneWorld.env, &m_shadows, skyExposure, app().m_sceneWorld.water.params().waterLevel, fogScale, thermal, ultraviolet });
         const Material* material = nullptr;
         if (app().m_demo.cube().valid())
         {
@@ -810,12 +808,7 @@ void SandboxFrame::render()
     frame.declare(PassId::Ssr, [&](FeatureBuilder& b) { m_scene.addSsrPasses(b, app().renderer(), app().m_sceneWorld.camera, app().m_sceneWorld.ssr, &app().m_sceneWorld.env); });
     frame.declare(PassId::Lighting, [&](FeatureBuilder& b) { m_scene.addLightingPasses(b, app().renderer(), resolve); });
     frame.declare(PassId::LocalVolumes, [&](FeatureBuilder& b) { m_scene.addLocalVolumesPasses(b, app().renderer(), app().world(), app().m_sceneWorld.camera, resolve); });
-    frame.declare(PassId::Sky,
-                  [&](FeatureBuilder& b)
-                  {
-                      m_scene.addSkyPasses(b, app().renderer(), [&](Rg::PassContext& pass, D3D12_GPU_DESCRIPTOR_HANDLE shadowTable)
-                                           { m_skyPipeline.draw(pass.cmd(), app().renderer().frameIndex(), shadowTable, &m_shadows); });
-                  });
+    m_scene.features().declare(frame, view);
 
     D3D12_GPU_VIRTUAL_ADDRESS waterLightsVa   = m_localLightGpu.isValid() ? m_localLightGpu.dummyGpuVa() : 0;
     uint32_t                  waterLightCount = 0;

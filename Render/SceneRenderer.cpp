@@ -4,6 +4,7 @@
 #include "ECS/World.h"
 #include "Render/FrameComposer.h"
 #include "Render/GraphTargets.h"
+#include "Render/HdrPassViews.h"
 #include "Render/LightingInputs.h"
 #include "Render/MeshGen.h"
 #include "Render/PostMatrices.h"
@@ -189,11 +190,6 @@ bool SceneRenderer::createWorldEnvPipelines(Renderer& renderer, const char* tag)
         DE_LOG_FATAL("{}: WaterPipeline create failed", tag);
         return false;
     }
-    if (!m_skyPipeline.create(renderer.device(), renderer.sceneColorFormat()))
-    {
-        DE_LOG_FATAL("{}: SkyPipeline create failed", tag);
-        return false;
-    }
     m_haveWorldEnv = true;
     return true;
 }
@@ -223,6 +219,14 @@ bool SceneRenderer::init(Renderer& renderer, const SceneRendererDesc& desc)
             return false;
     }
     createDecalPass(renderer, tag);
+    FeatureCreateInfo featureInfo;
+    featureInfo.renderer = &renderer;
+    featureInfo.logTag   = tag;
+    if (!m_features.createAll(featureInfo) && desc.featuresRequired)
+    {
+        DE_LOG_FATAL("{}: a render feature failed to create", tag);
+        return false;
+    }
     m_initialized = true;
     return true;
 }
@@ -292,7 +296,7 @@ void SceneRenderer::shutdown()
     m_debugOverlay             = DebugOverlay{};
     m_terrainPipeline          = TerrainPipeline{};
     m_waterPipeline            = WaterPipeline{};
-    m_skyPipeline              = SkyPipeline{};
+    m_features.destroyAll();
     m_haveWorldEnv             = false;
     m_prevViewProj             = Math::Matrix4f{};
     m_havePrevViewProj         = false;
@@ -709,40 +713,6 @@ void SceneRenderer::addSsrCapturePasses(FeatureBuilder& b, Renderer& renderer)
     b.graph().blackboard().set(SsrCaptureOutput{ dst });
 }
 
-void SceneRenderer::bindHdr(Rg::PassContext& c, const Renderer& renderer, Rg::TextureHandle hdr)
-{
-    const D3D12_CPU_DESCRIPTOR_HANDLE rtv = rgRtv(c, hdr);
-    c.cmd()->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
-    c.cmd()->RSSetViewports(1, &renderer.viewport());
-    c.cmd()->RSSetScissorRects(1, &renderer.scissor());
-}
-
-void SceneRenderer::bindHdrDepthRead(Rg::PassContext& c, const Renderer& renderer, Rg::TextureHandle hdr, Rg::TextureHandle depth)
-{
-    const D3D12_CPU_DESCRIPTOR_HANDLE rtv = rgRtv(c, hdr);
-    const D3D12_CPU_DESCRIPTOR_HANDLE dsv = cpuHandle(c.dsv(depth, true));
-    c.cmd()->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
-    c.cmd()->RSSetViewports(1, &renderer.viewport());
-    c.cmd()->RSSetScissorRects(1, &renderer.scissor());
-}
-
-void SceneRenderer::bindHdrDepthWrite(Rg::PassContext& c, const Renderer& renderer, Rg::TextureHandle hdr, Rg::TextureHandle depth)
-{
-    const D3D12_CPU_DESCRIPTOR_HANDLE rtv = rgRtv(c, hdr);
-    const D3D12_CPU_DESCRIPTOR_HANDLE dsv = cpuHandle(c.dsv(depth, false));
-    c.cmd()->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
-    c.cmd()->RSSetViewports(1, &renderer.viewport());
-    c.cmd()->RSSetScissorRects(1, &renderer.scissor());
-}
-
-namespace
-{
-    D3D12_CPU_DESCRIPTOR_HANDLE shadowSrv(const Rg::PassContext& c, const LightingViews& v, Rg::TextureHandle shadow)
-    {
-        return shadow.valid() ? rgSrvCpu(c, shadow) : v.shadow;
-    }
-} // namespace
-
 FrameShadows SceneRenderer::frameShadows() const
 {
     FrameShadows f;
@@ -757,11 +727,6 @@ FrameShadows SceneRenderer::frameShadows() const
         f.localMapSrv = m_localShadows.srvCpu().ptr;
     }
     return f;
-}
-
-D3D12_GPU_DESCRIPTOR_HANDLE SceneRenderer::shadowTable(Rg::PassContext& c, const Renderer& renderer, Rg::TextureHandle shadow)
-{
-    return rgTable(c, { shadowSrv(c, renderer.lightingViews(), shadow) });
 }
 
 WaterTables SceneRenderer::waterTables(Rg::PassContext& c, const Renderer& renderer, Rg::TextureHandle depth, Rg::TextureHandle sceneColor, Rg::TextureHandle shadow) const
@@ -797,15 +762,6 @@ void SceneRenderer::drawUnderwater(Rg::PassContext& c, const Renderer& renderer,
 {
     bindHdr(c, renderer, d.hdr);
     m_underwater.draw(c.cmd(), rgSrvTable(c, { d.copy, d.depth }), frame);
-}
-
-void SceneRenderer::logMissingSceneTargets(const char* entry)
-{
-    static bool logged = false;
-    if (logged)
-        return;
-    logged = true;
-    DE_LOG_ERROR(LogCategory::Render, "SceneRenderer: {} has no scene targets to draw into (logs once)", entry ? entry : "?");
 }
 
 void SceneRenderer::beginGBufferPass(Rg::PassContext& c, const Renderer& renderer, const GBufferTargets& d)

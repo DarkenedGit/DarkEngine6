@@ -127,8 +127,6 @@ static float sandboxSceneGroundY(void* user, float x, float z)
 #define m_debugOverlay m_frame.scene().debugOverlay()
 #define m_terrainPipeline m_frame.scene().terrainPipeline()
 #define m_waterPipeline m_frame.scene().waterPipeline()
-#define m_skyPipeline m_frame.scene().skyPipeline()
-
 
 bool useAcesTonemap(const Renderer& r)
 {
@@ -1838,7 +1836,9 @@ void SandboxApp::onInit()
         SceneRendererDesc sceneDesc{};
         sceneDesc.createWorldEnvironment = true;
         sceneDesc.createAutoExposure     = true;
+        sceneDesc.featuresRequired       = true;
         sceneDesc.logTag = "SandboxApp";
+        registerSkyFeatures(m_frame.scene().features(), m_frame.sky());
         if (!m_frame.scene().init(renderer(), sceneDesc))
         {
             requestQuit();

@@ -15,6 +15,7 @@
 #include "Render/WalkabilityDebug.h"
 #include "Render/SceneRenderer.h"
 #include "Render/FrameComposer.h"
+#include "Sky/SkyFeature.h"
 #include "Render/Camera3D.h"
 #include "Render/Camera2D.h"
 #include "Assets/Material.h"
@@ -383,6 +384,7 @@ private:
     static float snap(float v, float grid);
 
     SceneRenderer   m_scene;
+    SkyFeature      m_sky;
     FrameComposer     m_frameComposer; // the frame graph (render-graph plan Phase 4)
     LinePipeline      m_linePipeline;
     LinePipeline      m_linePipeline3D;
