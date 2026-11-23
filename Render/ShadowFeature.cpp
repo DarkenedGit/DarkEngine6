@@ -324,31 +324,55 @@ namespace Dark
     }
 
     ShadowFeature::ShadowFeature() :
-        m_directional(*this, false),
-        m_local(*this, true)
+        m_cull(*this, EntryKind::Cull),
+        m_directional(*this, EntryKind::Directional),
+        m_local(*this, EntryKind::Local)
     {
     }
 
     void ShadowFeature::setFrame(const ShadowFrame& frame)
     {
-        m_frame     = frame;
-        m_viewIndex = 1;
+        m_frame            = frame;
+        m_viewIndex        = 1;
+        m_culled           = false;
+        m_cascadesRecorded = false;
     }
 
     const char* ShadowFeature::Entry::name() const
     {
-        return m_local ? "LocalShadows" : "Shadows";
+        switch (m_kind)
+        {
+        case EntryKind::Cull:
+            return "FrameCull";
+        case EntryKind::Local:
+            return "LocalShadows";
+        default:
+            return "Shadows";
+        }
     }
 
     PassId ShadowFeature::Entry::pass() const
     {
-        return m_local ? PassId::LocalShadows : PassId::Shadows;
+        switch (m_kind)
+        {
+        case EntryKind::Cull:
+            return PassId::FrameCull;
+        case EntryKind::Local:
+            return PassId::LocalShadows;
+        default:
+            return PassId::Shadows;
+        }
     }
 
     void ShadowFeature::Entry::addPasses(FeatureBuilder& b, const FrameView&)
     {
         ShadowFeature& owner = m_owner;
-        if (!m_local)
+        if (m_kind == EntryKind::Cull)
+        {
+            addFrameCullPass(b, [&owner](Rg::PassContext& c, const Rg::NoData&) { owner.recordFrameCull(c.cmd()); });
+            return;
+        }
+        if (m_kind == EntryKind::Directional)
         {
             addShadowPass(b, [&owner](Rg::PassContext& c, const ShadowTargets&) { owner.recordDirectional(c.cmd()); });
             return;
@@ -540,43 +564,54 @@ namespace Dark
         }
     }
 
-    void ShadowFeature::recordDirectional(ID3D12GraphicsCommandList* mainCmd)
+    void ShadowFeature::recordCascades(ID3D12GraphicsCommandList* cmd, bool profileFoliageCull)
     {
+        ShadowSystem* shadows = m_frame.shadows;
+        if (!shadows || !shadows->isValid() || !shadows->enabled())
+            return;
+        shadows->beginCapture(cmd);
+        for (int i = 0; i < shadows->cascadeCount(); ++i)
+        {
+            shadows->beginCascade(cmd, i);
+            const Frustum3f casterFrustum(shadows->cascade(i).viewProj);
+            recordView(cmd, shadows->cascade(i).viewProj, casterFrustum, nullptr, true, profileFoliageCull);
+        }
+        shadows->endCapture(cmd);
+    }
+
+    void ShadowFeature::recordFrameCull(ID3D12GraphicsCommandList* mainCmd)
+    {
+        if (m_culled)
+            return;
+        m_culled                = true;
         const ShadowFrame& host = m_frame;
         if (host.casters)
             host.casters->prepareDirectional();
         if (!host.renderer || !mainCmd)
             return;
         if (kickWorker(mainCmd))
+        {
+            m_cascadesRecorded = true;
             return;
-
-        ID3D12GraphicsCommandList* depthCmd = mainCmd;
-        bool                       separate = false;
-        if (host.renderer->shadowSeparateList())
-        {
-            if (ID3D12GraphicsCommandList* shadowCmd = host.renderer->beginShadowList())
-            {
-                depthCmd = shadowCmd;
-                separate = true;
-            }
         }
 
-        dispatchFrameCull(host, mainCmd, depthCmd, separate);
+        ID3D12GraphicsCommandList* shadowCmd = host.renderer->shadowSeparateList() ? host.renderer->beginShadowList() : nullptr;
+        dispatchFrameCull(host, mainCmd, shadowCmd ? shadowCmd : mainCmd, shadowCmd != nullptr);
+        if (!shadowCmd)
+            return;
+        // The shadow list runs before the main list, so its cascades are recorded before the
+        // G-buffer too: buffers both lists use track their states in recording order.
+        recordCascades(shadowCmd, false);
+        host.renderer->closeShadowList();
+        m_cascadesRecorded = true;
+    }
 
-        if (host.shadows && host.shadows->isValid() && host.shadows->enabled())
-        {
-            host.shadows->beginCapture(depthCmd);
-            for (int i = 0; i < host.shadows->cascadeCount(); ++i)
-            {
-                host.shadows->beginCascade(depthCmd, i);
-                const Frustum3f casterFrustum(host.shadows->cascade(i).viewProj);
-                recordView(depthCmd, host.shadows->cascade(i).viewProj, casterFrustum, nullptr, true, !separate);
-            }
-            host.shadows->endCapture(depthCmd);
-        }
-
-        if (separate)
-            host.renderer->closeShadowList();
+    void ShadowFeature::recordDirectional(ID3D12GraphicsCommandList* mainCmd)
+    {
+        recordFrameCull(mainCmd);
+        if (!m_frame.renderer || !mainCmd || m_cascadesRecorded)
+            return;
+        recordCascades(mainCmd, true);
     }
 
     void ShadowFeature::recordLocal(ID3D12GraphicsCommandList* cmd)
@@ -596,6 +631,7 @@ namespace Dark
 
     void registerShadowFeature(RenderFeatureRegistry& registry, ShadowFeature& feature)
     {
+        registry.add(&feature.cull());
         registry.add(&feature.directional());
         registry.add(&feature.local());
     }

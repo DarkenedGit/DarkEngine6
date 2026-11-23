@@ -17,7 +17,8 @@
 
 // Feature lists and FeatureFrame (render-graph plan Phase 4): the real Sandbox and Editor lists are
 // built into a graph with stub execute callbacks, and the compiled order must match the legacy pass
-// tables (Render/PassTable.cpp before Phase 4) that the Phase 0 baselines were recorded against.
+// tables (Render/PassTable.cpp before Phase 4) that the Phase 0 baselines were recorded against, with
+// the Phase 7 D12 shadow reorder applied.
 
 using namespace Dark;
 
@@ -37,6 +38,17 @@ namespace
         PassId::LocalVolumes, PassId::Sky,          PassId::SsrCapture, PassId::Water,  PassId::Clouds,  PassId::EditorGrid, PassId::EditorGizmos,
         PassId::Translucent,  PassId::Particles,    PassId::Underwater, PassId::Post,   PassId::Overlay,
     };
+
+    // A legacy table with the D12 reorder (plan Phase 7): FrameCull, the GPU cull that was the start of
+    // Shadows, comes first, and Shadows and LocalShadows move to right after GBuffer.
+    std::vector<PassId> d12(std::vector<PassId> ids)
+    {
+        std::erase(ids, PassId::Shadows);
+        std::erase(ids, PassId::LocalShadows);
+        ids.insert(std::find(ids.begin(), ids.end(), PassId::GBuffer) + 1, { PassId::Shadows, PassId::LocalShadows });
+        ids.insert(ids.begin(), PassId::FrameCull);
+        return ids;
+    }
 
     ID3D12Resource* fakeResource(uint32_t r)
     {
@@ -133,14 +145,43 @@ TEST(FrameFeatures, NamesEveryPassIdAndResource)
         EXPECT_STRNE(renderResourceName(static_cast<RenderResource>(i)), "Unknown") << i;
 }
 
-TEST(FrameFeatures, ListsMatchTheLegacyTablesPlusDebugOverlays)
+TEST(FrameFeatures, ListsMatchTheLegacyTablesWithTheD12ReorderPlusDebugOverlays)
 {
     uint32_t           count   = 0;
     const FeaturePass* sandbox = sandboxFeatures(count);
-    EXPECT_EQ(without(listIds(sandbox, count), { PassId::DebugOverlays }), kLegacySandbox);
+    EXPECT_EQ(without(listIds(sandbox, count), { PassId::DebugOverlays }), d12(kLegacySandbox));
     const FeaturePass* editor = editorFeatures(count);
     // Underwater is optional in both lists; the Editor never sets it (as before, it never marked it).
-    EXPECT_EQ(without(listIds(editor, count), { PassId::DebugOverlays }), kLegacyEditor);
+    EXPECT_EQ(without(listIds(editor, count), { PassId::DebugOverlays }), d12(kLegacyEditor));
+}
+
+TEST(FrameFeatures, ShadowsFollowTheGBufferAndNothingBeforeLightingReadsAShadowMap)
+{
+    for (const bool editor : { false, true })
+    {
+        uint32_t                  count = 0;
+        const FeaturePass*        list  = editor ? editorFeatures(count) : sandboxFeatures(count);
+        const std::vector<PassId> ids   = listIds(list, count);
+        const auto                at    = [&ids](PassId id) { return std::find(ids.begin(), ids.end(), id) - ids.begin(); };
+        EXPECT_EQ(at(PassId::FrameCull), 0) << editor;
+        EXPECT_EQ(at(PassId::GBuffer), 1) << editor;
+        EXPECT_EQ(at(PassId::Shadows), 2) << editor;
+        EXPECT_EQ(at(PassId::LocalShadows), 3) << editor;
+        EXPECT_EQ(at(PassId::Decals), 4) << editor;
+        EXPECT_LT(at(PassId::Ssr), at(PassId::Lighting)) << editor;
+        for (uint32_t i = 0; i < count && list[i].id != PassId::Lighting; ++i)
+        {
+            for (uint32_t r = 0; r < list[i].readCount; ++r)
+            {
+                EXPECT_NE(list[i].reads[r], RenderResource::Shadow) << passName(list[i].id);
+                EXPECT_NE(list[i].reads[r], RenderResource::LocalShadow) << passName(list[i].id);
+            }
+        }
+        ASSERT_LT(at(PassId::FrameCull), static_cast<long>(count)) << editor;
+        const FeaturePass& cull = list[at(PassId::FrameCull)];
+        EXPECT_TRUE(cull.optional);
+        EXPECT_EQ(cull.readCount + cull.writeCount, 0);
+    }
 }
 
 TEST(FrameFeatures, OrderCheckSkipsOptionalAndRejectsMissingOrReordered)
@@ -181,7 +222,7 @@ TEST(FrameFeatures, HostCheckCountsEveryFailedFrame)
     EXPECT_EQ(hostPassSequenceFailures(), before + 2);
 }
 
-TEST(FrameFeatures, SandboxFrameCompilesInLegacyOrderWithNoBarriers)
+TEST(FrameFeatures, SandboxFrameCompilesInD12OrderWithNoBarriers)
 {
     uint32_t           count = 0;
     const FeaturePass* list  = sandboxFeatures(count);
@@ -191,7 +232,7 @@ TEST(FrameFeatures, SandboxFrameCompilesInLegacyOrderWithNoBarriers)
     ASSERT_TRUE(f.run(list, count, listIds(list, count), "Sandbox"));
     EXPECT_TRUE(f.features.orderOk());
     EXPECT_EQ(f.features.compiledOrder(), listIds(list, count)) << names(f.features.compiledOrder());
-    EXPECT_EQ(without(f.features.compiledOrder(), { PassId::DebugOverlays }), kLegacySandbox);
+    EXPECT_EQ(without(f.features.compiledOrder(), { PassId::DebugOverlays }), d12(kLegacySandbox));
     EXPECT_EQ(f.ran, f.features.compiledOrder());
     EXPECT_TRUE(f.graph.barriers().empty()); // opaque passes own their barriers until Phase 6
     EXPECT_TRUE(f.graph.syncPoints().empty());
@@ -208,7 +249,7 @@ TEST(FrameFeatures, SandboxFrameCompilesInLegacyOrderWithNoBarriers)
     EXPECT_EQ(hostPassSequenceFailures(), failures);
 }
 
-TEST(FrameFeatures, EditorFrameCompilesInLegacyOrderWithNoBarriers)
+TEST(FrameFeatures, EditorFrameCompilesInD12OrderWithNoBarriers)
 {
     uint32_t                  count = 0;
     const FeaturePass*        list  = editorFeatures(count);
@@ -217,7 +258,7 @@ TEST(FrameFeatures, EditorFrameCompilesInLegacyOrderWithNoBarriers)
     const std::vector<PassId> all      = without(listIds(list, count), { PassId::Underwater });
     ASSERT_TRUE(f.run(list, count, all, "Editor 3D"));
     EXPECT_EQ(f.ran, all) << names(f.ran);
-    EXPECT_EQ(without(f.ran, { PassId::DebugOverlays }), without(kLegacyEditor, { PassId::Underwater }));
+    EXPECT_EQ(without(f.ran, { PassId::DebugOverlays }), without(d12(kLegacyEditor), { PassId::Underwater }));
     EXPECT_TRUE(f.graph.barriers().empty());
     EXPECT_EQ(hostPassSequenceFailures(), failures);
 
@@ -275,7 +316,7 @@ TEST(FrameFeatures, MissingImportStillCompiles)
     ASSERT_TRUE(features.compileFrame(g, "partial"));
     ASSERT_TRUE(g.execute());
     EXPECT_EQ(ran.size(), features.compiledOrder().size());
-    EXPECT_EQ(ran.front(), PassId::Shadows);
+    EXPECT_EQ(ran.front(), PassId::FrameCull);
     EXPECT_EQ(ran.back(), PassId::Post);
 }
 
@@ -334,7 +375,7 @@ TEST(FrameFeatures, PostGtaoAndSsrWriteTheirHistoriesSoTheGraphSwapsThem)
     ASSERT_TRUE(f.run(list, count, listIds(list, count), "Sandbox"));
     EXPECT_FALSE(f.taa.prev.valid());
     EXPECT_EQ(f.ran, f.features.compiledOrder()); // the history declarations change no order
-    EXPECT_EQ(without(f.features.compiledOrder(), { PassId::DebugOverlays }), kLegacySandbox);
+    EXPECT_EQ(without(f.features.compiledOrder(), { PassId::DebugOverlays }), d12(kLegacySandbox));
     EXPECT_EQ(f.graph.historyCount(), 3u);
 
     // Written last frame (declared by Post / GTAO / SSR): this frame reads a valid prev.
@@ -1160,8 +1201,9 @@ TEST(FrameFeatures, GBufferAndDecalsRunAsDeclaredPassesInListOrder)
     ASSERT_TRUE(f.run(true));
     EXPECT_TRUE(f.host.features.orderOk());
     ASSERT_TRUE(f.decalsAdded);
-    EXPECT_LT(f.at("LocalShadows"), f.at("GBuffer"));
-    EXPECT_LT(f.at("GBuffer"), f.at("Decals"));
+    EXPECT_LT(f.at("FrameCull"), f.at("GBuffer"));
+    EXPECT_LT(f.at("GBuffer"), f.at("LocalShadows"));
+    EXPECT_LT(f.at("LocalShadows"), f.at("Decals"));
     EXPECT_LT(f.at("Decals"), f.at("Decals.ClearHdr"));
     EXPECT_LT(f.at("Decals.ClearHdr"), f.at("Gtao.Skip"));
     EXPECT_LT(f.at("Ssr.Skip"), f.at("Lighting"));

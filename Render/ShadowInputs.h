@@ -13,6 +13,8 @@ struct ID3D12Resource;
 //
 // The directional cascades may be recorded on the shadow list (on the main thread or the shadow
 // worker), which Renderer::endFrame submits ahead of the main list in the same ExecuteCommandLists.
+// Those cascades are recorded in FrameCull and still run before the G-buffer; only cascades on the
+// main list follow it.
 // No barrier the graph records on the main list can come before that work, so the map starts every
 // frame in its write state: it is created in DEPTH_WRITE, and FrameComposer imports it with that
 // final layout, so the plan moves it back after the last reader. The Shadows pass then needs no
@@ -45,9 +47,18 @@ namespace Dark
         return Rg::useState(Rg::Use::DepthWrite, Rg::ResourceKind::Texture, Rg::Queue::Graphics);
     }
 
-    // The Shadows entry: one pass that records the frame's GPU cull and the cascades, writing the
-    // whole map (no barrier: it starts the frame writable). It always runs (the camera cull is in it),
-    // so it is a side effect even without a map. `exec(PassContext&, const ShadowTargets&)`.
+    // The FrameCull entry: one pass with no uses, ahead of the GBuffer pass that draws from its cull.
+    // It records the frame's GPU cull and the shadow-list or shadow-worker cascades.
+    // `exec(PassContext&, const Rg::NoData&)`.
+    template <class Exec> void addFrameCullPass(FeatureBuilder& b, Exec&& exec)
+    {
+        b.addPass<Rg::NoData>("FrameCull", [](Rg::PassBuilder& pb, Rg::NoData&) { pb.flags(Rg::PassFlags::SideEffect); }, std::forward<Exec>(exec));
+    }
+
+    // The Shadows entry: one pass after the G-buffer that records the main-list cascades, writing the
+    // whole map (no barrier: it starts the frame writable). It always runs (without a FrameCull entry
+    // it records the frame's cull too), so it is a side effect even without a map.
+    // `exec(PassContext&, const ShadowTargets&)`.
     template <class Exec> void addShadowPass(FeatureBuilder& b, Exec&& exec)
     {
         const Rg::TextureHandle in = b.handle(RenderResource::Shadow);

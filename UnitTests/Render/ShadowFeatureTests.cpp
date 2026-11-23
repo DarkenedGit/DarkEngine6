@@ -12,8 +12,9 @@
 #include <string>
 #include <vector>
 
-// ShadowFeature without a device: its two entries, how they declare, and that a frame without a
-// renderer, shadow map or faces asks the caster source for nothing but prepareDirectional.
+// ShadowFeature without a device: its three entries, where they sit in the frame, how they declare,
+// and that a frame without a renderer, shadow map or faces asks the caster source for nothing but one
+// prepareDirectional.
 
 using namespace Dark;
 
@@ -95,23 +96,33 @@ namespace
         return std::find(names.begin(), names.end(), name) != names.end();
     }
 
-    // Declares the registry on the Sandbox list with the shadow maps imported.
-    bool declareFrame(const RenderFeatureRegistry& registry, Rg::RenderGraph& g, FeatureFrame& features, uint32_t& declared)
+    // Declares the registry on the Sandbox (or Editor) list with the shadow maps imported. With
+    // `ran`, every other list entry is a stub that logs its PassId.
+    bool declareFrame(const RenderFeatureRegistry& registry, Rg::RenderGraph& g, FeatureFrame& features, uint32_t& declared, bool editor = false, std::vector<PassId>* ran = nullptr)
     {
         uint32_t           count = 0;
-        const FeaturePass* list  = sandboxFeatures(count);
+        const FeaturePass* list  = editor ? editorFeatures(count) : sandboxFeatures(count);
         g.beginFrame(320, 180);
         features.begin(list, count);
         features.importResource(g, RenderResource::Shadow, nullptr, absDesc(40), Rg::Layout::DepthStencilWrite);
         features.importResource(g, RenderResource::LocalShadow, nullptr, absDesc(40));
         declared = registry.declare(features, FrameView{});
+        for (uint32_t i = 0; ran && i < count; ++i)
+        {
+            const PassId id = list[i].id;
+            if (!registry.find(id))
+                features.set(id, [ran, id](Rg::PassContext&) { ran->push_back(id); });
+        }
         return features.compileFrame(g, "shadow-feature");
     }
 } // namespace
 
-TEST(ShadowFeature, EntriesAreTheShadowsAndLocalShadowsEntries)
+TEST(ShadowFeature, EntriesAreTheFrameCullShadowsAndLocalShadowsEntries)
 {
     ShadowFeature feature;
+    EXPECT_STREQ(feature.cull().name(), "FrameCull");
+    EXPECT_EQ(feature.cull().pass(), PassId::FrameCull);
+    EXPECT_EQ(feature.cull().stage(), FeatureStage::PreFrame);
     EXPECT_STREQ(feature.directional().name(), "Shadows");
     EXPECT_EQ(feature.directional().pass(), PassId::Shadows);
     EXPECT_EQ(feature.directional().stage(), FeatureStage::Shadows);
@@ -120,15 +131,37 @@ TEST(ShadowFeature, EntriesAreTheShadowsAndLocalShadowsEntries)
     EXPECT_EQ(feature.local().stage(), FeatureStage::Shadows);
 }
 
-TEST(ShadowFeature, RegisterAddsTheDirectionalThenTheLocalEntryOnce)
+TEST(ShadowFeature, RegisterAddsTheCullDirectionalAndLocalEntriesOnce)
 {
     ShadowFeature         feature;
     RenderFeatureRegistry registry;
     registerShadowFeature(registry, feature);
     registerShadowFeature(registry, feature);
-    ASSERT_EQ(registry.count(), 2u);
-    EXPECT_EQ(registry.feature(0), &feature.directional());
-    EXPECT_EQ(registry.feature(1), &feature.local());
+    ASSERT_EQ(registry.count(), 3u);
+    EXPECT_EQ(registry.feature(0), &feature.cull());
+    EXPECT_EQ(registry.feature(1), &feature.directional());
+    EXPECT_EQ(registry.feature(2), &feature.local());
+}
+
+TEST(ShadowFeature, ListsPutTheEntriesInStageOrderAroundTheGBuffer)
+{
+    // FeatureStage order: PreFrame, GBuffer, Shadows, PostGBuffer. The lists set the graph order, so
+    // each entry must sit after every entry of an earlier stage.
+    ShadowFeature feature;
+    for (const bool editor : { false, true })
+    {
+        uint32_t            count = 0;
+        const FeaturePass*  list  = editor ? editorFeatures(count) : sandboxFeatures(count);
+        std::vector<PassId> ids;
+        for (uint32_t i = 0; i < count; ++i)
+            ids.push_back(list[i].id);
+        const auto at = [&ids](PassId id) { return std::find(ids.begin(), ids.end(), id) - ids.begin(); };
+        ASSERT_LT(at(PassId::GBuffer), static_cast<long>(ids.size()));
+        EXPECT_LT(at(feature.cull().pass()), at(PassId::GBuffer)) << editor;
+        EXPECT_GT(at(feature.directional().pass()), at(PassId::GBuffer)) << editor;
+        EXPECT_GT(at(feature.local().pass()), at(feature.directional().pass())) << editor;
+        EXPECT_LT(at(feature.local().pass()), at(PassId::Decals)) << editor;
+    }
 }
 
 TEST(ShadowFeature, CreatesWithoutARendererSoARequiredHostKeepsRunning)
@@ -140,6 +173,7 @@ TEST(ShadowFeature, CreatesWithoutARendererSoARequiredHostKeepsRunning)
     EXPECT_TRUE(registry.createAll({}));
     EXPECT_TRUE(registry.isCreated(0));
     EXPECT_TRUE(registry.isCreated(1));
+    EXPECT_TRUE(registry.isCreated(2));
     registry.destroyAll();
 }
 
@@ -155,7 +189,7 @@ TEST(ShadowFeature, SetFrameRestartsTheDepthViewIndexAfterTheCamera)
     EXPECT_EQ(feature.viewIndex(), 1u);
 }
 
-TEST(ShadowFeature, DeclaresTheShadowsPassAndNoLocalPassWithoutFaces)
+TEST(ShadowFeature, DeclaresTheCullAndShadowsPassesAndNoLocalPassWithoutFaces)
 {
     ShadowFeature         feature;
     RenderFeatureRegistry registry;
@@ -175,8 +209,9 @@ TEST(ShadowFeature, DeclaresTheShadowsPassAndNoLocalPassWithoutFaces)
         FeatureFrame    features;
         uint32_t        declared = 0;
         ASSERT_TRUE(declareFrame(registry, g, features, declared));
-        EXPECT_EQ(declared, 2u);
+        EXPECT_EQ(declared, 3u);
         const std::vector<std::string> names = passNames(g);
+        EXPECT_TRUE(has(names, "FrameCull"));
         EXPECT_TRUE(has(names, "Shadows"));
         EXPECT_FALSE(has(names, "LocalShadows"));
         const std::vector<PassId>& order = features.compiledOrder();
@@ -184,6 +219,64 @@ TEST(ShadowFeature, DeclaresTheShadowsPassAndNoLocalPassWithoutFaces)
         EXPECT_EQ(std::find(order.begin(), order.end(), PassId::LocalShadows), order.end());
     }
     registry.destroyAll();
+}
+
+TEST(ShadowFeature, ExecutesFrameCullBeforeTheGBufferAndTheShadowsAfterIt)
+{
+    ShadowFeature         feature;
+    RenderFeatureRegistry registry;
+    registerShadowFeature(registry, feature);
+    ASSERT_TRUE(registry.createAll({}));
+    for (const bool editor : { false, true })
+    {
+        FakeCasters casters;
+        ShadowFrame frame;
+        frame.casters = &casters;
+        feature.setFrame(frame);
+
+        Rg::RenderGraph     g;
+        FeatureFrame        features;
+        uint32_t            declared = 0;
+        std::vector<PassId> ran;
+        ASSERT_TRUE(declareFrame(registry, g, features, declared, editor, &ran));
+        EXPECT_TRUE(features.orderOk()) << editor;
+        const std::vector<PassId>& order = features.compiledOrder();
+        ASSERT_GE(order.size(), 4u);
+        const std::vector<PassId> head(order.begin(), order.begin() + 4);
+        EXPECT_EQ(head, (std::vector<PassId>{ PassId::FrameCull, PassId::GBuffer, PassId::Shadows, PassId::Decals })) << editor;
+        ASSERT_TRUE(g.execute());
+        ASSERT_GE(ran.size(), 2u);
+        EXPECT_EQ(ran[0], PassId::GBuffer);
+        EXPECT_EQ(ran[1], PassId::Decals);
+        // One prepare for the frame, from FrameCull; Shadows does not prepare again.
+        EXPECT_EQ(casters.calls, std::vector<std::string>{ "prepare" });
+    }
+    registry.destroyAll();
+}
+
+TEST(ShadowFeature, ShadowsPreparesOnceWhenFrameCullDidNotRun)
+{
+    ShadowFeature feature;
+    FakeCasters   casters;
+    ShadowFrame   frame;
+    frame.casters = &casters;
+    feature.setFrame(frame);
+    feature.recordFrameCull(fakeCmd());
+    feature.recordFrameCull(fakeCmd());
+    feature.recordDirectional(fakeCmd());
+    EXPECT_EQ(casters.calls, std::vector<std::string>{ "prepare" });
+
+    // A list without FrameCull: Shadows runs it first, once.
+    casters.calls.clear();
+    feature.setFrame(frame);
+    feature.recordDirectional(fakeCmd());
+    EXPECT_EQ(casters.calls, std::vector<std::string>{ "prepare" });
+
+    // setFrame starts a new frame.
+    casters.calls.clear();
+    feature.setFrame(frame);
+    feature.recordFrameCull(fakeCmd());
+    EXPECT_EQ(casters.calls, std::vector<std::string>{ "prepare" });
 }
 
 TEST(ShadowFeature, ExecutingWithoutAListOnlyPreparesTheCasters)

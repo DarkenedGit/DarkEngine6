@@ -87,8 +87,8 @@ namespace Dark
     const char* passName(PassId id)
     {
         static const char* const kNames[] = {
-            "Shadows", "LocalShadows", "GBuffer",     "Decals",    "GTAO",       "SSR",  "Lighting", "LocalVolumes", "Sky",          "SsrCapture",    "Water",
-            "Clouds",  "Camouflage",   "Translucent", "Particles", "Underwater", "Post", "Overlay",  "EditorGrid",   "EditorGizmos", "DebugOverlays",
+            "FrameCull", "Shadows", "LocalShadows", "GBuffer",     "Decals",    "GTAO",       "SSR",  "Lighting", "LocalVolumes", "Sky",          "SsrCapture",
+            "Water",     "Clouds",  "Camouflage",   "Translucent", "Particles", "Underwater", "Post", "Overlay",  "EditorGrid",   "EditorGizmos", "DebugOverlays",
         };
         static_assert(sizeof(kNames) / sizeof(kNames[0]) == kPassIdCount, "one name per PassId");
         const auto i = static_cast<uint32_t>(id);
@@ -150,9 +150,11 @@ namespace Dark
     const FeaturePass* sandboxFeatures(uint32_t& count)
     {
         static const FeaturePass kList[] = {
+            makeNode(PassId::FrameCull, true, {}, {}),
+            makeNode(PassId::GBuffer, false, {}, { R::Albedo, R::Attrib, R::Velocity, R::Depth }),
+            // After the G-buffer: no G-buffer, decal, GTAO or SSR shader reads a shadow map.
             makeNode(PassId::Shadows, true, {}, { R::Shadow }),
             makeNode(PassId::LocalShadows, true, {}, { R::LocalShadow }),
-            makeNode(PassId::GBuffer, false, {}, { R::Albedo, R::Attrib, R::Velocity, R::Depth }),
             makeNode(PassId::Decals, false, { R::Depth }, { R::Albedo, R::Attrib, R::Hdr }),
             makeNode(PassId::Gtao, false, { R::Depth, R::Attrib }, { R::Ao, R::GtaoHistory }),
             makeNode(PassId::Ssr, false, { R::Depth, R::Albedo }, { R::SsrHistory }),
@@ -178,9 +180,11 @@ namespace Dark
     const FeaturePass* editorFeatures(uint32_t& count)
     {
         static const FeaturePass kList[] = {
+            makeNode(PassId::FrameCull, true, {}, {}),
+            makeNode(PassId::GBuffer, false, {}, { R::Albedo, R::Attrib, R::Velocity, R::Depth }),
+            // After the G-buffer: no G-buffer, decal, GTAO or SSR shader reads a shadow map.
             makeNode(PassId::Shadows, true, {}, { R::Shadow }),
             makeNode(PassId::LocalShadows, true, {}, { R::LocalShadow }),
-            makeNode(PassId::GBuffer, false, {}, { R::Albedo, R::Attrib, R::Velocity, R::Depth }),
             makeNode(PassId::Decals, false, { R::Depth }, { R::Albedo, R::Attrib, R::Hdr }),
             makeNode(PassId::Gtao, false, { R::Depth, R::Attrib }, { R::Ao, R::GtaoHistory }),
             makeNode(PassId::Ssr, false, { R::Depth, R::Albedo }, { R::SsrHistory }),
