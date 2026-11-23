@@ -2,6 +2,8 @@
 
 #include "Render/FrameFeatures.h"
 #include "Render/LightingInputs.h"
+#include "Render/LocalShadowMath.h"
+#include "Render/ShadowCascades.h"
 
 #include <cstdint>
 #include <utility>
@@ -47,10 +49,12 @@ namespace Dark
     };
     struct DebugTileLayout
     {
-        static constexpr int kMaxSlices = 8;
+        // Every cascade and every local slice of a frame's half (ShadowSystem, LocalShadowSystem).
+        static constexpr int kMaxCascades    = kMaxShadowCascades;
+        static constexpr int kMaxLocalSlices = static_cast<int>(kLocalShadowSlicesPerFrame);
         DebugTileRect        albedo, attrib, velocity, ao, ssr, depth;
-        DebugTileRect        cascades[kMaxSlices];
-        DebugTileRect        localSlices[kMaxSlices];
+        DebugTileRect        cascades[kMaxCascades];
+        DebugTileRect        localSlices[kMaxLocalSlices];
         int                  cascadeCount = 0, localCount = 0;
     };
 
@@ -103,12 +107,12 @@ namespace Dark
         }
         if (r.sunShadow)
         {
-            l.cascadeCount = cascades < 0 ? 0 : (cascades > DebugTileLayout::kMaxSlices ? DebugTileLayout::kMaxSlices : cascades);
+            l.cascadeCount = cascades < 0 ? 0 : (cascades > DebugTileLayout::kMaxCascades ? DebugTileLayout::kMaxCascades : cascades);
             row(l.cascades, l.cascadeCount, x0, bottom);
         }
         if (r.localShadow)
         {
-            l.localCount = localSlices < 0 ? 0 : (localSlices > DebugTileLayout::kMaxSlices ? DebugTileLayout::kMaxSlices : localSlices);
+            l.localCount = localSlices < 0 ? 0 : (localSlices > DebugTileLayout::kMaxLocalSlices ? DebugTileLayout::kMaxLocalSlices : localSlices);
             row(l.localSlices, l.localCount, pad, r.depth || r.sunShadow ? bottom - gap - tile : bottom);
         }
         return l;

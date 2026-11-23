@@ -248,19 +248,19 @@ TEST(DebugTileLayout, TheBottomRowHasDepthThenTheCascadesShrunkToFit)
 {
     DebugTileRequest r;
     r.depth = r.sunShadow   = true;
-    const DebugTileLayout l = layoutDebugTiles(r, 600, 600, 120, 4, 0);
+    const DebugTileLayout l = layoutDebugTiles(r, 480, 600, 120, 3, 0);
     EXPECT_EQ(l.depth.x, 12);
     EXPECT_EQ(l.depth.y, 600 - 12 - 120);
-    ASSERT_EQ(l.cascadeCount, 4);
+    ASSERT_EQ(l.cascadeCount, 3);
     const int32_t x0 = 12 + 120 + 12;
     EXPECT_EQ(l.cascades[0].x, x0);
-    const int32_t tw = (600 - 12 - x0 - 3 * 8) / 4; // 4 x 120 + gaps does not fit
+    const int32_t tw = (480 - 12 - x0 - 2 * 8) / 3; // 3 x 120 + gaps does not fit
     EXPECT_LT(tw, 120);
     EXPECT_EQ(l.cascades[0].w, tw);
     EXPECT_EQ(l.cascades[0].h, 120);
-    EXPECT_EQ(l.cascades[3].x, x0 + 3 * (tw + 8));
-    EXPECT_LE(l.cascades[3].x + l.cascades[3].w, 600 - 12);
-    EXPECT_EQ(layoutDebugTiles(r, 1920, 600, 120, 4, 0).cascades[0].w, 120) << "fits: full size";
+    EXPECT_EQ(l.cascades[2].x, x0 + 2 * (tw + 8));
+    EXPECT_LE(l.cascades[2].x + l.cascades[2].w, 480 - 12);
+    EXPECT_EQ(layoutDebugTiles(r, 1920, 600, 120, 3, 0).cascades[0].w, 120) << "fits: full size";
 }
 
 TEST(DebugTileLayout, LocalSlicesSitAboveAUsedBottomRowElseOnIt)
@@ -274,5 +274,23 @@ TEST(DebugTileLayout, LocalSlicesSitAboveAUsedBottomRowElseOnIt)
     EXPECT_EQ(l.localSlices[0].x, 12);
     EXPECT_EQ(l.localSlices[1].x, 12 + 168);
     EXPECT_EQ(l.localCount, 2);
-    EXPECT_EQ(layoutDebugTiles(r, 1920, 1080, 160, 20, 0).cascadeCount, DebugTileLayout::kMaxSlices);
+    EXPECT_EQ(layoutDebugTiles(r, 1920, 1080, 160, 20, 0).cascadeCount, DebugTileLayout::kMaxCascades);
+}
+
+TEST(DebugTileLayout, EveryLocalSliceOfAFullHalfGetsATileThatFits)
+{
+    // The Editor's only shadow tiles: a full half (LocalShadowSystem's cap) at its fixed 160 px.
+    DebugTileRequest r;
+    r.localShadow = true;
+    const int  n  = static_cast<int>(kLocalShadowSlicesPerFrame);
+    const auto l  = layoutDebugTiles(r, 1920, 1080, 160, 0, n);
+    ASSERT_EQ(l.localCount, n);
+    const int32_t tw = (1920 - 12 - 12 - (n - 1) * 8) / n; // twelve 160 px tiles do not fit: shrunk
+    for (int i = 0; i < n; ++i)
+    {
+        EXPECT_EQ(l.localSlices[i].w, tw) << i;
+        EXPECT_EQ(l.localSlices[i].x, 12 + i * (tw + 8)) << i;
+    }
+    EXPECT_LE(l.localSlices[n - 1].x + l.localSlices[n - 1].w, 1920 - 12);
+    EXPECT_EQ(layoutDebugTiles(r, 1920, 1080, 160, 0, n + 4).localCount, n) << "never more than a half";
 }
