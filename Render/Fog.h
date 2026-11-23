@@ -7,11 +7,7 @@ namespace Dark
 
     struct LightingConstants;
     class IEnvironmentProvider;
-
-    namespace Terrain
-    {
-    class HeightMap;
-    }
+    class IHeightProvider;
 
     // Twilight gate in [0,1]: peaks when the sun is on the horizon (dawn/dusk).
     inline float heightFogAmount(float sunElevationRadians)
@@ -63,8 +59,8 @@ namespace Dark
     };
 
     FogGpu makeFogGpu(const IEnvironmentProvider* env, float waterLevel, bool lighting);
-    // Packs one origin/cellSize/worldSize. Hosts pass the coarse (or legacy) HF. Null/invalid -> dummy 1x1 (heightCellSize=0).
-    void   fillFogHeightMap(FogGpu& fog, const Terrain::HeightMap* heightMap);
+    // Packs one origin/cellSize/worldSize. Hosts pass the coarse (or legacy) HF. Null, or no valid grid -> dummy 1x1 (heightCellSize=0).
+    void   fillFogHeightMap(FogGpu& fog, const IHeightProvider* heights);
     void   applyFogToLighting(LightingConstants& lc, const FogGpu& fog);
 
 } // namespace Dark

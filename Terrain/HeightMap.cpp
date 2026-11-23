@@ -47,6 +47,17 @@ float ValueNoise(float x, float z, uint32_t seed)
 
 } // namespace
 
+bool HeightMap::heightGrid(HeightGrid& out) const
+{
+    if (!valid())
+        return false;
+    out.origin   = m_origin;
+    out.cellSize = m_cellSize;
+    out.width    = m_width;
+    out.height   = m_height;
+    return true;
+}
+
 bool HeightMap::create(uint32_t width, uint32_t height, float cellSize, float heightScale)
 {
     return createWithMax(width, height, cellSize, heightScale, kMaxHeightMapSize);

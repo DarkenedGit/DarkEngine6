@@ -5,6 +5,7 @@
 #include "Math/MathDefines.h"
 #include "Math/Ray3f.h"
 #include "Math/Vector3f.h"
+#include "Render/HeightProvider.h"
 
 #include <cstdint>
 #include <filesystem>
@@ -25,7 +26,7 @@ constexpr uint32_t kMaxWorkingHeightMapSize = 4097; // Editor/gen working set; r
 // Height and ray queries share the bilinear patch of each cell:
 //   heightAtWorld  — O(1) bilinear evaluate
 //   raycast        — min-max pyramid cull + per-cell quadratic
-class HeightMap
+class HeightMap final : public IHeightProvider
 {
 public:
     HeightMap() = default;
@@ -96,6 +97,8 @@ public:
     float    cellSize() const { return m_cellSize; }
     float    heightScale() const { return m_heightScale; }
     const Math::Vector3f& origin() const { return m_origin; }
+    // IHeightProvider: this grid (what fog samples), when valid().
+    bool heightGrid(HeightGrid& out) const override;
     const float* samples() const { return m_samples.data(); }
     float*       mutableSamples(); // bulk write; marks accel dirty
 
