@@ -1,6 +1,6 @@
 #include "EditorApp.h"
 
-#include "Play/ShadowRecord.h"
+#include "Play/ShadowCasters.h"
 
 #include "Editor/EditorInternals.h"
 #include "Editor/EditorObject.h"
@@ -244,7 +244,6 @@ void EditorApp::renderScene3D()
     FrameEntitySet& acceptedModel = m_acceptedModel;
     FrameEntitySet& acceptedSkinned = m_acceptedSkinned;
     std::vector<int>& rejectedShots = m_rejectedShots;
-    uint8_t shadowViewIndex = 1;
     if (instanceStatic)
     {
         m_drawList.beginFrame(renderer().frameIndex());
@@ -337,7 +336,7 @@ void EditorApp::renderScene3D()
     }
 
     // A point light culls foliage once against its range sphere and redraws that list on each face.
-    // Views are built here. recordDirectionalShadows dispatches them in execute order.
+    // Views are built here. ShadowFeature dispatches them in execute order.
     const bool gpuCull       = instanceStatic && renderer().debugState().instancedIndirect && m_drawList.cullReady();
     if (gpuCull)
     {
@@ -403,6 +402,10 @@ void EditorApp::renderScene3D()
     shadowHost.drawPrimitives    = &EditorApp::drawPrimitiveShadowCasters;
     EditorShadowUser shadowUser{ this, &acceptedProp };
     shadowHost.user = &shadowUser;
+    // The Shadows and LocalShadows entries are the registered ShadowFeature; it reads this frame's
+    // casters when the graph executes.
+    GameplayShadowCasters shadowCasters(shadowHost);
+    m_shadowFeature.setFrame(shadowFrameOf(shadowHost, &m_scene.localShadows(), &shadowCasters));
 
     // The frame graph drives the frame: each entry is declared (or set, for the opaque ones left)
     // here in recording order and run by frame.execute() below in feature-list order, which is also
@@ -415,15 +418,6 @@ void EditorApp::renderScene3D()
     frame.begin(renderer(), view, featureList, featureCount, m_scene.frameShadows());
     m_scene.requestHistories(frame, renderer());
 
-    frame.declare(PassId::Shadows, [&](FeatureBuilder& b) {
-        m_scene.addShadowPasses(b, [&](ID3D12GraphicsCommandList* cmd) {
-            ensureDirectionalShadowModels(shadowHost);
-            recordDirectionalShadows(shadowHost, cmd, shadowViewIndex);
-        });
-    });
-    frame.declare(PassId::LocalShadows, [&](FeatureBuilder& b) {
-        m_scene.addLocalShadowPasses(b, [&](ID3D12GraphicsCommandList* cmd) { recordLocalShadows(shadowHost, m_scene.localShadows(), cmd, shadowViewIndex); });
-    });
 
     const bool instanceColor = instanceStatic;
     const DebugFill fill = renderer().debugState().fill;

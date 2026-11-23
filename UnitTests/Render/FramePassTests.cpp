@@ -6,7 +6,7 @@
 #error JobSystem.h must not include d3d12.h
 #endif
 
-#include "Play/FrameRecord.h"
+#include "Render/FrameRecord.h"
 
 #include <atomic>
 #include <chrono>

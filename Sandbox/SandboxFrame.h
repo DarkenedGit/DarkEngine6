@@ -17,6 +17,7 @@
 #include "Water/WaterRendering.h"
 #include "Render/MeshConstants.h"
 #include "Render/SceneRenderer.h"
+#include "Render/ShadowFeature.h"
 #include "Render/WalkabilityDebug.h"
 #include "Render/SkinnedInstanceBuffer.h"
 #include "Sky/SkyFeatures.h"
@@ -40,6 +41,7 @@ public:
     Dark::SceneRenderer&              scene() { return m_scene; }
     const Dark::SceneRenderer&        scene() const { return m_scene; }
     Dark::SkyFeatures&                sky() { return m_sky; }
+    Dark::ShadowFeature&              shadowFeature() { return m_shadowFeature; }
     Dark::DrawList&                   drawList() { return m_drawList; }
     Dark::SkinnedInstanceBuffer&      skinnedInstances() { return m_skinnedInstances; }
     std::unordered_map<Dark::EntityID, Dark::Math::Matrix4f>& prevWorldByEntity() { return m_prevWorldByEntity; }
@@ -81,6 +83,7 @@ private:
     Dark::SkinnedInstanceBuffer                 m_skinnedInstances;
     Dark::SceneRenderer                         m_scene;
     Dark::SkyFeatures                           m_sky;
+    Dark::ShadowFeature                         m_shadowFeature;
     Dark::FrameComposer                         m_frameComposer; // the frame graph (render-graph plan Phase 4)
     Dark::WalkabilityDebug                      m_walkDebug;
     std::unordered_map<Dark::EntityID, Dark::Math::Matrix4f> m_prevWorldByEntity;

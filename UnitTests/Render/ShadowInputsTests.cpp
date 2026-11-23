@@ -143,7 +143,7 @@ namespace
             features.declare(PassId::LocalShadows,
                              [this](FeatureBuilder& b)
                              {
-                                 // SceneRenderer::addLocalShadowPasses: no pass on a frame without faces.
+                                 // ShadowFeature: no LocalShadows pass on a frame without faces.
                                  if (!localFaces)
                                      return;
                                  localAdded = addLocalShadowPass(b,

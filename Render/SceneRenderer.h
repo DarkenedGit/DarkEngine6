@@ -119,21 +119,6 @@ public:
     // The shadow maps FrameComposer::begin imports this frame (a missing map imports nothing).
     FrameShadows frameShadows() const;
 
-    // The Shadows entry: `record(ID3D12GraphicsCommandList* mainCmd)` records the frame's GPU cull and
-    // the cascades (recordDirectionalShadows) in one pass that writes the shadow map.
-    template <class Record> void addShadowPasses(FeatureBuilder& b, Record&& record)
-    {
-        Dark::addShadowPass(b, [record = std::forward<Record>(record)](Rg::PassContext& c, const ShadowTargets&) { record(c.cmd()); });
-    }
-    // The LocalShadows entry: `record(ID3D12GraphicsCommandList* cmd)` draws the selected faces
-    // (recordLocalShadows). No pass on a frame without faces or without the array.
-    template <class Record> void addLocalShadowPasses(FeatureBuilder& b, Record&& record)
-    {
-        if (m_localShadows.faceCountThisFrame() <= 0 || !m_localShadows.isValid())
-            return;
-        Dark::addLocalShadowPass(b, [record = std::forward<Record>(record)](Rg::PassContext& c, const ShadowTargets&) { record(c.cmd()); });
-    }
-
     // `draw(Rg::PassContext&)` runs with the MRTs and depth bound and is stored until execute(). It
     // may bind its own descriptor heaps: the executor rebinds the ring before the next declared pass.
     template <class Draw> void addGBufferPasses(FeatureBuilder& b, Renderer& renderer, Draw&& draw)

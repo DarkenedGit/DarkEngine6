@@ -17,6 +17,7 @@
 #include "Render/WalkabilityDebug.h"
 #include "Render/SceneRenderer.h"
 #include "Render/FrameComposer.h"
+#include "Render/ShadowFeature.h"
 #include "Sky/SkyFeatures.h"
 #include "Render/Camera3D.h"
 #include "Render/Camera2D.h"
@@ -387,6 +388,7 @@ private:
 
     SceneRenderer   m_scene;
     SkyFeatures     m_sky;
+    ShadowFeature   m_shadowFeature;
     FrameComposer     m_frameComposer; // the frame graph (render-graph plan Phase 4)
     LinePipeline      m_linePipeline;
     LinePipeline      m_linePipeline3D;

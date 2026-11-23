@@ -24,8 +24,8 @@
 #include "Play/PlayLook.h"
 #include "Play/PlayMotor.h"
 #include "Play/ShoulderCamera.h"
-#include "Play/FrameRecord.h"
-#include "Play/ShadowRecord.h"
+#include "Render/FrameRecord.h"
+#include "Play/ShadowCasters.h"
 #include "Play/TerrainStream.h"
 #include "Terrain/TerrainLodFile.h"
 #include "Play/WeaponFire.h"
@@ -328,7 +328,6 @@ void SandboxFrame::render()
     FrameEntitySet& acceptedModel = m_acceptedModel;
     FrameEntitySet& acceptedSkinned = m_acceptedSkinned;
     std::vector<int>& rejectedShots = m_rejectedShots;
-    uint8_t shadowViewIndex = 1;
     if (instanceStatic)
     {
         m_drawList.beginFrame(app().renderer().frameIndex());
@@ -428,7 +427,7 @@ void SandboxFrame::render()
 
     // Opaque casters only — same set as G-buffer / forward color. Water, particles, blood, lines stay out.
     // A point light culls foliage once against its range sphere and redraws that list on each face.
-    // Views are built here. recordDirectionalShadows dispatches them in execute order.
+    // Views are built here. ShadowFeature dispatches them in execute order.
     const bool gpuCull       = instanceStatic && app().renderer().debugState().instancedIndirect && m_drawList.cullReady();
     if (gpuCull)
     {
@@ -492,6 +491,10 @@ void SandboxFrame::render()
     shadowHost.drawPrimitives    = &SandboxApp::drawPrimitiveShadowCasters;
     SandboxShadowUser shadowUser{ &app(), &acceptedMesh };
     shadowHost.user = &shadowUser;
+    // The Shadows and LocalShadows entries are the registered ShadowFeature; it reads this frame's
+    // casters when the graph executes.
+    GameplayShadowCasters shadowCasters(shadowHost);
+    m_shadowFeature.setFrame(shadowFrameOf(shadowHost, &m_scene.localShadows(), &shadowCasters));
 
     // The frame graph drives the frame: each entry is declared (or set, for the opaque ones left)
     // here in recording order and run by frame.execute() below in feature-list order, which is also
@@ -506,15 +509,6 @@ void SandboxFrame::render()
     frame.begin(app().renderer(), view, featureList, featureCount, m_scene.frameShadows());
     m_scene.requestHistories(frame, app().renderer());
 
-    frame.declare(PassId::Shadows, [&](FeatureBuilder& b) {
-        m_scene.addShadowPasses(b, [&](ID3D12GraphicsCommandList* cmd) {
-            ensureDirectionalShadowModels(shadowHost);
-            recordDirectionalShadows(shadowHost, cmd, shadowViewIndex);
-        });
-    });
-    frame.declare(PassId::LocalShadows, [&](FeatureBuilder& b) {
-        m_scene.addLocalShadowPasses(b, [&](ID3D12GraphicsCommandList* cmd) { recordLocalShadows(shadowHost, m_scene.localShadows(), cmd, shadowViewIndex); });
-    });
 
     const bool visionPicture = app().m_vision.infrared > 0.0f || app().m_vision.ultraviolet > 0.0f || app().m_vision.echo > 0.0f;
     const float underDraw = !visionPicture ? Math::Clamp(app().m_play.runtime().underAmount, 0.0f, 1.0f) : 0.0f;
