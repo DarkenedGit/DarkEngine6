@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Render/LoadingScreenConfig.h"
+#include "Media/LoadingScreenConfig.h"
 #include "Render/Texture2D.h"
 
 #include <chrono>

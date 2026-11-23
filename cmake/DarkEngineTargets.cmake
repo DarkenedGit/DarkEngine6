@@ -160,20 +160,6 @@ file(GLOB DE_CONTENT_CODE_SOURCES CONFIGURE_DEPENDS
 )
 list(APPEND DE_ENGINE_REST_SOURCES ${DE_CONTENT_CODE_SOURCES})
 
-# This Render TU calls back into DarkEngine (movie player).
-# DarkRender cannot link back, so it compiles with the engine objects.
-set(_loading_screen_cpp "")
-foreach(_src IN LISTS DE_RENDER_SOURCES)
-    get_filename_component(_name "${_src}" NAME)
-    if(_name STREQUAL "LoadingScreen.cpp")
-        set(_loading_screen_cpp "${_src}")
-    endif()
-endforeach()
-if(_loading_screen_cpp)
-    list(REMOVE_ITEM DE_RENDER_SOURCES "${_loading_screen_cpp}")
-    list(APPEND DE_ENGINE_REST_SOURCES "${_loading_screen_cpp}")
-endif()
-
 # Runtime HLSL lives under content/shaders (not a Shaders/ source folder).
 # Add them to DarkEngine so they appear in the VS solution; do not compile them.
 file(GLOB_RECURSE DE_SHADER_SOURCES CONFIGURE_DEPENDS
@@ -327,7 +313,7 @@ target_sources(DarkEngine PRIVATE "${DE_GENERATED_DIR}/Core/Version.h")
 set_source_files_properties("${DE_GENERATED_DIR}/Core/Version.h" PROPERTIES HEADER_FILE_ONLY TRUE)
 source_group("generated" FILES "${DE_GENERATED_DIR}/Core/Version.h")
 
-# Render/LoadingScreen.cpp (compiled here) includes the generated splash shader bytes (cmake/ShaderBake.cmake).
+# Media/LoadingScreen.cpp includes the generated splash shader bytes (cmake/ShaderBake.cmake).
 target_sources(DarkEngine PRIVATE "${DE_LOADING_SCREEN_SHADERS_H}")
 set_source_files_properties("${DE_LOADING_SCREEN_SHADERS_H}" PROPERTIES HEADER_FILE_ONLY TRUE)
 source_group("generated" FILES "${DE_LOADING_SCREEN_SHADERS_H}")

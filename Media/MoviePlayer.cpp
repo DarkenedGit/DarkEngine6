@@ -7,8 +7,8 @@
 #include "Media/MoviePath.h"
 #include "Media/MoviePresentMath.h"
 #include "Media/MovieSource.h"
-#include "Render/MovieFrameTexture.h"
-#include "Render/MoviePresentPipeline.h"
+#include "Media/MovieFrameTexture.h"
+#include "Media/MoviePresentPipeline.h"
 #include "Render/Renderer.h"
 
 #ifndef WIN32_LEAN_AND_MEAN

@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "Render/LoadingScreen.h"
+#include "Media/LoadingScreen.h"
 
 using namespace Dark;
 
