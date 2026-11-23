@@ -6,7 +6,7 @@
 #include "Render/GpuResourceCache.h"
 #include "Render/Renderer.h"
 #include "Render/ShadowCascades.h"
-#include "Render/TerrainPipeline.h"
+#include "Terrain/TerrainPipeline.h"
 #include "Terrain/TerrainLodFile.h"
 #include "Terrain/TerrainMaterial.h"
 

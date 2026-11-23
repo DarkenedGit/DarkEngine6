@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "Render/TerrainErosionPipeline.h"
+#include "Terrain/TerrainErosionPipeline.h"
 #include "Render/Texture2D.h"
 #include "Render/RhiDevice.h"
 

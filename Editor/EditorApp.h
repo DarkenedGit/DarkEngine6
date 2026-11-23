@@ -8,9 +8,10 @@
 #include "Render/LineMesh.h"
 #include "Assets/Model.h"
 #include "Render/ModelDraw.h"
-#include "Render/FoliagePipeline.h"
-#include "Render/FoliagePrototypes.h"
-#include "Render/GrassPipeline.h"
+#include "Terrain/FoliagePipeline.h"
+#include "Terrain/FoliagePrototypes.h"
+#include "Terrain/GrassPipeline.h"
+#include "Terrain/TerrainPipeline.h"
 #include "Render/LinePipeline.h"
 #include "Render/WalkabilityDebug.h"
 #include "Render/SceneRenderer.h"
@@ -576,6 +577,7 @@ private:
     FoliagePrototypes                   m_foliagePrototypes;
     FoliagePipeline                     m_foliagePipeline;
     GrassPipeline                       m_grassPipeline;
+    TerrainPipeline                     m_terrainPipeline;
     std::string                   m_terrainAlbedoPath[Terrain::kMaxTerrainLayers];
     std::string                   m_terrainNormalPath[Terrain::kMaxTerrainLayers];
     std::string                   m_terrainOrmPath[Terrain::kMaxTerrainLayers];

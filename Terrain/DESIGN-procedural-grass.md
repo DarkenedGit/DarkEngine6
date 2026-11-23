@@ -6,7 +6,7 @@
 | **Author** | Travis Johnston |
 | **Date** | 2026-10-08 |
 | **Status** | Accepted. Implemented by execute-plan b3219183 PRs 1–8. |
-| **Area** | `Terrain/` (CPU field, wind, mesh build), `Render/GrassPipeline`, `content/shaders/GrassGBuffer.hlsl`, `Scene/SceneTypes.h`, `Sandbox/SandboxApp.cpp`, `UnitTests/Terrain/` |
+| **Area** | `Terrain/` (CPU field, wind, mesh build), `Terrain/GrassPipeline`, `content/shaders/GrassGBuffer.hlsl`, `Scene/SceneTypes.h`, `Sandbox/SandboxApp.cpp`, `UnitTests/Terrain/` |
 | **Audience** | Engine and Sandbox owners who already know the geomipmap, the four-channel splat, `FoliagePipeline`, and reverse-Z |
 
 No C++ exceptions. Failure is `bool` plus `DE_LOG_ERROR` / `DE_LOG_WARN` / `DE_LOG_INFO` (`Core/Log.h`, category `LogCategory::Render`). Programmer mistakes use `DE_ASSERT`. `noexcept` on special members is fine. Allman braces, 4-space indent, C++23, clang-format column limit 200. Sample code below follows that rule: no `try`, `catch`, `throw`, or `std::exception`.

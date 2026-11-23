@@ -213,7 +213,7 @@ void EditorApp::renderScene3D()
     Vector3f ambientColor{};
     gatherEditorLighting(lightDir, sunColor, ambientColor);
     const float ambientScale = (ambientColor.x + ambientColor.y + ambientColor.z) * (1.0f / 3.0f);
-    const bool drawTerrain = m_haveTerrain && m_terrainMaterial.isValid() && m_scene.terrainPipeline().isValid();
+    const bool drawTerrain = m_haveTerrain && m_terrainMaterial.isValid() && m_terrainPipeline.isValid();
     const Frustum3f cameraCull(m_camera.GetCullViewProj());
     const bool selectLocalShadows = renderer().debugState().localLights
         && renderer().debugState().lightingActive();
@@ -459,7 +459,7 @@ void EditorApp::renderScene3D()
         if (drawTerrain)
         {
             const Frustum3f frustum(m_camera.GetCullViewProj());
-            m_sceneWorld.terrain.drawGBuffer(cmd, m_scene.terrainPipeline(), m_terrainMaterial, m_camera, &frustum, &renderer().debugState(), &prevViewProj);
+            m_sceneWorld.terrain.drawGBuffer(cmd, m_terrainPipeline, m_terrainMaterial, m_camera, &frustum, &renderer().debugState(), &prevViewProj);
             drawEditorGrass(cmd, viewProj, prevViewProj, frustum);
         }
         else if (m_showSolid && m_groundMesh.valid() && m_groundMaterial)

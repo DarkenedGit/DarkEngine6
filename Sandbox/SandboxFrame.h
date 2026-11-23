@@ -9,10 +9,11 @@
 #include "Render/AutoExposure.h"
 #include "Sky/CloudVolumePipeline.h"
 #include "Render/DrawList.h"
-#include "Render/FoliagePipeline.h"
+#include "Terrain/FoliagePipeline.h"
 #include "Render/FrameComposer.h"
-#include "Render/FoliagePrototypes.h"
-#include "Render/GrassPipeline.h"
+#include "Terrain/FoliagePrototypes.h"
+#include "Terrain/GrassPipeline.h"
+#include "Terrain/TerrainPipeline.h"
 #include "Render/MeshConstants.h"
 #include "Render/SceneRenderer.h"
 #include "Render/WalkabilityDebug.h"
@@ -47,6 +48,7 @@ public:
     Dark::GrassPipeline&         grassPipeline() { return m_grassPipeline; }
     Dark::LeafRenderer&          leafRenderer() { return m_leafRenderer; }
     Dark::TerrainMaterial&       terrainMaterial() { return m_terrainMaterial; }
+    Dark::TerrainPipeline&       terrainPipeline() { return m_terrainPipeline; }
     Dark::ParticleRenderer&      particles() { return m_particles; }
     Dark::GpuParticleSystem&     gpuParticles() { return m_gpuParticles; }
     Dark::CloudLodSettings&      cloudLod() { return m_cloudLod; }
@@ -65,6 +67,7 @@ private:
     Dark::GrassPipeline          m_grassPipeline;
     Dark::LeafRenderer           m_leafRenderer;
     Dark::TerrainMaterial        m_terrainMaterial;
+    Dark::TerrainPipeline        m_terrainPipeline;
     Dark::ParticleRenderer       m_particles;
     Dark::GpuParticleSystem      m_gpuParticles;
     Dark::CloudLodSettings       m_cloudLod{};

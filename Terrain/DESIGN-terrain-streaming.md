@@ -11,7 +11,7 @@
 | **Date** | 2026-09-19 |
 | **Status** | Accepted (rev 4 — Q1/Q2/Q5 resolved: finite 2 km default; bake-only GPU Mei erosion) |
 | **Priority** | P1 — world scale after reverse-Z; sibling of look-track, not a G-buffer rewrite |
-| **Area** | `Terrain/*` (new Gen + Grid), `Render/TerrainErosionPipeline.*` (first `cs_5_0`), `Editor/EditorTerrain.cpp`, `Scene/SceneTypes.h`, `Scene/SceneFile.cpp`, `Sandbox/SandboxApp.cpp`, `Sandbox/PathChase.cpp`, `Water/Water.*`, `Render/Fog.cpp`, `AI/Walkability.*`, `AI/Sight.cpp`, UnitTests |
+| **Area** | `Terrain/*` (new Gen + Grid), `Terrain/TerrainErosionPipeline.*` (first `cs_5_0`), `Editor/EditorTerrain.cpp`, `Scene/SceneTypes.h`, `Scene/SceneFile.cpp`, `Sandbox/SandboxApp.cpp`, `Sandbox/PathChase.cpp`, `Water/Water.*`, `Render/Fog.cpp`, `AI/Walkability.*`, `AI/Sight.cpp`, UnitTests |
 | **Audience** | Engine, Sandbox, Editor owners who already know look-track |
 | **Depends on** | Look-track **implementation** is in the tree (14-slot heap, `kShadowSlot = 13`, Editor panel, DEHF / splat PNG, 1025 cap, `createTerrainPipeline` only). In-tree [`Terrain/DESIGN-terrain-system.md`](./DESIGN-terrain-system.md) may still read **Draft rev 2**; this RFC does not wait on that file’s Accepted bit. [`Render/DESIGN-reverse-z.md`](../Render/DESIGN-reverse-z.md) **Accepted** (far clip is no longer the 2 km blocker). Does **not** depend on CDLOD, bindless, or 8 splat layers. **This RFC introduces the engine’s first compute PSO**, bake-only. |
 | **Supersedes** | Nothing in-tree. Look-track **K0** named this follow-up. Does **not** un-freeze look-track T0–T13. IBL/GTAO/SSR “no compute” **stays for those systems**. |

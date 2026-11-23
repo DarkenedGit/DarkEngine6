@@ -1905,7 +1905,7 @@ void EditorApp::drawTerrainPanel()
     if (m_worldEnginePath[0] == 0)
         std::snprintf(m_worldEnginePath, sizeof(m_worldEnginePath), "terrain/HurricaneRidge");
 
-    if (!m_scene.terrainPipeline().isValid())
+    if (!m_terrainPipeline.isValid())
         ImGui::TextDisabled("TerrainPipeline is not available.");
 
     ImGui::TextWrapped("Load a World Engine export. The mesh is built from the height map. Diffuse and roughness shade it. The splat map chooses the footstep and how fast NPCs move.");

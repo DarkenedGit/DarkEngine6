@@ -1,7 +1,7 @@
 #include "Terrain/Terrain.h"
 #include "Terrain/TerrainMaterial.h"
 #include "Render/PackedSrvHeap.h"
-#include "Render/TerrainPipeline.h"
+#include "Terrain/TerrainPipeline.h"
 #include "Render/Camera3D.h"
 #include "Render/Frustum3f.h"
 #include "Render/Profile.h"

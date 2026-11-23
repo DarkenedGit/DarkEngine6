@@ -5,7 +5,7 @@
 #include "Math/Matrix4f.h"
 #include "Math/Sphere3f.h"
 #include "Render/Camera3D.h"
-#include "Render/FoliagePipeline.h"
+#include "Terrain/FoliagePipeline.h"
 #include "Render/ShaderCompile.h"
 #include "Render/RhiDevice.h"
 

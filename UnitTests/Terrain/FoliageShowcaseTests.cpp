@@ -3,7 +3,7 @@
 #include "Assets/GltfLoader.h"
 #include "Core/ContentRoots.h"
 #include "Core/Log.h"
-#include "Render/FoliagePrototypes.h"
+#include "Terrain/FoliagePrototypes.h"
 
 #include <filesystem>
 #include <string>

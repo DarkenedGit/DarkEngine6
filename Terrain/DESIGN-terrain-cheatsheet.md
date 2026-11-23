@@ -45,7 +45,7 @@ RT0 albedo, emis 0. RT1 EncodeOct(Whiteout N), blended rough/metal. MRT3 blended
 
 ### Editor / save
 
-One terrain per 3D scene. `createTerrainPipeline` (not `createWorldEnvironment`). `EditorApp` holds World+Material+splat. `syncTerrainLod`+`waitForGpu`. Skip 40 m plane; `drawGBuffer`/`draw`/`drawDepth`; bounds from `terrain.bounds()`. `groundHitFromRay` = `HeightMap::raycast`. JSON `terrain{}` + sidecars. Version 2. 2D ignores.
+One terrain per 3D scene. The host owns `TerrainPipeline` (a create failure quits); the Editor sets `createWaterPipeline` (not `createWorldEnvironment`). `EditorApp` holds World+Material+splat. `syncTerrainLod`+`waitForGpu`. Skip 40 m plane; `drawGBuffer`/`draw`/`drawDepth`; bounds from `terrain.bounds()`. `groundHitFromRay` = `HeightMap::raycast`. JSON `terrain{}` + sidecars. Version 2. 2D ignores.
 
 ### Build order
 
