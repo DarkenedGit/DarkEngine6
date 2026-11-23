@@ -91,10 +91,7 @@ namespace Dark
 
         bool isValid() const;
         D3D12_CPU_DESCRIPTOR_HANDLE composeSrvCpu() const;
-        D3D12_CPU_DESCRIPTOR_HANDLE aoFullSrvCpu() const; // FLAG_NONE, overlay tile
-        // For the debug overlay (opaque; it records its own barriers until it converts).
-        void transitionAoFull(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after);
-        void clearAoFullIdentity(ID3D12GraphicsCommandList* cmd);
+        D3D12_CPU_DESCRIPTOR_HANDLE aoFullSrvCpu() const; // FLAG_NONE
 
     private:
         static constexpr UINT kFrameCount    = 2;

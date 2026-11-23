@@ -312,6 +312,62 @@ bool SceneRenderer::wantsTaa(const Renderer& renderer) const
     return renderer.debugState().taa && m_taa.isValid();
 }
 
+void SceneRenderer::addDebugTilePasses(FeatureBuilder& b, Renderer& renderer, const DebugTileRequest& request, int32_t tile)
+{
+    if (!m_debugOverlay.isValid())
+        return;
+    SceneRenderer* const self      = this;
+    Renderer* const      rr        = &renderer;
+    const int            cascades  = m_shadows.cascadeCount();
+    const float          slice0    = static_cast<float>(m_shadows.debugSliceOffset());
+    const int            localN    = m_localShadows.slicesPerFrame();
+    const auto           drawTiles = [self, rr, request, tile, cascades, slice0, localN](Rg::PassContext& c, const DebugTileReads& d)
+    {
+        ID3D12GraphicsCommandList* const  cmd = c.cmd();
+        const GpuScope                    overlay(cmd, "Debug Overlay", ProfileColor::DebugOverlay);
+        const D3D12_CPU_DESCRIPTOR_HANDLE rtv = rgRtv(c, d.swap);
+        cmd->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
+        DebugTileRequest shown      = request; // only what exists this frame
+        shown.sunShadow             = request.sunShadow && d.shadow.valid();
+        shown.localShadow           = request.localShadow && d.localShadow.valid();
+        const DebugTileLayout l     = layoutDebugTiles(shown, static_cast<int32_t>(rr->width()), static_cast<int32_t>(rr->height()), tile, cascades, localN);
+        DebugOverlay&         o     = self->m_debugOverlay;
+        const auto            table = [&c](Rg::TextureHandle h) { return rgSrvTable(c, { h }); };
+        if (d.albedo.valid())
+            o.drawColor(cmd, table(d.albedo), l.albedo.x, l.albedo.y, l.albedo.w, l.albedo.h);
+        if (d.attrib.valid())
+            o.drawColor(cmd, table(d.attrib), l.attrib.x, l.attrib.y, l.attrib.w, l.attrib.h);
+        if (d.velocity.valid())
+            o.drawVelocity(cmd, table(d.velocity), l.velocity.x, l.velocity.y, l.velocity.w, l.velocity.h, 24.0f);
+        if (d.ao.valid())
+            o.draw2D(cmd, table(d.ao), l.ao.x, l.ao.y, l.ao.w, l.ao.h, 1.0f, false);
+        if (d.ssr.valid())
+        {
+            if (request.ssrConf)
+                o.draw2D(cmd, table(d.ssr), l.ssr.x, l.ssr.y, l.ssr.w, l.ssr.h, 1.0f, false);
+            else
+                o.drawColor(cmd, table(d.ssr), l.ssr.x, l.ssr.y, l.ssr.w, l.ssr.h);
+        }
+        if (d.depth.valid())
+            o.draw2D(cmd, table(d.depth), l.depth.x, l.depth.y, l.depth.w, l.depth.h, 1.0f, true);
+        if (d.shadow.valid())
+        {
+            const D3D12_GPU_DESCRIPTOR_HANDLE t = table(d.shadow);
+            for (int i = 0; i < l.cascadeCount; ++i)
+                o.drawArray(cmd, t, l.cascades[i].x, l.cascades[i].y, l.cascades[i].w, l.cascades[i].h, slice0 + static_cast<float>(i), 1.25f, true);
+        }
+        if (d.localShadow.valid())
+        {
+            const D3D12_GPU_DESCRIPTOR_HANDLE t = table(d.localShadow);
+            for (int i = 0; i < l.localCount; ++i)
+                o.drawArray(cmd, t, l.localSlices[i].x, l.localSlices[i].y, l.localSlices[i].w, l.localSlices[i].h, self->m_localShadows.debugSlice(i), 1.25f, true);
+        }
+        cmd->RSSetViewports(1, &rr->viewport());
+        cmd->RSSetScissorRects(1, &rr->scissor());
+    };
+    addDebugTilePass(b, request, drawTiles);
+}
+
 void SceneRenderer::requestHistories(FrameComposer& frame, Renderer& renderer)
 {
     // Render-graph plan Phase 5: TAA, GTAO and SSR histories are graph histories. The graph decides
@@ -398,11 +454,27 @@ void SceneRenderer::addGtaoPasses(FeatureBuilder& b, Renderer& renderer, const C
         // No GtaoOutput: lighting reads the authored MRT3. Never a white SSAO tex (compose cleared to 1
         // would wipe ORM cavities).
         markHistoryUnwritten(m_gtaoHistory, "Gtao");
-        b.opaque("Gtao", {}, {},
-                 [gtao](PassContext& c)
-                 {
-                     gtao->clearAoFullIdentity(c.cmd()); // overlay-when-off samples identity, not stale/garbage
-                 });
+        TextureHandle full =
+            m_gtao.isValid() ? importTracked(b.graph(), GtaoPipeline::name(GtaoTarget::Full), gtao->resource(GtaoTarget::Full), textureViews(gtao->srv(GtaoTarget::Full), gtao->rtv(GtaoTarget::Full)))
+                             : TextureHandle{};
+        if (!full.valid())
+        {
+            b.opaque("Gtao", {}, {}, [](PassContext&) {});
+            return;
+        }
+        // The SSAO tile samples identity, not stale contents. Lighting reads MRT3 (no compose).
+        struct Clear
+        {
+            TextureHandle full;
+        };
+        b.addPass<Clear>(
+            "Gtao", [&](PassBuilder& pb, Clear& d) { d.full = full = pb.write(full, Use::RenderTarget); },
+            [](PassContext& c, const Clear& d)
+            {
+                const float identity[4] = { 1.0f, 0.0f, 0.0f, 0.0f };
+                c.cmd()->ClearRenderTargetView(rgRtv(c, d.full), identity, 0, nullptr);
+            });
+        b.graph().blackboard().set(GtaoOutput{ {}, full });
         return;
     }
 
@@ -485,7 +557,7 @@ void SceneRenderer::addGtaoPasses(FeatureBuilder& b, Renderer& renderer, const C
         });
 
     // Lighting and LocalVolumes read it (lightingReads); the graph plans the barrier into them.
-    g.blackboard().set(GtaoOutput{ compose });
+    g.blackboard().set(GtaoOutput{ compose, full });
 }
 
 void SceneRenderer::addSsrPasses(FeatureBuilder& b, Renderer& renderer, const Camera3D& camera, const SsrSettings& settings, const Sky::Environment* env)
@@ -600,9 +672,8 @@ void SceneRenderer::addSsrPasses(FeatureBuilder& b, Renderer& renderer, const Ca
             });
     }
 
-    // Lighting reads it (lightingReads); the graph plans the barrier into it. The debug overlay moves
-    // the confidence tile itself.
-    b.graph().blackboard().set(SsrOutput{ full });
+    // Lighting reads full (lightingReads) and the SSR tile full or conf; the graph plans the barriers.
+    b.graph().blackboard().set(SsrOutput{ full, conf });
 }
 
 void SceneRenderer::addSsrCapturePasses(FeatureBuilder& b, Renderer& renderer)

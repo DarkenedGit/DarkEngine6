@@ -197,18 +197,6 @@ namespace Dark
         return m_targets->srv(m_sceneColor[m_sceneRead].id);
     }
 
-    void SsrPipeline::transitionFull(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after)
-    {
-        if (m_targets)
-            m_targets->transition(cmd, m_full, after);
-    }
-
-    void SsrPipeline::transitionDebug(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after)
-    {
-        if (m_targets)
-            m_targets->transition(cmd, m_debug, after);
-    }
-
     const GraphTarget& SsrPipeline::target(SsrTarget which) const
     {
         switch (which)

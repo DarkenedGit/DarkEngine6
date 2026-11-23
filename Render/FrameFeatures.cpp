@@ -221,17 +221,17 @@ namespace Dark
         m_compiled.clear();
     }
 
-    void FeatureFrame::importResource(Rg::RenderGraph& g, RenderResource resource, ID3D12Resource* native, const Rg::TextureDesc& desc, Rg::Layout initial,
-                                      const Rg::TextureViews& views)
+    void FeatureFrame::importResource(Rg::RenderGraph& g, RenderResource resource, ID3D12Resource* native, const Rg::TextureDesc& desc, Rg::Layout initial, const Rg::TextureViews& views,
+                                      Rg::Layout finalLayout)
     {
         const uint32_t i = static_cast<uint32_t>(resource);
         if (i >= kRenderResourceCount || isHistory(resource))
             return; // histories come from setHistory (RenderGraph::history), never an import
         // Phase 6: the ResourceStateTracker is the single source of truth for these resources; opaque
-        // passes and the owners move them through it and the graph's barriers read it. No final
-        // layout: the back buffer still gets ImGui and the movie after the graph (until Phase 7), so
+        // passes and the owners move them through it and the graph's barriers read it. The back buffer
+        // has no final layout: it still gets ImGui and the movie after the graph (until Phase 7), so
         // Renderer::endFrame makes its RT -> PRESENT transition.
-        m_handles[i] = g.importTexture(resource == RenderResource::Swap ? "backbuffer" : renderResourceName(resource), desc, native, initial, Rg::Layout::Undefined);
+        m_handles[i] = g.importTexture(resource == RenderResource::Swap ? "backbuffer" : renderResourceName(resource), desc, native, initial, finalLayout);
         g.setViews(m_handles[i], views);
     }
 

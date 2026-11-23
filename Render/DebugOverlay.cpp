@@ -53,7 +53,6 @@ namespace Dark
         m_psoArray.Reset();
         m_psoColor.Reset();
         m_psoVelocity.Reset();
-        m_srvHeap.Reset();
         if (!device)
             return false;
 
@@ -129,113 +128,34 @@ namespace Dark
             return false;
         }
 
-        D3D12_DESCRIPTOR_HEAP_DESC heapDesc{};
-        heapDesc.NumDescriptors = kHeapSize;
-        heapDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-        heapDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-        if (FailedHr(device->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&m_srvHeap)), "CreateDescriptorHeap debug overlay SRV"))
-            return false;
-        m_cpu     = m_srvHeap->GetCPUDescriptorHandleForHeapStart();
-        m_gpu     = m_srvHeap->GetGPUDescriptorHandleForHeapStart();
-        m_srvIncr = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-        m_frame   = 0;
-        m_draw    = 0;
-
         DE_LOG_INFO(LogCategory::Render, "DebugOverlay: ready");
         return true;
     }
 
-    void DebugOverlay::beginFrame(uint32_t frameIndex)
+    void DebugOverlay::draw2D(ID3D12GraphicsCommandList* cmd, D3D12_GPU_DESCRIPTOR_HANDLE srv, LONG x, LONG y, LONG w, LONG h, float contrast, bool invert)
     {
-        m_frame = frameIndex % kBufferedFrames;
-        m_draw  = 0;
+        draw(cmd, m_pso2D.Get(), srv, x, y, w, h, DebugOverlayConstants{ 0.0f, contrast, invert ? 1.0f : 0.0f, 0.0f });
     }
 
-    void DebugOverlay::draw2D(
-        ID3D12GraphicsCommandList* cmd,
-        ID3D12Device* device,
-        D3D12_CPU_DESCRIPTOR_HANDLE srcSrv,
-        LONG x,
-        LONG y,
-        LONG w,
-        LONG h,
-        float contrast,
-        bool invert)
+    void DebugOverlay::drawArray(ID3D12GraphicsCommandList* cmd, D3D12_GPU_DESCRIPTOR_HANDLE srv, LONG x, LONG y, LONG w, LONG h, float slice, float contrast, bool invert)
     {
-        DebugOverlayConstants c{ 0.0f, contrast, invert ? 1.0f : 0.0f, 0.0f };
-        draw(cmd, device, m_pso2D.Get(), srcSrv, x, y, w, h, c);
+        draw(cmd, m_psoArray.Get(), srv, x, y, w, h, DebugOverlayConstants{ slice, contrast, invert ? 1.0f : 0.0f, 0.0f });
     }
 
-    void DebugOverlay::drawArray(
-        ID3D12GraphicsCommandList* cmd,
-        ID3D12Device* device,
-        D3D12_CPU_DESCRIPTOR_HANDLE srcSrv,
-        LONG x,
-        LONG y,
-        LONG w,
-        LONG h,
-        float slice,
-        float contrast,
-        bool invert)
+    void DebugOverlay::drawColor(ID3D12GraphicsCommandList* cmd, D3D12_GPU_DESCRIPTOR_HANDLE srv, LONG x, LONG y, LONG w, LONG h)
     {
-        DebugOverlayConstants c{ slice, contrast, invert ? 1.0f : 0.0f, 0.0f };
-        draw(cmd, device, m_psoArray.Get(), srcSrv, x, y, w, h, c);
+        draw(cmd, m_psoColor.Get(), srv, x, y, w, h, DebugOverlayConstants{ 0.0f, 1.0f, 0.0f, 0.0f });
     }
 
-    void DebugOverlay::drawColor(
-        ID3D12GraphicsCommandList* cmd,
-        ID3D12Device* device,
-        D3D12_CPU_DESCRIPTOR_HANDLE srcSrv,
-        LONG x,
-        LONG y,
-        LONG w,
-        LONG h)
+    void DebugOverlay::drawVelocity(ID3D12GraphicsCommandList* cmd, D3D12_GPU_DESCRIPTOR_HANDLE srv, LONG x, LONG y, LONG w, LONG h, float contrast)
     {
-        DebugOverlayConstants c{ 0.0f, 1.0f, 0.0f, 0.0f };
-        draw(cmd, device, m_psoColor.Get(), srcSrv, x, y, w, h, c);
+        draw(cmd, m_psoVelocity.Get(), srv, x, y, w, h, DebugOverlayConstants{ 0.0f, contrast, 0.0f, 0.0f });
     }
 
-    void DebugOverlay::drawVelocity(
-        ID3D12GraphicsCommandList* cmd,
-        ID3D12Device* device,
-        D3D12_CPU_DESCRIPTOR_HANDLE srcSrv,
-        LONG x,
-        LONG y,
-        LONG w,
-        LONG h,
-        float contrast)
+    void DebugOverlay::draw(ID3D12GraphicsCommandList* cmd, ID3D12PipelineState* pso, D3D12_GPU_DESCRIPTOR_HANDLE srv, LONG x, LONG y, LONG w, LONG h, const DebugOverlayConstants& constants)
     {
-        DebugOverlayConstants c{ 0.0f, contrast, 0.0f, 0.0f };
-        draw(cmd, device, m_psoVelocity.Get(), srcSrv, x, y, w, h, c);
-    }
-
-    void DebugOverlay::draw(
-        ID3D12GraphicsCommandList* cmd,
-        ID3D12Device* device,
-        ID3D12PipelineState* pso,
-        D3D12_CPU_DESCRIPTOR_HANDLE srcSrv,
-        LONG x,
-        LONG y,
-        LONG w,
-        LONG h,
-        const DebugOverlayConstants& constants)
-    {
-        if (!cmd || !device || !pso || !m_srvHeap || w <= 0 || h <= 0)
+        if (!cmd || !pso || srv.ptr == 0 || w <= 0 || h <= 0)
             return;
-        if (srcSrv.ptr == 0)
-            return;
-        if (m_draw >= kDrawsPerFrame)
-            return;
-
-        const UINT slot = m_frame * kDrawsPerFrame + m_draw;
-        ++m_draw;
-
-        D3D12_CPU_DESCRIPTOR_HANDLE cpu = m_cpu;
-        cpu.ptr += static_cast<SIZE_T>(slot) * m_srvIncr;
-        D3D12_GPU_DESCRIPTOR_HANDLE gpu = m_gpu;
-        gpu.ptr += static_cast<SIZE_T>(slot) * m_srvIncr;
-        device->CopyDescriptorsSimple(1, cpu, srcSrv, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-
         D3D12_VIEWPORT vp{};
         vp.TopLeftX = static_cast<float>(x);
         vp.TopLeftY = static_cast<float>(y);
@@ -249,10 +169,8 @@ namespace Dark
 
         cmd->SetGraphicsRootSignature(m_rootSignature.Get());
         cmd->SetPipelineState(pso);
-        ID3D12DescriptorHeap* heaps[] = { m_srvHeap.Get() };
-        cmd->SetDescriptorHeaps(1, heaps);
         cmd->SetGraphicsRoot32BitConstants(kRootConstants, 4, &constants, 0);
-        cmd->SetGraphicsRootDescriptorTable(kRootSrv, gpu);
+        cmd->SetGraphicsRootDescriptorTable(kRootSrv, srv);
         cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         cmd->DrawInstanced(3, 1, 0, 0);
     }

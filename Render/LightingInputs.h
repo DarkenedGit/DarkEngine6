@@ -15,15 +15,16 @@
 namespace Dark
 {
 
-    // Published by addGtaoPasses when the compose ran this frame.
+    // Published by addGtaoPasses. compose is valid when the compose ran this frame; full is the
+    // full-resolution AO (the upsample's, or the identity clear when GTAO is off) for the SSAO tile.
     struct GtaoOutput
     {
-        Rg::TextureHandle compose;
+        Rg::TextureHandle compose, full;
     };
-    // Published by addSsrPasses when the upsample ran this frame.
+    // Published by addSsrPasses when the upsample ran this frame; conf when the confidence debug ran.
     struct SsrOutput
     {
-        Rg::TextureHandle full;
+        Rg::TextureHandle full, conf;
     };
 
     // Graph handles a lighting pass reads. ao is the GTAO compose when published, else the authored

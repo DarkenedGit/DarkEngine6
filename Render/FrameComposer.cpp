@@ -7,8 +7,6 @@
 #include "Render/Renderer.h"
 #include "Render/RgViews.h"
 
-#include "Core/Log.h"
-
 #include <d3d12.h>
 
 namespace Dark
@@ -24,7 +22,6 @@ namespace Dark
     void FrameComposer::begin(Renderer& renderer, const FrameView& view, const FeaturePass* list, uint32_t count, const FrameShadows& shadows)
     {
         m_renderer                 = &renderer;
-        m_shadowMap                = shadows.map;
         m_view                     = view;
         Rg::CompileOptions options = m_graph.options();
         options.asyncCompute       = false; // one graphics queue until Phase 10
@@ -38,9 +35,10 @@ namespace Dark
         // Views for converted passes (PassContext::rtv/dsv/srvTable, Phase 6 part 2).
         importResource(RenderResource::Swap, renderer.backBufferResource(), textureViews({}, renderer.backBufferRtv()));
         importResource(RenderResource::Depth, renderer.depthResource(), textureViews(renderer.depthSrvCpu(), {}, renderer.depthDsv(), renderer.depthReadOnlyDsv()));
-        // Without a map the handle stays invalid: its readers bind their fallback views.
+        // Without a map the handle stays invalid: its readers bind their fallback views. The sun map
+        // ends the frame writable after its last reader (ShadowInputs.h).
         if (shadows.map)
-            importResource(RenderResource::Shadow, shadows.map, textureViews(cpuHandle(shadows.mapSrv)));
+            importResource(RenderResource::Shadow, shadows.map, textureViews(cpuHandle(shadows.mapSrv)), shadowFrameStartState().layout);
         if (shadows.localMap)
             importResource(RenderResource::LocalShadow, shadows.localMap, textureViews(cpuHandle(shadows.localMapSrv)));
         importResource(RenderResource::Albedo, renderer.albedoResource(), textureViews(renderer.albedoSrvCpu(), renderer.albedoRtv()));
@@ -51,7 +49,7 @@ namespace Dark
         importResource(RenderResource::Post, renderer.postResource(), textureViews(renderer.postHdrSrvCpu(), renderer.postRtv()));
     }
 
-    void FrameComposer::importResource(RenderResource resource, ID3D12Resource* native, const Rg::TextureViews& views)
+    void FrameComposer::importResource(RenderResource resource, ID3D12Resource* native, const Rg::TextureViews& views, Rg::Layout finalLayout)
     {
         // The real resource and its real size and format; a missing target imports as an empty slot.
         Rg::TextureDesc desc;
@@ -72,30 +70,7 @@ namespace Dark
         if (const ResourceStateTracker* tracker = frameStateTracker())
             if (const Rg::UseState* now = tracker->current(native))
                 initial = now->layout;
-        m_features.importResource(m_graph, resource, native, desc, initial, views);
-    }
-
-    void FrameComposer::endShadowFrame()
-    {
-        // After every reader on the main list (graph passes and the opaque debug tiles alike), so the
-        // next frame's cascades, whichever list records them, start on a writable map.
-        ResourceStateTracker* tracker = frameStateTracker();
-        if (!m_shadowMap || !tracker)
-            return;
-        if (!tracker->tracked(m_shadowMap))
-        {
-            static bool logged = false;
-            if (!logged)
-                DE_LOG_ERROR(LogCategory::Render, "FrameComposer: the shadow map is not tracked; its frame-start state cannot be restored");
-            logged = true;
-            return;
-        }
-        Rg::UseState before;
-        if (Dark::endShadowFrame(*tracker, m_shadowMap, before))
-        {
-            EnhancedBarrierList barriers(m_renderer->commandList());
-            barriers.texture(makeTextureBarrier(m_shadowMap, before, shadowFrameStartState()));
-        }
+        m_features.importResource(m_graph, resource, native, desc, initial, views, finalLayout);
     }
 
     Rg::HistoryTargets FrameComposer::history(RenderResource resource, const char* name, const Rg::TargetDesc& desc)
@@ -132,7 +107,6 @@ namespace Dark
             return false;
         m_executor.beginFrame(*m_renderer, m_graph);
         const bool ran = m_graph.execute(&m_executor);
-        endShadowFrame();
         // The executor clears the output merger before barrier batches; the code after the graph
         // (ImGui, HUD, movie) draws into the back buffer it expects bound.
         m_renderer->bindBackBuffer();

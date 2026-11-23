@@ -901,116 +901,16 @@ void EditorApp::renderScene3D()
         m_scene.addPostPasses(b, renderer(), viewProj, ts);
     });
 
-    const bool ssaoTile = renderer().debugState().ssaoDebug == 1;
-    const bool ssrTile  = renderer().debugState().ssrDebug != 0;
-    const bool shadowTiles = renderer().debugState().shadowMapTiles && m_scene.localShadows().isValid();
-    if (!m_movie.blocksWorld() && m_debugOverlay.isValid() && (m_showGBuffer || m_showVelocity || ssaoTile || ssrTile || shadowTiles))
+    if (!m_movie.blocksWorld())
     {
-        frame.set(PassId::Overlay, [&](Rg::PassContext& pass) {
-            ID3D12GraphicsCommandList* const cmd = pass.cmd();
-            const GpuScope overlay(cmd, "Debug Overlay", ProfileColor::DebugOverlay);
-            // Unbind DSV / HDR so we can sample G-buffer. Overlay copies from FLAG_NONE CPU SRVs.
-            renderer().bindColorTargetOnly();
-            renderer().transitionAlbedo(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-            renderer().transitionAttrib(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-            renderer().transitionVelocity(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-            m_debugOverlay.beginFrame(renderer().frameIndex());
-            const LONG tile = 160;
-            const LONG pad  = 12;
-            if (m_showGBuffer)
-            {
-                const D3D12_CPU_DESCRIPTOR_HANDLE albedo = renderer().albedoSrvCpu();
-                const D3D12_CPU_DESCRIPTOR_HANDLE attrib = renderer().attribSrvCpu();
-                if (albedo.ptr != 0)
-                    m_debugOverlay.drawColor(cmd, renderer().device(), albedo, pad, pad, tile, tile);
-                if (attrib.ptr != 0)
-                    m_debugOverlay.drawColor(cmd, renderer().device(), attrib, pad + tile + 8, pad, tile, tile);
-            }
-            const D3D12_CPU_DESCRIPTOR_HANDLE velocity = renderer().velocitySrvCpu();
-            if ((m_showGBuffer || m_showVelocity) && velocity.ptr != 0)
-            {
-                LONG x = pad;
-                if (m_showGBuffer)
-                    x = pad + 2 * (tile + 8);
-                m_debugOverlay.drawVelocity(cmd, renderer().device(), velocity, x, pad, tile, tile, 24.0f);
-            }
-            if (ssaoTile)
-            {
-                m_scene.gtao().transitionAoFull(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-                const D3D12_CPU_DESCRIPTOR_HANDLE aoFull = m_scene.gtao().aoFullSrvCpu();
-                if (aoFull.ptr != 0)
-                {
-                    LONG x = pad;
-                    if (m_showGBuffer)
-                        x += 2 * (tile + 8);
-                    if (m_showGBuffer || m_showVelocity)
-                        x += tile + 8;
-                    m_debugOverlay.draw2D(cmd, renderer().device(), aoFull, x, pad, tile, tile, 1.0f, false);
-                }
-            }
-            if (ssrTile)
-            {
-                LONG x = pad;
-                if (m_showGBuffer)
-                    x += 2 * (tile + 8);
-                if (m_showGBuffer || m_showVelocity)
-                    x += tile + 8;
-                if (ssaoTile)
-                    x += tile + 8;
-                if (renderer().debugState().ssrDebug == 1)
-                {
-                    m_scene.ssr().transitionFull(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-                    const D3D12_CPU_DESCRIPTOR_HANDLE full = m_scene.ssr().fullSrvCpu();
-                    if (full.ptr != 0)
-                        m_debugOverlay.drawColor(cmd, renderer().device(), full, x, pad, tile, tile);
-                }
-                else
-                {
-                    m_scene.ssr().transitionDebug(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-                    const D3D12_CPU_DESCRIPTOR_HANDLE conf = m_scene.ssr().debugConfSrvCpu();
-                    if (conf.ptr != 0)
-                        m_debugOverlay.draw2D(cmd, renderer().device(), conf, x, pad, tile, tile, 1.0f, false);
-                }
-            }
-            if (shadowTiles)
-            {
-                const LONG sw = static_cast<LONG>(renderer().width());
-                const LONG sh = static_cast<LONG>(renderer().height());
-                LocalShadowSystem& local = m_scene.localShadows();
-                const int n = local.slicesPerFrame();
-                const LONG gap = 8;
-                LONG tw = tile;
-                LONG x0 = pad;
-                const LONG y = sh - pad - tile;
-                if (n > 0)
-                {
-                    const LONG need = n * tw + (n - 1) * gap;
-                    if (x0 + need > sw - pad)
-                    {
-                        const LONG avail = sw - pad - x0 - (n - 1) * gap;
-                        if (avail > 64)
-                            tw = avail / n;
-                    }
-                }
-                for (int i = 0; i < n; ++i)
-                {
-                    const LONG x = x0 + i * (tw + gap);
-                    m_debugOverlay.drawArray(
-                        cmd,
-                        renderer().device(),
-                        local.srvCpu(),
-                        x,
-                        y,
-                        tw,
-                        tile,
-                        local.debugSlice(i),
-                        1.25f,
-                        true);
-                }
-            }
-            cmd->RSSetViewports(1, &renderer().viewport());
-            cmd->RSSetScissorRects(1, &renderer().scissor());
-        });
+        DebugTileRequest tiles;
+        tiles.gbuffer     = m_showGBuffer;
+        tiles.velocity    = m_showVelocity;
+        tiles.ssao        = renderer().debugState().ssaoDebug == 1;
+        tiles.ssrFull     = renderer().debugState().ssrDebug == 1;
+        tiles.ssrConf     = renderer().debugState().ssrDebug == 2;
+        tiles.localShadow = renderer().debugState().shadowMapTiles;
+        frame.declare(PassId::Overlay, [&, tiles](FeatureBuilder& b) { m_scene.addDebugTilePasses(b, renderer(), tiles, 160); });
     }
     // The movie stays after the graph until Phase 7; endFrame still presents.
     (void)frame.execute("Editor 3D");
