@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "Render/ShaderCompile.h"
-#include "Render/SkyPipeline.h"
+#include "Sky/SkyPipeline.h"
 #include "Render/SsrPipeline.h"
 #include "Render/WaterPipeline.h"
 #include "Sky/CloudLayer.h"

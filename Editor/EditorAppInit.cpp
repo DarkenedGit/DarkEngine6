@@ -31,7 +31,6 @@
 #include "Render/ModelDraw.h"
 #include "Render/GpuResourceCache.h"
 #include "Render/GpuUpload.h"
-#include "Render/SkyPipeline.h"
 #include "Render/FrameFeatures.h"
 #include "Assets/Material.h"
 #include "Assets/Model.h"
@@ -111,6 +110,7 @@ void EditorApp::onInit()
         sceneDesc.createWorldEnvironment = false;
         sceneDesc.createTerrainPipeline  = true;
         sceneDesc.logTag = "EditorApp";
+        registerSkyFeatures(m_scene.features(), m_sky);
         if (!m_scene.init(renderer(), sceneDesc))
         {
             requestQuit();
@@ -127,10 +127,6 @@ void EditorApp::onInit()
         if (!m_skinnedInstances.create(renderer().device()))
             DE_LOG_ERROR(LogCategory::Render, "EditorApp: skinned instancing unavailable; skinned draws stay immediate");
         m_foliagePrototypes.create(renderer(), assets());
-        {
-            if (!m_skyPipeline.create(renderer().device(), renderer().sceneColorFormat()))
-                DE_LOG_ERROR(LogCategory::Render, "EditorApp: SkyPipeline create failed — no sun disc");
-        }
     }
     if (!m_linePipeline.create(renderer().device()))
     {

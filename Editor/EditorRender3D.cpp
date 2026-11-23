@@ -43,7 +43,6 @@
 #include "Sky/CloudVolume.h"
 #include "Terrain/TerrainLodFile.h"
 #include "Sky/Environment.h"
-#include "Render/SkyPipeline.h"
 #include "AI/WalkabilityMesh.h"
 
 #include <imgui.h>
@@ -412,7 +411,8 @@ void EditorApp::renderScene3D()
     uint32_t           featureCount = 0;
     const FeaturePass* featureList  = editorFeatures(featureCount);
     FrameComposer&     frame        = m_frameComposer;
-    frame.begin(renderer(), FrameView{}, featureList, featureCount, m_scene.frameShadows());
+    const FrameView    view{};
+    frame.begin(renderer(), view, featureList, featureCount, m_scene.frameShadows());
     m_scene.requestHistories(frame, renderer());
 
     frame.declare(PassId::Shadows, [&](FeatureBuilder& b) {
@@ -620,20 +620,14 @@ void EditorApp::renderScene3D()
     frame.declare(PassId::Ssr, [&](FeatureBuilder& b) { m_scene.addSsrPasses(b, renderer(), m_camera, m_sceneWorld.ssr, nullptr); });
     frame.declare(PassId::Lighting, [&](FeatureBuilder& b) { m_scene.addLightingPasses(b, renderer(), resolve); });
     frame.declare(PassId::LocalVolumes, [&](FeatureBuilder& b) { m_scene.addLocalVolumesPasses(b, renderer(), world(), m_camera, resolve); });
-    if (m_skyPipeline.isValid())
-    {
-        frame.declare(PassId::Sky,
-                      [&](FeatureBuilder& b)
-                      {
-                          m_scene.addSkyPasses(b, renderer(),
-                                               [&](Rg::PassContext& pass, D3D12_GPU_DESCRIPTOR_HANDLE shadowTable)
-                                               {
-                                                   const float waterLevel = m_sceneWorld.water.params().waterLevel;
-                                                   m_skyPipeline.upload(renderer().frameIndex(), m_camera, m_sceneWorld.env, 1.0f, waterLevel, 0.0f);
-                                                   m_skyPipeline.draw(pass.cmd(), renderer().frameIndex(), shadowTable, &m_shadows);
-                                               });
-                      });
-    }
+    SkyFrameInputs sky;
+    sky.camera     = &m_camera;
+    sky.env        = &m_sceneWorld.env;
+    sky.shadows    = &m_shadows;
+    sky.waterLevel = m_sceneWorld.water.params().waterLevel;
+    sky.fogScale   = 0.0f;
+    m_sky.setFrameInputs(sky);
+    m_scene.features().declare(frame, view);
     frame.declare(PassId::SsrCapture, [&](FeatureBuilder& b) { m_scene.addSsrCapturePasses(b, renderer()); });
     const bool anyWater = m_sceneWorld.water.wetChunkCount() > 0 || !m_placedWater.empty() || !m_sceneWorld.water.ribbons().empty();
     if (m_haveTerrain && m_scene.waterPipeline().isValid() && anyWater)
