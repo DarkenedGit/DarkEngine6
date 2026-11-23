@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Particles/ParticleTypes.h"
-#include "Render/ParticlePipeline.h"
+#include "Particles/ParticlePipeline.h"
 #include "Render/Texture2D.h"
 #include "Render/Camera3D.h"
 

@@ -210,23 +210,6 @@ public:
                             }))
             b.opaque(name, {}, {}, [name](Rg::PassContext&) { logMissingSceneTargets(name); });
     }
-    // Particles: `draw(Rg::PassContext&, D3D12_CPU_DESCRIPTOR_HANDLE depthSrv, D3D12_CPU_DESCRIPTOR_HANDLE
-    // attribSrv)` with HDR + read-only depth bound. The GPU sim samples depth and the G-buffer attrib
-    // from compute, so both are declared for compute as well.
-    template <class Draw> void addParticlesPasses(FeatureBuilder& b, Renderer& renderer, Draw&& draw)
-    {
-        Renderer* const rr = &renderer;
-        HdrDrawUses     uses;
-        uses.computeDepth  = true;
-        uses.computeAttrib = true;
-        if (!addHdrDrawPass(b, "Particles", uses,
-                            [rr, draw = std::forward<Draw>(draw)](Rg::PassContext& c, const HdrDrawTargets& d)
-                            {
-                                bindHdrDepthRead(c, *rr, d.hdr, d.depth);
-                                draw(c, rgSrvCpu(c, d.depth), rgSrvCpu(c, d.attrib));
-                            }))
-            b.opaque("Particles", {}, {}, [](Rg::PassContext&) { logMissingSceneTargets("Particles"); });
-    }
     // `table`: see DeferredLightingPipeline::draw / LocalLightVolumePipeline::draw.
     void drawDeferredLighting(ID3D12GraphicsCommandList* cmd, D3D12_GPU_DESCRIPTOR_HANDLE table, const LightingConstants& lc) const;
     void drawLocalLights(ID3D12GraphicsCommandList* cmd, D3D12_GPU_DESCRIPTOR_HANDLE table, Renderer& renderer, World& world, const Camera3D& camera, const Math::Matrix4f& viewProj,

@@ -114,6 +114,7 @@
 #include "Combat/StatusDot.h"
 #include "Combat/StatusEffectComponent.h"
 #include "Particles/ParticleComponents.h"
+#include "Particles/ParticlePasses.h"
 #include "Particles/ParticleScene.h"
 #include "Particles/ParticleTick.h"
 #include "Particles/StatusFxDriver.h"
@@ -1009,7 +1010,7 @@ void SandboxFrame::render()
         if (!app().deferredDecals())
             app().m_play.feedback().splats.draw(cmd, app().m_sceneWorld.camera);
     };
-    frame.declare(PassId::Particles, [&, drawParticles](FeatureBuilder& b) { m_scene.addParticlesPasses(b, app().renderer(), drawParticles); });
+    frame.declare(PassId::Particles, [&, drawParticles](FeatureBuilder& b) { addParticlesPasses(b, app().renderer(), drawParticles); });
 
     if (underDraw > 0.0f && m_water.underwater().isValid())
     {

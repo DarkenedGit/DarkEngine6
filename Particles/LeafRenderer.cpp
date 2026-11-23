@@ -7,7 +7,7 @@
 #include "Particles/ParticleMaterials.h"
 #include "Render/Camera3D.h"
 #include "Render/GpuResourceCache.h"
-#include "Render/ParticlePipeline.h"
+#include "Particles/ParticlePipeline.h"
 #include "Render/Renderer.h"
 #include "Render/Texture2D.h"
 

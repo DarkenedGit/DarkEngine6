@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include "Particles/ParticleInputs.h"
 #include "Render/DebugTileInputs.h"
 #include "Render/FrameFeatures.h"
 #include "Render/GBufferInputs.h"
@@ -1475,11 +1476,7 @@ namespace
             host.features.declare(PassId::Particles,
                                   [this](FeatureBuilder& fb)
                                   {
-                                      HdrDrawUses uses;
-                                      uses.computeDepth  = true;
-                                      uses.computeAttrib = true;
-
-                                      particlesAdded = addHdrDrawPass(fb, "Particles", uses,
+                                      particlesAdded = addHdrDrawPass(fb, "Particles", particlesUses(),
                                                                       [this](Rg::PassContext&, const HdrDrawTargets& d)
                                                                       {
                                                                           ran.push_back("Particles");
@@ -1683,6 +1680,10 @@ TEST(FrameFeatures, ParticlesSampleDepthAndAttribFromCompute)
     ASSERT_TRUE(f.particlesAdded);
     ASSERT_TRUE(f.particles.attrib.valid());
     EXPECT_FALSE(f.translucent.attrib.valid());
+    // Neither this frame's SSR capture nor the shadow map.
+    ASSERT_TRUE(f.captured.valid());
+    EXPECT_FALSE(f.particles.sceneColor.valid());
+    EXPECT_FALSE(f.particles.shadow.valid());
     const std::string a      = f.accesses("Particles");
     const std::string attrib = accessOf(a, f.host.graph.findResource("Attrib"));
     EXPECT_NE(attrib.find("\"use\":\"ComputeSrv\",\"read\":true,\"write\":false"), std::string::npos) << attrib;
@@ -1794,11 +1795,7 @@ TEST(FrameFeatures, HdrDrawHelpersAddNothingWithoutHdrAndDepth)
         host.features.declare(PassId::Particles,
                               [&](FeatureBuilder& fb)
                               {
-                                  HdrDrawUses uses;
-                                  uses.computeDepth  = true;
-                                  uses.computeAttrib = true;
-
-                                  particlesAdded = addHdrDrawPass(fb, "Particles", uses, [](Rg::PassContext&, const HdrDrawTargets&) {});
+                                  particlesAdded = addHdrDrawPass(fb, "Particles", particlesUses(), [](Rg::PassContext&, const HdrDrawTargets&) {});
                                   fb.opaque("Particles", {}, {}, [](Rg::PassContext&) {});
                               });
         host.features.compileFrame(g, "test");

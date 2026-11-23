@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "Render/MeshGen2D.h"
+#include "Sprite/MeshGen2D.h"
 #include "Math/MathHelper.h"
 #include "Math/MathDefines.h"
 
