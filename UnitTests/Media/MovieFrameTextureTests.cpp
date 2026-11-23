@@ -8,7 +8,7 @@
 
 #include <gtest/gtest.h>
 
-#include "Render/MovieFrameTexture.h"
+#include "Media/MovieFrameTexture.h"
 #include "Render/RhiDevice.h"
 
 #include <d3d12.h>

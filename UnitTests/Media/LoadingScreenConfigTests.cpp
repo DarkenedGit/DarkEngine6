@@ -2,8 +2,8 @@
 
 #include "Core/Application.h"
 #include "Core/UiPalette.h"
-#include "Render/LoadingScreen.h"
-#include "Render/LoadingScreenConfig.h"
+#include "Media/LoadingScreen.h"
+#include "Media/LoadingScreenConfig.h"
 
 #include <filesystem>
 #include <string>

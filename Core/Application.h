@@ -11,7 +11,7 @@
 #include "Network/NetworkSystem.h"
 #include "Debug/DebugServer.h"
 #include "Render/Renderer.h"
-#include "Render/LoadingScreen.h"
+#include "Media/LoadingScreen.h"
 #include "Input/Input.h"
 
 #include <filesystem>

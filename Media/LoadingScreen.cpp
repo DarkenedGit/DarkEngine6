@@ -1,7 +1,7 @@
-#include "Render/LoadingScreen.h"
+#include "Media/LoadingScreen.h"
 #include "Render/Profile.h"
 #include "Render/Renderer.h"
-#include "Render/LoadingScreenShaders.h"
+#include "Media/LoadingScreenShaders.h"
 #include "Render/ShaderCompile.h"
 #include "Core/Application.h"
 #include "Core/Log.h"
@@ -13,7 +13,7 @@
 #include <filesystem>
 #include <vector>
 
-#include "Render/LoadingScreenFont.inl"
+#include "Media/LoadingScreenFont.inl"
 
 namespace Dark
 {
