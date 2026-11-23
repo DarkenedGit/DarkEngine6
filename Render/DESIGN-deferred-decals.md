@@ -7,7 +7,7 @@
 | **Date** | 2026-10-03 |
 | **Status** | Accepted |
 | **Priority** | P1 — replaces forward blood drapes; unblocks persistent hit marks on the G-buffer |
-| **Area** | `Render/Decal*`, `Render/SceneBuffers`, `Render/SceneRenderer`, `content/shaders/Decal.hlsl`, Sandbox spawn sites, Editor frame insert |
+| **Area** | `Render/Decal*`, `Character/HealthDecalLife.h`, `Play/ImpactFx.h`, `Render/SceneBuffers`, `Render/SceneRenderer`, `content/shaders/Decal.hlsl`, Sandbox spawn sites, Editor frame insert |
 | **Audience** | Engine, Sandbox, and Editor owners who already know HybridDeferred |
 | **Depends on** | Landed HybridDeferred G-buffer, reverse-Z (`D32_FLOAT`, clear 0), linear Rec.709, PBR G-buffer packing, GTAO, SSR, classic local-light volumes |
 | **Supersedes** | The deferred-decal follow-up left open by `Render/DESIGN-deferred-renderer.md` **K6** / **K18** and the “Deferred blood decals” row in that RFC. Those rows are stale: local lights shipped **without** stencil, and the lighting root signature is no longer the 2-RT sketch in K3. |
@@ -285,7 +285,7 @@ byte = uint8_t((n * 0.5 + 0.5) * 255.0 + 0.5)
 
 The bullet center is an even pit, so the derivative is ~0 and `n ≈ (0, 0, 1)`. A texel near `r = 0.3` is still in the pit. Height rises toward the rim, so `n.xy` points inward (`dot(n.xy, uv) < 0`). The slash center is an even groove, so `n.z > 0.8` there, and a sample inside the ellipse off the long axis has inward `xy`. Foot center `n.z > 0.8`.
 
-`WeaponKind::Projectile` selects ImpactBullet. `WeaponKind::Melee` selects ImpactSlash. `DecalSpawnDesc::halfExtents` of 0 uses that row’s defaults. A non-zero half-extent overrides the box only. It does not swap the texture. Both rows use channel mask Albedo + Normal + Roughness. One PSO. A batch breaks when the texture pair changes, so a slash drawn after a bullet is a later batch, not a second shader.
+`DecalImpact::Bullet` selects ImpactBullet. `DecalImpact::Slash` selects ImpactSlash (`Play/ImpactFx.h` `decalImpactOf`: a `WeaponKind::Projectile` hit is Bullet, any other weapon is Slash). `DecalSpawnDesc::halfExtents` of 0 uses that row’s defaults. A non-zero half-extent overrides the box only. It does not swap the texture. Both rows use channel mask Albedo + Normal + Roughness. One PSO. A batch breaks when the texture pair changes, so a slash drawn after a bullet is a later batch, not a second shader.
 
 ### GPU resources and barriers
 
@@ -454,7 +454,7 @@ struct DecalSpawnDesc
     Entity      entity{};
     int         bone = -1;          // -1 and space Bone: pick closest joint. Ignored for World.
     float       lifetimeScale = 1.0f;
-    WeaponKind  weapon = WeaponKind::Melee; // Projectile -> ImpactBullet, Melee -> ImpactSlash
+    DecalImpact impact = DecalImpact::Slash; // Impact only: Bullet -> ImpactBullet, Slash -> ImpactSlash
 };
 
 class DecalPool
@@ -484,7 +484,7 @@ public:
 
 ```cpp
 // SceneRenderer
-void tickDecals(World& world, float dt);
+void tickDecals(World& world, float dt, const IDecalLifeSource* life); // hosts pass &healthDecalLife()
 bool spawnDecal(const DecalSpawnDesc& desc, DecalId* outId = nullptr);
 void drawDecals(ID3D12GraphicsCommandList* cmd, Renderer& renderer, const Camera3D& camera, const Math::Matrix4f& viewProj);
 
@@ -510,7 +510,7 @@ DecalFrameStats decalStats() const;
 - `Entity` and `Bone` share the lifetime rules below. Bone also needs `AnimGraphComponent` and `pose().boneCount > bone`. Missing graph or a bone index out of range **frees**. World matrix is `localOffset * pose.jointWorld[bone] * entityWorld` (the `SkeletonDebug.cpp` multiply). Entity matrix is `localOffset * makeWorldMatrix(transform)`. Do not freeze the last matrix.
 - Free a Bone or Entity instance when any of these is true:
   - `!world.alive(entity)` or the transform is gone (destroyed).
-  - A `HealthComponent` was dead (`Health::alive()` false, `hp() <= 0`) on the previous tick and is alive now. That is `health.revive()` in `AiSystem::tickHealthAndRespawn`.
+  - The entity's life state (`IDecalLifeSource`, `Render/DecalLifeSource.h`; hosts pass `Character/HealthDecalLife.h`, which reads `HealthComponent`) was dead (`Health::alive()` false, `hp() <= 0`) on the previous tick and is alive now. An entity with no life state, or a null source, never frees this way. That is `health.revive()` in `AiSystem::tickHealthAndRespawn`.
   - The entity translation moved, in one tick, by more than the decal’s largest half-extent. The same function writes the new position and then revives, so either predicate catches the respawn. A small corpse motion does not.
 - The first tick records `healthWasAlive` and `lastEntityPos` and does not treat that sample as a jump or a revive.
 - A corpse stays. `tickHealthAndRespawn` keeps the entity while `deadFor < 8`. `world.alive` stays true, `Health::dead()` stays true, and the bone index stays in range. Bone blood stays on that corpse for those 8 seconds. It does not ride the teleport onto the revived body. Do not describe hunter death as entity destruction.
