@@ -59,6 +59,7 @@
 #include "Physics/PhysicsFile.h"
 #include "Audio/SoundComponents.h"
 #include "Character/HealthComponent.h"
+#include "Character/HealthDecalLife.h"
 #include "Character/PlayerMotorComponent.h"
 #include "Character/SkillCatalog.h"
 #include "Character/ArmorView.h"
@@ -2031,7 +2032,7 @@ void SandboxApp::onUpdate(float dt)
         }
         if (!m_movie.blocksWorld())
             tickSoundEmitters(world(), audio(), assets());
-        m_frame.scene().tickDecals(world(), m_simDt);
+        m_frame.scene().tickDecals(world(), m_simDt, &healthDecalLife());
     }
     if (!m_movie.blocksWorld())
         syncPlayerFlashlight(world(), possessedBody(), m_sceneWorld.camera.GetPosition(), m_sceneWorld.camera.GetLook(), m_sceneWorld.camera.GetRight(), m_sceneWorld.camera.GetUp(), m_play.runtime().offhand.lightOn);

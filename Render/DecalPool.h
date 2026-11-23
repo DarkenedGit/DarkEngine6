@@ -10,6 +10,8 @@
 namespace Dark
 {
 
+    class IDecalLifeSource;
+
     // CPU wire box. `world` maps the unit cube (±1) onto the decal OBB.
     struct DecalDebugVolume
     {
@@ -29,7 +31,8 @@ namespace Dark
         // At capacity, recycles the oldest serial and returns true.
         bool spawn(const DecalSpawnDesc& desc, DecalId* outId);
         void clear();
-        void tick(World& world, float dt);
+        // Entity and Bone decals follow their entity; `life` (may be null) frees them on a revive.
+        void tick(World& world, float dt, const IDecalLifeSource* life);
 
         // Oldest serial first. Inside boxes skip the frustum test.
         uint32_t buildVisible(const Frustum3f& frustum, const Math::Vector3f& cameraPos, DecalGpuInstance* outside, uint32_t outsideCap, uint32_t* outsideCount, DecalGpuInstance* inside,

@@ -1,13 +1,13 @@
 #include "Render/DecalPool.h"
 
 #include "Animation/AnimGraphComponent.h"
-#include "Character/HealthComponent.h"
 #include "Core/Log.h"
 #include "ECS/Components.h"
 #include "Math/Box3f.h"
 #include "Math/MathHelper.h"
 #include "Math/Vector4f.h"
 #include "Render/DecalBasis.h"
+#include "Render/DecalLifeSource.h"
 
 #include <algorithm>
 #include <cstring>
@@ -278,7 +278,7 @@ namespace Dark
         return true;
     }
 
-    void DecalPool::tick(World& world, float dt)
+    void DecalPool::tick(World& world, float dt, const IDecalLifeSource* life)
     {
         if (dt < 0.0f)
             dt = 0.0f;
@@ -358,17 +358,21 @@ namespace Dark
             {
                 // Spawn has no prior position, so this sample is not a revive or a teleport.
                 slot.localOffset    = slot.world * parent.Inverse();
-                HealthComponent* hp = world.get<HealthComponent>(slot.entity);
-                slot.healthWasAlive = hp ? hp->health.alive() : true;
+                bool alive          = true;
+                if (!life || !life->life(world, slot.entity, alive))
+                    alive = true;
+                slot.healthWasAlive = alive;
                 slot.lastEntityPos  = xf->position;
                 slot.hasLastPos     = true;
                 slot.world          = slot.localOffset * parent;
                 continue;
             }
 
-            HealthComponent* hp       = world.get<HealthComponent>(slot.entity);
-            const bool       nowAlive = hp ? hp->health.alive() : true;
-            if (hp && !slot.healthWasAlive && nowAlive)
+            bool       nowAlive = true;
+            const bool hasLife  = life && life->life(world, slot.entity, nowAlive);
+            if (!hasLife)
+                nowAlive = true;
+            if (hasLife && !slot.healthWasAlive && nowAlive)
             {
                 freeSlot(i);
                 continue;

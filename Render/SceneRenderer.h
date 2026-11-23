@@ -252,7 +252,8 @@ public:
     const Math::AABox3f* fogOccluders() const { return m_fogOccluders; }
     int                  fogOccluderCount() const { return m_fogOccluderCount; }
 
-    void tickDecals(World& world, float dt);
+    // `life` frees entity decals on a revive (Character/HealthDecalLife.h); null never frees on revive.
+    void tickDecals(World& world, float dt, const IDecalLifeSource* life);
     bool spawnDecal(const DecalSpawnDesc& desc, DecalId* outId = nullptr);
     bool decalsReady() const;
     DecalFrameStats decalStats() const;
