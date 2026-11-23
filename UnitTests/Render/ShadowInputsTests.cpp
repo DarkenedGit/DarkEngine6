@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include "Render/DebugTileInputs.h"
 #include "Render/FrameFeatures.h"
 #include "Render/HdrDrawInputs.h"
 #include "Render/LightingInputs.h"
@@ -14,8 +15,8 @@
 #include <vector>
 
 // The shadow entries with declared uses (Render/ShadowInputs.h): the Sandbox list with Shadows,
-// LocalShadows and every shadow reader declared the way SceneRenderer declares them, and the
-// frame-start invariant FrameComposer keeps with endShadowFrame.
+// LocalShadows and every shadow reader declared the way SceneRenderer declares them (the debug
+// tiles included), and the frame-start invariant the sun map's final layout keeps.
 
 using namespace Dark;
 
@@ -68,12 +69,14 @@ namespace
     struct ShadowFrame
     {
         // What the host has this frame.
-        bool       importShadow = true;
-        bool       importLocal  = true;
-        bool       localFaces   = true;                          // LocalShadowSystem selected faces
-        bool       underwater   = false;                         // the Underwater copy path
-        Rg::Layout shadowLayout = Rg::Layout::DepthStencilWrite; // as the tracker holds them at begin()
-        Rg::Layout localLayout  = Rg::Layout::ShaderResource;
+        bool             importShadow = true;
+        bool             importLocal  = true;
+        bool             localFaces   = true;                          // LocalShadowSystem selected faces
+        bool             underwater   = false;                         // the Underwater copy path
+        bool             localVolumes = true;                          // the LocalVolumes pipeline exists
+        DebugTileRequest tiles{};                                      // the Overlay entry's request
+        Rg::Layout       shadowLayout = Rg::Layout::DepthStencilWrite; // as the tracker holds them at begin()
+        Rg::Layout       localLayout  = Rg::Layout::ShaderResource;
 
         Rg::RenderGraph          graph;
         FeatureFrame             features;
@@ -82,6 +85,7 @@ namespace
         LightingReads            lit{}, vol{};
         HdrDrawTargets           sky{}, water{}, translucent{}, overlays{};
         UnderwaterTargets        under{};
+        DebugTileReads           tile{};
         bool                     localAdded = false;
 
         bool run()
@@ -93,6 +97,7 @@ namespace
             lit = vol = {};
             sky = water = translucent = overlays = {};
             under                                = {};
+            tile                                 = {};
             localAdded                           = false;
             graph.beginFrame(1280, 720);
             features.begin(list, count);
@@ -101,6 +106,7 @@ namespace
                 const auto     res    = static_cast<RenderResource>(r);
                 const uint32_t fmt    = res == RenderResource::Swap ? kBgra8 : (res == RenderResource::Depth ? kD32 : kRgba);
                 Rg::Layout     layout = Rg::Layout::ShaderResource;
+                Rg::Layout     finalL = Rg::Layout::Undefined;
                 if (res == RenderResource::Swap || res == RenderResource::Hdr)
                     layout = Rg::Layout::RenderTarget;
                 if (res == RenderResource::Shadow)
@@ -108,6 +114,7 @@ namespace
                     if (!importShadow)
                         continue;
                     layout = shadowLayout;
+                    finalL = shadowFrameStartState().layout; // as FrameComposer::begin imports it
                 }
                 if (res == RenderResource::LocalShadow)
                 {
@@ -115,10 +122,10 @@ namespace
                         continue;
                     layout = localLayout;
                 }
-                features.importResource(graph, res, fakeResource(r), absDesc(1280, 720, fmt), layout);
+                features.importResource(graph, res, fakeResource(r), absDesc(1280, 720, fmt), layout, {}, finalL);
             }
             const std::vector<PassId> declared = { PassId::Shadows, PassId::LocalShadows, PassId::Lighting,      PassId::LocalVolumes, PassId::Sky,
-                                                   PassId::Water,   PassId::Translucent,  PassId::DebugOverlays, PassId::Underwater };
+                                                   PassId::Water,   PassId::Translucent,  PassId::DebugOverlays, PassId::Underwater,   PassId::Overlay };
             for (const PassId id : listIds(list, count))
                 if (std::find(declared.begin(), declared.end(), id) == declared.end())
                     features.set(id, [this, id](Rg::PassContext&) { ran.push_back(passName(id)); });
@@ -151,6 +158,12 @@ namespace
                 features.declare(pass == LightingPass::Lighting ? PassId::Lighting : PassId::LocalVolumes,
                                  [this, pass, name, out](FeatureBuilder& b)
                                  {
+                                     // SceneRenderer::addLocalVolumesPasses without its pipeline: an empty opaque pass.
+                                     if (pass == LightingPass::LocalVolumes && !localVolumes)
+                                     {
+                                         b.opaque(name, {}, {}, [this, name](Rg::PassContext&) { ran.push_back(name); });
+                                         return;
+                                     }
                                      const LightingReads in = lightingReads(b);
                                      Rg::TextureHandle   hdr;
                                      b.addPass<LightingReads>(
@@ -206,6 +219,16 @@ namespace
                                                     under.shadow = d.shadow;
                                                 });
                              });
+            features.declare(PassId::Overlay,
+                             [this](FeatureBuilder& b)
+                             {
+                                 addDebugTilePass(b, tiles,
+                                                  [this](Rg::PassContext&, const DebugTileReads& d)
+                                                  {
+                                                      ran.push_back("Overlay");
+                                                      tile = d;
+                                                  });
+                             });
             if (!features.compileFrame(graph, "test"))
                 return false;
             return graph.execute();
@@ -240,22 +263,26 @@ namespace
         }
     };
 
-    // What the executor does with the plan: each barrier's before-state comes from the tracker and its
-    // after-state goes back in. The layouts must agree (rg.validate); a barrier after a declared use
-    // carries that use's sync and access, which must agree too. A first barrier from an import
-    // carries NO_ACCESS as a placeholder (the tracker's state is recorded).
-    void applyPlan(const Rg::RenderGraph& g, const char* resource, ResourceStateTracker& tracker, const void* native)
+    // What EnhancedBarrierEmitter::collect does with the plan's records (all untracked here): the
+    // before-state is the tracker's widened by the record's own (ResourceStateTracker::planBefore),
+    // and the after-state goes back in. The layouts must agree (rg.validate), and every record must
+    // be a barrier. Returns the before-states the barriers carried.
+    std::vector<Rg::UseState> applyPlan(const Rg::RenderGraph& g, const char* resource, ResourceStateTracker& tracker, const void* native)
     {
+        std::vector<Rg::UseState> emitted;
         for (const Rg::BarrierRec& b : Rg::Test::barriersFor(g, resource))
         {
-            Rg::UseState before;
-            ASSERT_TRUE(tracker.transition(native, b.after, before)) << resource << ": the plan records a barrier the tracker would skip";
-            EXPECT_EQ(before.layout, b.before.layout) << resource << " into pass " << b.pass;
-            if (b.before.access != Rg::Access::NoAccess)
-            {
-                EXPECT_EQ(before, b.before) << resource << " into pass " << b.pass;
-            }
+            const Rg::UseState* now = tracker.current(native);
+            EXPECT_NE(now, nullptr);
+            if (!now)
+                return emitted;
+            EXPECT_EQ(now->layout, b.before.layout) << resource << " into pass " << b.pass;
+            const Rg::UseState before = ResourceStateTracker::planBefore(*now, b.before);
+            EXPECT_TRUE(ResourceStateTracker::needsBarrier(before, b.after, Rg::ResourceKind::Texture)) << resource << ": the plan records a barrier the emitter would skip";
+            tracker.set(native, b.after);
+            emitted.push_back(before);
         }
+        return emitted;
     }
 } // namespace
 
@@ -266,24 +293,6 @@ TEST(ShadowInputs, FrameStartStateIsTheDepthWriteUse)
     EXPECT_EQ(s.sync, Rg::Sync::DepthStencil);
     EXPECT_EQ(s.access, Rg::Access::DepthStencilWrite);
     EXPECT_EQ(s, depthWrite());
-}
-
-TEST(ShadowInputs, EndShadowFrameReturnsAReadMapToItsWriteState)
-{
-    ResourceStateTracker tracker;
-    const void*          map = mapResource();
-    Rg::UseState         before;
-    EXPECT_FALSE(endShadowFrame(tracker, map, before)) << "untracked";
-    EXPECT_FALSE(endShadowFrame(tracker, nullptr, before));
-
-    tracker.track(map, Rg::ResourceKind::Texture, shadowFrameStartState());
-    EXPECT_FALSE(endShadowFrame(tracker, map, before)) << "already writable (shadows on, no reader ran)";
-
-    ASSERT_TRUE(tracker.transition(map, pixelSrv(), before));
-    EXPECT_TRUE(endShadowFrame(tracker, map, before));
-    EXPECT_EQ(before, pixelSrv());
-    ASSERT_NE(tracker.current(map), nullptr);
-    EXPECT_EQ(*tracker.current(map), shadowFrameStartState());
 }
 
 TEST(ShadowInputs, ShadowsWritesWithoutABarrierAndTheFirstReaderWaitsForIt)
@@ -297,14 +306,17 @@ TEST(ShadowInputs, ShadowsWritesWithoutABarrierAndTheFirstReaderWaitsForIt)
     // The map starts the frame writable: nothing before the pass (its cascades may be on the
     // shadow list, which no main-list barrier precedes).
     EXPECT_TRUE(f.into("Shadow", "Shadows").empty());
-    // One barrier for the whole frame: depth writes -> pixel-shader reads, before Lighting.
+    // Depth writes -> pixel-shader reads before Lighting, then back to the write layout after the
+    // last reader (the final transition).
     const std::vector<Rg::BarrierRec> all = f.on("Shadow");
-    ASSERT_EQ(all.size(), 1u);
+    ASSERT_EQ(all.size(), 2u);
     EXPECT_EQ(all[0].pass, f.passIndex("Lighting"));
     EXPECT_EQ(all[0].placement, Rg::BarrierPlacement::BeforePass);
     EXPECT_FALSE(all[0].tracked);
     EXPECT_EQ(all[0].before, shadowFrameStartState());
     EXPECT_EQ(all[0].after, pixelSrv());
+    EXPECT_EQ(all[1].pass, f.passIndex("Underwater")) << "the last reader without debug tiles";
+    EXPECT_EQ(all[1].placement, Rg::BarrierPlacement::AfterPass);
 
     // Every sampler reads the version Shadows wrote; LocalVolumes does not read it.
     for (const Rg::TextureHandle h : { f.lit.shadow, f.sky.shadow, f.water.shadow, f.translucent.shadow, f.under.shadow })
@@ -325,7 +337,7 @@ TEST(ShadowInputs, TheUnderwaterCopyPathReadsTheMapToo)
     ASSERT_TRUE(f.run());
     ASSERT_TRUE(f.under.shadow.valid());
     EXPECT_EQ(f.under.shadow.index, f.shadows.map.index);
-    EXPECT_EQ(f.on("Shadow").size(), 1u);
+    EXPECT_EQ(f.on("Shadow").size(), 2u);
 }
 
 TEST(ShadowInputs, LocalShadowsMoveTheArrayIntoDepthWritesAndBackForLocalVolumes)
@@ -388,30 +400,106 @@ TEST(ShadowInputs, WithoutMapsTheReadersBindFallbacksAndShadowsStillRuns)
         EXPECT_FALSE(h.valid());
 }
 
+TEST(ShadowInputs, TheMapEndsTheFrameWritableAfterItsLastReader)
+{
+    ShadowFrame f;
+    f.tiles.sunShadow = true;
+    ASSERT_TRUE(f.run());
+    const std::vector<Rg::BarrierRec> all = f.on("Shadow");
+    ASSERT_FALSE(all.empty());
+    const Rg::BarrierRec& last = all.back();
+    EXPECT_EQ(last.placement, Rg::BarrierPlacement::AfterPass);
+    EXPECT_EQ(last.pass, f.passIndex("Overlay")) << "the debug tiles read it last";
+    EXPECT_FALSE(last.tracked);
+    EXPECT_EQ(last.before, pixelSrv());
+    EXPECT_EQ(last.after.layout, shadowFrameStartState().layout);
+    EXPECT_EQ(last.after.access, Rg::Access::NoAccess);
+    EXPECT_EQ(last.after.sync, Rg::Sync::None);
+    for (const Rg::BarrierRec& b : all)
+        EXPECT_NE(b.placement, Rg::BarrierPlacement::Epilogue);
+}
+
+TEST(ShadowInputs, AMapNobodyReadIsLeftWhereShadowsWroteIt)
+{
+    // Shadows wrote DEPTH_WRITE, the final layout: no transition when no reader moved it.
+    Rg::RenderGraph alone;
+    alone.beginFrame(64, 64);
+    const Rg::TextureHandle map = alone.importTexture("Shadow", absDesc(64, 64, kD32), mapResource(), Rg::Layout::DepthStencilWrite, shadowFrameStartState().layout);
+    alone.addPass<ShadowTargets>(
+        "Shadows",
+        [&](Rg::PassBuilder& pb, ShadowTargets& d)
+        {
+            pb.flags(Rg::PassFlags::SideEffect);
+            d.map = pb.write(map, Rg::Use::DepthWrite);
+        },
+        [](Rg::PassContext&, const ShadowTargets&) {});
+    ASSERT_TRUE(alone.compile());
+    EXPECT_TRUE(Rg::Test::barriersFor(alone, "Shadow").empty());
+}
+
+TEST(ShadowInputs, TheDebugTilesReadBothArraysAsTheirWritersLeftThem)
+{
+    ShadowFrame f;
+    f.tiles.sunShadow   = true;
+    f.tiles.localShadow = true;
+    ASSERT_TRUE(f.run());
+    EXPECT_TRUE(f.features.orderOk());
+    EXPECT_EQ(f.at("Overlay") + 1, static_cast<long>(f.ran.size())) << "the last entry";
+    ASSERT_TRUE(f.tile.shadow.valid());
+    EXPECT_EQ(f.tile.shadow.index, f.shadows.map.index);
+    EXPECT_EQ(f.tile.shadow.version, f.shadows.map.version);
+    ASSERT_TRUE(f.tile.localShadow.valid());
+    EXPECT_EQ(f.tile.localShadow.index, f.local.map.index);
+    EXPECT_EQ(f.tile.localShadow.version, f.local.map.version);
+    // Already shader resources after Lighting / LocalVolumes: no barrier into the tiles.
+    EXPECT_TRUE(f.into("Shadow", "Overlay").empty());
+    EXPECT_TRUE(f.into("LocalShadow", "Overlay").empty());
+}
+
+TEST(ShadowInputs, WithoutLocalVolumesTheTilesMoveTheArrayOutOfDepthWrites)
+{
+    ShadowFrame f;
+    f.localVolumes      = false;
+    f.tiles.localShadow = true;
+    ASSERT_TRUE(f.run());
+    EXPECT_TRUE(f.features.orderOk());
+    EXPECT_FALSE(f.vol.localShadow.valid());
+    const std::vector<Rg::BarrierRec> into = f.into("LocalShadow", "Overlay");
+    ASSERT_EQ(into.size(), 1u) << "the faces left it in DEPTH_WRITE";
+    EXPECT_FALSE(into[0].tracked);
+    EXPECT_EQ(into[0].before, depthWrite());
+    EXPECT_EQ(into[0].after, pixelSrv());
+    ASSERT_TRUE(f.tile.localShadow.valid());
+    EXPECT_EQ(f.tile.localShadow.version, f.local.map.version);
+}
+
 TEST(ShadowInputs, TheTrackerAndThePlanAgreeFrameAfterFrame)
 {
-    // Both arrays are created in DEPTH_WRITE; FrameComposer imports them in the tracker's layout
-    // and calls endShadowFrame after the graph.
+    // Both arrays are created in DEPTH_WRITE; FrameComposer imports them in the tracker's layout,
+    // the sun map with DEPTH_WRITE as its final layout. Nothing runs between frames.
     ResourceStateTracker tracker;
     tracker.track(mapResource(), Rg::ResourceKind::Texture, depthWrite());
     tracker.track(localResource(), Rg::ResourceKind::Texture, depthWrite());
     ShadowFrame f;
-    for (int frame = 0; frame < 3; ++frame)
+    for (int frame = 0; frame < 4; ++frame)
     {
         SCOPED_TRACE(frame);
-        f.localFaces   = frame != 1; // a frame without local faces in the middle
-        f.shadowLayout = tracker.current(mapResource())->layout;
-        f.localLayout  = tracker.current(localResource())->layout;
+        f.localFaces        = frame != 1; // a frame without local faces in the middle
+        f.tiles.sunShadow   = frame >= 2; // the tiles come on: they become the last reader
+        f.tiles.localShadow = frame == 3;
+        f.shadowLayout      = tracker.current(mapResource())->layout;
+        f.localLayout       = tracker.current(localResource())->layout;
         EXPECT_EQ(f.shadowLayout, Rg::Layout::DepthStencilWrite);
         ASSERT_TRUE(f.run());
         EXPECT_TRUE(f.into("Shadow", "Shadows").empty());
-        applyPlan(f.graph, "Shadow", tracker, mapResource());
+        const std::vector<Rg::UseState> sun = applyPlan(f.graph, "Shadow", tracker, mapResource());
         applyPlan(f.graph, "LocalShadow", tracker, localResource());
-        EXPECT_EQ(*tracker.current(localResource()), pixelSrv()) << "left for the debug tiles and next frame's faces";
-
-        Rg::UseState before;
-        ASSERT_TRUE(endShadowFrame(tracker, mapResource(), before));
-        EXPECT_EQ(before, pixelSrv());
-        EXPECT_EQ(*tracker.current(mapResource()), shadowFrameStartState());
+        ASSERT_EQ(sun.size(), 2u);
+        // The first reader waits for the cascades the tracker never saw written.
+        EXPECT_EQ(sun[0], depthWrite());
+        EXPECT_EQ(sun[1], pixelSrv());
+        EXPECT_EQ(*tracker.current(localResource()), pixelSrv()) << "left for next frame's faces";
+        const Rg::UseState parked{ Rg::Sync::None, Rg::Access::NoAccess, Rg::Layout::DepthStencilWrite };
+        EXPECT_EQ(*tracker.current(mapResource()), parked);
     }
 }
