@@ -402,8 +402,8 @@ void EditorApp::renderScene3D()
     shadowHost.drawPrimitives    = &EditorApp::drawPrimitiveShadowCasters;
     EditorShadowUser shadowUser{ this, &acceptedProp };
     shadowHost.user = &shadowUser;
-    // The Shadows and LocalShadows entries are the registered ShadowFeature; it reads this frame's
-    // casters when the graph executes.
+    // The FrameCull, Shadows and LocalShadows entries are the registered ShadowFeature; it reads
+    // this frame's casters when the graph executes.
     GameplayShadowCasters shadowCasters(shadowHost);
     m_shadowFeature.setFrame(shadowFrameOf(shadowHost, &m_scene.localShadows(), &shadowCasters));
 

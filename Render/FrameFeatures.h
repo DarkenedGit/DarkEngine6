@@ -44,7 +44,8 @@ namespace Dark
 
     enum class PassId : uint8_t
     {
-        Shadows, // frame GPU cull + directional cascades
+        FrameCull, // the frame's GPU cull, plus the cascades on the shadow list or the shadow worker
+        Shadows,   // the directional cascades on the main list
         LocalShadows,
         GBuffer,
         Decals, // decals, then the HDR bind and clear

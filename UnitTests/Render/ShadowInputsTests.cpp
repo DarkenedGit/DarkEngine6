@@ -301,7 +301,9 @@ TEST(ShadowInputs, ShadowsWritesWithoutABarrierAndTheFirstReaderWaitsForIt)
     ASSERT_TRUE(f.run());
     EXPECT_TRUE(f.features.orderOk());
     ASSERT_TRUE(f.shadows.map.valid());
-    EXPECT_LT(f.at("Shadows"), f.at("GBuffer"));
+    // D12: the cascades follow the G-buffer, and nothing between them and Lighting reads the map.
+    EXPECT_LT(f.at("FrameCull"), f.at("GBuffer"));
+    EXPECT_EQ(f.at("Shadows"), f.at("GBuffer") + 1);
 
     // The map starts the frame writable: nothing before the pass (its cascades may be on the
     // shadow list, which no main-list barrier precedes).
@@ -345,7 +347,8 @@ TEST(ShadowInputs, LocalShadowsMoveTheArrayIntoDepthWritesAndBackForLocalVolumes
     ShadowFrame f; // the array left as last frame's LocalVolumes read it
     ASSERT_TRUE(f.run());
     ASSERT_TRUE(f.localAdded);
-    EXPECT_LT(f.at("LocalShadows"), f.at("GBuffer"));
+    EXPECT_EQ(f.at("LocalShadows"), f.at("Shadows") + 1);
+    EXPECT_LT(f.at("GBuffer"), f.at("LocalShadows"));
     const std::vector<Rg::BarrierRec> all = f.on("LocalShadow");
     ASSERT_EQ(all.size(), 2u);
     EXPECT_EQ(all[0].pass, f.passIndex("LocalShadows"));
@@ -391,8 +394,11 @@ TEST(ShadowInputs, WithoutMapsTheReadersBindFallbacksAndShadowsStillRuns)
     f.importLocal  = false;
     ASSERT_TRUE(f.run());
     EXPECT_TRUE(f.features.orderOk());
-    // The pass also records the frame's GPU cull, so it runs with nothing to write.
-    EXPECT_LT(f.at("Shadows"), f.at("GBuffer"));
+    // FrameCull (the frame's GPU cull) runs before GBuffer. Shadows runs after it with nothing to
+    // write: without a FrameCull entry it records the frame's cull.
+    EXPECT_LT(f.at("FrameCull"), f.at("GBuffer"));
+    EXPECT_LT(f.at("GBuffer"), f.at("Shadows"));
+    EXPECT_LT(f.at("Shadows"), static_cast<long>(f.ran.size())) << "ran";
     EXPECT_FALSE(f.shadows.map.valid());
     EXPECT_FALSE(f.localAdded);
     EXPECT_EQ(f.passIndex("LocalShadows"), Rg::kNoPass);

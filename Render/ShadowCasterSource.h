@@ -46,7 +46,8 @@ namespace Dark
 
         virtual ~IShadowCasterSource() = default;
 
-        // The Shadows pass, before any cascade: create the GPU resources of this frame's casters.
+        // The FrameCull pass, before the G-buffer and any cascade: create the GPU resources of this
+        // frame's casters.
         virtual void prepareDirectional() = 0;
 
         // Immediate recording on `cmd` (the main list, the shadow list or a local face). drawGround
