@@ -25,7 +25,8 @@ namespace Dark::AI
         }
         else if (in.noise > 0.0f && state.alertness != Alertness::Alert)
         {
-            state.noticePos = in.noisePos;
+            if (!in.keepNoticePos)
+                state.noticePos = in.noisePos;
             state.heardOnly = state.alertness == Alertness::Calm || state.heardOnly;
         }
         const bool cue = state.seesNow || feels || in.noise > 0.0f;
@@ -65,6 +66,14 @@ namespace Dark::AI
             enter(Alertness::Alert);
             return true;
         }
+        // Heard weapon or voice inside instantRange. Does not set seesNow and does not require line of sight.
+        if (in.noisePointBlank && state.alertness != Alertness::Alert && !state.seesNow && !feels)
+        {
+            state.noticePos = in.noisePos;
+            state.heardOnly = false;
+            enter(Alertness::Alert);
+            return true;
+        }
 
         const bool draining = state.sinceCue > settings.evidenceGrace;
         switch (state.alertness)
@@ -86,14 +95,21 @@ namespace Dark::AI
                 state.meter += yellow * (state.alertness == Alertness::Searching ? settings.searchFillScale : settings.suspiciousFillScale) * dt;
             else if (draining)
                 state.meter -= settings.drainCurious * drainScale * dt;
-            if (cue)
+            // A heard shot waits out its own delay. The cue must not pin stateTime to investigateAfter.
+            const bool soundWait = state.heardOnly && in.soundDelay > 0.0f && state.alertness == Alertness::Suspicious;
+            if (cue && !soundWait)
                 state.stateTime = Math::Min(state.stateTime, settings.investigateAfter);
             if (state.meter >= 1.0f)
             {
                 enter(Alertness::Alert);
                 return true;
             }
-            if (state.alertness == Alertness::Suspicious && state.stateTime >= settings.investigateAfter)
+            if (state.alertness == Alertness::Suspicious && soundWait && state.stateTime >= in.soundDelay)
+            {
+                state.alertness = Alertness::Investigating;
+                state.stateTime = 0.0f;
+            }
+            else if (state.alertness == Alertness::Suspicious && !soundWait && state.stateTime >= settings.investigateAfter)
             {
                 state.alertness = Alertness::Investigating;
                 state.stateTime = 0.0f;
@@ -109,7 +125,7 @@ namespace Dark::AI
         }
 
         case Alertness::Alert:
-            if (state.seesNow || feels)
+            if (state.seesNow || feels || in.holdAlertForSound)
                 state.stateTime = 0.0f;
             else if (state.stateTime >= settings.alertLoseSeconds)
             {

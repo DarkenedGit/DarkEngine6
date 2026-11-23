@@ -3,6 +3,7 @@
 #include "Weapons/Weapon.h"
 #include "Assets/AssetHandle.h"
 #include "Audio/AudioSystem.h"
+#include "ECS/Entity.h"
 #include "Particles/ParticleEmitter.h"
 
 #include <memory>
@@ -93,7 +94,7 @@ namespace Dark
         const ProjectileWeaponDesc&  desc() const { return m_desc; }
         void                         setImpactDesc(const ParticleEmitterDesc& desc);
 
-        void setAudio(Audio::AudioSystem* audio, AssetManager* assets, AssetID fireClip = NULL_ASSET, AssetID hitClip = NULL_ASSET);
+        void setAudio(Audio::AudioSystem* audio, AssetManager* assets, AssetID fireClip = NULL_ASSET, AssetID hitClip = NULL_ASSET, const Audio::SoundStimulus& fireStimulus = {}, const Audio::SoundStimulus& hitStimulus = {}, EntityID source = 0);
 
         WeaponKind  kind() const override { return WeaponKind::Projectile; }
         const char* name() const override { return m_desc.name ? m_desc.name : "Rifle"; }
@@ -128,10 +129,13 @@ namespace Dark
         ProjectileWeaponDesc                 m_desc{};
         std::vector<LiveProjectile>          m_shots;
         ParticleEmitter                      m_impact;
-        Audio::AudioSystem* m_audio      = nullptr;
-        AssetManager*       m_assets     = nullptr;
-        AssetID             m_fireClipId = NULL_ASSET;
-        AssetID             m_hitClipId  = NULL_ASSET;
+        Audio::AudioSystem*  m_audio      = nullptr;
+        AssetManager*        m_assets     = nullptr;
+        AssetID              m_fireClipId = NULL_ASSET;
+        AssetID              m_hitClipId  = NULL_ASSET;
+        Audio::SoundStimulus m_fireStimulus{};
+        Audio::SoundStimulus m_hitStimulus{};
+        EntityID             m_source = 0;
         RecoilKick                           m_pendingRecoil{};
     };
 

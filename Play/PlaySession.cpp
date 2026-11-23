@@ -212,6 +212,9 @@ namespace Dark
     {
         m_simTimers.clear();
         pull();
+        // Editor stop and Sandbox boot land here. Drop a hook that still points at the old AiSystem.
+        if (m_host.audio)
+            m_host.audio->setStimulusReport(nullptr, nullptr);
         PlayRuntime& r = m_rt;
         r.crouchLatch       = false;
         r.footstepAcc       = 0.0f;
@@ -1595,12 +1598,47 @@ namespace Dark
         });
     }
 
+    namespace
+    {
+        void reportPlayStimulus(void* user, const Math::Vector3f& pos, uint32_t sourceId, const Audio::SoundStimulus& stimulus)
+        {
+            auto* ai = static_cast<AiSystem*>(user);
+            if (!ai)
+                return;
+            ai->addNoise(pos, stimulus.radius, stimulus.loudness, sourceId, stimulus.kind);
+        }
+
+        // Sets the report for this tick and clears it on every return, including the early ones below.
+        struct StimulusReportGuard
+        {
+            Audio::AudioSystem* audio = nullptr;
+
+            StimulusReportGuard(Audio::AudioSystem* audioIn, AiSystem* ai)
+            {
+                if (!audioIn || !ai)
+                    return;
+                audioIn->setStimulusReport(&reportPlayStimulus, ai);
+                audio = audioIn;
+            }
+
+            ~StimulusReportGuard()
+            {
+                if (audio)
+                    audio->setStimulusReport(nullptr, nullptr);
+            }
+
+            StimulusReportGuard(const StimulusReportGuard&)            = delete;
+            StimulusReportGuard& operator=(const StimulusReportGuard&) = delete;
+        };
+    }
+
     void PlaySession::tickWorld(float dt)
     {
         pull();
         World* world = m_host.world;
         if (!world)
             return;
+        const StimulusReportGuard stimulusReport(m_host.audio, m_host.ai);
         if (WorldClockComponent* clock = m_host.session.valid() ? world->get<WorldClockComponent>(m_host.session) : nullptr)
             clock->playTimeSec += static_cast<double>(dt);
 

@@ -236,7 +236,7 @@ namespace
 
         long at(const char* name) const
         {
-            return std::find(ran.begin(), ran.end(), std::string(name)) - ran.begin();
+            return static_cast<long>(std::find(ran.begin(), ran.end(), std::string(name)) - ran.begin());
         }
     };
 

@@ -96,6 +96,7 @@ namespace Dark
         desc.minDistance = 3.0f;
         desc.maxDistance = 12.0f;
         desc.sourceId    = 0;
+        // Stimulus stays empty. Spoken lines do not alert guards.
         desc.position    = Math::Vector3f{ 0.0f, 1.6f, 0.0f };
         if (m_world && speaker.valid())
         {

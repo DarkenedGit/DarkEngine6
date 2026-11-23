@@ -20,7 +20,7 @@ namespace Dark
         return nullptr;
     }
 
-    void addSoundCue(SoundBankComponent& bank, const char* name, AssetID clipId, float volume, bool spatial)
+    void addSoundCue(SoundBankComponent& bank, const char* name, AssetID clipId, float volume, bool spatial, const Audio::SoundStimulus& stimulus)
     {
         if (!name || name[0] == '\0' || clipId == NULL_ASSET)
             return;
@@ -28,16 +28,18 @@ namespace Dark
         {
             if (cue.name != name)
                 continue;
-            cue.clipId  = clipId;
-            cue.volume  = volume;
-            cue.spatial = spatial;
+            cue.clipId    = clipId;
+            cue.volume    = volume;
+            cue.spatial   = spatial;
+            cue.stimulus  = stimulus;
             return;
         }
         SoundCueDesc cue;
-        cue.name    = name;
-        cue.clipId  = clipId;
-        cue.volume  = volume;
-        cue.spatial = spatial;
+        cue.name      = name;
+        cue.clipId    = clipId;
+        cue.volume    = volume;
+        cue.spatial   = spatial;
+        cue.stimulus  = stimulus;
         bank.cues.push_back(std::move(cue));
     }
 
@@ -57,8 +59,9 @@ namespace Dark
         if (!clip || !clip->valid())
             return false;
         Audio::PlayDesc desc{};
-        desc.volume = cue->volume;
-        desc.ui     = ui;
+        desc.volume   = cue->volume;
+        desc.ui       = ui;
+        desc.stimulus = cue->stimulus;
         if (cue->spatial)
         {
             if (const TransformComponent* xf = world.get<TransformComponent>(e))
@@ -82,6 +85,7 @@ namespace Dark
         desc.spatial  = true;
         desc.position = position;
         desc.sourceId = e.id();
+        desc.stimulus = cue->stimulus;
         audio.play(clip, desc);
         return true;
     }

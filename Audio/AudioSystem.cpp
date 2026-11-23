@@ -653,9 +653,26 @@ namespace Dark::Audio
         slot.voice->SetFrequencyRatio(clampf(slot.desc.pitch * (slot.desc.doppler ? dsp.DopplerFactor : 1.0f), 0.5f, 2.0f));
     }
 
+    void AudioSystem::reportStimulus(const PlayDesc& desc)
+    {
+        if (!m_stimulusReport || desc.ui || desc.loop || !desc.spatial)
+            return;
+        if (!stimulusAudible(desc.stimulus))
+            return;
+        m_stimulusReport(m_stimulusUser, desc.position, desc.sourceId, desc.stimulus);
+    }
+
+    void AudioSystem::setStimulusReport(StimulusReport fn, void* user)
+    {
+        m_stimulusReport = fn;
+        m_stimulusUser   = user;
+    }
+
     VoiceId AudioSystem::play(const ::Dark::AssetRef<SoundClip>& clip, const PlayDesc& desc)
     {
         assertMainThread();
+        // Before the device, the clip, and the 24-voice cap. A mute, a full mixer, or a dead device still alerts.
+        reportStimulus(desc);
         if (!m_valid || !clip || !clip->valid() || !m_device)
             return 0;
 
@@ -746,6 +763,7 @@ namespace Dark::Audio
 
     VoiceId AudioSystem::play3D(const ::Dark::AssetRef<SoundClip>& clip, const Vector3f& position, float volume)
     {
+        // No stimulus and no sourceId. Callers that should alert build a PlayDesc and call play().
         PlayDesc d{};
         d.volume   = volume;
         d.spatial  = true;

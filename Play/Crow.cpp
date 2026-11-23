@@ -1003,6 +1003,7 @@ namespace
                     desc.position    = snap.brain.position;
                     desc.minDistance = 4.0f;
                     desc.maxDistance = 56.0f;
+                    // Untagged. A crow caw does not alert guards.
                     audio->play(cawClip, desc);
                 }
             }

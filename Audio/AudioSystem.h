@@ -2,6 +2,7 @@
 
 #include "Assets/AssetHandle.h"
 #include "Audio/SoundClip.h"
+#include "Audio/SoundStimulus.h"
 #include "Math/Vector3f.h"
 
 #include <cstdint>
@@ -39,6 +40,7 @@ namespace Dark::Audio
         uint32_t       sourceId    = 0; // 0 is unattributed and does not train Hear.
         bool           doppler     = true;
         bool           ui          = false; // Interface click. World hold does not stop it.
+        SoundStimulus  stimulus{};          // Empty cues do not alert guards. play3D leaves this empty.
     };
 
     using VoiceId = uint32_t; // 0 = invalid
@@ -96,7 +98,13 @@ namespace Dark::Audio
 
         VoiceId play(const ::Dark::AssetRef<SoundClip>& clip, const PlayDesc& desc = {});
         VoiceId play2D(const ::Dark::AssetRef<SoundClip>& clip, float volume = 1.0f, bool loop = false);
+        // No stimulus and no sourceId. Place sounds and throwable impacts do not alert guards.
         VoiceId play3D(const ::Dark::AssetRef<SoundClip>& clip, const Math::Vector3f& position, float volume = 1.0f);
+
+        // Gameplay hook. play() calls it before the device, the clip, and the voice cap are checked.
+        // Null fn clears the hook. UI, music, loops, and non-spatial plays do not call it.
+        using StimulusReport = void (*)(void* user, const Math::Vector3f& position, uint32_t sourceId, const SoundStimulus& stimulus);
+        void setStimulusReport(StimulusReport fn, void* user);
 
         void setMusic(const ::Dark::AssetRef<SoundClip>& clip, float volume = 0.18f);
         void setVoicePosition(VoiceId id, const Math::Vector3f& position);
@@ -170,6 +178,7 @@ namespace Dark::Audio
         void releaseKeepsFor(VoiceSlot* slot);
         void abandonUnsubmitted(void* keep);
         void destroyAllKeeps();
+        void reportStimulus(const PlayDesc& desc);
 
         struct Device;
         std::unique_ptr<Device> m_device;
@@ -180,6 +189,8 @@ namespace Dark::Audio
         AudioListener  m_listener{};
         OcclusionQuery m_occlusionQuery = nullptr;
         void*          m_occlusionUser  = nullptr;
+        StimulusReport m_stimulusReport = nullptr;
+        void*          m_stimulusUser   = nullptr;
         float          m_masterVolume   = 1.0f;
         bool           m_valid          = false;
         bool           m_comInited      = false;

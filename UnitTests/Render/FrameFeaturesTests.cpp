@@ -702,7 +702,7 @@ namespace
 
         long at(const char* n) const
         {
-            return std::find(ran.begin(), ran.end(), std::string(n)) - ran.begin();
+            return static_cast<long>(std::find(ran.begin(), ran.end(), std::string(n)) - ran.begin());
         }
 
         std::string resName(Rg::TextureHandle h) const
@@ -1101,7 +1101,7 @@ namespace
 
         long at(const char* n) const
         {
-            return std::find(ran.begin(), ran.end(), std::string(n)) - ran.begin();
+            return static_cast<long>(std::find(ran.begin(), ran.end(), std::string(n)) - ran.begin());
         }
 
         // The barriers on `resource` recorded before `pass`.
@@ -1453,7 +1453,7 @@ namespace
 
         long at(const char* n) const
         {
-            return std::find(ran.begin(), ran.end(), std::string(n)) - ran.begin();
+            return static_cast<long>(std::find(ran.begin(), ran.end(), std::string(n)) - ran.begin());
         }
 
         std::vector<Rg::BarrierRec> into(const char* resource, const char* pass) const

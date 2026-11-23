@@ -88,6 +88,7 @@ void AudioPreviewPanel::playSelected(Audio::AudioSystem& audio, AssetManager& as
     // Stop only this preview. stopAll would cut gameplay sounds during play mode.
     stopPreview(audio);
 
+    // No stimulus. Preview playback must not alert guards.
     Audio::PlayDesc desc{};
     desc.volume = m_volume;
     desc.loop   = m_loop;

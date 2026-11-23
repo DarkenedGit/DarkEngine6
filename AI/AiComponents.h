@@ -91,6 +91,12 @@ namespace Dark
         std::vector<uint64_t>        checkedHides; // Hide spots this search already checked. Not saved.
         // This alert already radioed its first sighting. Cleared when the guard leaves Alert. Not saved.
         bool                         spotCalled  = false;
+        // Heard Weapon, Impact, or Voice. Not saved. Zeroed on respawn and when the guard returns to Calm.
+        float                        soundInvestigateDelay = 0.0f;
+        float                        soundCueLoudness      = 0.0f;
+        float                        soundCueDistance      = 0.0f;
+        // Point-blank sound Alert. Holds while the cue remains, then alertLoseSeconds. Not saved.
+        bool                         hearingAlert = false;
         // False until a movement file or the dev-tools speed slider writes walk and run.
         // Tick keeps using PackSettings while this is false.
         bool                         authoredMove = false;

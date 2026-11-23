@@ -8,8 +8,37 @@
 #include "Terrain/TerrainGround.h"
 #include "Weapons/WeaponLoadoutComponent.h"
 
+#include <cstring>
+
 namespace Dark
 {
+
+    Audio::SoundStimulus stimulusForCue(CueOwner owner, const char* name)
+    {
+        auto make = [](Audio::StimulusKind kind, float radius, float loudness) {
+            Audio::SoundStimulus s;
+            s.radius     = radius;
+            s.loudness   = loudness;
+            s.kind       = kind;
+            s.positional = true;
+            return s;
+        };
+        if (!name || name[0] == '\0')
+            return {};
+        if (std::strcmp(name, "fire") == 0)
+            return owner == CueOwner::Player ? make(Audio::StimulusKind::Weapon, 48.0f, 4.0f) : Audio::SoundStimulus{};
+        if (std::strcmp(name, "swing") == 0 && owner == CueOwner::Player)
+            return make(Audio::StimulusKind::Weapon, 12.0f, 3.4f);
+        if (std::strcmp(name, "impact") == 0)
+            return make(Audio::StimulusKind::Impact, 14.0f, 3.4f);
+        if (std::strcmp(name, "pain") == 0)
+            return make(Audio::StimulusKind::Voice, 28.0f, 5.0f);
+        if (std::strcmp(name, "grunt") == 0 && owner == CueOwner::Hunter)
+            return make(Audio::StimulusKind::Voice, 18.0f, 3.4f);
+        if (std::strcmp(name, "death") == 0 && owner == CueOwner::Player)
+            return make(Audio::StimulusKind::Voice, 36.0f, 5.0f);
+        return {};
+    }
 
     namespace
     {
@@ -42,12 +71,13 @@ namespace Dark
         addSoundCue(bank, "land", loadClip(audio, assets, "audio/land.wav", 70.0f, 0.12f, 0.55f), 0.75f, false);
         addSoundCue(bank, "splash", loadClip(audio, assets, "audio/splash.wav", 220.0f, 0.22f, 0.45f), 0.8f, false);
         addSoundCue(bank, "swim_step", loadClip(audio, assets, "audio/splash.wav", 220.0f, 0.22f, 0.45f), 0.42f, false);
-        addSoundCue(bank, "pain", loadClip(audio, assets, "audio/pain.wav", 380.0f, 0.12f, 0.5f), 0.75f, true);
+        addSoundCue(bank, "pain", loadClip(audio, assets, "audio/pain.wav", 380.0f, 0.12f, 0.5f), 0.75f, true, stimulusForCue(CueOwner::Player, "pain"));
         addSoundCue(bank, "heal", loadClip(audio, assets, "audio/coin.wav", 880.0f, 0.16f, 0.4f), 0.7f, false);
-        addSoundCue(bank, "fire", loadClip(audio, assets, "audio/whoosh.wav", 520.0f, 0.12f, 0.45f), 0.45f, true);
-        addSoundCue(bank, "swing", loadClip(audio, assets, "audio/whoosh.wav", 520.0f, 0.12f, 0.45f), 0.7f, true);
-        addSoundCue(bank, "impact", loadClip(audio, assets, "audio/place.wav", 180.0f, 0.10f, 0.5f), 0.5f, true);
-        addSoundCue(bank, "death", loadClip(audio, assets, "audio/whoosh.wav", 180.0f, 0.22f, 0.35f), 0.55f, false);
+        addSoundCue(bank, "fire", loadClip(audio, assets, "audio/whoosh.wav", 520.0f, 0.12f, 0.45f), 0.45f, true, stimulusForCue(CueOwner::Player, "fire"));
+        addSoundCue(bank, "swing", loadClip(audio, assets, "audio/whoosh.wav", 520.0f, 0.12f, 0.45f), 0.7f, true, stimulusForCue(CueOwner::Player, "swing"));
+        addSoundCue(bank, "impact", loadClip(audio, assets, "audio/place.wav", 180.0f, 0.10f, 0.5f), 0.5f, true, stimulusForCue(CueOwner::Player, "impact"));
+        addSoundCue(bank, "status", loadClip(audio, assets, "audio/place.wav", 180.0f, 0.10f, 0.5f), 0.5f, true);
+        addSoundCue(bank, "death", loadClip(audio, assets, "audio/whoosh.wav", 180.0f, 0.22f, 0.35f), 0.55f, true, stimulusForCue(CueOwner::Player, "death"));
         setSoundBank(world, pins, assets, e, std::move(bank));
 
         const AssetID waterId = loadClip(audio, assets, "audio/whoosh.wav", 70.0f, 0.8f, 0.25f);
@@ -74,7 +104,7 @@ namespace Dark
                 if (const SoundCueDesc* c = findSoundCue(*cues, "impact"))
                     impactId = c->clipId;
             }
-            wlc->loadout->projectile().setAudio(&audio, &assets, fireId, impactId);
+            wlc->loadout->projectile().setAudio(&audio, &assets, fireId, impactId, stimulusForCue(CueOwner::Player, "fire"), stimulusForCue(CueOwner::Player, "impact"), e.id());
         }
     }
 
@@ -82,13 +112,14 @@ namespace Dark
     {
         SoundBankComponent bank;
         addGroundFootsteps(bank, audio, assets, ground);
-        addSoundCue(bank, "pain", loadClip(audio, assets, "audio/pain.wav", 380.0f, 0.12f, 0.5f), 0.75f, true);
-        addSoundCue(bank, "grunt", loadClip(audio, assets, "audio/grunt.wav", 140.0f, 0.18f, 0.5f), 0.95f, true);
+        addSoundCue(bank, "pain", loadClip(audio, assets, "audio/pain.wav", 380.0f, 0.12f, 0.5f), 0.75f, true, stimulusForCue(CueOwner::Hunter, "pain"));
+        addSoundCue(bank, "grunt", loadClip(audio, assets, "audio/grunt.wav", 140.0f, 0.18f, 0.5f), 0.95f, true, stimulusForCue(CueOwner::Hunter, "grunt"));
         addSoundCue(bank, "growl", loadClip(audio, assets, "audio/growl.wav", 90.0f, 0.55f, 0.5f), 0.9f, true);
         const AssetID impactClip = loadClip(audio, assets, "audio/place.wav", 180.0f, 0.10f, 0.5f);
-        addSoundCue(bank, "impact", impactClip, 0.5f, true);
-        // Catalog Poison/Ignite applyCue is "fire"; hunters have no weapon fire row — alias impact so one-shots aren't silent.
+        addSoundCue(bank, "impact", impactClip, 0.5f, true, stimulusForCue(CueOwner::Hunter, "impact"));
+        // Untagged alias of the impact clip. Status effects play "status" and must not inherit a weapon tag.
         addSoundCue(bank, "fire", impactClip, 0.5f, true);
+        addSoundCue(bank, "status", impactClip, 0.5f, true);
         addSoundCue(bank, "land", loadClip(audio, assets, "audio/land.wav", 70.0f, 0.12f, 0.55f), 0.75f, true);
         setSoundBank(world, pins, assets, e, std::move(bank));
     }

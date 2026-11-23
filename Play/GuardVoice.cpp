@@ -403,6 +403,7 @@ namespace Dark
                 desc.maxDistance = m_barks.maxDistance;
                 desc.sourceId    = line.guard.id();
                 desc.doppler     = false;
+                // Stimulus stays empty. Barks are speech, not a noise cue. hearRange in the bark file is the player-listener cull.
                 g.playing        = audio.play(clip, desc);
                 if (clip->sampleRate() > 0)
                     shown = static_cast<float>(clip->frameCount()) / static_cast<float>(clip->sampleRate()) + 0.6f;

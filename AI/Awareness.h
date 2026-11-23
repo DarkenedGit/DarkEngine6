@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Math/MathHelper.h"
 #include "Math/Vector3f.h"
 
 #include <cstdint>
@@ -69,7 +70,7 @@ namespace Dark::AI
         float bodyStandHeight[3]{ 0.75f, 0.45f, -0.2f };
         float bodyCrouchHeight[3]{ 0.3f, 0.1f, -0.25f };
         float bodyWeight[3]{ 0.4f, 0.4f, 0.2f };
-        // Noise impulse is noiseBase + noiseFalloff * (1 - distance / range).
+        // Impulse is loudness * (noiseBase + noiseFalloff * (1 - distance / range)).
         float noiseBase    = 0.3f;
         float noiseFalloff = 0.5f;
         // Exposure multipliers for the player's stance, then footstep spacing in meters.
@@ -98,7 +99,28 @@ namespace Dark::AI
         bool           touching    = false;
         Math::Vector3f playerPos{};
         Math::Vector3f noisePos{};
+        // Weapon or voice inside instantRange. Impact and footsteps never set this.
+        bool           noisePointBlank   = false;
+        // Point-blank Alert holds stateTime while that cue is still in the noise list.
+        bool           holdAlertForSound = false;
+        // A worse sound still counts as a cue, but it must not move noticePos.
+        bool           keepNoticePos     = false;
+        // Suspicious heard-only wait. 0 uses investigateAfter. Sound suspicion does not read that timer.
+        float          soundDelay        = 0.0f;
     };
+
+    // Weapon and voice at or above this loudness, inside instantRange, skip Suspicious and enter Alert.
+    inline constexpr float kSoundAlertLoudness = 2.0f;
+
+    // Wait before a heard Weapon, Impact, or Voice cue becomes an investigation.
+    // Closer and louder is shorter. A loudness of 4 cannot reach the 6 s end of the range.
+    inline float soundInvestigateDelaySeconds(float distance, float range, float loudness)
+    {
+        const float span      = range > 1.0e-4f ? range : 1.0e-4f;
+        const float closeness = Math::Clamp(1.0f - distance / span, 0.0f, 1.0f);
+        const float intensity = Math::Clamp(loudness * (0.35f + 0.65f * closeness), 0.0f, 4.0f);
+        return Math::Lerp(6.0f, 0.35f, intensity / 4.0f);
+    }
 
     struct AwarenessState
     {

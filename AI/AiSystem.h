@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AI/AiComponents.h"
+#include "Audio/SoundStimulus.h"
 #include "AI/AttackPattern.h"
 #include "AI/Pathfinder.h"
 #include "AI/Walkability.h"
@@ -73,11 +74,8 @@ namespace Dark
         void setPlayerDepth(float depth) { m_playerDepth = depth; }
         // A swimming player is not leapt at. The hunter would land in the water.
         void setPlayerSwimming(bool swimming) { m_playerSwimming = swimming; }
-        void addNoise(const Math::Vector3f& pos, float range)
-        {
-            if (m_noises.size() < 32)
-                m_noises.push_back(Noise{ pos, range });
-        }
+        // range or loudness at or below 0 is ignored. The cap is 32. A louder event replaces the quietest.
+        void addNoise(const Math::Vector3f& pos, float range, float loudness = 1.0f, EntityID source = 0, Audio::StimulusKind kind = Audio::StimulusKind::Footstep);
         int noiseCount() const { return static_cast<int>(m_noises.size()); }
         // Impact call. Expired landings return without posting. Does not call addNoise.
         void postThrowableLanding(World& world, const ThrowableLanding& landing, float callDistance, const Math::AABox3f* cubes = nullptr, int cubeCount = 0);
@@ -189,8 +187,11 @@ namespace Dark
         float               m_playerMotion   = 0.0f;
         struct Noise
         {
-            Math::Vector3f pos;
-            float          range;
+            Math::Vector3f      pos{};
+            float               range    = 0.0f;
+            float               loudness = 1.0f;
+            EntityID            source   = 0;
+            Audio::StimulusKind kind     = Audio::StimulusKind::Footstep;
         };
         std::vector<Noise>  m_noises;
         struct RadioCall
@@ -205,7 +206,8 @@ namespace Dark
         void queueSpotRadio(Entity caller, const Math::Vector3f& callerPos, const Math::Vector3f& where);
         void dispatchSpotRadios(World& world, float dt);
         void shoutAlert(World& world, Entity caller, const Math::Vector3f& callerPos, const Math::Vector3f& playerPos);
-        void shareSuspicion(World& world, Entity caller, const Math::Vector3f& where);
+        // range 0 shares the whole squad. range > 0 shares calm living non-wolf squad mates within that distance of where.
+        void shareSuspicion(World& world, Entity caller, const Math::Vector3f& where, float range);
         void noticeMissing(World& world);
         std::vector<Math::Vector3f> m_hideSpots;
         std::vector<Math::AABox3f> m_conceal;

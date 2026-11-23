@@ -61,6 +61,7 @@ namespace Dark
                 DE_LOG_WARN("Throwable: could not spawn '{}'", landing.itemId);
             if (!landing.impactClip.empty())
             {
+                // play3D stays untagged. The search comes from postThrowableLanding, not from this clip.
                 if (const auto clip = host.audio->loadWav(*host.assets, landing.impactClip.c_str()))
                     host.audio->play3D(clip, landing.position, 1.0f);
             }

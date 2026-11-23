@@ -60,28 +60,48 @@ namespace Dark
         m_impact.stop(false);
     }
 
-    void ProjectileWeapon::setAudio(Audio::AudioSystem* audio, AssetManager* assets, AssetID fireClip, AssetID hitClip)
+    void ProjectileWeapon::setAudio(Audio::AudioSystem* audio, AssetManager* assets, AssetID fireClip, AssetID hitClip, const Audio::SoundStimulus& fireStimulus, const Audio::SoundStimulus& hitStimulus, EntityID source)
     {
-        m_audio      = audio;
-        m_assets     = assets;
-        m_fireClipId = fireClip;
-        m_hitClipId  = hitClip;
+        m_audio         = audio;
+        m_assets        = assets;
+        m_fireClipId    = fireClip;
+        m_hitClipId     = hitClip;
+        m_fireStimulus  = fireStimulus;
+        m_hitStimulus   = hitStimulus;
+        m_source        = source;
     }
 
     void ProjectileWeapon::playFire(const Vector3f& origin)
     {
         if (!m_audio || !m_assets || m_fireClipId == NULL_ASSET)
             return;
-        if (const auto clip = m_assets->getAs<Audio::SoundClip>(m_fireClipId))
-            m_audio->play3D(clip, origin, m_desc.fireVolume);
+        const auto clip = m_assets->getAs<Audio::SoundClip>(m_fireClipId);
+        if (!clip)
+            return;
+        // Volume 0 still reports. play() alerts before the mixer accepts the voice.
+        Audio::PlayDesc desc{};
+        desc.spatial  = true;
+        desc.position = origin;
+        desc.volume   = m_desc.fireVolume;
+        desc.sourceId = m_source;
+        desc.stimulus = m_fireStimulus;
+        m_audio->play(clip, desc);
     }
 
     void ProjectileWeapon::playHit(const Vector3f& point)
     {
         if (!m_audio || !m_assets || m_hitClipId == NULL_ASSET)
             return;
-        if (const auto clip = m_assets->getAs<Audio::SoundClip>(m_hitClipId))
-            m_audio->play3D(clip, point, m_desc.hitVolume);
+        const auto clip = m_assets->getAs<Audio::SoundClip>(m_hitClipId);
+        if (!clip)
+            return;
+        Audio::PlayDesc desc{};
+        desc.spatial  = true;
+        desc.position = point;
+        desc.volume   = m_desc.hitVolume;
+        desc.sourceId = m_source;
+        desc.stimulus = m_hitStimulus;
+        m_audio->play(clip, desc);
     }
 
     void ProjectileWeapon::applyHit(const WeaponHit& hit, const Vector3f& fallbackDir, float damageScale)

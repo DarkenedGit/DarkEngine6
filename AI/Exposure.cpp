@@ -97,7 +97,10 @@ namespace Dark::AI
             {
                 stealth->strideLeft = crouched ? aware.strideCrouch : (sprinting ? aware.strideSprint : aware.strideWalk);
                 if (const TransformComponent* pxf = world.get<TransformComponent>(player))
-                    ai.addNoise(pxf->position, (crouched ? stealth->settings.hearCrouchWalk : (sprinting ? stealth->settings.hearSprint : stealth->settings.hearWalk)) * stealth->noiseScale);
+                {
+                    const float range = (crouched ? stealth->settings.hearCrouchWalk : (sprinting ? stealth->settings.hearSprint : stealth->settings.hearWalk)) * stealth->noiseScale;
+                    ai.addNoise(pxf->position, range, 1.0f, player.valid() ? player.id() : 0u, Dark::Audio::StimulusKind::Footstep);
+                }
             }
         }
         return true;

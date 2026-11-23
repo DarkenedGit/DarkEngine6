@@ -564,6 +564,10 @@ namespace Dark
             v.ai->stalk       = AI::WolfStalk::Inactive;
             v.ai->stalkLeft   = 0.0f;
             v.ai->aware       = {};
+            v.ai->soundInvestigateDelay = 0.0f;
+            v.ai->soundCueLoudness      = 0.0f;
+            v.ai->soundCueDistance      = 0.0f;
+            v.ai->hearingAlert          = false;
             v.ai->forward     = Vect3f::Z_AXIS;
             v.ai->lureSearch  = false;
             v.ai->lureReached = false;
@@ -1742,58 +1746,141 @@ namespace Dark
                 if (peerSees)
                     bodyShown = Math::Max(bodyShown, kPeerShown);
 
-                float    noise = 0.0f;
-                Vector3f noisePos{};
+                struct Heard
+                {
+                    float               impulse        = 0.0f;
+                    float               loudness       = 0.0f;
+                    float               distance       = 0.0f;
+                    float               effectiveRange = 0.0f;
+                    float               authoredRange  = 0.0f;
+                    Vector3f            pos{};
+                    Audio::StimulusKind kind       = Audio::StimulusKind::None;
+                    bool                pointBlank = false;
+                };
+                Heard heard;
                 for (const Noise& n : m_noises)
                 {
-                    const float range = n.range * (sightBlocked(q.eye, Vector3f{ n.pos.x, n.pos.y + 0.3f, n.pos.z }, cubes, cubeCount) ? m_aware.wallScale : 1.0f);
-                    const float d     = Vector3f{ n.pos.x - v.xf->position.x, 0.0f, n.pos.z - v.xf->position.z }.Magnitude();
+                    if (n.source != 0 && n.source == e.id())
+                        continue;
+                    const bool  blocked = sightBlocked(q.eye, Vector3f{ n.pos.x, n.pos.y + 0.3f, n.pos.z }, cubes, cubeCount);
+                    const float range   = n.range * (blocked ? m_aware.wallScale : 1.0f);
+                    const float d       = Vector3f{ n.pos.x - v.xf->position.x, 0.0f, n.pos.z - v.xf->position.z }.Magnitude();
                     if (range <= 0.0f || d >= range)
                         continue;
-                    const float impulse = m_aware.noiseBase + m_aware.noiseFalloff * (1.0f - d / range);
-                    if (impulse > noise)
+                    const float impulse = n.loudness * (m_aware.noiseBase + m_aware.noiseFalloff * (1.0f - d / range));
+                    if (impulse <= heard.impulse)
+                        continue;
+                    heard.impulse        = impulse;
+                    heard.loudness       = n.loudness;
+                    heard.distance       = d;
+                    heard.effectiveRange = range;
+                    heard.authoredRange  = n.range;
+                    heard.pos            = n.pos;
+                    heard.kind           = n.kind;
+                    const bool alerts    = n.kind == Audio::StimulusKind::Weapon || n.kind == Audio::StimulusKind::Voice;
+                    heard.pointBlank     = alerts && n.loudness >= AI::kSoundAlertLoudness && d < m_aware.instantRange;
+                }
+
+                const bool ownedCue = v.ai->soundCueLoudness > 0.0f;
+                bool       keepNotice = false;
+                if (heard.impulse > 0.0f && ownedCue && v.ai->aware.heardOnly
+                    && (v.ai->aware.alertness == AI::Alertness::Suspicious || v.ai->aware.alertness == AI::Alertness::Investigating))
+                {
+                    const bool better = heard.loudness > v.ai->soundCueLoudness || heard.distance < v.ai->soundCueDistance;
+                    if (v.ai->aware.alertness == AI::Alertness::Suspicious && better)
                     {
-                        noise    = impulse;
-                        noisePos = n.pos;
+                        const float next = AI::soundInvestigateDelaySeconds(heard.distance, heard.effectiveRange, heard.loudness);
+                        if (v.ai->soundInvestigateDelay <= 0.0f || next < v.ai->soundInvestigateDelay)
+                            v.ai->soundInvestigateDelay = next;
+                        if (v.ai->soundInvestigateDelay < v.ai->aware.stateTime)
+                            v.ai->aware.stateTime = 0.0f;
+                        v.ai->soundCueLoudness = heard.loudness;
+                        v.ai->soundCueDistance = heard.distance;
                     }
+                    else if (!better)
+                        keepNotice = true;
+                }
+                if (heard.impulse > 0.0f && v.ai->aware.alertness == AI::Alertness::Searching && ownedCue)
+                {
+                    const bool better = heard.loudness > v.ai->soundCueLoudness || heard.distance < v.ai->soundCueDistance;
+                    if (!better)
+                        keepNotice = true;
                 }
 
                 AI::AwarenessInput in{};
-                in.sees      = bodyShown >= 0.05f;
-                in.primary   = focus;
-                in.distance  = dist;
-                in.bodyShown = bodyShown;
-                in.exposure  = Math::Clamp(bodyShown * m_playerExposure, 0.0f, 1.0f);
-                in.motion    = m_playerMotion;
-                in.nearby      = present && !crouchedPrey && dist < m_aware.proximityRange && std::fabs(playerPos.y - v.xf->position.y) < 1.5f && !walled;
-                in.looking   = v.ai->boostLeft > 0.0f;
-                in.noise     = noise;
-                in.noisePos  = noisePos;
-                in.playerPos = playerPos;
+                in.sees              = bodyShown >= 0.05f;
+                in.primary           = focus;
+                in.distance          = dist;
+                in.bodyShown         = bodyShown;
+                in.exposure          = Math::Clamp(bodyShown * m_playerExposure, 0.0f, 1.0f);
+                in.motion            = m_playerMotion;
+                in.nearby            = present && !crouchedPrey && dist < m_aware.proximityRange && std::fabs(playerPos.y - v.xf->position.y) < 1.5f && !walled;
+                in.looking           = v.ai->boostLeft > 0.0f;
+                in.noise             = heard.impulse;
+                in.noisePos          = heard.pos;
+                in.playerPos         = playerPos;
+                in.noisePointBlank   = heard.pointBlank;
+                in.holdAlertForSound = v.ai->hearingAlert && heard.pointBlank;
+                in.keepNoticePos     = keepNotice;
+                if (v.ai->aware.alertness == AI::Alertness::Suspicious && v.ai->aware.heardOnly && v.ai->soundInvestigateDelay > 0.0f)
+                    in.soundDelay = v.ai->soundInvestigateDelay;
                 const AI::Alertness wasAlertness = v.ai->aware.alertness;
+                const bool          tagged       = heard.kind == Audio::StimulusKind::Weapon || heard.kind == Audio::StimulusKind::Impact || heard.kind == Audio::StimulusKind::Voice;
                 if (AI::stepAwareness(v.ai->aware, m_aware, in, dt))
                 {
-                    // A sighting waits for the radio. A feel or a noise still calls at once.
-                    if (!v.ai->aware.seesNow)
+                    // A sighting waits for the radio. A feel still calls at once. A point-blank sound does not.
+                    if (!v.ai->aware.seesNow && in.noisePointBlank)
+                    {
+                        v.ai->hearingAlert          = true;
+                        v.ai->soundInvestigateDelay = 0.0f;
+                        v.ai->soundCueLoudness      = 0.0f;
+                        v.ai->soundCueDistance      = 0.0f;
+                        shareSuspicion(world, e, heard.pos, heard.authoredRange);
+                        DE_LOG_INFO(LogCategory::AI, "Guard {}: point-blank alert at ({:.1f}, {:.1f}, {:.1f})", e.id(), heard.pos.x, heard.pos.y, heard.pos.z);
+                    }
+                    else if (!v.ai->aware.seesNow)
                         shoutAlert(world, e, v.xf->position, playerPos);
                 }
                 else if (wasAlertness == AI::Alertness::Calm && v.ai->aware.alertness != AI::Alertness::Calm)
-                    shareSuspicion(world, e, v.ai->aware.noticePos);
-                if (v.ai->aware.alertness == AI::Alertness::Alert && !v.ai->aware.seesNow && playerAlive)
                 {
-                    v.ai->lostFor += dt;
-                    // Only the guard who spotted the player keeps a short live trace. A radioed mate holds the called point.
-                    if (v.ai->spotCalled && v.ai->lostFor < m_aware.alertTrackSeconds)
-                        v.ai->aware.noticePos = playerPos;
-                    const float toLast = Vector3f{ v.ai->aware.noticePos.x - v.xf->position.x, 0.0f, v.ai->aware.noticePos.z - v.xf->position.z }.MagnitudeSqrd();
-                    // Same 1 m arrival as walkTo. Reaching the spot, or passing alertCatchSeconds, lets the lose timer run.
-                    if (toLast >= 1.0f && v.ai->lostFor < m_aware.alertCatchSeconds)
-                        v.ai->aware.stateTime = 0.0f;
+                    if (v.ai->aware.heardOnly && heard.impulse > 0.0f)
+                    {
+                        if (tagged)
+                        {
+                            v.ai->soundInvestigateDelay = AI::soundInvestigateDelaySeconds(heard.distance, heard.effectiveRange, heard.loudness);
+                            v.ai->soundCueLoudness      = heard.loudness;
+                            v.ai->soundCueDistance      = heard.distance;
+                            DE_LOG_INFO(LogCategory::AI, "Guard {}: heard a noise at ({:.1f}, {:.1f}, {:.1f}), impulse {:.2f}, delay {:.2f}", e.id(), heard.pos.x, heard.pos.y, heard.pos.z, heard.impulse, v.ai->soundInvestigateDelay);
+                        }
+                        shareSuspicion(world, e, heard.pos, heard.authoredRange);
+                    }
+                    else
+                        shareSuspicion(world, e, v.ai->aware.noticePos, 0.0f);
                 }
-                else
-                    v.ai->lostFor = 0.0f;
+                // A point-blank sound holds its own lose timer. Do not trace the player or stall on the catch.
+                if (!v.ai->hearingAlert)
+                {
+                    if (v.ai->aware.alertness == AI::Alertness::Alert && !v.ai->aware.seesNow && playerAlive)
+                    {
+                        v.ai->lostFor += dt;
+                        // Only the guard who spotted the player keeps a short live trace. A radioed mate holds the called point.
+                        if (v.ai->spotCalled && v.ai->lostFor < m_aware.alertTrackSeconds)
+                            v.ai->aware.noticePos = playerPos;
+                        const float toLast = Vector3f{ v.ai->aware.noticePos.x - v.xf->position.x, 0.0f, v.ai->aware.noticePos.z - v.xf->position.z }.MagnitudeSqrd();
+                        // Same 1 m arrival as walkTo. Reaching the spot, or passing alertCatchSeconds, lets the lose timer run.
+                        if (toLast >= 1.0f && v.ai->lostFor < m_aware.alertCatchSeconds)
+                            v.ai->aware.stateTime = 0.0f;
+                    }
+                    else
+                        v.ai->lostFor = 0.0f;
+                }
                 if (v.ai->aware.alertness == AI::Alertness::Calm)
+                {
                     v.ai->checkedHides.clear();
+                    v.ai->soundInvestigateDelay = 0.0f;
+                    v.ai->soundCueLoudness      = 0.0f;
+                    v.ai->soundCueDistance      = 0.0f;
+                }
                 v.ai->lastAlivePos = v.xf->position;
                 for (Entity other : m_scratch)
                 {
@@ -1860,7 +1947,10 @@ namespace Dark
                 queueSpotRadio(e, v.xf->position, v.ai->lastSeen);
             }
             if (guard && v.ai->aware.alertness != AI::Alertness::Alert)
-                v.ai->spotCalled = false;
+            {
+                v.ai->spotCalled   = false;
+                v.ai->hearingAlert = false;
+            }
             // Sight, including hearing that forces sight, drops the search before the brain ticks.
             // The 9 seconds include the walk. A timeout returns the leaf to patrol or wander.
             if (v.ai->lureSearch && sees)
@@ -2382,6 +2472,37 @@ namespace Dark
         DE_LOG_INFO(LogCategory::AI, "Hunter down");
     }
 
+    void AiSystem::addNoise(const Vector3f& pos, float range, float loudness, EntityID source, Audio::StimulusKind kind)
+    {
+        if (range <= 0.0f || loudness <= 0.0f)
+            return;
+        Noise n;
+        n.pos      = pos;
+        n.range    = range;
+        n.loudness = loudness;
+        n.source   = source;
+        n.kind     = kind;
+        constexpr size_t kMaxNoises = 32;
+        if (m_noises.size() < kMaxNoises)
+        {
+            m_noises.push_back(n);
+            return;
+        }
+        size_t quiet = 0;
+        for (size_t i = 1; i < m_noises.size(); ++i)
+        {
+            if (m_noises[i].loudness < m_noises[quiet].loudness)
+                quiet = i;
+        }
+        if (loudness > m_noises[quiet].loudness)
+        {
+            m_noises[quiet] = n;
+            return;
+        }
+        if (kind == Audio::StimulusKind::Weapon || kind == Audio::StimulusKind::Impact || kind == Audio::StimulusKind::Voice)
+            DE_LOG_WARN(LogCategory::AI, "Noise: cap 32 dropped kind {} loudness {}", static_cast<unsigned>(kind), loudness);
+    }
+
     void AiSystem::forceAlert(World& world, Entity e, const Vector3f& attackerPos)
     {
         AiAgentComponent*         ai = world.get<AiAgentComponent>(e);
@@ -2446,7 +2567,7 @@ namespace Dark
         }
     }
 
-    void AiSystem::shareSuspicion(World& world, Entity caller, const Vector3f& where)
+    void AiSystem::shareSuspicion(World& world, Entity caller, const Vector3f& where, float range)
     {
         const AiAgentComponent* cai = world.get<AiAgentComponent>(caller);
         if (!cai || cai->squad == 0)
@@ -2457,6 +2578,18 @@ namespace Dark
             const HealthComponent* ohp = oai ? world.get<HealthComponent>(other) : nullptr;
             if (!ohp || !ohp->health.alive() || oai->squad != cai->squad || oai->aware.alertness != AI::Alertness::Calm)
                 continue;
+            if (range > 0.0f)
+            {
+                if (entityIsWolf(world, other))
+                    continue;
+                const TransformComponent* oxf = world.get<TransformComponent>(other);
+                if (!oxf)
+                    continue;
+                const float dx = oxf->position.x - where.x;
+                const float dz = oxf->position.z - where.z;
+                if (dx * dx + dz * dz > range * range)
+                    continue;
+            }
             AI::alertToInvestigate(oai->aware, where);
         }
     }

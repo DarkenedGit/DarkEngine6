@@ -41,6 +41,8 @@ namespace Dark
         AssetID     clipId  = NULL_ASSET;
         float       volume  = 1.0f;
         bool        spatial = false;
+        // Copied onto PlayDesc when the cue plays. Empty means the play does not alert guards.
+        Audio::SoundStimulus stimulus{};
     };
 
     // Named one-shot (and music) clips owned by an entity.
@@ -52,7 +54,7 @@ namespace Dark
     };
 
     const SoundCueDesc* findSoundCue(const SoundBankComponent& bank, const char* name);
-    void                addSoundCue(SoundBankComponent& bank, const char* name, AssetID clipId, float volume = 1.0f, bool spatial = false);
+    void                addSoundCue(SoundBankComponent& bank, const char* name, AssetID clipId, float volume = 1.0f, bool spatial = false, const Audio::SoundStimulus& stimulus = {});
 
     // Starts/stops voices from play flags. Does not call AudioSystem::tick (Application does).
     void tickSoundEmitters(World& world, Audio::AudioSystem& audio, AssetManager& assets);
