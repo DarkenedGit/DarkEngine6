@@ -4,7 +4,7 @@
 |-------|-------|
 | **Status** | Implemented |
 | **Date** | 2026-10-06 |
-| **Area** | `Sky/CloudVolume.*`, `Render/CloudVolumePipeline.*`, `Render/CloudVolumeGpuList.*`, `content/shaders/CloudVolume.hlsl`, Sandbox Cloud LOD, Editor View menu and inspector |
+| **Area** | `Sky/CloudVolume.*`, `Sky/CloudVolumePipeline.*`, `Sky/CloudVolumeGpuList.*`, `Sky/CloudVolumeFeature.*`, `content/shaders/CloudVolume.hlsl`, Sandbox Cloud LOD, Editor View menu and inspector |
 | **Audience** | Engine, Sandbox, and Editor owners who already know this tree |
 | **See also** | `Render/DESIGN-cloud-layer.md` for the proposed distant sky layer. That layer is a different draw. This file is the placed-volume march. |
 
@@ -16,7 +16,7 @@ The march is not the sky's weather coverage, and it is not the distant sky layer
 
 ## Draw
 
-`CloudVolumePipeline::draw` runs after the sky and water, while the HDR target is bound and scene depth is readable (`bindHdrDepthRead`). Sandbox does this once `hasGBuffer()` is true. The Editor 3D view does the same with default LOD settings. Transparents, particles, and the post chain (bloom, TAA, motion blur, tonemap) run later, so cloud in-scatter is part of the image those passes see.
+`CloudVolumeFeature` (a Transparent-stage render feature registered by `registerSkyFeatures`) owns the pipeline and the GPU list and adds the Clouds pass, which calls `CloudVolumePipeline::draw` after the sky and water while the HDR target is bound and scene depth is readable. Sandbox sets its frame inputs once `hasGBuffer()` is true. The Editor 3D view does the same with default LOD settings. Transparents, particles, and the post chain (bloom, TAA, motion blur, tonemap) run later, so cloud in-scatter is part of the image those passes see.
 
 The pass is a fullscreen triangle (`DrawInstanced(3, 1)`), depth test off, one color target. Blend is premultiplied transmittance:
 

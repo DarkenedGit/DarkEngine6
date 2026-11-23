@@ -50,9 +50,4 @@ namespace Dark
         m_pipeline.draw(c.cmd(), frameIndex, shadowTable, m_inputs.shadows);
     }
 
-    void registerSkyFeatures(RenderFeatureRegistry& registry, SkyFeature& sky)
-    {
-        registry.add(&sky);
-    }
-
 } // namespace Dark

@@ -3,7 +3,7 @@
 #include "ECS/World.h"
 #include "Math/Ray3f.h"
 #include "Math/Vector3f.h"
-#include "Render/CloudVolumePipeline.h"
+#include "Sky/CloudVolumePipeline.h"
 #include "Render/ShaderCompile.h"
 #include "Content/ContentDb.h"
 #include "Content/SceneObjectSpawn.h"

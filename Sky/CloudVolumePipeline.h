@@ -2,7 +2,7 @@
 
 #include "Math/Matrix4f.h"
 #include "Math/Vector3f.h"
-#include "Render/CloudVolumeGpuList.h"
+#include "Sky/CloudVolumeGpuList.h"
 
 #include <cstdint>
 #include <d3d12.h>

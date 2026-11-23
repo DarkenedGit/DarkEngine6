@@ -36,7 +36,6 @@
 #include "Render/TonemapPipeline.h"
 #include "Render/UnderwaterPipeline.h"
 #include "Render/WaterPipeline.h"
-#include "Render/CloudVolumePipeline.h"
 #include "Render/CamouflagePipeline.h"
 
 #include <cstdint>
@@ -209,19 +208,6 @@ public:
                             }))
             b.opaque("Water", {}, {}, [](Rg::PassContext&) { logMissingSceneTargets("Water"); });
     }
-    // Clouds: `draw(Rg::PassContext&, D3D12_GPU_DESCRIPTOR_HANDLE depthTable)` (for drawCloudVolumes),
-    // HDR bound alone (the pass samples depth instead of testing it).
-    template <class Draw> void addCloudsPasses(FeatureBuilder& b, Renderer& renderer, Draw&& draw)
-    {
-        Renderer* const rr = &renderer;
-        if (!addHdrDrawPass(b, "Clouds", false,
-                            [rr, draw = std::forward<Draw>(draw)](Rg::PassContext& c, const HdrDrawTargets& d)
-                            {
-                                bindHdr(c, *rr, d.hdr);
-                                draw(c, rgSrvTable(c, { d.depth }));
-                            }))
-            b.opaque("Clouds", {}, {}, [](Rg::PassContext&) { logMissingSceneTargets("Clouds"); });
-    }
     // Camouflage: copies HDR, then `draw(Rg::PassContext&, D3D12_GPU_DESCRIPTOR_HANDLE sceneTable)`
     // (the copy, for CamouflagePipeline::drawModel) with HDR and writable depth bound: the body
     // writes depth, and the passes after it test against the new version.
@@ -326,10 +312,6 @@ public:
     // HDR + D32 already bound. Not the decal UAV pass.
     void drawDecalVolumes(ID3D12GraphicsCommandList* cmd, Renderer& renderer, LinePipeline& lines, const Math::Matrix4f& viewProj);
 
-    // HDR bound; depthTable holds the depth SRV (addCloudsPasses). Composites beer-lambert in-scatter.
-    void drawCloudVolumes(ID3D12GraphicsCommandList* cmd, D3D12_GPU_DESCRIPTOR_HANDLE depthTable, Renderer& renderer, World& world, const Camera3D& camera, const Math::Matrix4f& viewProj,
-                          const CloudVolumeFrame& frame);
-
     // --- Pipeline accessors (hosts use these for special / world draws) ---
     MeshPipeline&             meshPipeline() { return m_meshPipeline; }
     MeshPipeline&             meshTransparentPipeline() { return m_meshTransparentPipeline; }
@@ -341,8 +323,6 @@ public:
     DeferredLightingPipeline& lighting() { return m_lighting; }
     LocalLightVolumePipeline& localLightVolumes() { return m_localLightVolumes; }
     LocalLightGpuList&        localLightGpu() { return m_localLightGpu; }
-    CloudVolumePipeline&      cloudVolumes() { return m_cloudVolumes; }
-    CloudVolumeGpuList&       cloudVolumeGpu() { return m_cloudVolumeGpu; }
     CamouflagePipeline&       camouflage() { return m_camouflage; }
     Mesh&                     pointVolumeMesh() { return m_pointVolumeMesh; }
     Mesh&                     spotVolumeMesh() { return m_spotVolumeMesh; }
@@ -376,8 +356,6 @@ public:
     const DeferredLightingPipeline& lighting() const { return m_lighting; }
     const LocalLightVolumePipeline& localLightVolumes() const { return m_localLightVolumes; }
     const LocalLightGpuList&        localLightGpu() const { return m_localLightGpu; }
-    const CloudVolumePipeline&      cloudVolumes() const { return m_cloudVolumes; }
-    const CloudVolumeGpuList&       cloudVolumeGpu() const { return m_cloudVolumeGpu; }
     const CamouflagePipeline&       camouflage() const { return m_camouflage; }
     const Mesh&                     pointVolumeMesh() const { return m_pointVolumeMesh; }
     const Mesh&                     spotVolumeMesh() const { return m_spotVolumeMesh; }
@@ -441,8 +419,6 @@ private:
     Mesh                     m_decalCube;
     LineMesh                 m_decalVolumeMesh;
     DecalFrameStats          m_decalStats{};
-    CloudVolumePipeline      m_cloudVolumes;
-    CloudVolumeGpuList       m_cloudVolumeGpu;
     CamouflagePipeline       m_camouflage;
     Mesh                     m_pointVolumeMesh;
     Mesh                     m_spotVolumeMesh;
