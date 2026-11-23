@@ -71,7 +71,7 @@
 #include "Play/ThrowableHost.h"
 #include "Play/WeaponFire.h"
 #include "Render/Camera3D.h"
-#include "Render/Underwater.h"
+#include "Water/Underwater.h"
 #include "Save/ProgressComponents.h"
 #include "Scene/EntityCombat.h"
 #include "Terrain/TerrainGrid.h"

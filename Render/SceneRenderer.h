@@ -33,8 +33,6 @@
 #include "Render/TaaPipeline.h"
 #include "Render/TemporalHistory.h"
 #include "Render/TonemapPipeline.h"
-#include "Render/UnderwaterPipeline.h"
-#include "Render/WaterPipeline.h"
 #include "Render/CamouflagePipeline.h"
 
 #include <cstdint>
@@ -52,16 +50,11 @@ class FrameComposer;
 class Renderer;
 class World;
 
-// Shared mesh / lighting / post / (optional) water pipelines used by
+// Shared mesh / lighting / post pipelines used by
 // Sandbox and Editor. Hosts still own world draw order; this owns pipeline
 // lifetime and the deferred present/post path (auto exposure → bloom → TAA → motion blur → tonemap).
 struct SceneRendererDesc
 {
-    // When true, also create WaterPipeline; a failure fails init (Sandbox).
-    bool createWorldEnvironment = false;
-    // WaterPipeline, optional: a failure is logged and the host has no water (Editor). Ignored when
-    // createWorldEnvironment is true.
-    bool createWaterPipeline = false;
     // Log prefix for create failures (e.g. "SandboxApp", "EditorApp").
     const char* logTag = "SceneRenderer";
     // Sandbox only. Editor leaves this false and does not build the meter.
@@ -191,23 +184,8 @@ public:
     // The passes after lighting draw into HDR with read-only depth (Render/HdrDrawInputs.h).
     // Each pass binds its targets, builds its ring tables and runs the host's callable, which is
     // stored until execute(). Without scene targets the entry is an opaque pass that logs once.
-    // Water, Underwater and Translucent sample the shadow map (declared, so the graph moves it
-    // there from the Shadows pass); without one they bind a null view.
-    // Water: `draw(Rg::PassContext&, const WaterTables&)`, HDR + read-only depth bound. The tables
-    // carry this frame's SSR capture when SsrCapture published one.
-    template <class Draw> void addWaterPasses(FeatureBuilder& b, Renderer& renderer, Draw&& draw)
-    {
-        SceneRenderer* const self = this;
-        Renderer* const      rr   = &renderer;
-        if (!addHdrDrawPass(b, "Water", waterUses(),
-                            [self, rr, draw = std::forward<Draw>(draw)](Rg::PassContext& c, const HdrDrawTargets& d)
-                            {
-                                bindHdrDepthRead(c, *rr, d.hdr, d.depth);
-                                const WaterTables tables = self->waterTables(c, *rr, d.depth, d.sceneColor, d.shadow);
-                                draw(c, tables);
-                            }))
-            b.opaque("Water", {}, {}, [](Rg::PassContext&) { logMissingSceneTargets("Water"); });
-    }
+    // Translucent samples the shadow map (declared, so the graph moves it there from the Shadows
+    // pass); without one it binds a null view. Water and Underwater are Water/WaterRendering.
     // Camouflage: copies HDR, then `draw(Rg::PassContext&, D3D12_GPU_DESCRIPTOR_HANDLE sceneTable)`
     // (the copy, for CamouflagePipeline::drawModel) with HDR and writable depth bound: the body
     // writes depth, and the passes after it test against the new version.
@@ -264,37 +242,6 @@ public:
                             }))
             b.opaque("Particles", {}, {}, [](Rg::PassContext&) { logMissingSceneTargets("Particles"); });
     }
-    // Underwater: copies HDR, draws the fog from the copy with `frame(Rg::PassContext&)` (an
-    // UnderwaterFrame, read at execute), then `ceiling(Rg::PassContext&, const WaterTables&)` with HDR
-    // + read-only depth bound. Without the copy (or its pipeline) only the ceiling draws.
-    template <class Frame, class Ceiling> void addUnderwaterPasses(FeatureBuilder& b, Renderer& renderer, Frame&& frame, Ceiling&& ceiling)
-    {
-        SceneRenderer* const    self = this;
-        Renderer* const         rr   = &renderer;
-        const Rg::TextureHandle copy = importUnderwaterCopy(b, renderer);
-        if (copy.valid() && b.handle(RenderResource::Hdr).valid() && b.handle(RenderResource::Depth).valid())
-        {
-            Dark::addUnderwaterPasses(
-                b, copy, [](Rg::PassContext& c, const UnderwaterTargets& d) { copyHdr(c, d); },
-                [self, rr, frame = std::forward<Frame>(frame), ceiling = std::forward<Ceiling>(ceiling)](Rg::PassContext& c, const UnderwaterTargets& d)
-                {
-                    self->drawUnderwater(c, *rr, d, frame(c));
-                    bindHdrDepthRead(c, *rr, d.hdr, d.depth);
-                    const WaterTables tables = self->waterTables(c, *rr, d.depth, d.sceneColor, d.shadow);
-                    ceiling(c, tables);
-                });
-            return;
-        }
-        if (!addHdrDrawPass(b, "Underwater", waterUses(),
-                            [self, rr, ceiling = std::forward<Ceiling>(ceiling)](Rg::PassContext& c, const HdrDrawTargets& d)
-                            {
-                                bindHdrDepthRead(c, *rr, d.hdr, d.depth);
-                                const WaterTables tables = self->waterTables(c, *rr, d.depth, d.sceneColor, d.shadow);
-                                ceiling(c, tables);
-                            }))
-            b.opaque("Underwater", {}, {}, [](Rg::PassContext&) { logMissingSceneTargets("Underwater"); });
-    }
-
     // `table`: see DeferredLightingPipeline::draw / LocalLightVolumePipeline::draw.
     void drawDeferredLighting(ID3D12GraphicsCommandList* cmd, D3D12_GPU_DESCRIPTOR_HANDLE table, const LightingConstants& lc) const;
     void drawLocalLights(ID3D12GraphicsCommandList* cmd, D3D12_GPU_DESCRIPTOR_HANDLE table, Renderer& renderer, World& world, const Camera3D& camera, const Math::Matrix4f& viewProj,
@@ -332,13 +279,11 @@ public:
     SsrPipeline&              ssr() { return m_ssr; }
     MotionBlurPipeline&       motionBlur() { return m_motionBlur; }
     EchoPipeline&             echo() { return m_echo; }
-    UnderwaterPipeline&       underwater() { return m_underwater; }
     TaaPipeline&              taa() { return m_taa; }
     ShadowSystem&             shadows() { return m_shadows; }
     LocalShadowSystem&        localShadows() { return m_localShadows; }
     DebugOverlay&             debugOverlay() { return m_debugOverlay; }
 
-    WaterPipeline&   waterPipeline() { return m_waterPipeline; }
 
     // The domain features the host registered (registerXxxFeatures) before init. init creates them
     // after the scene pipelines and shutdown destroys them; the host declares them each frame.
@@ -364,13 +309,11 @@ public:
     const SsrPipeline&              ssr() const { return m_ssr; }
     const MotionBlurPipeline&       motionBlur() const { return m_motionBlur; }
     const EchoPipeline&             echo() const { return m_echo; }
-    const UnderwaterPipeline&       underwater() const { return m_underwater; }
     const TaaPipeline&              taa() const { return m_taa; }
     const ShadowSystem&             shadows() const { return m_shadows; }
     const LocalShadowSystem&        localShadows() const { return m_localShadows; }
     const DebugOverlay&             debugOverlay() const { return m_debugOverlay; }
 
-    const WaterPipeline&   waterPipeline() const { return m_waterPipeline; }
 
     const Math::Matrix4f& prevViewProj() const { return m_prevViewProj; }
     bool                  havePrevViewProj() const { return m_havePrevViewProj; }
@@ -378,25 +321,19 @@ public:
     void                  discardTemporalHistory();
     // Footmarks and blood from the level being left.
     void                  clearDecals() { m_decalPool.clear(); }
-    bool                  hasWorldEnvironment() const { return m_haveWorldEnv; }
     bool                  isValid() const { return m_initialized; }
 
 private:
     bool createCorePipelines(Renderer& renderer, const char* tag);
     bool createPostPipelines(Renderer& renderer, const char* tag);
-    bool createWorldEnvPipelines(Renderer& renderer, const char* tag);
     void markHistoryUnwritten(const Rg::HistoryTargets& history, const char* name);
     void createDecalPass(Renderer& renderer, const char* tag);
     void drawDecalsPass(Rg::PassContext& c, Renderer& renderer, const Camera3D& camera, const Math::Matrix4f& viewProj, const DecalTargets& d);
     bool decalPassReady() const;
     // Clears the G-buffer MRTs and binds them with depth (graph views), with the viewport.
     static void beginGBufferPass(Rg::PassContext& c, const Renderer& renderer, const GBufferTargets& d);
-    WaterTables waterTables(Rg::PassContext& c, const Renderer& renderer, Rg::TextureHandle depth, Rg::TextureHandle sceneColor, Rg::TextureHandle shadow) const;
-    // This frame's import of the underwater HDR copy; invalid when it cannot be made.
-    Rg::TextureHandle importUnderwaterCopy(FeatureBuilder& b, Renderer& renderer);
+    // This frame's import of the camouflage HDR copy; invalid when it cannot be made.
     Rg::TextureHandle importCamouflageCopy(FeatureBuilder& b, Renderer& renderer);
-    static void       copyHdr(Rg::PassContext& c, const HdrCopyTargets& d);
-    void              drawUnderwater(Rg::PassContext& c, const Renderer& renderer, const UnderwaterTargets& d, const UnderwaterFrame& frame) const;
     void storeDecalStats(uint32_t drawn, uint32_t culled, uint32_t inside, uint32_t triangles);
 
     MeshPipeline             m_meshPipeline;
@@ -425,7 +362,6 @@ private:
     SsrPipeline              m_ssr;
     MotionBlurPipeline       m_motionBlur;
     EchoPipeline             m_echo;
-    UnderwaterPipeline       m_underwater;
     TaaPipeline              m_taa;
     ShadowSystem             m_shadows;
     LocalShadowSystem        m_localShadows;
@@ -434,8 +370,6 @@ private:
     int                      m_fogOccluderCount = 0;
     DebugOverlay             m_debugOverlay;
 
-    WaterPipeline   m_waterPipeline;
-    bool            m_haveWorldEnv = false;
 
     RenderFeatureRegistry m_features;
 

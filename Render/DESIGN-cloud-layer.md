@@ -4,7 +4,7 @@
 |-------|-------|
 | **Status** | Proposed. The shell is in tree and is the sky the editor and sandbox draw. PIX of the editor Sky scope is still required before this becomes Implemented. |
 | **Date** | 2026-10-06 |
-| **Area** | `Sky/Environment.*`, `Sky/CloudLayer.*`, `Render/SkyPipeline.*`, `Render/SsrPipeline.*`, `Render/WaterPipeline.*`, `content/shaders/SkyEval.hlsli`, `content/shaders/CloudLayer.hlsli`, `Scene/SceneFile.*`, Editor Sky window |
+| **Area** | `Sky/Environment.*`, `Sky/CloudLayer.*`, `Render/SkyPipeline.*`, `Render/SsrPipeline.*`, `Water/WaterPipeline.*`, `content/shaders/SkyEval.hlsli`, `content/shaders/CloudLayer.hlsli`, `Scene/SceneFile.*`, Editor Sky window |
 | **Audience** | Engine, Sandbox, and Editor owners who already know HybridDeferred |
 | **See also** | `Render/DESIGN-cloud-volumes.md` is the placed-volume march. It stays. This file does not change that pass. |
 | **Replaces** | The rejected sky-shell attempt (root `b2`, `SKY_CLOUDS_MODE`, the Sky-window coefficient sheet). That attempt is gone. This file is the deck the tree builds. |

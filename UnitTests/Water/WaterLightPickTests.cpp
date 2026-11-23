@@ -9,7 +9,7 @@
 #include "Render/Frustum3f.h"
 #include "Render/LocalLightGather.h"
 #include "Render/SsrSettings.h"
-#include "Render/WaterPipeline.h"
+#include "Water/WaterPipeline.h"
 #include "Sky/Environment.h"
 
 #include <cstddef>

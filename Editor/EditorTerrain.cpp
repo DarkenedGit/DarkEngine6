@@ -16,7 +16,7 @@
 #include "Terrain/WorldEngineMap.h"
 #include "Water/WaterStream.h"
 #include "Water/WaterWaves.h"
-#include "Render/WaterPipeline.h"
+#include "Water/WaterPipeline.h"
 #include "Terrain/HeightMap.h"
 #include "Ui/Icons.h"
 #include "ECS/Components.h"
@@ -500,7 +500,7 @@ void EditorApp::drawPlacedWater(
     const SsrSettings* ssr)
 {
     const bool sheet = m_sceneWorld.water.wetChunkCount() > 0;
-    if (!cmd || !m_scene.waterPipeline().isValid() || (!sheet && m_placedWater.empty() && m_sceneWorld.water.ribbons().empty()))
+    if (!cmd || !m_waterRendering.pipeline().isValid() || (!sheet && m_placedWater.empty() && m_sceneWorld.water.ribbons().empty()))
         return;
     const Terrain::HeightMap* heightMap = (m_haveTerrain && m_sceneWorld.terrain.valid() && m_sceneWorld.terrain.coarse().valid()) ? &m_sceneWorld.terrain.coarse() : nullptr;
     uint32_t drawIndex = 0;
@@ -519,7 +519,7 @@ void EditorApp::drawPlacedWater(
     {
         m_sceneWorld.water.draw(
             cmd,
-            m_scene.waterPipeline(),
+            m_waterRendering.pipeline(),
             m_camera,
             &frustum,
             &m_sceneWorld.env,
@@ -540,7 +540,7 @@ void EditorApp::drawPlacedWater(
             break;
         if (slot.body.draw(
                 cmd,
-                m_scene.waterPipeline(),
+                m_waterRendering.pipeline(),
                 m_camera,
                 &frustum,
                 &renderer().debugState(),
@@ -560,7 +560,7 @@ void EditorApp::drawPlacedWater(
             break;
         WaterParams params = m_sceneWorld.water.params();
         params.flowSpeed   = ribbon.flowSpeed;
-        if (drawStreamRibbon(cmd, m_scene.waterPipeline(), ribbon.mesh, ribbon.bounds, params, m_camera, &frustum, &renderer().debugState(), m_sceneWorld.water.time(), renderer().frameIndex(),
+        if (drawStreamRibbon(cmd, m_waterRendering.pipeline(), ribbon.mesh, ribbon.bounds, params, m_camera, &frustum, &renderer().debugState(), m_sceneWorld.water.time(), renderer().frameIndex(),
                              drawIndex, tables, &m_shadows, ssr, heightMap, &m_sceneWorld.env))
             ++drawIndex;
     }

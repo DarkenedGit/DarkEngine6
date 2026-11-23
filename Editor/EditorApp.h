@@ -12,6 +12,7 @@
 #include "Terrain/FoliagePrototypes.h"
 #include "Terrain/GrassPipeline.h"
 #include "Terrain/TerrainPipeline.h"
+#include "Water/WaterRendering.h"
 #include "Render/LinePipeline.h"
 #include "Render/WalkabilityDebug.h"
 #include "Render/SceneRenderer.h"
@@ -578,6 +579,7 @@ private:
     FoliagePipeline                     m_foliagePipeline;
     GrassPipeline                       m_grassPipeline;
     TerrainPipeline                     m_terrainPipeline;
+    WaterRendering                      m_waterRendering;
     std::string                   m_terrainAlbedoPath[Terrain::kMaxTerrainLayers];
     std::string                   m_terrainNormalPath[Terrain::kMaxTerrainLayers];
     std::string                   m_terrainOrmPath[Terrain::kMaxTerrainLayers];

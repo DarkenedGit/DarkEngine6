@@ -41,7 +41,7 @@
 #include "Render/Frustum3f.h"
 #include "Render/Fog.h"
 #include "Render/FrameFeatures.h"
-#include "Render/Underwater.h"
+#include "Water/Underwater.h"
 #include "Render/ModelDraw.h"
 #include "Render/GpuResourceCache.h"
 #include "Render/GpuUpload.h"
@@ -125,7 +125,6 @@ static float sandboxSceneGroundY(void* user, float x, float z)
 #define m_taa m_frame.scene().taa()
 #define m_shadows m_frame.scene().shadows()
 #define m_debugOverlay m_frame.scene().debugOverlay()
-#define m_waterPipeline m_frame.scene().waterPipeline()
 
 bool useAcesTonemap(const Renderer& r)
 {
@@ -1833,12 +1832,16 @@ void SandboxApp::onInit()
 
     {
         SceneRendererDesc sceneDesc{};
-        sceneDesc.createWorldEnvironment = true;
         sceneDesc.createAutoExposure     = true;
         sceneDesc.featuresRequired       = true;
         sceneDesc.logTag = "SandboxApp";
         registerSkyFeatures(m_frame.scene().features(), m_frame.sky());
         if (!m_frame.scene().init(renderer(), sceneDesc))
+        {
+            requestQuit();
+            return;
+        }
+        if (!m_frame.water().create(renderer(), "SandboxApp", true))
         {
             requestQuit();
             return;
@@ -2061,6 +2064,7 @@ void SandboxApp::onShutdown()
     m_frame.grassPipeline().destroy();
     m_hud.m_menu.shutdown(renderer());
     m_frame.terrainPipeline() = TerrainPipeline{};
+    m_frame.water().release();
     m_frame.scene().shutdown();
     m_hud.m_imgui.shutdown(renderer());
     m_hud.m_menuBackground   = Dark::Texture2D{};

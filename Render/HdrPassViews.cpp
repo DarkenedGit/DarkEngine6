@@ -1,6 +1,7 @@
 #include "Render/HdrPassViews.h"
 
 #include "Core/Log.h"
+#include "Render/HdrDrawInputs.h"
 #include "Render/LightingViews.h"
 #include "Render/Renderer.h"
 #include "Render/RgViews.h"
@@ -42,6 +43,11 @@ namespace Dark
     D3D12_GPU_DESCRIPTOR_HANDLE shadowTable(Rg::PassContext& c, const Renderer& renderer, Rg::TextureHandle shadow)
     {
         return rgTable(c, { shadowSrv(c, renderer.lightingViews(), shadow) });
+    }
+
+    void copyHdr(Rg::PassContext& c, const HdrCopyTargets& d)
+    {
+        c.cmd()->CopyResource(c.resource(d.copy), c.resource(d.hdr));
     }
 
     void logMissingSceneTargets(const char* entry)

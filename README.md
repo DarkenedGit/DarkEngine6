@@ -33,12 +33,12 @@ HLSL lives in `content/shaders/`. Debug builds, the Editor and UnitTests compile
   - Local lights drawn as light volumes (`LocalLightVolumePipeline`)
   - Deferred decals as oriented boxes (`DecalPipeline`, `DecalPool`)
   - GTAO, SSR (half-res, see `Render/DESIGN-reflections.md`), fog, IBL bake (`IblBake`, `GpuIbl`)
-  - Sky with a distant cloud layer (`Sky/CloudLayer`, `content/shaders/CloudLayer.hlsli`, see `Render/DESIGN-cloud-layer.md`), volumetric clouds (`Sky/CloudVolumeFeature`; the cloud volume in the default scene is disabled), water (`WaterPipeline`)
+  - Sky with a distant cloud layer (`Sky/CloudLayer`, `content/shaders/CloudLayer.hlsli`, see `Render/DESIGN-cloud-layer.md`), volumetric clouds (`Sky/CloudVolumeFeature`; the cloud volume in the default scene is disabled), water (`Water/WaterPipeline`, drawn through the host-owned `Water/WaterRendering`)
   - Terrain, terrain foliage instancing with alpha-cutout shadows (`FoliagePipeline`), GPU terrain erosion bake (`TerrainErosionPipeline`)
   - Procedural grass (`GrassPipeline`): blade LODs, per-tile Perlin wind, and bending around the player (see Terrain below and `Terrain/DESIGN-procedural-grass.md`)
   - Static and skinned meshes, sprites, lines, particles, camouflage
   - Post: auto exposure, bloom, TAA, motion blur, tonemap. Sandbox echolocation (B) is a deferred chirp drawn in the post group before bloom, not its own pass. One 1/8-resolution snapshot per pulse (about 0.8 Hz) is held world-locked until the next pulse. The shell expands at 50 m/s. Both live in `content/render/echolocation.json`; Dev Tools can change them for the session. The picture is one hue on black. A hard near ping's leading edge can bloom; the held return stays under the threshold of 1.0. It is exclusive with infrared and ultraviolet, holds auto-exposure, resets TAA, and skips motion blur.
-  - Underwater view (`UnderwaterPipeline`, `content/shaders/Underwater.hlsl`): when the camera goes below the water level, a fullscreen pass copies HDR and fogs the scene by depth. The lake is then drawn again with front faces culled, so you see its surface from below as a ceiling. Its pass sits after particles and before post.
+  - Underwater view (`Water/UnderwaterPipeline`, owned by `Water/WaterRendering`, `content/shaders/Underwater.hlsl`): when the camera goes below the water level, a fullscreen pass copies HDR and fogs the scene by depth. The lake is then drawn again with front faces culled, so you see its surface from below as a ceiling. Its pass sits after particles and before post.
   - Loading screen / boot splash (image and movie playback), HUD (crosshair, health), debug overlay (G-buffer tiles)
 - **Draw submission** (`DrawList`, `RenderItem`, `InstancedMeshPipeline`, `SkinnedInstanceBuffer`, `InstanceCull`):
   - Static opaque meshes and models are batched and drawn instanced. Batches sort by population, mesh, alpha mask, then material (`BatchKey`).

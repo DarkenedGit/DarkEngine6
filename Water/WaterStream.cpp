@@ -10,7 +10,7 @@
 #include "Render/Frustum3f.h"
 #include "Render/ShadowSystem.h"
 #include "Render/SsrSettings.h"
-#include "Render/WaterPipeline.h"
+#include "Water/WaterPipeline.h"
 #include "Terrain/HeightMap.h"
 
 #include <cmath>
