@@ -19,7 +19,7 @@
 #include "Play/PhysicsGround.h"
 #include "Play/PlayBody.h"
 #include "Play/ShoulderCamera.h"
-#include "Play/ShadowRecord.h"
+#include "Render/ShadowFeature.h"
 #include "Play/TerrainStream.h"
 
 #include "ECS/Components.h"
@@ -1837,6 +1837,7 @@ void SandboxApp::onInit()
         sceneDesc.featuresRequired       = true;
         sceneDesc.logTag = "SandboxApp";
         registerSkyFeatures(m_frame.scene().features(), m_frame.sky());
+        registerShadowFeature(m_frame.scene().features(), m_frame.shadowFeature());
         if (!m_frame.scene().init(renderer(), sceneDesc))
         {
             requestQuit();
