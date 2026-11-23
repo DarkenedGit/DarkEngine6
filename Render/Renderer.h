@@ -69,15 +69,10 @@ namespace Dark
         bool beginFrame();
         bool endFrame();
 
-        // Off: one ExecuteCommandLists of m_commandList and the unfiltered cull.
+        // Off: the shadow worker, the only user of the shadow list, stays off.
         void setShadowSeparateList(bool enabled) { m_shadowSeparateList = enabled; }
         bool shadowSeparateList() const { return m_shadowSeparateList; }
 
-        // Only Reset of this slot's shadow allocator. moveToNextFrame already waited it.
-        // Does not wait again and does not compare the post-increment fence value.
-        ID3D12GraphicsCommandList* beginShadowList();
-        // Close only. endFrame is what submits [shadow, main].
-        bool closeShadowList();
         // No Reset. The shadow worker records with these after beginFrame waited the slot.
         ID3D12GraphicsCommandList* shadowCommandList() const;
         ID3D12CommandAllocator*    shadowCommandAllocator() const;

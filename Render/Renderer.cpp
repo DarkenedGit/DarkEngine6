@@ -720,7 +720,7 @@ namespace Dark
             return false;
         }
 
-        // Shadow list first. Its depth cull stored the shared args/index state the main list continues.
+        // The shadow worker's list first.
         ID3D12CommandList* lists[2]{};
         UINT listCount = 0;
         if (m_shadowListRecorded)
@@ -734,52 +734,6 @@ namespace Dark
         m_frameSubmitted = true;
         if (m_captureRecorded)
             writeBackBufferCapture();
-        return true;
-    }
-
-    ID3D12GraphicsCommandList* Renderer::beginShadowList()
-    {
-        if (!m_valid || !m_device || m_frameIndex >= kFrameCount)
-        {
-            DE_LOG_ERROR(LogCategory::Render, "beginShadowList: device not initialized");
-            return nullptr;
-        }
-        if (m_shadowListOpen || m_shadowListRecorded)
-        {
-            DE_ASSERT(!m_shadowListOpen && !m_shadowListRecorded);
-            DE_LOG_ERROR(LogCategory::Render, "beginShadowList: slot was already reset this frame");
-            return nullptr;
-        }
-        ID3D12CommandAllocator*    alloc = m_shadowAlloc[m_frameIndex].Get();
-        ID3D12GraphicsCommandList* list  = m_shadowList[m_frameIndex].Get();
-        if (!alloc || !list)
-        {
-            DE_LOG_ERROR(LogCategory::Render, "beginShadowList: list is not ready");
-            return nullptr;
-        }
-        // moveToNextFrame already waited this slot. The stored fence value is this
-        // frame's future Present signal, so it is not the reset test.
-        if (!checkHr(alloc->Reset(), "Shadow allocator Reset"))
-            return nullptr;
-        if (!checkHr(list->Reset(alloc, nullptr), "Shadow list Reset"))
-            return nullptr;
-        m_shadowListOpen = true;
-        return list;
-    }
-
-    bool Renderer::closeShadowList()
-    {
-        if (!m_shadowListOpen || m_frameIndex >= kFrameCount)
-        {
-            DE_ASSERT(m_shadowListOpen);
-            DE_LOG_ERROR(LogCategory::Render, "closeShadowList: list is not open");
-            return false;
-        }
-        ID3D12GraphicsCommandList* list = m_shadowList[m_frameIndex].Get();
-        m_shadowListOpen = false;
-        if (!list || !checkHr(list->Close(), "Shadow list Close"))
-            return false;
-        m_shadowListRecorded = true;
         return true;
     }
 

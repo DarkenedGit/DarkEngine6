@@ -22,54 +22,19 @@ namespace Dark
     namespace
     {
 
-        void dispatchFrameCull(const ShadowFrame& host, ID3D12GraphicsCommandList* mainCmd, ID3D12GraphicsCommandList* depthCmd, bool separate)
+        // Every view's cull on the main list: the camera view feeds the G-buffer, the depth views the
+        // shadow passes after it.
+        void dispatchFrameCull(const ShadowFrame& host, ID3D12GraphicsCommandList* mainCmd)
         {
             if (!host.drawList || !host.drawList->gpuCullActive())
                 return;
-
-            if (!separate)
+            host.drawList->dispatchCull(mainCmd);
+            if (host.instanceSkinned && host.skinned)
             {
-                host.drawList->dispatchCull(mainCmd);
-                if (host.instanceSkinned && host.skinned)
-                {
-                    CullViewDesc   skinViews[kMaxStaticViews];
-                    const uint32_t skinViewCount = host.drawList->exportGpuViews(skinViews, kMaxStaticViews);
-                    host.skinned->dispatchCull(mainCmd, skinViews, skinViewCount);
-                }
-                return;
+                CullViewDesc   skinViews[kMaxStaticViews];
+                const uint32_t skinViewCount = host.drawList->exportGpuViews(skinViews, kMaxStaticViews);
+                host.skinned->dispatchCull(mainCmd, skinViews, skinViewCount);
             }
-
-            // Depth first. The camera dispatch continues the args/index state that dispatch stored.
-            // endFrame executes the shadow list before the main list, so the GPU sees that order.
-            const RenderPassKind depthPass  = RenderPassKind::Depth;
-            const RenderPassKind cameraPass = RenderPassKind::GBuffer;
-            host.drawList->dispatchCull(depthCmd, &depthPass, false);
-            host.drawList->dispatchCull(mainCmd, &cameraPass, true);
-
-            if (!host.instanceSkinned || !host.skinned)
-                return;
-
-            CullViewDesc   exported[kMaxStaticViews];
-            const uint32_t exportedCount = host.drawList->exportGpuViews(exported, kMaxStaticViews);
-            CullViewDesc   depthViews[kMaxStaticViews];
-            CullViewDesc   cameraViews[kMaxStaticViews];
-            uint32_t       depthCount  = 0;
-            uint32_t       cameraCount = 0;
-            for (uint32_t i = 0; i < exportedCount; ++i)
-            {
-                if (exported[i].useDepthBatch != 0)
-                    depthViews[depthCount++] = exported[i];
-                else
-                    cameraViews[cameraCount++] = exported[i];
-            }
-            if (depthCount == 0 && cameraCount == 0)
-                return;
-            if (!host.skinned->uploadCullFrame())
-                return;
-            if (depthCount != 0)
-                host.skinned->dispatchPreparedCull(depthCmd, depthViews, depthCount);
-            if (cameraCount != 0)
-                host.skinned->dispatchPreparedCull(mainCmd, cameraViews, cameraCount);
         }
 
         struct ShadowCaster
@@ -169,7 +134,7 @@ namespace Dark
                 return status;
             }
 
-            // This job is the only Reset. beginShadowList on main would Reset the same allocator.
+            // This job is the only Reset of the shadow allocator.
             const HRESULT allocHr = job->alloc->Reset();
             if (FAILED(allocHr))
             {
@@ -332,10 +297,10 @@ namespace Dark
 
     void ShadowFeature::setFrame(const ShadowFrame& frame)
     {
-        m_frame            = frame;
-        m_viewIndex        = 1;
-        m_culled           = false;
-        m_cascadesRecorded = false;
+        m_frame        = frame;
+        m_viewIndex    = 1;
+        m_culled       = false;
+        m_workerKicked = false;
     }
 
     const char* ShadowFeature::Entry::name() const
@@ -518,7 +483,7 @@ namespace Dark
     }
 
     // One cascade or one local-light face, recorded now on `cmd`.
-    void ShadowFeature::recordView(ID3D12GraphicsCommandList* cmd, const Matrix4f& lightViewProj, const Frustum3f& frustum, const Entity* light, bool beginFoliage, bool profileFoliageCull)
+    void ShadowFeature::recordView(ID3D12GraphicsCommandList* cmd, const Matrix4f& lightViewProj, const Frustum3f& frustum, const Entity* light, bool beginFoliage)
     {
         if (!cmd)
             return;
@@ -554,17 +519,16 @@ namespace Dark
         if (casters)
         {
             ShadowCasterView view;
-            view.viewProj           = &lightViewProj;
-            view.frustum            = &frustum;
-            view.instanced          = recordThisView;
-            view.beginFoliage       = beginFoliage;
-            view.profileFoliageCull = profileFoliageCull;
-            view.light              = light;
+            view.viewProj     = &lightViewProj;
+            view.frustum      = &frustum;
+            view.instanced    = recordThisView;
+            view.beginFoliage = beginFoliage;
+            view.light        = light;
             casters->drawCasters(cmd, view);
         }
     }
 
-    void ShadowFeature::recordCascades(ID3D12GraphicsCommandList* cmd, bool profileFoliageCull)
+    void ShadowFeature::recordCascades(ID3D12GraphicsCommandList* cmd)
     {
         ShadowSystem* shadows = m_frame.shadows;
         if (!shadows || !shadows->isValid() || !shadows->enabled())
@@ -574,7 +538,7 @@ namespace Dark
         {
             shadows->beginCascade(cmd, i);
             const Frustum3f casterFrustum(shadows->cascade(i).viewProj);
-            recordView(cmd, shadows->cascade(i).viewProj, casterFrustum, nullptr, true, profileFoliageCull);
+            recordView(cmd, shadows->cascade(i).viewProj, casterFrustum, nullptr, true);
         }
         shadows->endCapture(cmd);
     }
@@ -589,29 +553,18 @@ namespace Dark
             host.casters->prepareDirectional();
         if (!host.renderer || !mainCmd)
             return;
-        if (kickWorker(mainCmd))
-        {
-            m_cascadesRecorded = true;
-            return;
-        }
-
-        ID3D12GraphicsCommandList* shadowCmd = host.renderer->shadowSeparateList() ? host.renderer->beginShadowList() : nullptr;
-        dispatchFrameCull(host, mainCmd, shadowCmd ? shadowCmd : mainCmd, shadowCmd != nullptr);
-        if (!shadowCmd)
-            return;
-        // The shadow list runs before the main list, so its cascades are recorded before the
-        // G-buffer too: buffers both lists use track their states in recording order.
-        recordCascades(shadowCmd, false);
-        host.renderer->closeShadowList();
-        m_cascadesRecorded = true;
+        // The worker records the cascades on the shadow list, which runs before the main list.
+        m_workerKicked = kickWorker(mainCmd);
+        if (!m_workerKicked)
+            dispatchFrameCull(host, mainCmd);
     }
 
     void ShadowFeature::recordDirectional(ID3D12GraphicsCommandList* mainCmd)
     {
         recordFrameCull(mainCmd);
-        if (!m_frame.renderer || !mainCmd || m_cascadesRecorded)
+        if (!m_frame.renderer || !mainCmd || m_workerKicked)
             return;
-        recordCascades(mainCmd, true);
+        recordCascades(mainCmd);
     }
 
     void ShadowFeature::recordLocal(ID3D12GraphicsCommandList* cmd)
@@ -624,7 +577,7 @@ namespace Dark
         {
             local->beginFace(cmd, f);
             const LocalShadowFaceDraw& face = local->face(f);
-            recordView(cmd, face.viewProj, face.frustum, &face.light, face.firstFace, true);
+            recordView(cmd, face.viewProj, face.frustum, &face.light, face.firstFace);
         }
         local->endCapture(cmd);
     }

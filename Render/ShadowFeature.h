@@ -41,11 +41,11 @@ namespace Dark
     bool capturingShadowCasters();
     void pushShadowCaster(const Mesh* mesh, const Math::Matrix4f& world, uint64_t bones = 0);
 
-    // The FrameCull, Shadows and LocalShadows entries. FrameCull (before GBuffer) records the frame's
-    // GPU cull and the cascades that run ahead of the main list: it kicks the shadow worker, or records
-    // them on the separate shadow list. Otherwise Shadows (after GBuffer) records them on the main
-    // list. LocalShadows draws the selected faces on the main list. The shadow entries share the
-    // frame's depth view index, which starts at 1 (view 0 is the camera).
+    // The FrameCull, Shadows and LocalShadows entries. FrameCull (before GBuffer) kicks the shadow
+    // worker, which records the cascades on the shadow list, or records the frame's GPU cull on the
+    // main list; then Shadows (after GBuffer) records the cascades there. LocalShadows draws the
+    // selected faces on the main list. The shadow entries share the frame's depth view index, which
+    // starts at 1 (view 0 is the camera).
     class ShadowFeature
     {
     public:
@@ -118,14 +118,14 @@ namespace Dark
         };
 
         bool kickWorker(ID3D12GraphicsCommandList* mainCmd);
-        void recordCascades(ID3D12GraphicsCommandList* cmd, bool profileFoliageCull);
-        void recordView(ID3D12GraphicsCommandList* cmd, const Math::Matrix4f& lightViewProj, const Frustum3f& frustum, const Entity* light, bool beginFoliage, bool profileFoliageCull);
+        void recordCascades(ID3D12GraphicsCommandList* cmd);
+        void recordView(ID3D12GraphicsCommandList* cmd, const Math::Matrix4f& lightViewProj, const Frustum3f& frustum, const Entity* light, bool beginFoliage);
 
         ShadowFrame m_frame;
         uint8_t     m_viewIndex = 1;
-        // Set by recordFrameCull: it ran; the worker or the shadow list has the cascades.
-        bool  m_culled           = false;
-        bool  m_cascadesRecorded = false;
+        // Set by recordFrameCull: it ran; the worker has the cascades.
+        bool  m_culled       = false;
+        bool  m_workerKicked = false;
         Entry m_cull;
         Entry m_directional;
         Entry m_local;

@@ -44,7 +44,7 @@ namespace Dark
 
     enum class PassId : uint8_t
     {
-        FrameCull, // the frame's GPU cull, plus the cascades on the shadow list or the shadow worker
+        FrameCull, // the frame's GPU cull, or the shadow worker kick
         Shadows,   // the directional cascades on the main list
         LocalShadows,
         GBuffer,

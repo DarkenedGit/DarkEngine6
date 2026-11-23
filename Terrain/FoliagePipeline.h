@@ -168,8 +168,7 @@ namespace Dark
             const Frustum3f& casterFrustum,
             const Math::Sphere3f* casterSphere);
 
-        // profileCull false skips GpuScope. The shadow list uses that. The camera list may profile.
-        void drawPreparedDepth(ID3D12GraphicsCommandList* cmd, const Math::Matrix4f& lightViewProj, bool profileCull = true);
+        void drawPreparedDepth(ID3D12GraphicsCommandList* cmd, const Math::Matrix4f& lightViewProj);
 
         // Snapshots taken on main so the shadow worker does not read live foliage or prototype state.
         void clearRetainedDepth();

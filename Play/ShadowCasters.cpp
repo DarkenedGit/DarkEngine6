@@ -199,7 +199,7 @@ namespace Dark
                 }
                 host.foliage->beginDepthView(*host.renderer, *host.assets, *host.foliagePrototypes, *host.terrain, host.foliageRecords, *host.foliageDensity, *host.camera, frustum, foliageSphere);
             }
-            host.foliage->drawPreparedDepth(cmd, lightViewProj, view.profileFoliageCull);
+            host.foliage->drawPreparedDepth(cmd, lightViewProj);
         }
     }
 

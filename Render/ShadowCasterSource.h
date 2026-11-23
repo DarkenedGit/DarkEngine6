@@ -19,8 +19,7 @@ namespace Dark
         // The instanced static list drew this view, so the casters it accepted are skipped.
         bool instanced = false;
         // Foliage culls on the first face of a light (and on every cascade), then redraws that list.
-        bool beginFoliage       = false;
-        bool profileFoliageCull = true;
+        bool beginFoliage = false;
         // A local face's light; a point light bounds its foliage cull by its range. Null for cascades.
         const Entity* light = nullptr;
     };
