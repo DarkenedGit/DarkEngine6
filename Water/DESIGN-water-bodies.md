@@ -7,7 +7,7 @@
 | **Date** | 2026-10-06 |
 | **Status** | Approved. Not implemented. |
 | **Priority** | The valley lake in `F:\BadWater.PNG` reads as a diagonal lattice, and the bank is a hard color change. |
-| **Area** | `Water/WaterWaves.*`, `Water/Water.cpp`, `Water/WaterBody.*`, `content/shaders/Water.hlsl`, `Render/WaterPipeline.*`, `Scene/SceneFile.*`, `Scene/SceneTypes.h`, `Editor/EditorTerrain.cpp`, `Editor/EditorUi.cpp`, `Sandbox/SandboxFrame.cpp`, `Sandbox/SandboxHud.cpp`, `UnitTests/Water/WaterTests.cpp` |
+| **Area** | `Water/WaterWaves.*`, `Water/Water.cpp`, `Water/WaterBody.*`, `content/shaders/Water.hlsl`, `Water/WaterPipeline.*`, `Water/WaterRendering.*`, `Scene/SceneFile.*`, `Scene/SceneTypes.h`, `Editor/EditorTerrain.cpp`, `Editor/EditorUi.cpp`, `Sandbox/SandboxFrame.cpp`, `Sandbox/SandboxHud.cpp`, `UnitTests/Water/WaterTests.cpp` |
 | **Audience** | Engine, Sandbox, and Editor owners who already know the forward water pass |
 | **Depends on** | Landed water Gerstner pass, coarse geomipmap height field, graphics-queue SSR (`Render/DESIGN-reflections.md`), `SkyEvalParams` tail inside the water CBV. Does not change those contracts. |
 | **Does not** | FFT or `cs_5_0`. A new G-buffer. Planar reflections. Caustics, underwater camera, boat wake, spray particles. Nav or swim using animated height. Cloud redesign. SSR redesign. |

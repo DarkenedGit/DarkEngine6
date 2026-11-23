@@ -11,7 +11,7 @@
 | **Date** | 2026-09-19 |
 | **Status** | Accepted (rev 2 — product answers: planar v2, default-on after PR3, half-res) |
 | **Priority** | P0 — [DESIGN-pbr-roadmap.md](./DESIGN-pbr-roadmap.md) item 7 |
-| **Area** | `Render/SsrPipeline.*` (new), `Render/SceneBuffers.*`, `Render/SceneRenderer.*`, `Render/DeferredLightingPipeline.*`, `Render/WaterPipeline.*`, `Render/DebugRenderState.h`, `Render/Camera3D.*`, `content/shaders/{Ssr,SsrMarch,SkyEval,DeferredLighting,Water}.hlsl(i)`, Sandbox Dev Tools, Editor 3D, UnitTests |
+| **Area** | `Render/SsrPipeline.*` (new), `Render/SceneBuffers.*`, `Render/SceneRenderer.*`, `Render/DeferredLightingPipeline.*`, `Water/WaterPipeline.*`, `Render/DebugRenderState.h`, `Render/Camera3D.*`, `content/shaders/{Ssr,SsrMarch,SkyEval,DeferredLighting,Water}.hlsl(i)`, Sandbox Dev Tools, Editor 3D, UnitTests |
 | **Audience** | Engine, Sandbox, Editor owners who already know this tree |
 | **Depends on** | [DESIGN-color-management.md](./DESIGN-color-management.md) (**landed** — linear Rec.709, HDR `R16G16B16A16_FLOAT`). [DESIGN-ibl.md](./DESIGN-ibl.md) (**landed** — split-sum, lighting heap slots 6–8, `evaluateIbl` in `DeferredLighting.hlsl`). [DESIGN-pbr-material-maps.md](./DESIGN-pbr-material-maps.md) (**landed** — RT1 roughness/metallic, octahedral N). [DESIGN-ssao.md](./DESIGN-ssao.md) (**landed** — GTAO, lighting slot 5 compose, Bloom-shaped graphics post). [DESIGN-reverse-z.md](./DESIGN-reverse-z.md) (**landed** — `D32_FLOAT` reverse-Z, `IsSkyDepth`, `ClampDepthForReconstruct`, infinite `GetProj()`, finite `GetCullViewProj()`). |
 | **Supersedes** | In-tree `DESIGN-reflections.md` rev 1. |
