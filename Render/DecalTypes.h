@@ -2,7 +2,6 @@
 
 #include "ECS/Entity.h"
 #include "Math/Vector3f.h"
-#include "Weapons/Weapon.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -24,6 +23,13 @@ namespace Dark
         World = 0,
         Entity,
         Bone
+    };
+
+    // Which impact mark an Impact decal uses. Gameplay maps its weapon onto this (Play/ImpactFx.h).
+    enum class DecalImpact : uint8_t
+    {
+        Slash = 0,
+        Bullet
     };
 
     enum class DecalFade : uint8_t
@@ -86,7 +92,7 @@ namespace Dark
         Entity         entity{};
         int            bone          = -1; // -1 and Bone: pick the closest joint
         float          lifetimeScale = 1.0f;
-        WeaponKind     weapon        = WeaponKind::Melee; // Projectile -> bullet, Melee -> slash
+        DecalImpact    impact        = DecalImpact::Slash; // Impact only: Bullet -> ImpactBullet, Slash -> ImpactSlash
     };
 
     // Upload record. HLSL reads the same bytes; do not insert a float3 (16-byte aligned).

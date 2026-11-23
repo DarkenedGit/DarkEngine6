@@ -42,6 +42,7 @@
 #include "Animation/AnimGraphTick.h"
 #include "Animation/AnimGraphComponent.h"
 #include "Character/HealthComponent.h"
+#include "Character/HealthDecalLife.h"
 #include "Character/ThrowableView.h"
 #include "Character/SkillXp.h"
 #include "Combat/JumpAttackComponent.h"
@@ -1332,6 +1333,6 @@ void EditorApp::onUpdate(float dt)
     else
         setViewAudioListener(audio(), m_camera, &world(), m_playPlayer, m_playMode && skillCatalog().enabled());
     if (!worldHeld)
-        m_scene.tickDecals(world(), clockDt);
+        m_scene.tickDecals(world(), clockDt, &healthDecalLife());
     audio().setWorldHeld(m_playMode && m_play.simPaused());
 }

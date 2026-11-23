@@ -2,12 +2,14 @@
 
 #include "Animation/AnimGraphComponent.h"
 #include "Character/HealthComponent.h"
+#include "Character/HealthDecalLife.h"
 #include "ECS/Components.h"
 #include "ECS/World.h"
 #include "Math/Box3f.h"
 #include "Math/Color.h"
 #include "Render/Camera3D.h"
 #include "Render/DecalBasis.h"
+#include "Render/DecalLifeSource.h"
 #include "Render/DecalPool.h"
 #include "Render/SceneBuffers.h"
 
@@ -45,6 +47,7 @@ using Dark::DecalFade;
 using Dark::decalFade;
 using Dark::DecalGpuInstance;
 using Dark::DecalId;
+using Dark::DecalImpact;
 using Dark::decalImpactAlpha;
 using Dark::DecalKind;
 using Dark::decalMapNormal;
@@ -63,6 +66,7 @@ using Dark::decalWorldMatrix;
 using Dark::Entity;
 using Dark::Frustum3f;
 using Dark::HealthComponent;
+using Dark::healthDecalLife;
 using Dark::kDecalAngleFadeRange;
 using Dark::kDecalAngleFadeStart;
 using Dark::kDecalFootAbovePlaneMeters;
@@ -70,7 +74,6 @@ using Dark::kDecalNormalMapSize;
 using Dark::kDecalShellBiasMeters;
 using Dark::SceneBuffers;
 using Dark::TransformComponent;
-using Dark::WeaponKind;
 using Dark::World;
 using Dark::Math::Box3f;
 using Dark::Math::Matrix4f;
@@ -356,9 +359,9 @@ TEST(Decal_Pool_Expire, PastLifetime)
     World     world;
     DecalId   id{};
     ASSERT_TRUE(pool.spawn(descAt(DecalKind::Footmark, 0.0f), &id));
-    pool.tick(world, 3.0f);
+    pool.tick(world, 3.0f, &healthDecalLife());
     EXPECT_TRUE(pool.alive(id));
-    pool.tick(world, 5.0f);
+    pool.tick(world, 5.0f, &healthDecalLife());
     EXPECT_FALSE(pool.alive(id));
     EXPECT_EQ(pool.aliveCount(), 0u);
 }
@@ -378,7 +381,7 @@ TEST(Decal_Pool_DeadEntityFrees, DestroyDrops)
     DecalId   id{};
     ASSERT_TRUE(pool.spawn(desc, &id));
     world.destroyEntity(entity);
-    pool.tick(world, 0.05f);
+    pool.tick(world, 0.05f, &healthDecalLife());
     EXPECT_FALSE(pool.alive(id));
 }
 
@@ -397,11 +400,11 @@ TEST(Decal_Pool_CorpseKeeps, SmallMoveStays)
     DecalPool pool;
     DecalId   id{};
     ASSERT_TRUE(pool.spawn(desc, &id));
-    pool.tick(world, 0.05f);
+    pool.tick(world, 0.05f, &healthDecalLife());
     ASSERT_TRUE(pool.alive(id));
 
     xf.position = Vector3f(0.04f, 0.0f, 0.0f);
-    pool.tick(world, 0.05f);
+    pool.tick(world, 0.05f, &healthDecalLife());
     EXPECT_TRUE(world.alive(entity));
     EXPECT_TRUE(hp.health.dead());
     EXPECT_TRUE(pool.alive(id));
@@ -422,10 +425,10 @@ TEST(Decal_Pool_ReviveFrees, DeadToAlive)
     DecalPool pool;
     DecalId   id{};
     ASSERT_TRUE(pool.spawn(desc, &id));
-    pool.tick(world, 0.05f);
+    pool.tick(world, 0.05f, &healthDecalLife());
     ASSERT_TRUE(pool.alive(id));
     hp.health.revive();
-    pool.tick(world, 0.05f);
+    pool.tick(world, 0.05f, &healthDecalLife());
     EXPECT_FALSE(pool.alive(id));
 }
 
@@ -450,18 +453,160 @@ TEST(Decal_Pool_JumpFrees, TeleportDropsEntityKeepsWorld)
     DecalId   worldId{};
     ASSERT_TRUE(pool.spawn(body, &bodyId));
     ASSERT_TRUE(pool.spawn(stain, &worldId));
-    pool.tick(world, 0.05f);
+    pool.tick(world, 0.05f, &healthDecalLife());
     ASSERT_TRUE(pool.alive(bodyId));
     ASSERT_TRUE(pool.alive(worldId));
 
     xf.position = Vector3f(3.0f, 0.0f, 0.0f);
-    pool.tick(world, 0.05f);
+    pool.tick(world, 0.05f, &healthDecalLife());
     EXPECT_FALSE(pool.alive(bodyId));
     EXPECT_TRUE(pool.alive(worldId));
 
     hp.health.revive();
-    pool.tick(world, 0.05f);
+    pool.tick(world, 0.05f, &healthDecalLife());
     EXPECT_TRUE(pool.alive(worldId));
+}
+
+namespace
+{
+    // A life source with no HealthComponent behind it: the pool reads life only through the interface.
+    class FakeLife final : public Dark::IDecalLifeSource
+    {
+    public:
+        bool has   = true;
+        bool alive = false;
+
+        bool life(World&, Entity, bool& out) const override
+        {
+            if (!has)
+                return false;
+            out = alive;
+            return true;
+        }
+    };
+
+    DecalSpawnDesc entityDesc(Entity entity)
+    {
+        DecalSpawnDesc desc = descAt(DecalKind::Blood, 0.0f);
+        desc.space          = DecalSpace::Entity;
+        desc.entity         = entity;
+        return desc;
+    }
+} // namespace
+
+TEST(Decal_Pool_LifeSource, ReviveThroughTheSourceFrees)
+{
+    World  world;
+    Entity entity = world.createEntity();
+    world.emplace<TransformComponent>(entity);
+    FakeLife life;
+
+    DecalPool pool;
+    DecalId   id{};
+    ASSERT_TRUE(pool.spawn(entityDesc(entity), &id));
+    pool.tick(world, 0.05f, &life);
+    pool.tick(world, 0.05f, &life);
+    ASSERT_TRUE(pool.alive(id));
+    life.alive = true;
+    pool.tick(world, 0.05f, &life);
+    EXPECT_FALSE(pool.alive(id));
+}
+
+TEST(Decal_Pool_LifeSource, NoLifeStateNeverFreesOnRevive)
+{
+    World  world;
+    Entity entity = world.createEntity();
+    world.emplace<TransformComponent>(entity);
+    FakeLife life;
+    life.has = false;
+
+    DecalPool pool;
+    DecalId   id{};
+    ASSERT_TRUE(pool.spawn(entityDesc(entity), &id));
+    pool.tick(world, 0.05f, &life);
+    life.alive = true;
+    pool.tick(world, 0.05f, &life);
+    EXPECT_TRUE(pool.alive(id));
+    life.has   = true;
+    pool.tick(world, 0.05f, &life);
+    EXPECT_TRUE(pool.alive(id)); // last sample had no life state, so it counted as alive
+}
+
+TEST(Decal_Pool_LifeSource, FirstSampleWithoutLifeCountsAsAlive)
+{
+    World  world;
+    Entity entity = world.createEntity();
+    world.emplace<TransformComponent>(entity);
+    FakeLife life;
+    life.has = false;
+
+    DecalPool pool;
+    DecalId   id{};
+    ASSERT_TRUE(pool.spawn(entityDesc(entity), &id));
+    pool.tick(world, 0.05f, &life);
+    life.has   = true;
+    life.alive = true;
+    pool.tick(world, 0.05f, &life);
+    EXPECT_TRUE(pool.alive(id));
+}
+
+TEST(Decal_Pool_LifeSource, LosingTheLifeStateIsNotARevive)
+{
+    // Dead, then the entity stops reporting a life state (its health component went away).
+    World  world;
+    Entity entity = world.createEntity();
+    world.emplace<TransformComponent>(entity);
+    FakeLife life;
+
+    DecalPool pool;
+    DecalId   id{};
+    ASSERT_TRUE(pool.spawn(entityDesc(entity), &id));
+    pool.tick(world, 0.05f, &life);
+    pool.tick(world, 0.05f, &life);
+    life.has = false;
+    pool.tick(world, 0.05f, &life);
+    EXPECT_TRUE(pool.alive(id));
+}
+
+TEST(Decal_Pool_LifeSource, NullSourceNeverFreesOnRevive)
+{
+    World  world;
+    Entity entity = world.createEntity();
+    world.emplace<TransformComponent>(entity);
+    HealthComponent& hp = world.emplace<HealthComponent>(entity);
+    hp.health.applyDamage(1000.0f);
+
+    DecalPool pool;
+    DecalId   id{};
+    ASSERT_TRUE(pool.spawn(entityDesc(entity), &id));
+    pool.tick(world, 0.05f, nullptr);
+    hp.health.revive();
+    pool.tick(world, 0.05f, nullptr);
+    EXPECT_TRUE(pool.alive(id));
+}
+
+TEST(Decal_Pool_LifeSource, HealthDecalLifeReadsHealthComponent)
+{
+    World  world;
+    Entity bare   = world.createEntity();
+    Entity living = world.createEntity();
+    HealthComponent& hp = world.emplace<HealthComponent>(living);
+
+    bool alive = false;
+    EXPECT_FALSE(healthDecalLife().life(world, bare, alive));
+    ASSERT_TRUE(healthDecalLife().life(world, living, alive));
+    EXPECT_TRUE(alive);
+    hp.health.applyDamage(1000.0f);
+    ASSERT_TRUE(healthDecalLife().life(world, living, alive));
+    EXPECT_FALSE(alive);
+}
+
+TEST(Decal_Impact_Default, SlashUnlessBullet)
+{
+    DecalSpawnDesc impact;
+    impact.kind = DecalKind::Impact;
+    EXPECT_EQ(impact.impact, DecalImpact::Slash);
+    EXPECT_EQ(decalSelectDef(impact), DecalDefId::ImpactSlash);
 }
 
 TEST(Decal_HitBias_Shell, SixCentimeters)
@@ -609,10 +754,10 @@ TEST(Decal_Impact_TwoDefs, BulletVersusSlash)
 {
     DecalSpawnDesc bullet;
     bullet.kind   = DecalKind::Impact;
-    bullet.weapon = WeaponKind::Projectile;
+    bullet.impact = DecalImpact::Bullet;
     DecalSpawnDesc slash;
     slash.kind   = DecalKind::Impact;
-    slash.weapon = WeaponKind::Melee;
+    slash.impact = DecalImpact::Slash;
 
     EXPECT_EQ(decalSelectDef(bullet), DecalDefId::ImpactBullet);
     EXPECT_EQ(decalSelectDef(slash), DecalDefId::ImpactSlash);
@@ -655,7 +800,7 @@ TEST(Decal_Impact_TwoDefs, BulletVersusSlash)
     DecalPool      defaults;
     DecalSpawnDesc stockBullet;
     stockBullet.kind     = DecalKind::Impact;
-    stockBullet.weapon   = WeaponKind::Projectile;
+    stockBullet.impact   = DecalImpact::Bullet;
     stockBullet.position = Vector3f(2.0f, 0.0f, 0.0f);
     ASSERT_TRUE(defaults.spawn(stockBullet, &id));
     vis = gather(defaults, makeWideView().camera);
@@ -814,7 +959,7 @@ TEST(Decal_Pool_MissingPoseFrees, EmptyGraph)
     DecalPool pool;
     DecalId   id{};
     ASSERT_TRUE(pool.spawn(desc, &id));
-    pool.tick(world, 0.05f);
+    pool.tick(world, 0.05f, &healthDecalLife());
     EXPECT_FALSE(pool.alive(id));
     EXPECT_EQ(pool.aliveCount(), 0u);
 }

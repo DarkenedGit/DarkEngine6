@@ -2,6 +2,7 @@
 
 #include "ECS/Entity.h"
 #include "Math/Vector3f.h"
+#include "Render/DecalTypes.h"
 #include "Weapons/Weapon.h"
 
 namespace Dark
@@ -28,6 +29,12 @@ namespace Dark
         const Terrain::TerrainGrid*   contactGrid = nullptr;
         WeaponTargetList*             targets     = nullptr;
     };
+
+    // Projectile hits leave a bullet mark; melee and thrown hits leave a slash.
+    inline DecalImpact decalImpactOf(WeaponKind weapon)
+    {
+        return weapon == WeaponKind::Projectile ? DecalImpact::Bullet : DecalImpact::Slash;
+    }
 
     bool impactDecalsReady(const ImpactFxHost& host);
     bool impactIsStepCue(const ImpactFxHost& host, Entity e, const char* cue);

@@ -79,7 +79,7 @@ namespace Dark
         const Vector3f normal = decalSafeNormal(hit.normal);
         DecalSpawnDesc desc;
         desc.kind   = DecalKind::Impact;
-        desc.weapon = hit.weapon;
+        desc.impact = decalImpactOf(hit.weapon);
         desc.axisY  = normal;
         desc.axisX  = decalImpactAxisX(normal, hit.direction);
         Entity victim = hit.targetEntity;

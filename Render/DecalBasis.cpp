@@ -249,7 +249,7 @@ namespace Dark
         case DecalKind::Blood:
             return desc.space == DecalSpace::World ? DecalDefId::BloodDeath : DecalDefId::BloodHit;
         case DecalKind::Impact:
-            return desc.weapon == WeaponKind::Projectile ? DecalDefId::ImpactBullet : DecalDefId::ImpactSlash;
+            return desc.impact == DecalImpact::Bullet ? DecalDefId::ImpactBullet : DecalDefId::ImpactSlash;
         case DecalKind::Burn:
             return DecalDefId::Burn;
         case DecalKind::Count:

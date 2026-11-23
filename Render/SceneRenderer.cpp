@@ -851,9 +851,9 @@ void SceneRenderer::setFogOccluders(const Math::AABox3f* boxes, int count)
     m_fogOccluderCount = count;
 }
 
-void SceneRenderer::tickDecals(World& world, float dt)
+void SceneRenderer::tickDecals(World& world, float dt, const IDecalLifeSource* life)
 {
-    m_decalPool.tick(world, dt);
+    m_decalPool.tick(world, dt, life);
 }
 
 bool SceneRenderer::spawnDecal(const DecalSpawnDesc& desc, DecalId* outId)
