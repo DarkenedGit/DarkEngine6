@@ -20,9 +20,9 @@ namespace Dark
     // Drives a 3D host's frame through the render graph (render-graph plan Phase 4). Per frame:
     // begin() imports the back buffer, depth, the scene targets and the host's shadow maps; the host
     // set()s or declare()s each PassId it runs this frame; execute() adds them in feature-list order,
-    // compiles, checks the order against the list and runs them on the main list, then returns the
-    // directional shadow map to its frame-start state (Render/ShadowInputs.h). Async compute stays
-    // off (Phase 10).
+    // compiles, checks the order against the list and runs them on the main list. The directional
+    // shadow map's import ends the frame in its frame-start state (Render/ShadowInputs.h). Async
+    // compute stays off (Phase 10).
     class FrameComposer
     {
     public:
@@ -77,14 +77,12 @@ namespace Dark
         }
 
     private:
-        void importResource(RenderResource resource, ID3D12Resource* native, const Rg::TextureViews& views = {});
-        void endShadowFrame();
+        void importResource(RenderResource resource, ID3D12Resource* native, const Rg::TextureViews& views = {}, Rg::Layout finalLayout = Rg::Layout::Undefined);
 
         Rg::RenderGraph m_graph;
         FeatureFrame    m_features;
         RgExecutor      m_executor;
-        Renderer*            m_renderer  = nullptr;
-        ID3D12Resource*      m_shadowMap = nullptr;
+        Renderer*            m_renderer = nullptr;
         FrameView            m_view;
         bool                 m_holdNext = false; // the frame after a held one also starts without history
         Rg::HistoryTargetSet m_histories;

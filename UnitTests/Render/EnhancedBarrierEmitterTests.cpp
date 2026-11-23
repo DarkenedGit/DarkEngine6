@@ -260,6 +260,94 @@ TEST(EnhancedBarrierEmitter, ValidateCountsLayoutMismatchesOnly)
     EXPECT_EQ(list.textureBarrier(0).SyncBefore, D3D12_BARRIER_SYNC_ALL); // the tracker's, not the plan's
 }
 
+TEST(EnhancedBarrierEmitter, APlannedRecordWaitsForADeclaredWriteTheTrackerNeverSaw)
+{
+    // The sun map: the plan's final transition left it no-access in DEPTH_WRITE, the next frame's
+    // Shadows pass wrote it without a barrier, and the first reader's record says so.
+    ScopedTracker   scope;
+    ID3D12Resource* table[1] = { fakeRes(0x10) };
+    const UseState  parked{ Sync::None, Access::NoAccess, Layout::DepthStencilWrite };
+    const UseState  dw = useState(Use::DepthWrite, ResourceKind::Texture, Queue::Graphics);
+    const UseState  sr = useState(Use::PixelSrv, ResourceKind::Texture, Queue::Graphics);
+    scope.tracker.track(table[0], ResourceKind::Texture, parked);
+    const BarrierRec       r = rec(0, ResourceKind::Texture, dw, sr);
+    EnhancedBarrierEmitter emitter;
+    TestList               list;
+    emitter.collect(list, &r, 1, &resolveByIndex, table, true);
+    ASSERT_EQ(list.textureCount(), 1u);
+    EXPECT_EQ(list.textureBarrier(0).SyncBefore, D3D12_BARRIER_SYNC_DEPTH_STENCIL);
+    EXPECT_EQ(list.textureBarrier(0).AccessBefore, D3D12_BARRIER_ACCESS_DEPTH_STENCIL_WRITE);
+    EXPECT_EQ(list.textureBarrier(0).LayoutBefore, D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_WRITE);
+    EXPECT_EQ(list.textureBarrier(0).LayoutAfter, D3D12_BARRIER_LAYOUT_SHADER_RESOURCE);
+    EXPECT_EQ(*scope.tracker.current(table[0]), sr);
+    EXPECT_EQ(emitter.mismatches(), 0u);
+}
+
+TEST(EnhancedBarrierEmitter, APlannedBeforeStateWidensTheTrackersInTheSameLayoutOnly)
+{
+    ScopedTracker   scope;
+    ID3D12Resource* table[3] = { fakeRes(0x10), fakeRes(0x20), fakeRes(0x30) };
+    const UseState  rt{ Sync::RenderTarget, Access::RenderTarget, Layout::RenderTarget };
+    const UseState  ua{ Sync::ComputeShading, Access::UnorderedAccess, Layout::UnorderedAccess };
+    const UseState  sr{ Sync::PixelShading, Access::ShaderResource, Layout::ShaderResource };
+    const UseState  csr{ Sync::ComputeShading, Access::ShaderResource, Layout::ShaderResource };
+    const UseState  placeholder{ Sync::None, Access::NoAccess, Layout::ShaderResource };
+    scope.tracker.track(table[0], ResourceKind::Texture, sr);
+    scope.tracker.track(table[1], ResourceKind::Texture, sr);
+    scope.tracker.track(table[2], ResourceKind::Texture, sr);
+    const BarrierRec records[] = {
+        rec(0, ResourceKind::Texture, csr, rt),         // same layout: both readers waited for
+        rec(1, ResourceKind::Texture, ua, rt),          // another layout: the tracker's state
+        rec(2, ResourceKind::Texture, placeholder, rt), // an import's placeholder: the tracker's state
+    };
+    EnhancedBarrierEmitter emitter;
+    TestList               list;
+    emitter.collect(list, records, 3, &resolveByIndex, table, false);
+    ASSERT_EQ(list.textureCount(), 3u);
+    EXPECT_EQ(list.textureBarrier(0).SyncBefore, D3D12_BARRIER_SYNC_PIXEL_SHADING | D3D12_BARRIER_SYNC_COMPUTE_SHADING);
+    EXPECT_EQ(list.textureBarrier(0).AccessBefore, D3D12_BARRIER_ACCESS_SHADER_RESOURCE);
+    EXPECT_EQ(list.textureBarrier(1).SyncBefore, D3D12_BARRIER_SYNC_PIXEL_SHADING);
+    EXPECT_EQ(list.textureBarrier(1).LayoutBefore, D3D12_BARRIER_LAYOUT_SHADER_RESOURCE);
+    EXPECT_EQ(list.textureBarrier(2).SyncBefore, D3D12_BARRIER_SYNC_PIXEL_SHADING);
+    EXPECT_EQ(list.textureBarrier(2).AccessBefore, D3D12_BARRIER_ACCESS_SHADER_RESOURCE);
+    for (ID3D12Resource* res : table)
+        EXPECT_EQ(*scope.tracker.current(res), rt);
+}
+
+TEST(EnhancedBarrierEmitter, TrackedRecordsKeepTheTrackersBeforeState)
+{
+    // A record after an opaque pass: the owner moved the resource, the plan's placeholder means nothing.
+    ScopedTracker   scope;
+    ID3D12Resource* table[1] = { fakeRes(0x10) };
+    const UseState  parked{ Sync::None, Access::NoAccess, Layout::DepthStencilWrite };
+    const UseState  dw = useState(Use::DepthWrite, ResourceKind::Texture, Queue::Graphics);
+    const UseState  sr = useState(Use::PixelSrv, ResourceKind::Texture, Queue::Graphics);
+    scope.tracker.track(table[0], ResourceKind::Texture, parked);
+    const BarrierRec       r = rec(0, ResourceKind::Texture, dw, sr, true);
+    EnhancedBarrierEmitter emitter;
+    TestList               list;
+    emitter.collect(list, &r, 1, &resolveByIndex, table, false);
+    ASSERT_EQ(list.textureCount(), 1u);
+    EXPECT_EQ(list.textureBarrier(0).SyncBefore, D3D12_BARRIER_SYNC_NONE);
+    EXPECT_EQ(list.textureBarrier(0).AccessBefore, D3D12_BARRIER_ACCESS_NO_ACCESS);
+    EXPECT_EQ(list.textureBarrier(0).LayoutBefore, D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_WRITE);
+}
+
+TEST(EnhancedBarrierEmitter, AReadAfterADeclaredReadInTheSameLayoutStillNeedsNoBarrier)
+{
+    ScopedTracker   scope;
+    ID3D12Resource* table[1] = { fakeRes(0x10) };
+    const UseState  sr{ Sync::PixelShading, Access::ShaderResource, Layout::ShaderResource };
+    const UseState  csr{ Sync::ComputeShading, Access::ShaderResource, Layout::ShaderResource };
+    scope.tracker.track(table[0], ResourceKind::Texture, sr);
+    const BarrierRec       r = rec(0, ResourceKind::Texture, sr, csr);
+    EnhancedBarrierEmitter emitter;
+    TestList               list;
+    emitter.collect(list, &r, 1, &resolveByIndex, table, false);
+    EXPECT_EQ(list.count(), 0u);
+    EXPECT_EQ(scope.tracker.current(table[0])->sync, Sync::PixelShading | Sync::ComputeShading);
+}
+
 TEST(EnhancedBarrierEmitter, CreationOnlyNeedsAnExplicitLayoutForLegacyOnlyTextureStates)
 {
     D3D12_RESOURCE_DESC tex{};
@@ -288,14 +376,14 @@ TEST(EnhancedBarrierEmitter, ShadowMapsAreCreatedInTheirFrameStartState)
     ASSERT_TRUE(legacyEquivalent(D3D12_RESOURCE_STATE_DEPTH_WRITE, Rg::ResourceKind::Texture, created));
     EXPECT_EQ(created, shadowFrameStartState());
 
-    // FrameComposer's end-of-frame barrier: read by the lighting passes, back to writable.
+    // The plan's final transition after the last reader: back to the write layout, no access.
     const Rg::UseState          read = Rg::useState(Rg::Use::PixelSrv, Rg::ResourceKind::Texture, Rg::Queue::Graphics);
-    const D3D12_TEXTURE_BARRIER b    = makeTextureBarrier(nullptr, read, shadowFrameStartState());
+    const D3D12_TEXTURE_BARRIER b    = makeTextureBarrier(nullptr, read, { Rg::Sync::None, Rg::Access::NoAccess, shadowFrameStartState().layout });
     EXPECT_EQ(b.SyncBefore, D3D12_BARRIER_SYNC_PIXEL_SHADING);
     EXPECT_EQ(b.AccessBefore, D3D12_BARRIER_ACCESS_SHADER_RESOURCE);
     EXPECT_EQ(b.LayoutBefore, D3D12_BARRIER_LAYOUT_SHADER_RESOURCE);
-    EXPECT_EQ(b.SyncAfter, D3D12_BARRIER_SYNC_DEPTH_STENCIL);
-    EXPECT_EQ(b.AccessAfter, D3D12_BARRIER_ACCESS_DEPTH_STENCIL_WRITE);
+    EXPECT_EQ(b.SyncAfter, D3D12_BARRIER_SYNC_NONE);
+    EXPECT_EQ(b.AccessAfter, D3D12_BARRIER_ACCESS_NO_ACCESS);
     EXPECT_EQ(b.LayoutAfter, D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_WRITE);
     EXPECT_EQ(b.Subresources.IndexOrFirstMipLevel, kAllSubresources);
 }

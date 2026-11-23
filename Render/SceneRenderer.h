@@ -4,6 +4,7 @@
 #include "Render/BloomPipeline.h"
 #include "Render/Camera3D.h"
 #include "Render/DebugOverlay.h"
+#include "Render/DebugTileInputs.h"
 #include "Render/DeferredLightingPipeline.h"
 #include "Render/GBufferInputs.h"
 #include "Render/GtaoPipeline.h"
@@ -104,6 +105,11 @@ public:
     // captured now, but `viewProj` is read when the passes execute (hosts fill it in their GBuffer
     // pass), so it must outlive execute(). Call endCameraFrame after execute().
     void addPostPasses(FeatureBuilder& b, Renderer& renderer, const Math::Matrix4f& viewProj, TonemapSettings tonemap, bool meterAutoExposure = false);
+
+    // The Overlay entry: the debug texture tiles `request` names, drawn onto the back buffer after
+    // Post (Render/DebugTileInputs.h). `tile` is the tile size in pixels (0: a fifth of the height).
+    // No pass when nothing is requested or the overlay pipeline is missing.
+    void addDebugTilePasses(FeatureBuilder& b, Renderer& renderer, const DebugTileRequest& request, int32_t tile = 0);
 
     // Right after FrameComposer::begin: requests this frame's TAA / GTAO / SSR graph histories
     // (render-graph plan Phase 5) and applies a pending discardTemporalHistory. `frame` must stay

@@ -159,7 +159,6 @@ using namespace Audio;
 #define m_motionBlur m_scene.motionBlur()
 #define m_taa m_scene.taa()
 #define m_shadows m_scene.shadows()
-#define m_debugOverlay m_scene.debugOverlay()
 #define m_terrainPipeline m_scene.terrainPipeline()
 #define m_waterPipeline m_scene.waterPipeline()
 #define m_skyPipeline m_scene.skyPipeline()
@@ -1122,11 +1121,19 @@ void SandboxFrame::render()
     });
 
     const bool movieBlocks = app().m_movie.blocksWorld();
-    const bool ssaoTile = app().renderer().debugState().ssaoDebug == 1;
-    const bool ssrTile  = app().renderer().debugState().ssrDebug != 0;
-    if (!movieBlocks && m_debugOverlay.isValid()
-        && (app().m_showShadowMaps || app().renderer().debugState().shadowMapTiles || app().m_showDepth || app().m_showGBuffer || app().m_showVelocity || ssaoTile || ssrTile))
-        frame.set(PassId::Overlay, [&](Rg::PassContext& pass) { drawDebugOverlays(pass.cmd()); });
+    if (!movieBlocks)
+    {
+        DebugTileRequest tiles;
+        tiles.gbuffer     = app().m_showGBuffer;
+        tiles.velocity    = app().m_showVelocity;
+        tiles.ssao        = app().renderer().debugState().ssaoDebug == 1;
+        tiles.ssrFull     = app().renderer().debugState().ssrDebug == 1;
+        tiles.ssrConf     = app().renderer().debugState().ssrDebug == 2;
+        tiles.depth       = app().m_showDepth;
+        tiles.sunShadow   = app().m_showShadowMaps;
+        tiles.localShadow = app().renderer().debugState().shadowMapTiles;
+        frame.declare(PassId::Overlay, [&, tiles](FeatureBuilder& b) { m_scene.addDebugTilePasses(b, app().renderer(), tiles); });
+    }
     // ImGui, the movie and the HUD stay after the graph until Phase 7; endFrame still presents.
     (void)frame.execute("Sandbox");
     // After execute: the Gtao/Ssr passes read last frame's view-proj while the graph records.
@@ -1201,173 +1208,4 @@ void SandboxFrame::render()
         app().m_hud.m_menu.draw(app().renderer());
     frameJoinRender(app().jobs(), app().renderer().frameIndex());
     app().renderer().endFrame();
-}
-
-void SandboxFrame::drawDebugOverlays(ID3D12GraphicsCommandList* cmd)
-{
-    if (!cmd || !m_debugOverlay.isValid())
-        return;
-    const bool ssaoTile = app().renderer().debugState().ssaoDebug == 1;
-    const bool ssrTile  = app().renderer().debugState().ssrDebug != 0;
-    if (!app().m_showShadowMaps && !app().renderer().debugState().shadowMapTiles && !app().m_showDepth && !app().m_showGBuffer && !app().m_showVelocity && !ssaoTile && !ssrTile)
-        return;
-
-    const GpuScope overlay(cmd, "Debug Overlay", ProfileColor::DebugOverlay);
-    // Unbind the DSV so we can sample the scene depth. Do not rebind it afterwards
-    // while it remains PIXEL_SHADER_RESOURCE (endFrame does not write depth).
-    app().renderer().bindColorTargetOnly();
-    m_debugOverlay.beginFrame(app().renderer().frameIndex());
-
-    const LONG sw = static_cast<LONG>(app().renderer().width());
-    const LONG sh = static_cast<LONG>(app().renderer().height());
-    const LONG pad = 12;
-    LONG tile = sh / 5;
-    if (tile < 96)
-        tile = 96;
-    if (tile > 220)
-        tile = 220;
-
-    if (app().m_showGBuffer)
-    {
-        app().renderer().transitionAlbedo(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-        app().renderer().transitionAttrib(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-        const LONG y = pad;
-        const D3D12_CPU_DESCRIPTOR_HANDLE albedo = app().renderer().albedoSrvCpu();
-        const D3D12_CPU_DESCRIPTOR_HANDLE attrib = app().renderer().attribSrvCpu();
-        if (albedo.ptr != 0)
-            m_debugOverlay.drawColor(cmd, app().renderer().device(), albedo, pad, y, tile, tile);
-        if (attrib.ptr != 0)
-            m_debugOverlay.drawColor(cmd, app().renderer().device(), attrib, pad + tile + 8, y, tile, tile);
-    }
-    if ((app().m_showGBuffer || app().m_showVelocity))
-    {
-        app().renderer().transitionVelocity(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-        const D3D12_CPU_DESCRIPTOR_HANDLE velocity = app().renderer().velocitySrvCpu();
-        if (velocity.ptr != 0)
-        {
-            LONG x = pad;
-            if (app().m_showGBuffer)
-                x = pad + 2 * (tile + 8);
-            m_debugOverlay.drawVelocity(cmd, app().renderer().device(), velocity, x, pad, tile, tile, 24.0f);
-        }
-    }
-    if (ssaoTile)
-    {
-        m_scene.gtao().transitionAoFull(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-        const D3D12_CPU_DESCRIPTOR_HANDLE aoFull = m_scene.gtao().aoFullSrvCpu();
-        if (aoFull.ptr != 0)
-        {
-            LONG x = pad;
-            if (app().m_showGBuffer)
-                x += 2 * (tile + 8);
-            if (app().m_showGBuffer || app().m_showVelocity)
-                x += tile + 8;
-            m_debugOverlay.draw2D(cmd, app().renderer().device(), aoFull, x, pad, tile, tile, 1.0f, false);
-        }
-    }
-    if (ssrTile)
-    {
-        LONG x = pad;
-        if (app().m_showGBuffer)
-            x += 2 * (tile + 8);
-        if (app().m_showGBuffer || app().m_showVelocity)
-            x += tile + 8;
-        if (ssaoTile)
-            x += tile + 8;
-        if (app().renderer().debugState().ssrDebug == 1)
-        {
-            m_scene.ssr().transitionFull(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-            const D3D12_CPU_DESCRIPTOR_HANDLE full = m_scene.ssr().fullSrvCpu();
-            if (full.ptr != 0)
-                m_debugOverlay.drawColor(cmd, app().renderer().device(), full, x, pad, tile, tile);
-        }
-        else
-        {
-            m_scene.ssr().transitionDebug(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-            const D3D12_CPU_DESCRIPTOR_HANDLE conf = m_scene.ssr().debugConfSrvCpu();
-            if (conf.ptr != 0)
-                m_debugOverlay.draw2D(cmd, app().renderer().device(), conf, x, pad, tile, tile, 1.0f, false);
-        }
-    }
-
-    if (app().m_showDepth && app().renderer().depthResource())
-    {
-        app().renderer().transitionDepth(cmd, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-        const LONG x = pad;
-        const LONG y = sh - pad - tile;
-        m_debugOverlay.draw2D(
-            cmd, app().renderer().device(), app().renderer().depthSrvCpu(), x, y, tile, tile, 1.0f, true);
-    }
-
-    if (app().m_showShadowMaps && m_shadows.isValid())
-    {
-        const int n = m_shadows.cascadeCount();
-        LONG x0 = pad;
-        if (app().m_showDepth)
-            x0 += tile + pad;
-        const LONG y = sh - pad - tile;
-        const LONG gap = 8;
-        LONG tw = tile;
-        const LONG need = n * tw + (n - 1) * gap;
-        if (x0 + need > sw - pad && n > 0)
-        {
-            const LONG avail = sw - pad - x0 - (n - 1) * gap;
-            if (avail > 64)
-                tw = avail / n;
-        }
-        const float slice0 = static_cast<float>(m_shadows.debugSliceOffset());
-        for (int i = 0; i < n; ++i)
-        {
-            const LONG x = x0 + i * (tw + gap);
-            m_debugOverlay.drawArray(
-                cmd,
-                app().renderer().device(),
-                m_shadows.srvCpu(),
-                x,
-                y,
-                tw,
-                tile,
-                slice0 + static_cast<float>(i),
-                1.25f,
-                true);
-        }
-    }
-
-    if (app().renderer().debugState().shadowMapTiles && m_scene.localShadows().isValid())
-    {
-        LocalShadowSystem& local = m_scene.localShadows();
-        const int n = local.slicesPerFrame();
-        const LONG gap = 8;
-        const LONG y = sh - pad - tile - gap - tile;
-        LONG x0 = pad;
-        LONG tw = tile;
-        if (n > 0)
-        {
-            const LONG need = n * tw + (n - 1) * gap;
-            if (x0 + need > sw - pad)
-            {
-                const LONG avail = sw - pad - x0 - (n - 1) * gap;
-                if (avail > 64)
-                    tw = avail / n;
-            }
-        }
-        for (int i = 0; i < n; ++i)
-        {
-            const LONG x = x0 + i * (tw + gap);
-            m_debugOverlay.drawArray(
-                cmd,
-                app().renderer().device(),
-                local.srvCpu(),
-                x,
-                y,
-                tw,
-                tile,
-                local.debugSlice(i),
-                1.25f,
-                true);
-        }
-    }
-
-    cmd->RSSetViewports(1, &app().renderer().viewport());
-    cmd->RSSetScissorRects(1, &app().renderer().scissor());
 }

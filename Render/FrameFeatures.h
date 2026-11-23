@@ -152,11 +152,12 @@ namespace Dark
 
         // Imports one persistent resource into `g` (after g.beginFrame). Swap is the back buffer.
         // `initial` is the resource's layout when the frame starts (the ResourceStateTracker's, Phase 6;
-        // Undefined when unknown). No import states a final layout: the owners and Renderer::endFrame
-        // (back buffer RT -> PRESENT after ImGui and the movie) move them on through the tracker.
+        // Undefined when unknown). `finalLayout` is the layout the plan leaves it in after its last declared
+        // use (no-access); Undefined for the rest, which the owners and Renderer::endFrame (back buffer
+        // RT -> PRESENT after ImGui and the movie) move on through the tracker.
         // `views` are the resource's CPU views for converted passes (PassContext::rtv/srvTable, Phase 6).
         void importResource(Rg::RenderGraph& g, RenderResource resource, ID3D12Resource* native, const Rg::TextureDesc& desc, Rg::Layout initial = Rg::Layout::Undefined,
-                            const Rg::TextureViews& views = {});
+                            const Rg::TextureViews& views = {}, Rg::Layout finalLayout = Rg::Layout::Undefined);
         // Binds a history pair (g.history) to one of the *History resources for this frame's passes.
         void setHistory(RenderResource resource, const Rg::HistoryPair& pair);
 

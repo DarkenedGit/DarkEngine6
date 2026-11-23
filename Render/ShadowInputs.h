@@ -2,7 +2,6 @@
 
 #include "Render/FrameFeatures.h"
 #include "Render/RenderGraphBarriers.h"
-#include "Render/ResourceStateTracker.h"
 
 #include <cstdint>
 #include <utility>
@@ -15,9 +14,10 @@ struct ID3D12Resource;
 // The directional cascades may be recorded on the shadow list (on the main thread or the shadow
 // worker), which Renderer::endFrame submits ahead of the main list in the same ExecuteCommandLists.
 // No barrier the graph records on the main list can come before that work, so the map starts every
-// frame in its write state: it is created in DEPTH_WRITE, and FrameComposer::execute moves it back
-// there after the last reader (endShadowFrame). The Shadows pass then needs no barrier of its own,
-// and the barrier into the first reader waits for its depth writes whichever list recorded them.
+// frame in its write state: it is created in DEPTH_WRITE, and FrameComposer imports it with that
+// final layout, so the plan moves it back after the last reader. The Shadows pass then needs no
+// barrier of its own, and the barrier into the first reader waits for its depth writes whichever
+// list recorded them (the emitter takes that wait from the plan: the tracker never saw the write).
 // The local shadow array is recorded on the main list, so its barriers are planned like any other.
 // Both arrays are tracked whole: a frame uses one half of each, and the other half moves with it.
 
@@ -39,17 +39,10 @@ namespace Dark
         Rg::TextureHandle map;
     };
 
-    // The state the directional shadow map holds when a frame starts.
+    // The state the directional shadow map is created in; its layout is the import's final layout.
     inline Rg::UseState shadowFrameStartState()
     {
         return Rg::useState(Rg::Use::DepthWrite, Rg::ResourceKind::Texture, Rg::Queue::Graphics);
-    }
-
-    // After the frame's last access: moves the tracked map to shadowFrameStartState(). True (with
-    // `before`) when a barrier has to be recorded; false when it is already there or untracked.
-    inline bool endShadowFrame(ResourceStateTracker& tracker, const void* map, Rg::UseState& before)
-    {
-        return map && tracker.transition(map, shadowFrameStartState(), before);
     }
 
     // The Shadows entry: one pass that records the frame's GPU cull and the cascades, writing the

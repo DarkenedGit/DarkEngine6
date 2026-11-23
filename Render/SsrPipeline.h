@@ -241,9 +241,6 @@ namespace Dark
         D3D12_CPU_DESCRIPTOR_HANDLE fullSrvCpu() const;
         D3D12_CPU_DESCRIPTOR_HANDLE debugConfSrvCpu() const;
         D3D12_CPU_DESCRIPTOR_HANDLE sceneColorSrvCpu() const;
-        // For the opaque debug overlay, which records its own barriers.
-        void transitionFull(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after);
-        void transitionDebug(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after);
 
     private:
         bool createPsos(ID3D12Device* device);

@@ -143,8 +143,9 @@ namespace Dark
     void recordUavBarrier(ID3D12GraphicsCommandList* cmd, ID3D12Resource* resource);
 
     // Records compiled graph barrier batches (RgExecutor). Resources the frame tracker knows take
-    // their before-state from it (and an owner's opaque pass may have moved them since compile);
-    // records whose before/after need no barrier per ResourceStateTracker::needsBarrier are dropped.
+    // their before-state from it (and an owner's opaque pass may have moved them since compile),
+    // widened by a planned record's own before-state (ResourceStateTracker::planBefore); records
+    // whose before/after need no barrier per ResourceStateTracker::needsBarrier are dropped.
     class EnhancedBarrierEmitter
     {
     public:

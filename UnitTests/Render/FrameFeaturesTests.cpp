@@ -1,10 +1,12 @@
 #include <gtest/gtest.h>
 
+#include "Render/DebugTileInputs.h"
 #include "Render/FrameFeatures.h"
 #include "Render/GBufferInputs.h"
 #include "Render/HdrDrawInputs.h"
 #include "Render/LightingInputs.h"
 #include "Render/PostMatrices.h"
+#include "Render/ResourceStateTracker.h"
 #include "RenderGraphTestUtil.h"
 
 #include <algorithm>
@@ -434,7 +436,13 @@ namespace
                                           },
                                           [this](Rg::PassContext&, const Rg::NoData&) { ran.push_back("Tonemap"); });
                                   });
-            host.features.set(PassId::Overlay, [this](Rg::PassContext&) { ran.push_back("Overlay"); });
+            host.features.declare(PassId::Overlay,
+                                  [this](FeatureBuilder& fb)
+                                  {
+                                      DebugTileRequest tiles;
+                                      tiles.depth = true;
+                                      addDebugTilePass(fb, tiles, [this](Rg::PassContext&, const DebugTileReads&) { ran.push_back("Overlay"); });
+                                  });
             if (!host.features.compileFrame(g, "test"))
                 return false;
             return g.execute();
@@ -490,10 +498,23 @@ TEST(FrameFeatures, DeclaredPassesGetPlannedBarriersAndTrackedOnesAfterOpaquePas
     EXPECT_TRUE(hdr[0].tracked);
     EXPECT_EQ(hdr[0].after.layout, Rg::Layout::ShaderResource);
     EXPECT_EQ(g.passName(hdr[0].pass), std::string("Bloom.Extract"));
-    // The back buffer goes from the declared Tonemap to the opaque Overlay with no graph barrier
-    // (the opaque pass moves it itself), and none for the import (the tracker already has it).
+    // The back buffer stays a render target from the declared Tonemap through the declared debug
+    // tiles: the plan's render-target-to-render-target record is one the emitter drops.
     for (const Rg::BarrierRec& b : recordsOn(g, "backbuffer"))
-        EXPECT_NE(g.passName(b.pass), std::string("Overlay"));
+        if (g.passName(b.pass) == std::string("Overlay"))
+        {
+            EXPECT_FALSE(ResourceStateTracker::needsBarrier(b.before, b.after, Rg::ResourceKind::Texture));
+        }
+    // Depth was last used by opaque passes: the tiles' read is one tracked barrier.
+    bool depthIntoTiles = false;
+    for (const Rg::BarrierRec& b : recordsOn(g, "Depth"))
+        if (g.passName(b.pass) == std::string("Overlay"))
+        {
+            depthIntoTiles = true;
+            EXPECT_TRUE(b.tracked);
+            EXPECT_EQ(b.after.layout, Rg::Layout::ShaderResource);
+        }
+    EXPECT_TRUE(depthIntoTiles);
 }
 
 TEST(FrameFeatures, DeclaredEntryWritesTheHistorySoTheGraphSwapsIt)
@@ -677,7 +698,7 @@ namespace
                     compose = b.write(compose, Rg::Use::RenderTarget);
                 },
                 [this](Rg::PassContext&, const Rg::NoData&) { ran.push_back("Gtao.Compose"); });
-            fb.graph().blackboard().set(GtaoOutput{ compose });
+            fb.graph().blackboard().set(GtaoOutput{ compose, {} });
         }
 
         void declareSsr(FeatureBuilder& fb, bool run)
@@ -697,7 +718,7 @@ namespace
                     full = b.write(full, Rg::Use::RenderTarget);
                 },
                 [this](Rg::PassContext&, const Rg::NoData&) { ran.push_back("Ssr.Upsample"); });
-            fb.graph().blackboard().set(SsrOutput{ full });
+            fb.graph().blackboard().set(SsrOutput{ full, {} });
         }
 
         long at(const char* n) const

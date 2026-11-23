@@ -387,9 +387,18 @@ namespace Dark
                                     static_cast<uint32_t>(rec.before.sync), static_cast<uint32_t>(rec.before.access));
                     }
                 }
-                Rg::UseState before;
-                if (!tracker->transition(res, rec.after, before))
+                // A planned record also waits for the declared accesses the table never saw.
+                Rg::UseState       before;
+                const Rg::UseState planned = (!rec.tracked && now) ? ResourceStateTracker::planBefore(*now, rec.before) : Rg::UseState{};
+                if (!rec.tracked && now && planned != *now && ResourceStateTracker::needsBarrier(planned, rec.after, rec.kind))
+                {
+                    before = planned;
+                    tracker->set(res, rec.after);
+                }
+                else if (!tracker->transition(res, rec.after, before))
+                {
                     continue;
+                }
                 if (rec.kind == Rg::ResourceKind::Buffer)
                     list.buffer(makeBufferBarrier(res, before, rec.after));
                 else

@@ -668,27 +668,6 @@ namespace Dark
         m_commandList->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
     }
 
-    void Renderer::transitionVelocity(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after)
-    {
-        if (!m_sceneBuffers)
-            return;
-        m_sceneBuffers->transitionVelocity(cmd, after);
-    }
-
-    void Renderer::transitionAlbedo(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after)
-    {
-        if (!m_sceneBuffers)
-            return;
-        m_sceneBuffers->transitionAlbedo(cmd, after);
-    }
-
-    void Renderer::transitionAttrib(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after)
-    {
-        if (!m_sceneBuffers)
-            return;
-        m_sceneBuffers->transitionAttrib(cmd, after);
-    }
-
     void Renderer::transitionHdr(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after)
     {
         if (!m_sceneBuffers)

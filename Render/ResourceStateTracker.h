@@ -59,6 +59,23 @@ namespace Dark
         // The rule transition() uses, exposed for tests and the executor.
         static bool needsBarrier(const Rg::UseState& before, const Rg::UseState& after, Rg::ResourceKind kind);
 
+        // The before-state of a planned graph barrier on a tracked resource. Declared accesses that
+        // need no barrier never reach the table (a frame-start write, a read after a read), so when
+        // the plan's before-state has an access in the layout the table holds, the barrier also waits
+        // for it: the plan's state replaces a no-access entry and is merged into any other. A plan
+        // state in another layout or without access (an import's placeholder) leaves the table's.
+        static Rg::UseState planBefore(const Rg::UseState& tracked, const Rg::UseState& plan)
+        {
+            if (plan.access == Rg::Access::NoAccess || plan.layout != tracked.layout)
+                return tracked;
+            if (tracked.access == Rg::Access::NoAccess)
+                return plan;
+            Rg::UseState merged = tracked;
+            merged.sync         = (tracked.sync == Rg::Sync::All || plan.sync == Rg::Sync::All) ? Rg::Sync::All : tracked.sync | plan.sync; // ALL alone
+            merged.access       = merged.access | plan.access;
+            return merged;
+        }
+
     private:
         struct Entry
         {

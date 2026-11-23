@@ -54,7 +54,6 @@ public:
 
 private:
     void drawProjectilesGBuffer(ID3D12GraphicsCommandList* cmd, const Dark::Math::Matrix4f& viewProj, const Dark::Math::Matrix4f& prevViewProj, bool instanced, const std::vector<int>* rejectedShots);
-    void drawDebugOverlays(ID3D12GraphicsCommandList* cmd);
     void dropDeadPrevWorlds();
     SandboxApp& app() const;
 

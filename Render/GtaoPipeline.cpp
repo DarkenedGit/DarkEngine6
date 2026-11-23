@@ -75,21 +75,6 @@ namespace Dark
         return isValid() ? m_targets->srv(m_aoFull.id) : D3D12_CPU_DESCRIPTOR_HANDLE{};
     }
 
-    void GtaoPipeline::transitionAoFull(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after)
-    {
-        if (m_targets)
-            m_targets->transition(cmd, m_aoFull, after);
-    }
-
-    void GtaoPipeline::clearAoFullIdentity(ID3D12GraphicsCommandList* cmd)
-    {
-        if (!cmd || !m_targets || !m_targets->resource(m_aoFull.id))
-            return;
-        m_targets->transition(cmd, m_aoFull, D3D12_RESOURCE_STATE_RENDER_TARGET);
-        const float white[4] = { 1.0f, 0.0f, 0.0f, 0.0f };
-        cmd->ClearRenderTargetView(m_targets->rtv(m_aoFull.id), white, 0, nullptr);
-    }
-
     const GraphTarget& GtaoPipeline::target(GtaoTarget which) const
     {
         switch (which)
