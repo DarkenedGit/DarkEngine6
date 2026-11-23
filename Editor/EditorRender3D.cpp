@@ -23,6 +23,7 @@
 #include "Math/Vector2f.h"
 #include "Math/Vector3f.h"
 #include "Math/Ray3f.h"
+#include "Particles/ParticlePasses.h"
 #include "Render/LineMesh.h"
 #include "Render/MeshGen.h"
 #include "Render/TaaJitter.h"
@@ -873,7 +874,7 @@ void EditorApp::renderScene3D()
         if (!deferredDecals())
             m_play.feedback().splats.draw(cmd, m_camera);
     };
-    frame.declare(PassId::Particles, [&, drawParticles](FeatureBuilder& b) { m_scene.addParticlesPasses(b, renderer(), drawParticles); });
+    frame.declare(PassId::Particles, [&, drawParticles](FeatureBuilder& b) { addParticlesPasses(b, renderer(), drawParticles); });
 
     // Phase 6 part 2: Post adds declared passes when execute() builds the frame.
     frame.declare(PassId::Post, [&](FeatureBuilder& b) {

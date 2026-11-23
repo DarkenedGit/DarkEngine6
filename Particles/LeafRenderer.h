@@ -3,7 +3,7 @@
 #include "Assets/Material.h"
 #include "Particles/ParticleTypes.h"
 #include "Render/Frustum3f.h"
-#include "Render/ParticlePipeline.h"
+#include "Particles/ParticlePipeline.h"
 #include "Terrain/LeafField.h"
 #include "Terrain/TerrainGrid.h"
 

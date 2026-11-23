@@ -5,7 +5,7 @@
 #include "ECS/Entity.h"
 #include "Math/Quaternion.h"
 #include "Math/Vector3f.h"
-#include "Render/ParticleGpuPipeline.h"
+#include "Particles/ParticleGpuPipeline.h"
 
 #include <cstdint>
 #include <d3d12.h>

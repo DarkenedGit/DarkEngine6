@@ -4,7 +4,7 @@
 #include "Core/UiPalette.h"
 #include "Math/Matrix4f.h"
 #include "Render/Mesh.h"
-#include "Render/SpritePipeline.h"
+#include "Sprite/SpritePipeline.h"
 #include "Render/Texture2D.h"
 
 #include <cstdint>

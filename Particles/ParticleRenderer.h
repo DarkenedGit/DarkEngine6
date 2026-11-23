@@ -2,7 +2,7 @@
 
 #include "Particles/ParticleEmitter.h"
 #include "Assets/Material.h"
-#include "Render/ParticlePipeline.h"
+#include "Particles/ParticlePipeline.h"
 #include "Render/Camera3D.h"
 #include "Math/Matrix4f.h"
 

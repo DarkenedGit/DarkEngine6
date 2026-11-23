@@ -7,7 +7,7 @@
 #include "Particles/GpuParticleSystem.h"
 #include "Particles/ParticleDepthCollision.h"
 #include "Render/Camera3D.h"
-#include "Render/ParticleGpuPipeline.h"
+#include "Particles/ParticleGpuPipeline.h"
 #include "Render/ShaderCompile.h"
 #include "Render/RhiDevice.h"
 

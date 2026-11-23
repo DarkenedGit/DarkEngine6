@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "Math/Vector4f.h"
-#include "Render/Camera2D.h"
+#include "Sprite/Camera2D.h"
 
 using Dark::Camera2D;
 using Dark::Math::Vector4f;
