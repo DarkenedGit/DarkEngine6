@@ -13,25 +13,17 @@ namespace Dark
     {
         if (!info.renderer)
             return false;
+        m_renderer            = info.renderer;
         const char* const tag = info.logTag ? info.logTag : "Clouds";
-        bool              ok  = true;
         if (!m_pipeline.create(info.renderer->device(), info.renderer->sceneColorFormat()))
-        {
             DE_LOG_ERROR(LogCategory::Render, "{}: CloudVolumePipeline create failed — cloud volumes disabled", tag);
-            ok = false;
-        }
         else if (!m_gpuList.create(info.renderer->device()))
-        {
             DE_LOG_ERROR(LogCategory::Render, "{}: CloudVolumeGpuList create failed — cloud volumes disabled", tag);
-            ok = false;
-        }
-        if (!ok)
+        if (!enabled())
         {
             m_pipeline = CloudVolumePipeline{};
             m_gpuList  = CloudVolumeGpuList{};
-            return false;
         }
-        m_renderer = info.renderer;
         return true;
     }
 
@@ -45,13 +37,15 @@ namespace Dark
 
     void CloudVolumeFeature::addPasses(FeatureBuilder& b, const FrameView&)
     {
+        if (!enabled())
+            return;
         Renderer* const rr = m_renderer;
-        if (!rr || !addHdrDrawPass(b, "Clouds", false,
-                                   [this, rr](Rg::PassContext& c, const HdrDrawTargets& d)
-                                   {
-                                       bindHdr(c, *rr, d.hdr);
-                                       draw(c, rgSrvTable(c, { d.depth }));
-                                   }))
+        if (!addHdrDrawPass(b, "Clouds", false,
+                            [this, rr](Rg::PassContext& c, const HdrDrawTargets& d)
+                            {
+                                bindHdr(c, *rr, d.hdr);
+                                draw(c, rgSrvTable(c, { d.depth }));
+                            }))
             b.opaque("Clouds", {}, {}, [](Rg::PassContext&) { logMissingSceneTargets("Clouds"); });
     }
 

@@ -22,7 +22,8 @@ namespace Dark
     };
 
     // Ray-marched cloud volumes composited onto HDR after water (PassId::Clouds). The pass samples
-    // depth instead of testing it, so only HDR is bound.
+    // depth instead of testing it, so only HDR is bound. Optional: when the pipeline or the GPU list
+    // fails to create, create still succeeds and the feature adds no pass.
     class CloudVolumeFeature final : public IRenderFeature
     {
     public:
@@ -48,6 +49,12 @@ namespace Dark
         void setFrameInputs(const CloudFrameInputs& inputs)
         {
             m_inputs = inputs;
+        }
+
+        // The pipeline and the GPU list were created.
+        bool enabled() const
+        {
+            return m_renderer && m_pipeline.isValid() && m_gpuList.isValid();
         }
 
         const CloudVolumePipeline& pipeline() const
