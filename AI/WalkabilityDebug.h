@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Math/Matrix4f.h"
-#include "Render/DebugColorMesh.h"
+#include "AI/DebugColorMesh.h"
 
 #include <cstdint>
 #include <d3d12.h>
@@ -12,7 +12,7 @@ namespace Dark
     class Renderer;
 
     // GPU mesh of the hunter walk bake (AI::walkabilityMeshSource builds the source). Drawn when
-    // DebugRenderState::showWalkability is set. Render does not include AI; the caller passes the mesh source.
+    // DebugRenderState::showWalkability is set.
     class WalkabilityDebug
     {
     public:

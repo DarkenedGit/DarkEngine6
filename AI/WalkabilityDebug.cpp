@@ -1,4 +1,4 @@
-#include "Render/WalkabilityDebug.h"
+#include "AI/WalkabilityDebug.h"
 
 #include "Core/Log.h"
 #include "Render/DebugRenderState.h"

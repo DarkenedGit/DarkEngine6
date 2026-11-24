@@ -14,7 +14,7 @@
 #include "Terrain/TerrainPipeline.h"
 #include "Water/WaterRendering.h"
 #include "Render/LinePipeline.h"
-#include "Render/WalkabilityDebug.h"
+#include "AI/WalkabilityDebug.h"
 #include "Render/SceneRenderer.h"
 #include "Render/FrameComposer.h"
 #include "Render/ShadowFeature.h"

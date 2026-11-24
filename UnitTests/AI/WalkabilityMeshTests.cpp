@@ -151,3 +151,39 @@ TEST(WalkabilityMesh, QuadSpanStaysShort)
         EXPECT_LE(dz, limit);
     }
 }
+
+TEST(WalkabilityMesh, SourceFollowsTheBake)
+{
+    const Dark::DebugMeshSource none = walkabilityMeshSource(nullptr);
+    EXPECT_EQ(none.serial, 0u);
+    EXPECT_EQ(none.build, nullptr);
+
+    HeightMap   hm = MakeFlat(5, 1.0f, 10.0f);
+    Walkability w;
+    EXPECT_EQ(walkabilityMeshSource(&w).serial, 0u);
+
+    WalkabilityDesc d;
+    d.heightMap  = &hm;
+    d.waterLevel = -10.0f;
+    ASSERT_TRUE(w.bake(d));
+    const Dark::DebugMeshSource baked = walkabilityMeshSource(&w);
+    EXPECT_EQ(baked.serial, w.bakeSerial());
+    EXPECT_EQ(baked.user, &w);
+    ASSERT_NE(baked.build, nullptr);
+    WalkabilityMeshData fromSource;
+    WalkabilityMeshData direct;
+    ASSERT_TRUE(baked.build(baked.user, fromSource));
+    ASSERT_TRUE(buildWalkabilityMesh(w, direct));
+    EXPECT_EQ(fromSource.vertices.size(), direct.vertices.size());
+    EXPECT_EQ(fromSource.indices, direct.indices);
+
+    w.clear();
+    const Dark::DebugMeshSource cleared = walkabilityMeshSource(&w);
+    EXPECT_EQ(cleared.serial, 0u);
+    EXPECT_EQ(cleared.build, nullptr);
+
+    ASSERT_TRUE(w.bake(d));
+    const Dark::DebugMeshSource rebaked = walkabilityMeshSource(&w);
+    EXPECT_EQ(rebaked.serial, w.bakeSerial());
+    EXPECT_NE(rebaked.serial, baked.serial);
+}
