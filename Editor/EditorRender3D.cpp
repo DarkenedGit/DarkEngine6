@@ -597,7 +597,7 @@ void EditorApp::renderScene3D()
             lc.ambientColor[1] = ambientColor.y;
             lc.ambientColor[2] = ambientColor.z;
             fillIblLightingConstants(lc, m_sceneWorld.ibl, renderer().debugState().iblEnabled, renderer().debugState().iblDebug, iblGpuReady(renderer().gpuResources(), m_sceneWorld.iblImageId));
-            fillSsrLightingConstants(lc, m_sceneWorld.ssr, renderer().debugState().ssrEnabled, m_scene.ssr().isValid());
+            fillSsrLightingConstants(lc, m_sceneWorld.ssr, renderer().debugState().ssrEnabled, m_scene.ssrReady());
             resolve.viewProj     = &viewProj;
             resolve.prevViewProj = &prevViewProj;
             resolve.gtao         = &m_sceneWorld.ssao;

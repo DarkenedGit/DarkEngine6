@@ -150,15 +150,7 @@ using namespace Audio;
 #define m_skinnedTransparentPipeline m_scene.skinnedTransparentPipeline()
 #define m_skinnedShadowPipeline m_scene.skinnedShadowPipeline()
 #define m_skinRing m_scene.skinRing()
-#define m_tonemap m_scene.tonemap()
-#define m_lighting m_scene.lighting()
-#define m_localLightVolumes m_scene.localLightVolumes()
 #define m_localLightGpu m_scene.localLightGpu()
-#define m_pointVolumeMesh m_scene.pointVolumeMesh()
-#define m_spotVolumeMesh m_scene.spotVolumeMesh()
-#define m_bloom m_scene.bloom()
-#define m_motionBlur m_scene.motionBlur()
-#define m_taa m_scene.taa()
 #define m_shadows m_scene.shadows()
 
 SandboxApp& SandboxFrame::app() const
@@ -779,7 +771,7 @@ void SandboxFrame::render()
             fillIblLightingConstants(lc, app().m_sceneWorld.ibl, app().renderer().debugState().iblEnabled, app().renderer().debugState().iblDebug, iblGpuReady(app().renderer().gpuResources(), app().m_sceneWorld.iblImageId));
             lc.iblNight = 1.0f - app().m_sceneWorld.env.dayFactor();
             lc.thermal  = app().m_vision.ultraviolet > 0.0f ? -app().m_vision.ultraviolet : app().m_vision.infrared;
-            fillSsrLightingConstants(lc, app().m_sceneWorld.ssr, app().renderer().debugState().ssrEnabled, m_scene.ssr().isValid());
+            fillSsrLightingConstants(lc, app().m_sceneWorld.ssr, app().renderer().debugState().ssrEnabled, m_scene.ssrReady());
             resolve.viewProj     = &viewProj;
             resolve.prevViewProj = &prevViewProj;
             resolve.gtao         = &app().m_sceneWorld.ssao;

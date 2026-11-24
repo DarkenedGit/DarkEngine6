@@ -88,8 +88,6 @@ public:
     Math::Matrix4f beginCameraFrame(Camera3D& camera, Renderer& renderer);
     void           endCameraFrame(Camera3D& camera, const Math::Matrix4f& viewProj);
 
-    bool wantsTaa(const Renderer& renderer) const;
-
     // The Post entry with declared uses (render-graph plan Phase 6 part 2), from the host's
     // FrameComposer::declare(PassId::Post) callback: meter (when requested) -> bloom -> TAA ->
     // motion blur -> tonemap, each step its own graph pass binding a descriptor-ring table, so the
@@ -210,11 +208,6 @@ public:
                             }))
             b.opaque(name, {}, {}, [name](Rg::PassContext&) { logMissingSceneTargets(name); });
     }
-    // `table`: see DeferredLightingPipeline::draw / LocalLightVolumePipeline::draw.
-    void drawDeferredLighting(ID3D12GraphicsCommandList* cmd, D3D12_GPU_DESCRIPTOR_HANDLE table, const LightingConstants& lc) const;
-    void drawLocalLights(ID3D12GraphicsCommandList* cmd, D3D12_GPU_DESCRIPTOR_HANDLE table, Renderer& renderer, World& world, const Camera3D& camera, const Math::Matrix4f& viewProj,
-                         const LightingConstants& lc);
-
     // Walls and shut doors for unshadowed local-light fog. The pointer is only read during the next draw.
     void setFogOccluders(const Math::AABox3f* boxes, int count);
     const Math::AABox3f* fogOccluders() const { return m_fogOccluders; }
@@ -235,23 +228,12 @@ public:
     SkinnedMeshPipeline&      skinnedTransparentPipeline() { return m_skinnedTransparentPipeline; }
     SkinnedMeshPipeline&      skinnedShadowPipeline() { return m_skinnedShadowPipeline; }
     SkinningUploadRing&       skinRing() { return m_skinRing; }
-    TonemapPipeline&          tonemap() { return m_tonemap; }
-    DeferredLightingPipeline& lighting() { return m_lighting; }
-    LocalLightVolumePipeline& localLightVolumes() { return m_localLightVolumes; }
     LocalLightGpuList&        localLightGpu() { return m_localLightGpu; }
     CamouflagePipeline&       camouflage() { return m_camouflage; }
-    Mesh&                     pointVolumeMesh() { return m_pointVolumeMesh; }
-    Mesh&                     spotVolumeMesh() { return m_spotVolumeMesh; }
-    BloomPipeline&            bloom() { return m_bloom; }
     AutoExposurePipeline&     autoExposure() { return m_autoExposure; }
-    GtaoPipeline&             gtao() { return m_gtao; }
-    SsrPipeline&              ssr() { return m_ssr; }
-    MotionBlurPipeline&       motionBlur() { return m_motionBlur; }
     EchoPipeline&             echo() { return m_echo; }
-    TaaPipeline&              taa() { return m_taa; }
     ShadowSystem&             shadows() { return m_shadows; }
     LocalShadowSystem&        localShadows() { return m_localShadows; }
-    DebugOverlay&             debugOverlay() { return m_debugOverlay; }
 
 
     // The domain features the host registered (registerXxxFeatures) before init. init creates them
@@ -265,23 +247,12 @@ public:
     const SkinnedMeshPipeline&      skinnedTransparentPipeline() const { return m_skinnedTransparentPipeline; }
     const SkinnedMeshPipeline&      skinnedShadowPipeline() const { return m_skinnedShadowPipeline; }
     const SkinningUploadRing&       skinRing() const { return m_skinRing; }
-    const TonemapPipeline&          tonemap() const { return m_tonemap; }
-    const DeferredLightingPipeline& lighting() const { return m_lighting; }
-    const LocalLightVolumePipeline& localLightVolumes() const { return m_localLightVolumes; }
     const LocalLightGpuList&        localLightGpu() const { return m_localLightGpu; }
     const CamouflagePipeline&       camouflage() const { return m_camouflage; }
-    const Mesh&                     pointVolumeMesh() const { return m_pointVolumeMesh; }
-    const Mesh&                     spotVolumeMesh() const { return m_spotVolumeMesh; }
-    const BloomPipeline&            bloom() const { return m_bloom; }
     const AutoExposurePipeline&     autoExposure() const { return m_autoExposure; }
-    const GtaoPipeline&             gtao() const { return m_gtao; }
-    const SsrPipeline&              ssr() const { return m_ssr; }
-    const MotionBlurPipeline&       motionBlur() const { return m_motionBlur; }
     const EchoPipeline&             echo() const { return m_echo; }
-    const TaaPipeline&              taa() const { return m_taa; }
     const ShadowSystem&             shadows() const { return m_shadows; }
     const LocalShadowSystem&        localShadows() const { return m_localShadows; }
-    const DebugOverlay&             debugOverlay() const { return m_debugOverlay; }
 
 
     const Math::Matrix4f& prevViewProj() const { return m_prevViewProj; }
@@ -291,8 +262,15 @@ public:
     // Footmarks and blood from the level being left.
     void                  clearDecals() { m_decalPool.clear(); }
     bool                  isValid() const { return m_initialized; }
+    // The SSR pipelines exist (the lighting constants' SSR bit, fillSsrLightingConstants).
+    bool                  ssrReady() const { return m_ssr.isValid(); }
 
 private:
+    bool wantsTaa(const Renderer& renderer) const;
+    // `table`: see DeferredLightingPipeline::draw / LocalLightVolumePipeline::draw.
+    void drawDeferredLighting(ID3D12GraphicsCommandList* cmd, D3D12_GPU_DESCRIPTOR_HANDLE table, const LightingConstants& lc) const;
+    void drawLocalLights(ID3D12GraphicsCommandList* cmd, D3D12_GPU_DESCRIPTOR_HANDLE table, Renderer& renderer, World& world, const Camera3D& camera, const Math::Matrix4f& viewProj,
+                         const LightingConstants& lc);
     bool createCorePipelines(Renderer& renderer, const char* tag);
     bool createPostPipelines(Renderer& renderer, const char* tag);
     void markHistoryUnwritten(const Rg::HistoryTargets& history, const char* name);
