@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Render/DebugColorMesh.h"
+#include "AI/DebugColorMesh.h"
 
 #include <cstdint>
 #include <vector>
@@ -9,7 +9,7 @@ namespace Dark::AI
 {
     class Walkability;
 
-    // The overlay vertex and mesh are the renderer's plain debug types.
+    // The overlay vertex and mesh are WalkabilityDebug's plain debug types.
     using WalkabilityMeshVertex = DebugColorVertex;
     using WalkabilityMeshData   = DebugColorMesh;
 

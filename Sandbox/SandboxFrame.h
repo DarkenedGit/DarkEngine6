@@ -18,7 +18,7 @@
 #include "Render/MeshConstants.h"
 #include "Render/SceneRenderer.h"
 #include "Render/ShadowFeature.h"
-#include "Render/WalkabilityDebug.h"
+#include "AI/WalkabilityDebug.h"
 #include "Render/SkinnedInstanceBuffer.h"
 #include "Sky/SkyFeatures.h"
 #include "Terrain/TerrainMaterial.h"
