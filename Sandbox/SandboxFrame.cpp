@@ -786,13 +786,16 @@ void SandboxFrame::render()
     };
     frame.declare(PassId::GBuffer, [&](FeatureBuilder& b) { m_scene.addGBufferPasses(b, app().renderer(), drawGBuffer); });
 
-    // Decals, Gtao, Ssr, Lighting and LocalVolumes declare their uses. Settings are captured at build;
+    // The core features (Decals, Gtao, Ssr, Lighting, LocalVolumes): settings are captured at build;
     // the camera and `resolve` (lc, filled by the GBuffer draws) are read at execute.
-    frame.declare(PassId::Decals, [&](FeatureBuilder& b) { m_scene.addDecalsPasses(b, app().renderer(), app().m_sceneWorld.camera, resolve); });
-    frame.declare(PassId::Gtao, [&](FeatureBuilder& b) { m_scene.addGtaoPasses(b, app().renderer(), app().m_sceneWorld.camera, app().m_sceneWorld.ssao); });
-    frame.declare(PassId::Ssr, [&](FeatureBuilder& b) { m_scene.addSsrPasses(b, app().renderer(), app().m_sceneWorld.camera, app().m_sceneWorld.ssr, &app().m_sceneWorld.env); });
-    frame.declare(PassId::Lighting, [&](FeatureBuilder& b) { m_scene.addLightingPasses(b, app().renderer(), resolve); });
-    frame.declare(PassId::LocalVolumes, [&](FeatureBuilder& b) { m_scene.addLocalVolumesPasses(b, app().renderer(), app().world(), app().m_sceneWorld.camera, resolve); });
+    CoreFrameInputs core;
+    core.world   = &app().world();
+    core.camera  = &app().m_sceneWorld.camera;
+    core.gtao    = &app().m_sceneWorld.ssao;
+    core.ssr     = &app().m_sceneWorld.ssr;
+    core.ssrEnv  = &app().m_sceneWorld.env;
+    core.resolve = &resolve;
+    m_scene.setCoreFrame(core);
     m_scene.features().declare(frame, view);
 
     D3D12_GPU_VIRTUAL_ADDRESS waterLightsVa   = m_localLightGpu.isValid() ? m_localLightGpu.dummyGpuVa() : 0;

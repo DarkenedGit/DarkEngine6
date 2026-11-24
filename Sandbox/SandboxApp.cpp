@@ -1827,6 +1827,7 @@ void SandboxApp::onInit()
         sceneDesc.createAutoExposure     = true;
         sceneDesc.featuresRequired       = true;
         sceneDesc.logTag = "SandboxApp";
+        registerCoreFeatures(m_frame.scene().features(), m_frame.scene());
         registerSkyFeatures(m_frame.scene().features(), m_frame.sky());
         registerShadowFeature(m_frame.scene().features(), m_frame.shadowFeature());
         if (!m_frame.scene().init(renderer(), sceneDesc))

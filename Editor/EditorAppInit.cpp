@@ -108,6 +108,7 @@ void EditorApp::onInit()
     {
         SceneRendererDesc sceneDesc{};
         sceneDesc.logTag = "EditorApp";
+        registerCoreFeatures(m_scene.features(), m_scene);
         registerSkyFeatures(m_scene.features(), m_sky);
         registerShadowFeature(m_scene.features(), m_shadowFeature);
         if (!m_scene.init(renderer(), sceneDesc))

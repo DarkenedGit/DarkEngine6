@@ -75,6 +75,20 @@ struct DeferredResolveInput
     const LightingConstants* lighting    = nullptr;
 };
 
+// What the core features (registerCoreFeatures) read this frame. Non-owning: the host fills it
+// before the registry declares the features, and everything it points to must outlive execute().
+// The settings are read when the passes are added; the camera and `resolve` when they execute.
+// ssrEnv may be null.
+struct CoreFrameInputs
+{
+    World*                      world   = nullptr;
+    const Camera3D*             camera  = nullptr;
+    const GtaoSettings*         gtao    = nullptr;
+    const SsrSettings*          ssr     = nullptr;
+    const IEnvironmentProvider* ssrEnv  = nullptr;
+    const DeferredResolveInput* resolve = nullptr;
+};
+
 class SceneRenderer
 {
 public:
@@ -131,37 +145,12 @@ public:
             b.opaque("GBuffer", {}, {}, [](Rg::PassContext&) { logMissingSceneTargets("GBuffer"); });
     }
 
-    // The decal pass is only added when decals are on and some are alive, so a frame without them
-    // has no UAV round trip on the G-buffer. `camera` and `in` are read when the passes execute.
-    void addDecalsPasses(FeatureBuilder& b, Renderer& renderer, const Camera3D& camera, const DeferredResolveInput& in);
+    // The Decals, Gtao, Ssr, Lighting and LocalVolumes entries are the core features
+    // (registerCoreFeatures). They read this frame's inputs, set before the registry declares them.
+    void setCoreFrame(const CoreFrameInputs& inputs) { m_coreFrame = inputs; }
 
-    // The Lighting and LocalVolumes entries with declared uses (render-graph plan Phase 6 part 4).
-    // Each is one pass that reads albedo, attrib, depth and the AO lighting uses (GTAO's compose
-    // when the Gtao entry published a GtaoOutput, else the authored MRT3; Lighting also reads SSR
-    // Full from an SsrOutput, else the dummy, and the shadow map; LocalVolumes the local shadow
-    // array, else its dummy) and renders into HDR, binding a descriptor-ring table built from
-    // Renderer::lightingViews() and the graph's views. Both read and write HDR (Lighting leaves sky pixels to the
-    // Decals clear; LocalVolumes adds to it). `in` is
-    // read when the passes execute (hosts fill it in their GBuffer pass), so it must outlive
-    // execute(). Lighting stores the constants it drew with (SSR bit sampled after the Ssr entry)
-    // for LocalVolumes.
-    void addLightingPasses(FeatureBuilder& b, Renderer& renderer, const DeferredResolveInput& in);
-    void addLocalVolumesPasses(FeatureBuilder& b, Renderer& renderer, World& world, const Camera3D& camera, const DeferredResolveInput& in);
-
-    // The Gtao, Ssr and SsrCapture entries with declared uses (render-graph plan Phase 6 part 3),
-    // from the host's FrameComposer::declare callbacks. Each step is a graph pass binding a
-    // descriptor-ring table; the graph plans every barrier on the targets (imported from the
-    // ResourceStateTracker). Settings are captured now; the camera (jittered by the host's GBuffer
-    // pass) is read when the passes execute, so it must outlive execute(). Gtao and Ssr publish
-    // their outputs for the lighting passes (GtaoOutput / SsrOutput, Render/LightingInputs.h).
-    // Gtao: compose authored*ssao for the lighting AO when enabled; on skip lighting reads MRT3
-    // (never a white SSAO tex) and AoFull is cleared to identity.
-    void addGtaoPasses(FeatureBuilder& b, Renderer& renderer, const Camera3D& camera, const GtaoSettings& settings);
-    // Ssr: trace -> upsample (-> confidence debug), Full for Lighting's t9; on skip Lighting binds
-    // the dummy. env may be null.
-    void addSsrPasses(FeatureBuilder& b, Renderer& renderer, const Camera3D& camera, const SsrSettings& settings, const IEnvironmentProvider* env = nullptr);
-    // SsrCapture: HDR -> half-res scene color for next frame's trace and this frame's water
-    // (published as SsrCaptureOutput). Adds no pass when SSR is unavailable.
+    // The SsrCapture entry with declared uses: HDR -> half-res scene color for next frame's trace
+    // and this frame's water (published as SsrCaptureOutput). Adds no pass when SSR is unavailable.
     void addSsrCapturePasses(FeatureBuilder& b, Renderer& renderer);
 
     // The passes after lighting draw into HDR with read-only depth (Render/HdrDrawInputs.h).
@@ -266,6 +255,72 @@ public:
     bool                  ssrReady() const { return m_ssr.isValid(); }
 
 private:
+    friend void registerCoreFeatures(RenderFeatureRegistry& registry, SceneRenderer& scene);
+
+    enum class CoreEntryKind : uint8_t
+    {
+        Decals,
+        Gtao,
+        Ssr,
+        Lighting,
+        LocalVolumes,
+    };
+    static constexpr uint32_t kCoreEntryCount = 5;
+
+    // One core list entry as a render feature: its passes come from the add*Passes below.
+    class CoreEntry final : public IRenderFeature
+    {
+    public:
+        CoreEntry(SceneRenderer& owner, CoreEntryKind kind) :
+            m_owner(owner),
+            m_kind(kind)
+        {
+        }
+        const char*  name() const override;
+        FeatureStage stage() const override;
+        PassId       pass() const override;
+        // False without a renderer.
+        bool create(const FeatureCreateInfo& info) override;
+        void destroy() override;
+        // Without this entry's frame inputs (setCoreFrame): an empty pass, logged once.
+        void addPasses(FeatureBuilder& b, const FrameView& view) override;
+
+    private:
+        bool inputsOk() const;
+
+        SceneRenderer& m_owner;
+        CoreEntryKind  m_kind     = CoreEntryKind::Decals;
+        Renderer*      m_renderer      = nullptr;
+        bool           m_loggedMissing = false;
+    };
+
+    // The decal pass is only added when decals are on and some are alive, so a frame without them
+    // has no UAV round trip on the G-buffer. `camera` and `in` are read when the passes execute.
+    void addDecalsPasses(FeatureBuilder& b, Renderer& renderer, const Camera3D& camera, const DeferredResolveInput& in);
+    // The Lighting and LocalVolumes entries with declared uses (render-graph plan Phase 6 part 4).
+    // Each is one pass that reads albedo, attrib, depth and the AO lighting uses (GTAO's compose
+    // when the Gtao entry published a GtaoOutput, else the authored MRT3; Lighting also reads SSR
+    // Full from an SsrOutput, else the dummy, and the shadow map; LocalVolumes the local shadow
+    // array, else its dummy) and renders into HDR, binding a descriptor-ring table built from
+    // Renderer::lightingViews() and the graph's views. Both read and write HDR (Lighting leaves sky pixels to the
+    // Decals clear; LocalVolumes adds to it). `in` is
+    // read when the passes execute (hosts fill it in their GBuffer pass), so it must outlive
+    // execute(). Lighting stores the constants it drew with (SSR bit sampled after the Ssr entry)
+    // for LocalVolumes.
+    void addLightingPasses(FeatureBuilder& b, Renderer& renderer, const DeferredResolveInput& in);
+    void addLocalVolumesPasses(FeatureBuilder& b, Renderer& renderer, World& world, const Camera3D& camera, const DeferredResolveInput& in);
+    // The Gtao and Ssr entries with declared uses (render-graph plan Phase 6 part 3). Each step is a
+    // graph pass binding a descriptor-ring table; the graph plans every barrier on the targets
+    // (imported from the ResourceStateTracker). Settings are captured now; the camera (jittered by
+    // the host's GBuffer pass) is read when the passes execute, so it must outlive execute(). Gtao
+    // and Ssr publish their outputs for the lighting passes (GtaoOutput / SsrOutput,
+    // Render/LightingInputs.h).
+    // Gtao: compose authored*ssao for the lighting AO when enabled; on skip lighting reads MRT3
+    // (never a white SSAO tex) and AoFull is cleared to identity.
+    void addGtaoPasses(FeatureBuilder& b, Renderer& renderer, const Camera3D& camera, const GtaoSettings& settings);
+    // Ssr: trace -> upsample (-> confidence debug), Full for Lighting's t9; on skip Lighting binds
+    // the dummy. env may be null.
+    void addSsrPasses(FeatureBuilder& b, Renderer& renderer, const Camera3D& camera, const SsrSettings& settings, const IEnvironmentProvider* env = nullptr);
     bool wantsTaa(const Renderer& renderer) const;
     // `table`: see DeferredLightingPipeline::draw / LocalLightVolumePipeline::draw.
     void drawDeferredLighting(ID3D12GraphicsCommandList* cmd, D3D12_GPU_DESCRIPTOR_HANDLE table, const LightingConstants& lc) const;
@@ -332,6 +387,14 @@ private:
     uint64_t       m_autoExposureGeneration = 0;
     bool           m_autoExposureEnabled    = false;
     bool           m_initialized            = false;
+    CoreFrameInputs m_coreFrame{};
+    CoreEntry       m_coreEntries[kCoreEntryCount]{
+        { *this, CoreEntryKind::Decals }, { *this, CoreEntryKind::Gtao }, { *this, CoreEntryKind::Ssr }, { *this, CoreEntryKind::Lighting }, { *this, CoreEntryKind::LocalVolumes },
+    };
 };
+
+// Adds the Decals, Gtao, Ssr, Lighting and LocalVolumes entries. Hosts register them before
+// SceneRenderer::init and call setCoreFrame each frame.
+void registerCoreFeatures(RenderFeatureRegistry& registry, SceneRenderer& scene);
 
 } // namespace Dark

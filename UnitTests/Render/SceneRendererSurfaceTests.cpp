@@ -28,6 +28,13 @@ namespace
     template <class S> constexpr bool kReachesWantsTaa   = requires(S& s, const Renderer& r) { s.wantsTaa(r); };
     template <class S> constexpr bool kReachesLightDraws =
         requires(S& s, ID3D12GraphicsCommandList* cmd, const LightingConstants& lc) { s.drawDeferredLighting(cmd, D3D12_GPU_DESCRIPTOR_HANDLE{}, lc); };
+    // The core entries' passes come from registerCoreFeatures, not from host declare callbacks.
+    template <class S> constexpr bool kReachesResolvePasses =
+        requires(S& s, FeatureBuilder& b, Renderer& r, const Camera3D& c, const DeferredResolveInput& in) { s.addDecalsPasses(b, r, c, in); } ||
+        requires(S& s, FeatureBuilder& b, Renderer& r, const Camera3D& c, const GtaoSettings& g) { s.addGtaoPasses(b, r, c, g); } ||
+        requires(S& s, FeatureBuilder& b, Renderer& r, const Camera3D& c, const SsrSettings& g) { s.addSsrPasses(b, r, c, g); } ||
+        requires(S& s, FeatureBuilder& b, Renderer& r, const DeferredResolveInput& in) { s.addLightingPasses(b, r, in); } ||
+        requires(S& s, FeatureBuilder& b, Renderer& r, World& w, const Camera3D& c, const DeferredResolveInput& in) { s.addLocalVolumesPasses(b, r, w, c, in); };
     // What the hosts still drive: their world draws, the shadow systems, the game passes (Phase 8) and the meter.
     template <class S> constexpr bool kHostSurface = requires(S& s) {
         s.meshPipeline();
@@ -40,6 +47,7 @@ namespace
         s.echo();
         s.autoExposure();
         s.features();
+        s.setCoreFrame(CoreFrameInputs{});
     };
 } // namespace
 
@@ -57,6 +65,7 @@ TEST(SceneRenderer, HostsDoNotReachTheCorePipelines)
     EXPECT_FALSE(kReachesTiles<SceneRenderer>);
     EXPECT_FALSE(kReachesWantsTaa<SceneRenderer>);
     EXPECT_FALSE(kReachesLightDraws<SceneRenderer>);
+    EXPECT_FALSE(kReachesResolvePasses<SceneRenderer>);
     EXPECT_TRUE(kHostSurface<SceneRenderer>);
 }
 
