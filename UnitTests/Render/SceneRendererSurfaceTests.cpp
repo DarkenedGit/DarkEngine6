@@ -35,6 +35,11 @@ namespace
         requires(S& s, FeatureBuilder& b, Renderer& r, const Camera3D& c, const SsrSettings& g) { s.addSsrPasses(b, r, c, g); } ||
         requires(S& s, FeatureBuilder& b, Renderer& r, const DeferredResolveInput& in) { s.addLightingPasses(b, r, in); } ||
         requires(S& s, FeatureBuilder& b, Renderer& r, World& w, const Camera3D& c, const DeferredResolveInput& in) { s.addLocalVolumesPasses(b, r, w, c, in); };
+    template <class S> constexpr bool kReachesFramePasses =
+        requires(S& s, FeatureBuilder& b, Renderer& r, const CorePassHook& h) { s.addGBufferPasses(b, r, h); } ||
+        requires(S& s, FeatureBuilder& b, Renderer& r, const CorePassHook& h) { s.addTranslucentPasses(b, r, h); } ||
+        requires(S& s, FeatureBuilder& b, Renderer& r) { s.addSsrCapturePasses(b, r); } ||
+        requires(S& s, FeatureBuilder& b, Renderer& r, const DebugTileRequest& t) { s.addDebugTilePasses(b, r, t, 0); };
     // What the hosts still drive: their world draws, the shadow systems, the game passes (Phase 8) and the meter.
     template <class S> constexpr bool kHostSurface = requires(S& s) {
         s.meshPipeline();
@@ -66,6 +71,7 @@ TEST(SceneRenderer, HostsDoNotReachTheCorePipelines)
     EXPECT_FALSE(kReachesWantsTaa<SceneRenderer>);
     EXPECT_FALSE(kReachesLightDraws<SceneRenderer>);
     EXPECT_FALSE(kReachesResolvePasses<SceneRenderer>);
+    EXPECT_FALSE(kReachesFramePasses<SceneRenderer>);
     EXPECT_TRUE(kHostSurface<SceneRenderer>);
 }
 
