@@ -608,13 +608,16 @@ void EditorApp::renderScene3D()
     };
     frame.declare(PassId::GBuffer, [&](FeatureBuilder& b) { m_scene.addGBufferPasses(b, renderer(), drawGBuffer); });
 
-    // Decals, Gtao, Ssr, Lighting and LocalVolumes declare their uses: settings are captured at build;
+    // The core features (Decals, Gtao, Ssr, Lighting, LocalVolumes): settings are captured at build;
     // the camera and `resolve` (filled by the GBuffer draws) are read at execute.
-    frame.declare(PassId::Decals, [&](FeatureBuilder& b) { m_scene.addDecalsPasses(b, renderer(), m_camera, resolve); });
-    frame.declare(PassId::Gtao, [&](FeatureBuilder& b) { m_scene.addGtaoPasses(b, renderer(), m_camera, m_sceneWorld.ssao); });
-    frame.declare(PassId::Ssr, [&](FeatureBuilder& b) { m_scene.addSsrPasses(b, renderer(), m_camera, m_sceneWorld.ssr, nullptr); });
-    frame.declare(PassId::Lighting, [&](FeatureBuilder& b) { m_scene.addLightingPasses(b, renderer(), resolve); });
-    frame.declare(PassId::LocalVolumes, [&](FeatureBuilder& b) { m_scene.addLocalVolumesPasses(b, renderer(), world(), m_camera, resolve); });
+    CoreFrameInputs core;
+    core.world   = &world();
+    core.camera  = &m_camera;
+    core.gtao    = &m_sceneWorld.ssao;
+    core.ssr     = &m_sceneWorld.ssr;
+    core.ssrEnv  = nullptr;
+    core.resolve = &resolve;
+    m_scene.setCoreFrame(core);
     SkyFrameInputs sky;
     sky.camera     = &m_camera;
     sky.env        = &m_sceneWorld.env;

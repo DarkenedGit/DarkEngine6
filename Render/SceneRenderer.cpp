@@ -249,6 +249,7 @@ void SceneRenderer::shutdown()
     m_localShadows.release();
     m_debugOverlay             = DebugOverlay{};
     m_features.destroyAll();
+    m_coreFrame                = {};
     m_prevViewProj             = Math::Matrix4f{};
     m_havePrevViewProj         = false;
     m_discardHistory           = false;
