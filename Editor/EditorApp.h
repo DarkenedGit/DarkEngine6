@@ -626,6 +626,8 @@ private:
     Dark::Save::SaveSystem    m_save;
     Dark::Entity              m_playPlayer{};
     Dark::Entity              m_lootTarget{};
+    // Target the loot card already drew. The pickup key takes all only after that first draw.
+    Dark::Entity              m_lootShown{};
     std::string               m_defenseText;
     float                     m_defenseTextLeft = 0.0f;
     bool                      m_defenseParry    = false;

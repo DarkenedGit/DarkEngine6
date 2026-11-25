@@ -54,6 +54,8 @@ public:
     float                          m_defenseTextLeft  = 0.0f;
     bool                           m_defenseParry     = false;
     Dark::Entity                   m_lootTarget{};
+    // Target the loot card already drew. The pickup key takes all only after that first draw.
+    Dark::Entity                   m_lootShown{};
     ImGuiHost                      m_imgui;
     Dark::MainMenu                 m_menu;
     Dark::MainMenuPage             m_menuPage = Dark::MainMenuPage::Front;

@@ -18,6 +18,7 @@
 #include "Play/GuardVoice.h"
 #include "Media/MovieHud.h"
 #include "Play/DialogueHud.h"
+#include "Play/LootHud.h"
 #include "Ui/SimTimeHud.h"
 #include "Play/PlayerFlashlight.h"
 #include "Math/Vector4f.h"
@@ -1010,37 +1011,16 @@ void SandboxHud::drawLoot()
     if (!inv || !pxf || !lxf || (lxf->position - pxf->position).MagnitudeSqrd() > 3.0f * 3.0f)
     {
         m_lootTarget = {};
+        m_lootShown  = {};
         return;
     }
 
-    bool open = true;
-    ImGui::SetNextWindowSize(ImVec2(uiPx(320.0f), uiPx(300.0f)), ImGuiCond_FirstUseEver);
-    if (Dark::BeginGameCard(loot->label, &open, Dark::UiAccent::Sandbox))
-    {
-        const bool takeAll = ImGui::Button("Take all");
-        ImGui::Separator();
-        for (int i = 0; i < InventoryComponent::kBagSize; ++i)
-        {
-            ItemStack& item = loot->contents.bag[i];
-            if (item.empty())
-                continue;
-            ImGui::PushID(i);
-            ImGui::Text("%s x%d (%s)", item.def->name, item.count, itemTypeName(item.def->type));
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Take") || takeAll)
-            {
-                item.count -= app().giveItem(*inv, item);
-                if (item.count <= 0)
-                    item = {};
-            }
-            ImGui::PopID();
-        }
-        if (itemCount(loot->contents) == 0)
-            ImGui::TextUnformatted("Empty");
-    }
-    Dark::EndGameCard();
-
+    const bool        armed    = m_lootShown.valid() && m_lootShown == m_lootTarget;
+    const std::string takeAll  = "Take all " + app().input().actions().keyBracket("pickup", "[G]");
+    const bool        open     = Dark::drawLootCard(*loot, Dark::UiAccent::Sandbox, takeAll.c_str(), armed && app().input().actionPressed("pickup"),
+                                                     [&](const ItemStack& stack) { return app().giveItem(*inv, stack); });
     settleLootTarget(app().world(), app().pins(), app().m_sceneWorld.physics, m_lootTarget, open);
+    m_lootShown = m_lootTarget;
 }
 
 void SandboxHud::drawNpcInfoOverlay()

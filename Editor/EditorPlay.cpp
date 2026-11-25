@@ -6,6 +6,7 @@
 #include "Play/DialogueBinding.h"
 #include "Play/CombatHud.h"
 #include "Play/DialogueHud.h"
+#include "Play/LootHud.h"
 #include "Ui/SimTimeHud.h"
 #include "Ui/ImGuiGameChrome.h"
 #include "Ui/ImGuiTheme.h"
@@ -699,6 +700,7 @@ void EditorApp::setPlayMode(bool play)
         m_play.quest().clear();
         m_questBanners.clear();
         m_lootTarget = {};
+        m_lootShown  = {};
         m_defenseText.clear();
         m_defenseTextLeft = 0.0f;
         m_defenseParry    = false;
@@ -1332,7 +1334,11 @@ void EditorApp::drawPlayHud()
 void EditorApp::drawLoot()
 {
     if (!m_playMode || !m_lootTarget.valid() || !m_imgui.isReady())
+    {
+        if (!m_playMode || !m_lootTarget.valid())
+            m_lootShown = {};
         return;
+    }
     InventoryComponent*       inv  = m_playPlayer.valid() ? world().get<InventoryComponent>(m_playPlayer) : nullptr;
     const TransformComponent* pxf  = m_playPlayer.valid() ? world().get<TransformComponent>(m_playPlayer) : nullptr;
     LootComponent*            loot = world().alive(m_lootTarget) ? world().get<LootComponent>(m_lootTarget) : nullptr;
@@ -1340,36 +1346,14 @@ void EditorApp::drawLoot()
     if (!inv || !pxf || !lxf || (lxf->position - pxf->position).MagnitudeSqrd() > 3.0f * 3.0f)
     {
         m_lootTarget = {};
+        m_lootShown  = {};
         return;
     }
 
-    bool        open  = true;
-    const char* title = loot->label ? loot->label : "Loot";
-    ImGui::SetNextWindowSize(ImVec2(uiPx(320.0f), uiPx(300.0f)), ImGuiCond_FirstUseEver);
-    if (Dark::BeginGameCard(title, &open, Dark::UiAccent::Editor))
-    {
-        const bool takeAll = ImGui::Button("Take all");
-        ImGui::Separator();
-        for (int i = 0; i < InventoryComponent::kBagSize; ++i)
-        {
-            ItemStack& item = loot->contents.bag[i];
-            if (item.empty())
-                continue;
-            ImGui::PushID(i);
-            ImGui::Text("%s x%d (%s)", item.def->name, item.count, itemTypeName(item.def->type));
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Take") || takeAll)
-            {
-                item.count -= grantInventoryItem(world(), audio(), assets(), m_playPlayer, *inv, item);
-                if (item.count <= 0)
-                    item = {};
-            }
-            ImGui::PopID();
-        }
-        if (itemCount(loot->contents) == 0)
-            ImGui::TextUnformatted("Empty");
-    }
-    Dark::EndGameCard();
-
+    const bool        armed   = m_lootShown.valid() && m_lootShown == m_lootTarget;
+    const std::string takeAll = "Take all " + input().actions().keyBracket("pickup", "[E]");
+    const bool        open    = Dark::drawLootCard(*loot, Dark::UiAccent::Editor, takeAll.c_str(), armed && input().actionPressed("pickup"),
+                                                    [&](const ItemStack& stack) { return grantInventoryItem(world(), audio(), assets(), m_playPlayer, *inv, stack); });
     settleLootTarget(world(), pins(), m_sceneWorld.physics, m_lootTarget, open);
+    m_lootShown = m_lootTarget;
 }

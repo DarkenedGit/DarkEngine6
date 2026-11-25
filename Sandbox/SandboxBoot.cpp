@@ -463,6 +463,7 @@ bool SandboxApp::leaveScene()
     m_hud.m_showJournal    = false;
     m_hud.m_showUpgrades   = false;
     m_hud.m_lootTarget     = {};
+    m_hud.m_lootShown      = {};
     m_hud.m_questBanners.clear();
     m_hud.m_defenseTextLeft = 0.0f;
 

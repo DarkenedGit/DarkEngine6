@@ -1010,12 +1010,10 @@ void SandboxApp::handleRuntimeCommands(float wallDt, bool allowScale)
         {
             constexpr float kTurnRate = 1.8f; // rad/s
             const float     yawCmd    = m_play.simPaused() ? input().actionAxis("yaw") : 0.0f;
-            const float     pitchCmd  = input().actionAxis("pitch");
-            if (yawCmd != 0.0f || pitchCmd != 0.0f)
+            if (yawCmd != 0.0f)
             {
-                const Quaternion yawQ   = Quaternion::FromAxisAngle(Vector3f::Y_AXIS, yawCmd * kTurnRate * m_simDt);
-                const Quaternion pitchQ = Quaternion::FromAxisAngle(Vector3f::X_AXIS, pitchCmd * kTurnRate * m_simDt);
-                xf->rotation            = yawQ * pitchQ * xf->rotation;
+                const Quaternion yawQ = Quaternion::FromAxisAngle(Vector3f::Y_AXIS, yawCmd * kTurnRate * m_simDt);
+                xf->rotation          = yawQ * xf->rotation;
                 xf->rotation.Normalize();
             }
         }

@@ -201,6 +201,7 @@ TEST(ControlGuide, SandboxFilesListEveryBinding)
     EXPECT_TRUE(tokenDoes(guide.game, "1", "Melee"));
     EXPECT_TRUE(tokenDoes(guide.game, "Esc", "Menu"));
     EXPECT_TRUE(tokenDoes(guide.game, "I", "Inventory"));
+    EXPECT_TRUE(tokenDoes(guide.game, "G", "Pick up, or take all and close"));
     EXPECT_TRUE(tokenDoes(guide.game, "T", "Talk"));
     EXPECT_TRUE(tokenDoes(guide.game, "E", "Takedown"));
     EXPECT_TRUE(tokenDoes(guide.game, "E", "Lean right"));
@@ -220,8 +221,8 @@ TEST(ControlGuide, SandboxFilesListEveryBinding)
     EXPECT_TRUE(tokenDoes(guide.engine, "-", "Spin the cube slower"));
     EXPECT_TRUE(tokenDoes(guide.engine, "Q", "Turn the cube"));
     EXPECT_TRUE(tokenDoes(guide.engine, "E", "Turn the cube"));
-    EXPECT_TRUE(tokenDoes(guide.engine, "Z", "Pitch the cube"));
-    EXPECT_TRUE(tokenDoes(guide.engine, "X", "Pitch the cube"));
+    EXPECT_TRUE(tokenDoes(guide.engine, "Z", "Fly down while paused"));
+    EXPECT_FALSE(hasToken(guide.engine, "X"));
     EXPECT_TRUE(tokenDoes(guide.engine, "F8", "Play the sample movie"));
     EXPECT_FALSE(hasToken(guide.engine, "Esc"));
     EXPECT_FALSE(hasToken(guide.engine, "I"));

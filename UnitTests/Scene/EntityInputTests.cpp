@@ -181,7 +181,9 @@ TEST(EntityInput, ContentFileFeedsSandboxAndEditor)
 
     ActionMap editor;
     ASSERT_TRUE(applyPlayerInputFile(editor, "editor"));
-    EXPECT_TRUE(hasKey(editor, "crouch", Key::X, 1.0f));
+    EXPECT_TRUE(hasKey(editor, "crouch", Key::LeftControl, 1.0f));
+    EXPECT_TRUE(hasKey(editor, "crouch", Key::RightControl, 1.0f));
+    EXPECT_FALSE(hasKey(editor, "crouch", Key::X, 1.0f));
     EXPECT_FALSE(hasKey(editor, "camouflage", Key::C, 1.0f));
     EXPECT_FALSE(hasKey(editor, "pickup", Key::G, 1.0f));
     EXPECT_TRUE(hasKey(editor, "pickup", Key::E, 1.0f));
@@ -223,8 +225,8 @@ TEST(EntityInput, SandboxFileThenPlayerFile)
     EXPECT_TRUE(hasButton(map, "speed_down", GamepadButton::X, 1.0f));
     EXPECT_TRUE(hasKey(map, "yaw", Key::Q, -1.0f));
     EXPECT_TRUE(hasKey(map, "yaw", Key::E, 1.0f));
-    EXPECT_TRUE(hasKey(map, "pitch", Key::Z, 1.0f));
-    EXPECT_TRUE(hasKey(map, "pitch", Key::X, -1.0f));
+    EXPECT_FALSE(hasKey(map, "pitch", Key::Z, 1.0f));
+    EXPECT_FALSE(hasKey(map, "pitch", Key::X, -1.0f));
     EXPECT_TRUE(hasKey(map, "pawn_x", Key::Left, -1.0f));
     EXPECT_TRUE(hasKey(map, "pawn_x", Key::Right, 1.0f));
     EXPECT_TRUE(hasButton(map, "pawn_x", GamepadButton::DPadLeft, -1.0f));
@@ -356,7 +358,8 @@ TEST(EntityInput, EditorFileThenPlayerFile)
 
     ASSERT_TRUE(applyPlayerInputFile(map, "editor"));
     EXPECT_TRUE(hasKey(map, "jump", Key::Space, 1.0f));
-    EXPECT_TRUE(hasKey(map, "crouch", Key::X, 1.0f));
+    EXPECT_TRUE(hasKey(map, "crouch", Key::LeftControl, 1.0f));
+    EXPECT_FALSE(hasKey(map, "crouch", Key::X, 1.0f));
     EXPECT_FALSE(hasKey(map, "camouflage", Key::C, 1.0f));
     EXPECT_FALSE(hasKey(map, "pickup", Key::G, 1.0f));
     EXPECT_TRUE(hasKey(map, "cycle_color", Key::C, 1.0f));
