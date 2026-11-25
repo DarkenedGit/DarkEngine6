@@ -109,7 +109,8 @@ struct CoreFrameInputs
     // Translucent: the host's forward draws, with HDR and read-only depth bound.
     CorePassHook translucent;
     // SsrCapture: an optional host pass ahead of the capture, named `beforeSsrCaptureName` (a
-    // literal), with no declared uses.
+    // literal), with no declared uses. A hook without a name is skipped (logged once); the capture
+    // still runs.
     CorePassHook beforeSsrCapture;
     const char*  beforeSsrCaptureName = nullptr;
     // Overlay: the debug tiles to draw (null: no pass) and the tile size (0: a fifth of the height).

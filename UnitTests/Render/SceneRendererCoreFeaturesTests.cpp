@@ -235,6 +235,35 @@ TEST(SceneRendererCoreFeatures, HooksRunAtExecute)
     EXPECT_EQ(bundle.translucentRuns, 0);
 }
 
+TEST(SceneRendererCoreFeatures, UnnamedBeforeCaptureHookKeepsTheCapture)
+{
+    ErrorCapture errors;
+    Bundle       bundle;
+    ASSERT_TRUE(bundle.created);
+    for (int frame = 0; frame < 2; ++frame)
+    {
+        g_errors.clear();
+        CoreFrameInputs in      = bundle.inputs();
+        in.beforeSsrCaptureName = nullptr;
+        bundle.scene.setCoreFrame(in);
+        Rg::RenderGraph graph;
+        FeatureFrame    features;
+        // Without the SSR pipelines the capture adds nothing: no empty stand-in, no hook pass.
+        EXPECT_EQ(coreOrder(bundle.registry, graph, features), ids({ PassId::GBuffer, PassId::Decals, PassId::Gtao, PassId::Ssr, PassId::Lighting, PassId::LocalVolumes, PassId::Translucent }))
+            << frame;
+        EXPECT_TRUE(features.orderOk()) << frame;
+        for (uint32_t p = 0; p < graph.passCount(); ++p)
+            EXPECT_STRNE(graph.passName(p), "SsrCapture") << frame;
+        EXPECT_TRUE(missingInputs().empty()) << frame;
+        size_t unnamed = 0;
+        for (const std::string& e : g_errors)
+            if (e.find("beforeSsrCapture hook has no name") != std::string::npos)
+                ++unnamed;
+        EXPECT_EQ(unnamed, frame == 0 ? 1u : 0u) << frame;
+    }
+    EXPECT_EQ(bundle.beforeRuns, 0);
+}
+
 TEST(SceneRendererCoreFeatures, MissingFrameInputsKeepEmptyEntriesAndLogOnce)
 {
     ErrorCapture errors;
@@ -268,7 +297,7 @@ TEST(SceneRendererCoreFeatures, EachEntryNeedsOnlyItsOwnInputs)
         { "resolve", { "Decals", "Lighting", "LocalVolumes" } },
         { "gbuffer", { "GBuffer" } },
         { "translucent", { "Translucent" } },
-        { "beforeSsrCaptureName", { "SsrCapture" } },
+        { "beforeSsrCaptureName", {} },
         { "beforeSsrCapture", {} },
         { "ssrEnv", {} },
         { "debugTiles", {} },
@@ -306,7 +335,7 @@ TEST(SceneRendererCoreFeatures, EachEntryNeedsOnlyItsOwnInputs)
         FeatureFrame        features;
         std::vector<PassId> expected = ids({ PassId::GBuffer, PassId::Decals, PassId::Gtao, PassId::Ssr, PassId::Lighting, PassId::LocalVolumes, PassId::SsrCapture, PassId::Translucent });
         // Without the SSR pipelines, SsrCapture has a pass only for the hook (or its empty pass).
-        if (cleared == "beforeSsrCapture")
+        if (cleared == "beforeSsrCapture" || cleared == "beforeSsrCaptureName")
             expected.erase(std::find(expected.begin(), expected.end(), PassId::SsrCapture));
         EXPECT_EQ(coreOrder(bundle.registry, graph, features), expected) << c.cleared;
         EXPECT_EQ(missingInputs(), c.missing) << c.cleared;

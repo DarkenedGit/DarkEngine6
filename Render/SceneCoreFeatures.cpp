@@ -83,7 +83,6 @@ namespace Dark
         case CoreEntryKind::Translucent:
             return in.translucent.fn != nullptr;
         case CoreEntryKind::SsrCapture:
-            return !in.beforeSsrCapture.fn || in.beforeSsrCaptureName;
         case CoreEntryKind::DebugTiles:
             return true;
         default:
@@ -128,8 +127,14 @@ namespace Dark
             break;
         case CoreEntryKind::SsrCapture:
         {
-            if (const CorePassHook before = in.beforeSsrCapture; before.fn)
+            // The hook's pass needs a name; without one only the hook is skipped, never the capture.
+            if (const CorePassHook before = in.beforeSsrCapture; before.fn && in.beforeSsrCaptureName)
                 b.opaque(in.beforeSsrCaptureName, {}, {}, [before](Rg::PassContext& c) { before(c); });
+            else if (before.fn && !m_loggedMissing)
+            {
+                m_loggedMissing = true;
+                DE_LOG_ERROR(LogCategory::Render, "SceneRenderer: SsrCapture's beforeSsrCapture hook has no name; the hook is skipped (logs once)");
+            }
             s.addSsrCapturePasses(b, *m_renderer);
             break;
         }
