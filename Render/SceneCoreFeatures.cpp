@@ -1,6 +1,7 @@
 #include "Render/SceneRenderer.h"
 
 #include "Core/Log.h"
+#include "Render/Renderer.h"
 
 namespace Dark
 {
@@ -24,6 +25,8 @@ namespace Dark
             return FeatureStage::Transparent;
         case CoreEntryKind::DebugTiles:
             return FeatureStage::Overlay;
+        case CoreEntryKind::Post:
+            return FeatureStage::Post;
         default:
             return FeatureStage::PostGBuffer;
         }
@@ -49,6 +52,8 @@ namespace Dark
             return PassId::Translucent;
         case CoreEntryKind::DebugTiles:
             return PassId::Overlay;
+        case CoreEntryKind::Post:
+            return PassId::Post;
         default:
             return PassId::Decals;
         }
@@ -85,6 +90,8 @@ namespace Dark
         case CoreEntryKind::SsrCapture:
         case CoreEntryKind::DebugTiles:
             return true;
+        case CoreEntryKind::Post:
+            return in.post && in.viewProj;
         default:
             return in.camera && in.resolve;
         }
@@ -146,7 +153,45 @@ namespace Dark
             if (in.debugTiles)
                 s.addDebugTilePasses(b, *m_renderer, *in.debugTiles, in.debugTileSize);
             break;
+        case CoreEntryKind::Post:
+            addPostPasses(b);
+            break;
         }
+    }
+
+    void SceneRenderer::CoreEntry::addPostPasses(FeatureBuilder& b)
+    {
+        SceneRenderer&         s       = m_owner;
+        const CoreFrameInputs& in      = s.m_coreFrame;
+        TonemapSettings        tonemap = *in.post;
+        bool                   meter   = false;
+        if (const CoreAutoExposure* ae = in.autoExposure)
+        {
+            float exposure            = ae->envExposure;
+            *ae->result               = {};
+            ae->result->finalExposure = exposure;
+            const bool deferredMeter  = s.m_autoExposure.isValid();
+            if (deferredMeter)
+            {
+                // Resize drops the 1x1. Zero the correction before this frame can apply a stale sample.
+                if (s.syncAutoExposureSize(*m_renderer))
+                    resetAutoExposure(*ae->state);
+                const float measured = (ae->settings->mode == ExposureMode::Auto && !ae->hold) ? s.m_autoExposure.readMeasuredLuma(m_renderer->frameIndex()) : 0.0f;
+                *ae->result          = adaptExposure(*ae->state, measured, exposure, ae->dt, *ae->settings);
+                exposure             = ae->result->finalExposure;
+            }
+            tonemap.exposure = exposure;
+            meter            = deferredMeter && ae->settings->mode == ExposureMode::Auto && !ae->hold;
+        }
+        // The hook's pass needs a name; without one only the hook is skipped, never Post.
+        if (const CorePassHook before = in.beforePost; before.fn && in.beforePostName)
+            b.opaque(in.beforePostName, { RenderResource::Hdr, RenderResource::Depth }, { RenderResource::Hdr }, [before](Rg::PassContext& c) { before(c); });
+        else if (before.fn && !m_loggedMissing)
+        {
+            m_loggedMissing = true;
+            DE_LOG_ERROR(LogCategory::Render, "SceneRenderer: Post's beforePost hook has no name; the hook is skipped (logs once)");
+        }
+        s.addPostPasses(b, *m_renderer, *in.viewProj, tonemap, meter);
     }
 
     void registerCoreFeatures(RenderFeatureRegistry& registry, SceneRenderer& scene)

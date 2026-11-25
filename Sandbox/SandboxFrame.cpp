@@ -1025,72 +1025,64 @@ void SandboxFrame::render()
         frame.declare(PassId::Underwater, [&, underFrame, drawCeiling](FeatureBuilder& b) { m_water.addUnderwaterPasses(b, app().renderer(), underFrame, drawCeiling); });
     }
 
-    // Phase 6 part 2: Post adds declared passes (SceneRenderer::addPostPasses) when execute() builds
-    // the frame; the echo image stays one opaque pass ahead of them (game content, Phase 8).
-    frame.declare(PassId::Post, [&](FeatureBuilder& b) {
-        const bool aces = useAcesTonemap(app().renderer());
-        TonemapSettings post = app().playerPostFx();
-        post.mode            = aces ? 1.0f : 0.0f;
-        float exposure       = app().m_sceneWorld.env.exposure();
-        app().m_frame.autoExposureResult() = {};
-        app().m_frame.autoExposureResult().finalExposure = exposure;
-        const bool deferredMeter = m_scene.autoExposure().isValid();
-        if (deferredMeter)
+    // Post (a core feature): the player's post settings and auto exposure, with the echo image as
+    // the HDR pass ahead of it (game content, Phase 8).
+    TonemapSettings postFx = app().playerPostFx();
+    postFx.mode            = useAcesTonemap(app().renderer()) ? 1.0f : 0.0f;
+    CoreAutoExposure exposure;
+    exposure.state       = &app().m_frame.autoExposureState();
+    exposure.result      = &app().m_frame.autoExposureResult();
+    exposure.settings    = &app().m_frame.autoExposure();
+    exposure.envExposure = app().m_sceneWorld.env.exposure();
+    exposure.dt          = app().m_frameDt;
+    // Infrared, ultraviolet, echolocation, and the underwater column swing the meter. Hold the correction while any is on.
+    exposure.hold        = app().m_vision.infrared > 0.0f || app().m_vision.ultraviolet > 0.0f || app().m_vision.echo > 0.0f || app().m_play.runtime().underAmount > 0.0f;
+    core.post            = &postFx;
+    core.viewProj        = &viewProj;
+    core.autoExposure    = &exposure;
+    const auto echoImage = [&](Rg::PassContext& pass)
+    {
+        ID3D12GraphicsCommandList* const cmd               = pass.cmd();
+        EchoPipeline&                    echo              = m_scene.echo();
+        bool                             capturedThisFrame = false;
+        if (app().m_vision.echoCapture)
         {
-            // Resize drops the 1×1. Zero the correction before this frame can apply a stale sample.
-            if (m_scene.syncAutoExposureSize(app().renderer()))
-                resetAutoExposure(app().m_frame.autoExposureState());
-            // Infrared, ultraviolet, echolocation, and the underwater column swing the meter. Hold the correction while any is on.
-            const bool holdExposure = app().m_vision.infrared > 0.0f || app().m_vision.ultraviolet > 0.0f || app().m_vision.echo > 0.0f || app().m_play.runtime().underAmount > 0.0f;
-            const float measured = (app().m_frame.autoExposure().mode == ExposureMode::Auto && !holdExposure)
-                ? m_scene.autoExposure().readMeasuredLuma(app().renderer().frameIndex())
-                : 0.0f;
-            app().m_frame.autoExposureResult() = adaptExposure(app().m_frame.autoExposureState(), measured, exposure, app().m_frameDt, app().m_frame.autoExposure());
-            exposure             = app().m_frame.autoExposureResult().finalExposure;
+            EchoSnapshotFrame snap{};
+            copyMatrix(snap.invViewProj, viewProj.Inverse());
+            snap.cameraPos[0] = camPos.x;
+            snap.cameraPos[1] = camPos.y;
+            snap.cameraPos[2] = camPos.z;
+            if (echo.capture(cmd, app().renderer(), snap))
+            {
+                app().m_vision.echoChirpViewProj = viewProj;
+                app().m_vision.echoChirpPos      = camPos;
+                app().m_vision.echoHaveChirp     = true;
+                app().m_vision.echoCapture       = false;
+                capturedThisFrame                = true;
+            }
         }
-        post.exposure = exposure;
-        const bool echoImage = app().m_vision.echo > 0.0f && m_scene.echo().isValid();
-        if (echoImage)
-            b.opaque("Post.Echo", { RenderResource::Hdr, RenderResource::Depth }, { RenderResource::Hdr }, [&](Rg::PassContext& pass) {
-                ID3D12GraphicsCommandList* const cmd = pass.cmd();
-                EchoPipeline& echo = m_scene.echo();
-                bool capturedThisFrame = false;
-                if (app().m_vision.echoCapture)
-                {
-                    EchoSnapshotFrame snap{};
-                    copyMatrix(snap.invViewProj, viewProj.Inverse());
-                    snap.cameraPos[0] = camPos.x;
-                    snap.cameraPos[1] = camPos.y;
-                    snap.cameraPos[2] = camPos.z;
-                    if (echo.capture(cmd, app().renderer(), snap))
-                    {
-                        app().m_vision.echoChirpViewProj = viewProj;
-                        app().m_vision.echoChirpPos      = camPos;
-                        app().m_vision.echoHaveChirp     = true;
-                        app().m_vision.echoCapture       = false;
-                        capturedThisFrame   = true;
-                    }
-                }
-                if (app().m_vision.echoHaveChirp && echo.hasSnapshot())
-                {
-                    EchoCompositeFrame comp{};
-                    copyMatrix(comp.currInvViewProj, viewProj.Inverse());
-                    copyMatrix(comp.chirpViewProj, app().m_vision.echoChirpViewProj);
-                    comp.chirpCamera[0] = app().m_vision.echoChirpPos.x;
-                    comp.chirpCamera[1] = app().m_vision.echoChirpPos.y;
-                    comp.chirpCamera[2] = app().m_vision.echoChirpPos.z;
-                    float radius = Math::Min(app().m_vision.echoChirpAge * app().m_vision.echoChirp.speedMetersPerSec, app().m_vision.echoChirp.rangeMeters);
-                    if (capturedThisFrame)
-                        radius = Math::Max(radius, EchoPipeline::kEdgeMeters);
-                    comp.radius   = radius;
-                    comp.strength = app().m_vision.echo;
-                    comp.maxRange = app().m_vision.echoChirp.rangeMeters;
-                    echo.composite(cmd, app().renderer(), comp);
-                }
-            });
-        const bool holdExposure = app().m_vision.infrared > 0.0f || app().m_vision.ultraviolet > 0.0f || app().m_vision.echo > 0.0f || app().m_play.runtime().underAmount > 0.0f;
-        m_scene.addPostPasses(b, app().renderer(), viewProj, post, deferredMeter && app().m_frame.autoExposure().mode == ExposureMode::Auto && !holdExposure);
-    });
+        if (app().m_vision.echoHaveChirp && echo.hasSnapshot())
+        {
+            EchoCompositeFrame comp{};
+            copyMatrix(comp.currInvViewProj, viewProj.Inverse());
+            copyMatrix(comp.chirpViewProj, app().m_vision.echoChirpViewProj);
+            comp.chirpCamera[0] = app().m_vision.echoChirpPos.x;
+            comp.chirpCamera[1] = app().m_vision.echoChirpPos.y;
+            comp.chirpCamera[2] = app().m_vision.echoChirpPos.z;
+            float radius        = Math::Min(app().m_vision.echoChirpAge * app().m_vision.echoChirp.speedMetersPerSec, app().m_vision.echoChirp.rangeMeters);
+            if (capturedThisFrame)
+                radius = Math::Max(radius, EchoPipeline::kEdgeMeters);
+            comp.radius   = radius;
+            comp.strength = app().m_vision.echo;
+            comp.maxRange = app().m_vision.echoChirp.rangeMeters;
+            echo.composite(cmd, app().renderer(), comp);
+        }
+    };
+    if (app().m_vision.echo > 0.0f && m_scene.echo().isValid())
+    {
+        core.beforePost     = CorePassHook::of(echoImage);
+        core.beforePostName = "Post.Echo";
+    }
 
     const bool       movieBlocks = app().m_movie.blocksWorld();
     DebugTileRequest tiles;
