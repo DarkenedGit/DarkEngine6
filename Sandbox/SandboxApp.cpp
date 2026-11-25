@@ -108,13 +108,6 @@ static float sandboxSceneGroundY(void* user, float x, float z)
     return terrain ? terrain->heightAtWorld(x, z) : 0.0f;
 }
 
-// SceneRenderer owns shared pipelines; keep existing call sites stable.
-#define m_meshPipeline m_frame.scene().meshPipeline()
-#define m_meshTransparentPipeline m_frame.scene().meshTransparentPipeline()
-#define m_skinnedPipeline m_frame.scene().skinnedPipeline()
-#define m_skinnedTransparentPipeline m_frame.scene().skinnedTransparentPipeline()
-#define m_skinRing m_frame.scene().skinRing()
-
 bool useAcesTonemap(const Renderer& r)
 {
     return r.debugState().aces && r.debugState().lightingActive();

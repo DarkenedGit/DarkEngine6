@@ -131,7 +131,7 @@ namespace Dark
             s.addLocalVolumesPasses(b, *m_renderer, *in.world, *in.camera, *in.resolve);
             break;
         case CoreEntryKind::GBuffer:
-            s.addGBufferPasses(b, *m_renderer, in.gbuffer);
+            s.addGBufferPasses(b, *m_renderer, [hook = in.gbuffer, &s](Rg::PassContext& c) { hook(c, s.worldDraws()); });
             break;
         case CoreEntryKind::SsrCapture:
         {
@@ -147,7 +147,7 @@ namespace Dark
             break;
         }
         case CoreEntryKind::Translucent:
-            s.addTranslucentPasses(b, *m_renderer, in.translucent);
+            s.addTranslucentPasses(b, *m_renderer, [hook = in.translucent, &s](Rg::PassContext& c) { hook(c, s.worldDraws()); });
             break;
         case CoreEntryKind::DebugTiles:
             // Off this frame (the host shows no tiles while a movie covers the world): no pass.
@@ -203,7 +203,7 @@ namespace Dark
 
     void registerShadowFeature(SceneRenderer& scene, ShadowFeature& feature)
     {
-        feature.bindShadowMaps(&scene.m_shadows, &scene.m_localShadows, &scene.m_skinnedShadowPipeline);
+        feature.bindShadowMaps(&scene.m_shadows, &scene.m_localShadows, &scene.m_skinnedShadowPipeline, &scene.m_skinRing);
         registerShadowFeature(scene.m_features, feature);
     }
 

@@ -143,19 +143,13 @@ using namespace Math;
 using namespace Terrain;
 using namespace Audio;
 
-// SceneRenderer owns shared pipelines; keep existing call sites stable.
-#define m_meshPipeline m_scene.meshPipeline()
-#define m_meshTransparentPipeline m_scene.meshTransparentPipeline()
-#define m_skinnedPipeline m_scene.skinnedPipeline()
-#define m_skinnedTransparentPipeline m_scene.skinnedTransparentPipeline()
-#define m_skinRing m_scene.skinRing()
-
 SandboxApp& SandboxFrame::app() const
 {
     return *m_app;
 }
 
-void SandboxFrame::drawProjectilesGBuffer(ID3D12GraphicsCommandList* cmd, const Matrix4f& viewProj, const Matrix4f& prevViewProj, bool instanced, const std::vector<int>* rejectedShots)
+void SandboxFrame::drawProjectilesGBuffer(ID3D12GraphicsCommandList* cmd, MeshPipeline& mesh, const Matrix4f& viewProj, const Matrix4f& prevViewProj, bool instanced,
+                                          const std::vector<int>* rejectedShots)
 {
     WeaponLoadout* w = app().localWeapons();
     const Model* model = app().assets().find<Model>(app().m_demo.tracerModelId());
@@ -204,7 +198,7 @@ void SandboxFrame::drawProjectilesGBuffer(ID3D12GraphicsCommandList* cmd, const 
             if (!rejected)
                 continue;
             const Matrix4f world = Matrix4f::ScaleMatrixXYZ(scale, scale, scale) * Matrix4f::TranslationMatrix(s.position.x, s.position.y, s.position.z);
-            drawModelOpaqueGBuffer(cmd, gpu, m_meshPipeline, *model, world, viewProj, prevViewProj, fill);
+            drawModelOpaqueGBuffer(cmd, gpu, mesh, *model, world, viewProj, prevViewProj, fill);
         }
         return;
     }
@@ -217,7 +211,7 @@ void SandboxFrame::drawProjectilesGBuffer(ID3D12GraphicsCommandList* cmd, const 
         if (!s.alive)
             continue;
         const Matrix4f world = Matrix4f::ScaleMatrixXYZ(scale, scale, scale) * Matrix4f::TranslationMatrix(s.position.x, s.position.y, s.position.z);
-        drawModelOpaqueGBuffer(cmd, gpu, m_meshPipeline, *model, world, viewProj, prevViewProj, fill);
+        drawModelOpaqueGBuffer(cmd, gpu, mesh, *model, world, viewProj, prevViewProj, fill);
     }
 }
 
@@ -270,8 +264,7 @@ void SandboxFrame::render()
         app().m_hud.m_imgui.beginFrame();
 
     GpuResourceCache& gpu = app().renderer().gpuResources();
-    if (m_skinRing.isValid())
-        m_skinRing.beginFrame(app().renderer().frameIndex());
+    m_scene.beginSkinningFrame(app().renderer().frameIndex());
     if (m_skinnedInstances.isValid())
         m_skinnedInstances.beginFrame(app().renderer().frameIndex());
 
@@ -452,7 +445,7 @@ void SandboxFrame::render()
     shadowHost.drawList          = &m_drawList;
     shadowHost.skinned           = &m_skinnedInstances;
     shadowHost.skinnedShadow     = m_shadowFeature.skinnedShadowPipeline();
-    shadowHost.skinRing          = &m_skinRing;
+    shadowHost.skinRing          = m_shadowFeature.skinRing();
     shadowHost.terrain           = &app().m_sceneWorld.terrain;
     shadowHost.foliage           = &app().m_frame.foliagePipeline();
     shadowHost.foliagePrototypes = &app().m_frame.foliagePrototypes();
@@ -503,22 +496,22 @@ void SandboxFrame::render()
     float                thermal     = 0.0f;
     LightingConstants    lc{};
     DeferredResolveInput resolve;
-    const auto drawGBuffer = [&](Rg::PassContext& pass) {
+    const auto drawGBuffer = [&](Rg::PassContext& pass, const WorldDrawContext& worldDraws) {
         ID3D12GraphicsCommandList* const cmd = pass.cmd();
         const Matrix4f viewProjEarly = m_scene.beginCameraFrame(app().m_sceneWorld.camera, app().renderer());
         (void)viewProjEarly;
         {
             const bool uvDraw = app().m_vision.ultraviolet > 0.0f;
             const bool thermalDraw = !uvDraw && app().m_vision.infrared > 0.0f;
-            m_meshPipeline.setUltraviolet(uvDraw);
-            m_skinnedPipeline.setUltraviolet(uvDraw);
+            worldDraws.mesh.setUltraviolet(uvDraw);
+            worldDraws.skinned.setUltraviolet(uvDraw);
             m_terrainPipeline.setUltraviolet(uvDraw);
             app().m_frame.foliagePipeline().setUltraviolet(uvDraw);
             app().m_frame.grassPipeline().setUltraviolet(uvDraw);
             m_drawList.setUltraviolet(uvDraw);
             m_skinnedInstances.setUltraviolet(uvDraw);
-            m_meshPipeline.setThermal(thermalDraw);
-            m_skinnedPipeline.setThermal(thermalDraw);
+            worldDraws.mesh.setThermal(thermalDraw);
+            worldDraws.skinned.setThermal(thermalDraw);
             m_terrainPipeline.setThermal(thermalDraw);
             app().m_frame.foliagePipeline().setThermal(thermalDraw);
             app().m_frame.grassPipeline().setThermal(thermalDraw);
@@ -612,7 +605,7 @@ void SandboxFrame::render()
                     const GpuScope meshes(cmd, "Opaque Meshes", ProfileColor::OpaqueMeshes);
                     if (instanceColor)
                         m_drawList.recordOpaque(cmd, gpu, ViewId{ 0 }, StaticPopulation::OpaqueMeshes);
-                    m_meshPipeline.bind(cmd, fill);
+                    worldDraws.mesh.bind(cmd, fill);
             if (material && material->isValid())
                 app().renderer().gpuResources().bindMaterial(cmd, *material, MeshPipeline::kRootAlbedoSrv);
             MeshGBufferConstants gcb{};
@@ -653,13 +646,13 @@ void SandboxFrame::render()
                 if (const NetworkedComponent* nc = app().world().get<NetworkedComponent>(e))
                     unpackRgba8(nc->colorRgba8, gcb.color);
                 gcb.color[3] = mc.emissive;
-                m_meshPipeline.setGBufferConstants(cmd, gcb);
+                worldDraws.mesh.setGBufferConstants(cmd, gcb);
                 gpuMesh->draw(cmd, fill == DebugFill::Points);
                 m_prevWorldByEntity[e.id()] = worldMat;
                 ++meshDraws;
             });
                 }
-                drawProjectilesGBuffer(cmd, viewProj, prevViewProj, instanceColor, &rejectedShots);
+                drawProjectilesGBuffer(cmd, worldDraws.mesh, viewProj, prevViewProj, instanceColor, &rejectedShots);
                 {
                     const GpuScope models(cmd, "Opaque Models", ProfileColor::OpaqueModels);
                     if (instanceColor)
@@ -699,29 +692,29 @@ void SandboxFrame::render()
                     if (accepted && skinnedListed)
                         return;
                     if (accepted)
-                        drawSkinnedModelOpaqueGBufferSkinnedOnly(cmd, gpu, m_skinnedPipeline, m_meshPipeline, m_skinRing, *model, *pose, worldMat, prevW, viewProj, prevViewProj, fill);
+                        drawSkinnedModelOpaqueGBufferSkinnedOnly(cmd, gpu, worldDraws.skinned, worldDraws.mesh, worldDraws.skinRing, *model, *pose, worldMat, prevW, viewProj, prevViewProj, fill);
                     else if (skinnedListed)
-                        drawModelOpaqueGBuffer(cmd, gpu, m_meshPipeline, *model, worldMat, viewProj, prevViewProj, fill);
+                        drawModelOpaqueGBuffer(cmd, gpu, worldDraws.mesh, *model, worldMat, viewProj, prevViewProj, fill);
                     else
-                        drawSkinnedModelOpaqueGBuffer(cmd, gpu, m_skinnedPipeline, m_meshPipeline, m_skinRing, *model, *pose, worldMat, prevW, viewProj, prevViewProj, fill);
+                        drawSkinnedModelOpaqueGBuffer(cmd, gpu, worldDraws.skinned, worldDraws.mesh, worldDraws.skinRing, *model, *pose, worldMat, prevW, viewProj, prevViewProj, fill);
                 }
                 else if (!accepted)
-                    drawModelOpaqueGBuffer(cmd, gpu, m_meshPipeline, *model, worldMat, viewProj, prevViewProj, fill);
+                    drawModelOpaqueGBuffer(cmd, gpu, worldDraws.mesh, *model, worldMat, viewProj, prevViewProj, fill);
             });
                 }
                 if (app().m_sceneWorld.terrain.valid())
                     app().m_frame.foliagePipeline().drawGBuffer(cmd, app().renderer(), app().assets(), app().m_frame.foliagePrototypes(), app().m_sceneWorld.terrain, app().m_sceneWorld.foliage.empty() ? nullptr : &app().m_sceneWorld.foliage, app().m_sceneWorld.foliageDensity, app().m_sceneWorld.camera, viewProj, prevViewProj, frustum);
             }
 
-            m_meshPipeline.setUltraviolet(false);
-            m_skinnedPipeline.setUltraviolet(false);
+            worldDraws.mesh.setUltraviolet(false);
+            worldDraws.skinned.setUltraviolet(false);
             m_terrainPipeline.setUltraviolet(false);
             app().m_frame.foliagePipeline().setUltraviolet(false);
             app().m_frame.grassPipeline().setUltraviolet(false);
             m_drawList.setUltraviolet(false);
             m_skinnedInstances.setUltraviolet(false);
-            m_meshPipeline.setThermal(false);
-            m_skinnedPipeline.setThermal(false);
+            worldDraws.mesh.setThermal(false);
+            worldDraws.skinned.setThermal(false);
             m_terrainPipeline.setThermal(false);
             app().m_frame.foliagePipeline().setThermal(false);
             app().m_frame.grassPipeline().setThermal(false);
@@ -776,7 +769,7 @@ void SandboxFrame::render()
     // captured at build; the camera, `resolve` (lc, filled by the GBuffer draws) and the hooks are
     // read at execute.
     CoreFrameInputs core;
-    core.gbuffer = CorePassHook::of(drawGBuffer);
+    core.gbuffer = CoreDrawHook::of(drawGBuffer);
     core.world   = &app().world();
     core.camera  = &app().m_sceneWorld.camera;
     core.gtao    = &app().m_sceneWorld.ssao;
@@ -868,7 +861,7 @@ void SandboxFrame::render()
     bool lateDepthWrite = false;
     if (app().m_vision.camouflage && m_scene.camouflage().isValid())
     {
-        const auto drawBody = [&](Rg::PassContext& pass, D3D12_GPU_DESCRIPTOR_HANDLE sceneTable) {
+        const auto drawBody = [&](Rg::PassContext& pass, D3D12_GPU_DESCRIPTOR_HANDLE sceneTable, const WorldDrawContext& worldDraws) {
             ID3D12GraphicsCommandList* const cmd = pass.cmd();
             const Entity body = app().possessedBody();
             const TransformComponent* xf = body.valid() ? app().world().get<TransformComponent>(body) : nullptr;
@@ -884,13 +877,13 @@ void SandboxFrame::render()
                     ag->prevWorld      = worldMat;
                     ag->prevWorldValid = true;
                 }
-                lateDepthWrite = m_scene.camouflage().drawModel(cmd, sceneTable, gpu, m_skinRing, *model, pose, worldMat, viewProj, camPos, app().m_sceneWorld.cloudTime, fill);
+                lateDepthWrite = m_scene.camouflage().drawModel(cmd, sceneTable, gpu, worldDraws.skinRing, *model, pose, worldMat, viewProj, camPos, app().m_sceneWorld.cloudTime, fill);
             }
         };
         frame.declare(PassId::Camouflage, [&, drawBody](FeatureBuilder& b) { m_scene.addCamouflagePasses(b, app().renderer(), drawBody); });
     }
 
-    const auto drawTranslucent = [&](Rg::PassContext& pass) {
+    const auto drawTranslucent = [&](Rg::PassContext& pass, const WorldDrawContext& worldDraws) {
         ID3D12GraphicsCommandList* const cmd = pass.cmd();
         const GpuScope translucent(cmd, "Translucent", ProfileColor::Translucent);
         MeshFrameConstants lit{};
@@ -941,14 +934,14 @@ void SandboxFrame::render()
                 const AnimPose* pose = skinnedPose(*model, app().world().get<AnimGraphComponent>(e));
                 if (!pose)
                     continue;
-                drawSkinnedModelForward(cmd, gpu, m_skinnedTransparentPipeline, m_meshTransparentPipeline, m_shadowFeature.shadowMaps(), m_skinRing, *model, true, *pose, worldMat, viewProj, lit,
-                                        fill);
+                drawSkinnedModelForward(cmd, gpu, worldDraws.skinnedTransparent, worldDraws.meshTransparent, m_shadowFeature.shadowMaps(), worldDraws.skinRing, *model, true, *pose, worldMat, viewProj,
+                                        lit, fill);
             }
             else
-                drawModelForward(cmd, gpu, m_meshTransparentPipeline, m_shadowFeature.shadowMaps(), *model, true, worldMat, viewProj, lit, fill);
+                drawModelForward(cmd, gpu, worldDraws.meshTransparent, m_shadowFeature.shadowMaps(), *model, true, worldMat, viewProj, lit, fill);
         }
     };
-    core.translucent = CorePassHook::of(drawTranslucent);
+    core.translucent = CoreDrawHook::of(drawTranslucent);
 
     const auto drawOverlays = [&](Rg::PassContext& pass) {
         ID3D12GraphicsCommandList* const cmd = pass.cmd();

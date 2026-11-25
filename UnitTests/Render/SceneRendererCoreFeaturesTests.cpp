@@ -93,8 +93,8 @@ namespace
         int                                   translucentRuns = 0;
         int                                   beforeRuns      = 0;
         int                                   beforePostRuns  = 0;
-        std::function<void(Rg::PassContext&)> gbufferDraw     = [this](Rg::PassContext&) { ++gbufferRuns; };
-        std::function<void(Rg::PassContext&)> translucentDraw = [this](Rg::PassContext&) { ++translucentRuns; };
+        std::function<void(Rg::PassContext&, const WorldDrawContext&)> gbufferDraw     = [this](Rg::PassContext&, const WorldDrawContext&) { ++gbufferRuns; };
+        std::function<void(Rg::PassContext&, const WorldDrawContext&)> translucentDraw = [this](Rg::PassContext&, const WorldDrawContext&) { ++translucentRuns; };
         std::function<void(Rg::PassContext&)> beforeCapture   = [this](Rg::PassContext&) { ++beforeRuns; };
         std::function<void(Rg::PassContext&)> beforePostDraw  = [this](Rg::PassContext&) { ++beforePostRuns; };
 
@@ -118,8 +118,8 @@ namespace
             in.gtao                 = &gtao;
             in.ssr                  = &ssr;
             in.resolve              = &resolve;
-            in.gbuffer              = CorePassHook::of(gbufferDraw);
-            in.translucent          = CorePassHook::of(translucentDraw);
+            in.gbuffer              = CoreDrawHook::of(gbufferDraw);
+            in.translucent          = CoreDrawHook::of(translucentDraw);
             in.beforeSsrCapture     = CorePassHook::of(beforeCapture);
             in.beforeSsrCaptureName = "SsrCapture.Test";
             in.debugTiles           = &tiles;
@@ -459,6 +459,7 @@ TEST(SceneRendererCoreFeatures, RegisterShadowFeatureBindsTheSceneMaps)
     EXPECT_EQ(scene.features().feature(1), &feature.directional());
     EXPECT_EQ(scene.features().feature(2), &feature.local());
     EXPECT_NE(feature.skinnedShadowPipeline(), nullptr);
+    EXPECT_NE(feature.skinRing(), nullptr);
     // The scene's (uncreated) maps: the debug toggle reaches both, and there is no depth view.
     feature.setDebugEnabled(false);
     EXPECT_FALSE(feature.shadowMaps().debugEnabled());
@@ -466,4 +467,37 @@ TEST(SceneRendererCoreFeatures, RegisterShadowFeatureBindsTheSceneMaps)
     int views = 0;
     feature.forEachDepthView([&views](const Math::Matrix4f&, const Frustum3f&) { ++views; });
     EXPECT_EQ(views, 0);
+}
+
+TEST(SceneRendererCoreFeatures, DrawHookPassesTheWorldDrawsThrough)
+{
+    MeshPipeline            mesh;
+    MeshPipeline            meshTransparent;
+    SkinnedMeshPipeline     skinned;
+    SkinnedMeshPipeline     skinnedTransparent;
+    SkinningUploadRing      ring;
+    const WorldDrawContext  draws{ mesh, meshTransparent, skinned, skinnedTransparent, ring };
+    const WorldDrawContext* seen  = nullptr;
+    int                     calls = 0;
+    auto                    draw  = [&](Rg::PassContext&, const WorldDrawContext& d)
+    {
+        seen = &d;
+        ++calls;
+    };
+    const CoreDrawHook hook = CoreDrawHook::of(draw);
+    ASSERT_NE(hook.fn, nullptr);
+    struct Data
+    {
+        Rg::TextureHandle out;
+    };
+    Rg::RenderGraph graph;
+    graph.beginFrame(4, 4);
+    const Rg::TextureHandle back = graph.importBackBuffer(reinterpret_cast<ID3D12Resource*>(static_cast<uintptr_t>(0xB0)), 4, 4, DXGI_FORMAT_B8G8R8A8_UNORM);
+    graph.addPass<Data>("Hook.Test", [&](Rg::PassBuilder& b, Data& d) { d.out = b.write(back); }, [&](Rg::PassContext& c, const Data&) { hook(c, draws); });
+    ASSERT_TRUE(graph.compile());
+    ASSERT_TRUE(graph.execute());
+    EXPECT_EQ(calls, 1);
+    ASSERT_EQ(seen, &draws);
+    EXPECT_EQ(&seen->mesh, &mesh);
+    EXPECT_EQ(&seen->skinRing, &ring);
 }

@@ -203,7 +203,7 @@ TEST(ShadowFeature, DeclaresTheCullAndShadowsPassesAndNoLocalPassWithoutFaces)
     LocalShadowSystem local; // no faces selected
     for (LocalShadowSystem* localShadows : { static_cast<LocalShadowSystem*>(nullptr), &local })
     {
-        feature.bindShadowMaps(nullptr, localShadows, nullptr);
+        feature.bindShadowMaps(nullptr, localShadows, nullptr, nullptr);
         ShadowFrame frame;
         frame.casters = &casters;
         feature.setFrame(frame);
@@ -376,7 +376,7 @@ TEST(ShadowFeature, BoundMapsTakeTheDebugToggleAndAddNoViewsWithoutCascadesOrFac
     ShadowSystem      shadows; // not created: no map, so no cascade views
     LocalShadowSystem local;   // no faces selected
     ShadowFeature     feature;
-    feature.bindShadowMaps(&shadows, &local, nullptr);
+    feature.bindShadowMaps(&shadows, &local, nullptr, nullptr);
     EXPECT_EQ(&feature.shadowMaps(), &shadows);
     EXPECT_EQ(&feature.localShadowMaps(), &local);
     int views = 0;

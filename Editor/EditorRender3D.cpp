@@ -139,8 +139,7 @@ void EditorApp::submitPlayProjectiles(std::vector<int>& rejected)
     }
 }
 
-void EditorApp::drawPlayProjectiles(ID3D12GraphicsCommandList* cmd, const Matrix4f& viewProj, const Matrix4f& prevViewProj, bool instanced,
-                                    const std::vector<int>* rejectedShots)
+void EditorApp::drawPlayProjectiles(ID3D12GraphicsCommandList* cmd, MeshPipeline& mesh, const Matrix4f& viewProj, const Matrix4f& prevViewProj, bool instanced, const std::vector<int>* rejectedShots)
 {
     WeaponLoadout* weapons = playWeapons();
     const Model* model = assets().find<Model>(m_tracerModelId);
@@ -168,7 +167,7 @@ void EditorApp::drawPlayProjectiles(ID3D12GraphicsCommandList* cmd, const Matrix
     const DebugFill fill  = renderer().debugState().fill;
     auto            drawShot = [&](const LiveProjectile& s) {
         const Matrix4f worldMat = Matrix4f::ScaleMatrixXYZ(scale, scale, scale) * Matrix4f::TranslationMatrix(s.position.x, s.position.y, s.position.z);
-        drawModelOpaqueGBuffer(cmd, gpu, m_meshPipeline, *model, worldMat, viewProj, prevViewProj, fill);
+        drawModelOpaqueGBuffer(cmd, gpu, mesh, *model, worldMat, viewProj, prevViewProj, fill);
     };
 
     if (instanced)
@@ -372,7 +371,7 @@ void EditorApp::renderScene3D()
     shadowHost.drawList          = &m_drawList;
     shadowHost.skinned           = &m_skinnedInstances;
     shadowHost.skinnedShadow     = m_shadowFeature.skinnedShadowPipeline();
-    shadowHost.skinRing          = &m_skinRing;
+    shadowHost.skinRing          = m_shadowFeature.skinRing();
     shadowHost.terrain           = &m_sceneWorld.terrain;
     shadowHost.foliage           = &m_foliagePipeline;
     shadowHost.foliagePrototypes = &m_foliagePrototypes;
@@ -417,13 +416,13 @@ void EditorApp::renderScene3D()
     uint32_t             draws = 0;
     LightingConstants    deferredLighting{};
     DeferredResolveInput resolve;
-    const auto drawGBuffer = [&](Rg::PassContext& pass) {
+    const auto drawGBuffer = [&](Rg::PassContext& pass, const WorldDrawContext& worldDraws) {
         ID3D12GraphicsCommandList* const cmd = pass.cmd();
         viewProj     = m_scene.beginCameraFrame(m_camera, renderer());
         prevViewProj = m_scene.havePrevViewProj() ? m_scene.prevViewProj() : viewProj;
 
         auto drawMesh = [&](const Mesh& mesh, const Matrix4f& world, const Material* material, float cr, float cg, float cb, float emissive = 0.0f) {
-            m_meshPipeline.bind(cmd, fill);
+            worldDraws.mesh.bind(cmd, fill);
             if (material && material->isValid())
                 gpu.bindMaterial(cmd, *material, MeshPipeline::kRootAlbedoSrv);
             const Matrix4f wvp = world * viewProj;
@@ -437,7 +436,7 @@ void EditorApp::renderScene3D()
             gcb.color[1] = cg;
             gcb.color[2] = cb;
             gcb.color[3] = Max(emissive, material && material->isValid() ? material->emissive() : 0.0f);
-            m_meshPipeline.setGBufferConstants(cmd, gcb);
+            worldDraws.mesh.setGBufferConstants(cmd, gcb);
             mesh.draw(cmd, fill == DebugFill::Points);
         };
 
@@ -542,21 +541,21 @@ void EditorApp::renderScene3D()
                     if (!(accepted && skinnedListed))
                     {
                         if (accepted)
-                            drawSkinnedModelOpaqueGBufferSkinnedOnly(cmd, gpu, m_skinnedPipeline, m_meshPipeline, m_skinRing, *model, *pose, worldMat, prevW, viewProj, prevViewProj, fill);
+                            drawSkinnedModelOpaqueGBufferSkinnedOnly(cmd, gpu, worldDraws.skinned, worldDraws.mesh, worldDraws.skinRing, *model, *pose, worldMat, prevW, viewProj, prevViewProj, fill);
                         else if (skinnedListed)
-                            drawModelOpaqueGBuffer(cmd, gpu, m_meshPipeline, *model, worldMat, viewProj, prevViewProj, fill);
+                            drawModelOpaqueGBuffer(cmd, gpu, worldDraws.mesh, *model, worldMat, viewProj, prevViewProj, fill);
                         else
-                            drawSkinnedModelOpaqueGBuffer(cmd, gpu, m_skinnedPipeline, m_meshPipeline, m_skinRing, *model, *pose, worldMat, prevW, viewProj, prevViewProj, fill);
+                            drawSkinnedModelOpaqueGBuffer(cmd, gpu, worldDraws.skinned, worldDraws.mesh, worldDraws.skinRing, *model, *pose, worldMat, prevW, viewProj, prevViewProj, fill);
                     }
                     ++draws;
                 }
                 else if (!accepted)
                 {
-                    drawModelOpaqueGBuffer(cmd, gpu, m_meshPipeline, *model, worldMat, viewProj, prevViewProj, fill);
+                    drawModelOpaqueGBuffer(cmd, gpu, worldDraws.mesh, *model, worldMat, viewProj, prevViewProj, fill);
                     ++draws;
                 }
             });
-            drawPlayProjectiles(cmd, viewProj, prevViewProj, instanceColor, &rejectedShots);
+            drawPlayProjectiles(cmd, worldDraws.mesh, viewProj, prevViewProj, instanceColor, &rejectedShots);
             if (m_haveTerrain && m_sceneWorld.terrain.valid())
             {
                 const Frustum3f foliageFrustum(m_camera.GetCullViewProj());
@@ -600,7 +599,7 @@ void EditorApp::renderScene3D()
     // captured at build; the camera, `resolve` (filled by the GBuffer draws) and the hooks are read
     // at execute.
     CoreFrameInputs core;
-    core.gbuffer = CorePassHook::of(drawGBuffer);
+    core.gbuffer = CoreDrawHook::of(drawGBuffer);
     core.world   = &world();
     core.camera  = &m_camera;
     core.gtao    = &m_sceneWorld.ssao;
@@ -777,7 +776,7 @@ void EditorApp::renderScene3D()
     };
     frame.declare(PassId::DebugOverlays, [&, drawOverlays](FeatureBuilder& b) { m_scene.addHdrOverlayPasses(b, renderer(), "DebugOverlays", drawOverlays); });
 
-    const auto drawTranslucent = [&](Rg::PassContext& pass) {
+    const auto drawTranslucent = [&](Rg::PassContext& pass, const WorldDrawContext& worldDraws) {
         ID3D12GraphicsCommandList* const cmd = pass.cmd();
         const GpuScope translucent(cmd, "Translucent", ProfileColor::Translucent);
         MeshFrameConstants lit{};
@@ -826,15 +825,15 @@ void EditorApp::renderScene3D()
                 const AnimPose* pose = skinnedPose(*model, world().get<AnimGraphComponent>(e));
                 if (!pose)
                     continue;
-                drawSkinnedModelForward(cmd, gpu, m_skinnedTransparentPipeline, m_meshTransparentPipeline, m_shadowFeature.shadowMaps(), m_skinRing, *model, true, *pose, worldMat, viewProj, lit,
-                                        fill);
+                drawSkinnedModelForward(cmd, gpu, worldDraws.skinnedTransparent, worldDraws.meshTransparent, m_shadowFeature.shadowMaps(), worldDraws.skinRing, *model, true, *pose, worldMat, viewProj,
+                                        lit, fill);
             }
             else
-                drawModelForward(cmd, gpu, m_meshTransparentPipeline, m_shadowFeature.shadowMaps(), *model, true, worldMat, viewProj, lit, fill);
+                drawModelForward(cmd, gpu, worldDraws.meshTransparent, m_shadowFeature.shadowMaps(), *model, true, worldMat, viewProj, lit, fill);
             ++draws;
         }
     };
-    core.translucent = CorePassHook::of(drawTranslucent);
+    core.translucent = CoreDrawHook::of(drawTranslucent);
 
     const auto drawParticles = [&](Rg::PassContext& pass, D3D12_CPU_DESCRIPTOR_HANDLE depthSrv, D3D12_CPU_DESCRIPTOR_HANDLE attribSrv) {
         ID3D12GraphicsCommandList* const cmd = pass.cmd();
