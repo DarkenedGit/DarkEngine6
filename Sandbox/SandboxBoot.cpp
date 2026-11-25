@@ -1109,12 +1109,7 @@ bool SandboxApp::advanceBootSlice()
         if (!boot.demoChecked)
         {
             boot.demoChecked = true;
-            renderer().gpuResources().setShadowSrv(m_frame.scene().shadows().srvCpu());
-            m_frame.scene().localShadows().setDepthPipeline(&m_frame.scene().shadows().pipeline());
-            {
-                const LocalShadowSystem::CpuSrvs localSrvs = m_frame.scene().localShadows().cpuSrvs();
-                renderer().setLocalShadowSrvs(localSrvs.arraySrv, localSrvs.recordsSrv);
-            }
+            m_frame.shadowFeature().publishShadowMaps(renderer());
             m_demo.demoScene() = boot.scenePath.filename() == "level.json";
             m_hud.npcInfo().enabled = m_demo.demoScene();
             if (!m_demo.demoScene())
@@ -1361,12 +1356,7 @@ bool SandboxApp::advanceSpawnBatch()
             return true;
         }
         case SandboxBootLoad::SpawnPhase::Shadow:
-            renderer().gpuResources().setShadowSrv(m_frame.scene().shadows().srvCpu());
-            m_frame.scene().localShadows().setDepthPipeline(&m_frame.scene().shadows().pipeline());
-            {
-                const LocalShadowSystem::CpuSrvs localSrvs = m_frame.scene().localShadows().cpuSrvs();
-                renderer().setLocalShadowSrvs(localSrvs.arraySrv, localSrvs.recordsSrv);
-            }
+            m_frame.shadowFeature().publishShadowMaps(renderer());
             boot.phase = SandboxBootLoad::SpawnPhase::Camera;
             return true;
         case SandboxBootLoad::SpawnPhase::Camera:

@@ -110,7 +110,7 @@ void EditorApp::onInit()
         sceneDesc.logTag = "EditorApp";
         registerCoreFeatures(m_scene.features(), m_scene);
         registerSkyFeatures(m_scene.features(), m_sky);
-        registerShadowFeature(m_scene.features(), m_shadowFeature);
+        registerShadowFeature(m_scene, m_shadowFeature);
         if (!m_scene.init(renderer(), sceneDesc))
         {
             requestQuit();
@@ -261,12 +261,7 @@ void EditorApp::onInit()
         requestQuit();
         return;
     }
-    renderer().gpuResources().setShadowSrv(m_shadows.srvCpu());
-    m_scene.localShadows().setDepthPipeline(&m_shadows.pipeline());
-    {
-        const LocalShadowSystem::CpuSrvs localSrvs = m_scene.localShadows().cpuSrvs();
-        renderer().setLocalShadowSrvs(localSrvs.arraySrv, localSrvs.recordsSrv);
-    }
+    m_shadowFeature.publishShadowMaps(renderer());
 
     const float aspect = (renderer().height() > 0)
         ? static_cast<float>(renderer().width()) / static_cast<float>(renderer().height())

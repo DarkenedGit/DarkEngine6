@@ -1,8 +1,10 @@
 #pragma once
 
 #include "Math/Matrix4f.h"
+#include "Render/LocalShadowSystem.h"
 #include "Render/RenderFeature.h"
 #include "Render/ShadowCasterSource.h"
+#include "Render/ShadowSystem.h"
 
 #include <cstdint>
 
@@ -11,29 +13,29 @@ struct ID3D12GraphicsCommandList;
 namespace Dark
 {
 
+    class Camera3D;
     class DrawList;
     class IShadowCasterSource;
     class JobSystem;
-    class LocalShadowSystem;
     class Mesh;
     class Renderer;
-    class ShadowSystem;
+    class SceneRenderer;
     class SkinnedInstanceBuffer;
     class SkinnedMeshPipeline;
+    class World;
 
-    // Non-owning. The host fills one each frame before the registry declares the features.
+    // Non-owning. The host fills one each frame before the registry declares the features. The
+    // shadow maps and the skinned depth pipeline are not part of it: they are bound once
+    // (bindShadowMaps).
     struct ShadowFrame
     {
-        Renderer*                  renderer        = nullptr;
-        JobSystem*                 jobs            = nullptr;
-        ShadowSystem*              shadows         = nullptr;
-        LocalShadowSystem*         localShadows    = nullptr;
-        DrawList*                  drawList        = nullptr;
-        SkinnedInstanceBuffer*     skinned         = nullptr;
-        const SkinnedMeshPipeline* skinnedShadow   = nullptr;
-        bool                       instanceStatic  = false;
-        bool                       instanceSkinned = false;
-        IShadowCasterSource*       casters         = nullptr;
+        Renderer*              renderer        = nullptr;
+        JobSystem*             jobs            = nullptr;
+        DrawList*              drawList        = nullptr;
+        SkinnedInstanceBuffer* skinned         = nullptr;
+        bool                   instanceStatic  = false;
+        bool                   instanceSkinned = false;
+        IShadowCasterSource*   casters         = nullptr;
     };
 
     // True while main is filling the caster array for the shadow worker.
@@ -52,6 +54,56 @@ namespace Dark
         ShadowFeature();
         ShadowFeature(const ShadowFeature&)            = delete;
         ShadowFeature& operator=(const ShadowFeature&) = delete;
+
+        // The maps and the skinned depth pipeline the entries record into. SceneRenderer owns them;
+        // registerShadowFeature(SceneRenderer&, ShadowFeature&) binds its own before init. Null
+        // (unbound): no cascades, no faces, no skinned worker casters.
+        void bindShadowMaps(ShadowSystem* shadows, LocalShadowSystem* localShadows, const SkinnedMeshPipeline* skinnedShadow);
+
+        // Per frame, before setFrame, in this order of the host's frame: the local faces this frame
+        // draws, then the cascades. No-ops while unbound.
+        void updateLocal(World& world, const Camera3D& camera, const Frustum3f& cameraFrustum, uint32_t frameIndex, bool select);
+        void updateDirectional(const Camera3D& camera, const Math::Vector3f& lightDirToward, const Math::AABox3f& sceneBounds, float sunElevation, float cloudCoverage, uint32_t frameIndex);
+
+        // The depth views of the frame's GPU cull, in the order the entries record them: each cascade
+        // (when the map exists and shadows are on), then each local face. `add(viewProj, frustum)`.
+        template <class AddView> void forEachDepthView(AddView&& add) const
+        {
+            if (m_shadows && m_shadows->isValid() && m_shadows->enabled())
+            {
+                for (int i = 0; i < m_shadows->cascadeCount(); ++i)
+                    add(m_shadows->cascade(i).viewProj, Frustum3f(m_shadows->cascade(i).viewProj));
+            }
+            if (m_localShadows)
+            {
+                for (int f = 0; f < m_localShadows->faceCountThisFrame(); ++f)
+                {
+                    const LocalShadowFaceDraw& face = m_localShadows->face(f);
+                    add(face.viewProj, face.frustum);
+                }
+            }
+        }
+
+        // Once, after SceneRenderer::init: hands the maps' SRVs to `renderer` and the cascade depth
+        // pipeline to the local faces.
+        void publishShadowMaps(Renderer& renderer);
+        // The debug view of both maps.
+        void setDebugEnabled(bool enabled);
+
+        // What the readers sample (lighting constants, sky, water, terrain, forward draws) and the
+        // caster depth draws use. Bound (see bindShadowMaps) before any call.
+        const ShadowSystem& shadowMaps() const
+        {
+            return *m_shadows;
+        }
+        const LocalShadowSystem& localShadowMaps() const
+        {
+            return *m_localShadows;
+        }
+        const SkinnedMeshPipeline* skinnedShadowPipeline() const
+        {
+            return m_skinnedShadow;
+        }
 
         void               setFrame(const ShadowFrame& frame);
         const ShadowFrame& frame() const
@@ -121,8 +173,11 @@ namespace Dark
         void recordCascades(ID3D12GraphicsCommandList* cmd);
         void recordView(ID3D12GraphicsCommandList* cmd, const Math::Matrix4f& lightViewProj, const Frustum3f& frustum, const Entity* light, bool beginFoliage);
 
-        ShadowFrame m_frame;
-        uint8_t     m_viewIndex = 1;
+        ShadowSystem*              m_shadows       = nullptr;
+        LocalShadowSystem*         m_localShadows  = nullptr;
+        const SkinnedMeshPipeline* m_skinnedShadow = nullptr;
+        ShadowFrame                m_frame;
+        uint8_t                    m_viewIndex = 1;
         // Set by recordFrameCull: it ran; the worker has the cascades.
         bool  m_culled       = false;
         bool  m_workerKicked = false;
@@ -131,7 +186,8 @@ namespace Dark
         Entry m_local;
     };
 
-    // Adds the three entries. The host owns the feature and registers it before SceneRenderer::init.
+    // Adds the three entries (no maps bound). Hosts use registerShadowFeature(SceneRenderer&,
+    // ShadowFeature&) (SceneRenderer.h), which also binds the scene's maps.
     void registerShadowFeature(RenderFeatureRegistry& registry, ShadowFeature& feature);
 
 } // namespace Dark

@@ -307,16 +307,13 @@ namespace Dark
         return draws;
     }
 
-    ShadowFrame shadowFrameOf(const ShadowCasterHost& host, LocalShadowSystem* localShadows, IShadowCasterSource* casters)
+    ShadowFrame shadowFrameOf(const ShadowCasterHost& host, IShadowCasterSource* casters)
     {
         ShadowFrame frame;
         frame.renderer        = host.renderer;
         frame.jobs            = host.jobs;
-        frame.shadows         = host.shadows;
-        frame.localShadows    = localShadows;
         frame.drawList        = host.drawList;
         frame.skinned         = host.skinned;
-        frame.skinnedShadow   = host.skinnedShadow;
         frame.instanceStatic  = host.instanceStatic;
         frame.instanceSkinned = host.instanceSkinned;
         frame.casters         = casters;

@@ -43,17 +43,22 @@ namespace
     template <class S> constexpr bool kReachesPostPasses = requires(S& s, FeatureBuilder& b, Renderer& r, const Math::Matrix4f& vp, const TonemapSettings& t) {
         s.addPostPasses(b, r, vp, t, false);
     } || requires(S& s, Renderer& r) { s.syncAutoExposureSize(r); };
-    // What the hosts still drive: their world draws, the shadow systems, the game passes (Phase 8) and the meter.
-    template <class S> constexpr bool kHostSurface = requires(S& s) {
+    // The shadow systems go through ShadowFeature (registerShadowFeature(SceneRenderer&, ...)); the
+    // local-light list and the meter through narrow calls.
+    template <class S> constexpr bool kReachesShadowSystems     = requires(S& s) { s.shadows(); } || requires(S& s) { s.localShadows(); } || requires(S& s) { s.skinnedShadowPipeline(); };
+    template <class S> constexpr bool kReachesLightListAndMeter = requires(S& s) { s.localLightGpu(); } || requires(S& s) { s.autoExposure(); };
+    // What the hosts still drive: their world draws, the game passes, the water's local
+    // lights and the meter's samples.
+    template <class S> constexpr bool kHostSurface = requires(S& s, const LocalLightDrawLists& lists) {
         s.meshPipeline();
         s.skinnedPipeline();
         s.skinRing();
-        s.localLightGpu();
-        s.shadows();
-        s.localShadows();
         s.camouflage();
         s.echo();
-        s.autoExposure();
+        s.localLightsReady();
+        s.localLightsDummyVa();
+        s.uploadLocalLights(0u, lists);
+        s.invalidateAutoExposureSamples();
         s.features();
         s.setCoreFrame(CoreFrameInputs{});
     };
@@ -76,6 +81,8 @@ TEST(SceneRenderer, HostsDoNotReachTheCorePipelines)
     EXPECT_FALSE(kReachesResolvePasses<SceneRenderer>);
     EXPECT_FALSE(kReachesFramePasses<SceneRenderer>);
     EXPECT_FALSE(kReachesPostPasses<SceneRenderer>);
+    EXPECT_FALSE(kReachesShadowSystems<SceneRenderer>);
+    EXPECT_FALSE(kReachesLightListAndMeter<SceneRenderer>);
     EXPECT_TRUE(kHostSurface<SceneRenderer>);
 }
 
@@ -84,4 +91,15 @@ TEST(SceneRenderer, SsrReadyNeedsTheSsrPipelines)
     const SceneRenderer scene;
     EXPECT_FALSE(scene.isValid());
     EXPECT_FALSE(scene.ssrReady());
+}
+
+TEST(SceneRenderer, UncreatedLocalLightListIsNotReadyAndHasNoAddress)
+{
+    SceneRenderer scene;
+    EXPECT_FALSE(scene.localLightsReady());
+    EXPECT_EQ(scene.localLightsDummyVa(), 0u);
+    LocalLightDrawLists lists{};
+    lists.count = 1;
+    EXPECT_EQ(scene.uploadLocalLights(0, lists), 0u);
+    scene.invalidateAutoExposureSamples();
 }

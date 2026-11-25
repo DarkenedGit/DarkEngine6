@@ -649,8 +649,7 @@ void EditorApp::handleEditorCommands(float dt)
         {
             renderer().debugState().shadows = !renderer().debugState().shadows;
             const bool shadowsOn = renderer().debugState().shadows;
-            m_shadows.setDebugEnabled(shadowsOn);
-            m_scene.localShadows().setDebugEnabled(shadowsOn);
+            m_shadowFeature.setDebugEnabled(shadowsOn);
             DE_LOG_INFO("Editor: shadows = {}", shadowsOn);
         }
         if (input().actionPressed("debug_gbuffer"))

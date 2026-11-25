@@ -2,6 +2,7 @@
 
 #include "Core/Log.h"
 #include "Render/Renderer.h"
+#include "Render/ShadowFeature.h"
 
 namespace Dark
 {
@@ -198,6 +199,12 @@ namespace Dark
     {
         for (SceneRenderer::CoreEntry& e : scene.m_coreEntries)
             registry.add(&e);
+    }
+
+    void registerShadowFeature(SceneRenderer& scene, ShadowFeature& feature)
+    {
+        feature.bindShadowMaps(&scene.m_shadows, &scene.m_localShadows, &scene.m_skinnedShadowPipeline);
+        registerShadowFeature(scene.m_features, feature);
     }
 
 } // namespace Dark
