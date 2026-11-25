@@ -18,9 +18,6 @@
     { "action": "speed_down", "key": "Minus" },
     { "action": "speed_down", "button": "X" },
 
-    { "action": "yaw", "key": "Q", "scale": -1 },
-    { "action": "yaw", "key": "E", "scale": 1 },
-
     { "action": "pawn_x", "key": "Left", "scale": -1 },
     { "action": "pawn_x", "key": "Right", "scale": 1 },
     { "action": "pawn_x", "button": "DPadLeft", "scale": -1 },

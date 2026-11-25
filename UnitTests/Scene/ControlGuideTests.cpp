@@ -219,8 +219,8 @@ TEST(ControlGuide, SandboxFilesListEveryBinding)
     EXPECT_TRUE(tokenDoes(guide.engine, "Left stick", "Fly while paused"));
     EXPECT_TRUE(tokenDoes(guide.engine, "=", "Spin the cube faster"));
     EXPECT_TRUE(tokenDoes(guide.engine, "-", "Spin the cube slower"));
-    EXPECT_TRUE(tokenDoes(guide.engine, "Q", "Turn the cube"));
-    EXPECT_TRUE(tokenDoes(guide.engine, "E", "Turn the cube"));
+    EXPECT_TRUE(tokenDoes(guide.engine, "Q", "Fly up while paused"));
+    EXPECT_FALSE(hasToken(guide.engine, "E"));
     EXPECT_TRUE(tokenDoes(guide.engine, "Z", "Fly down while paused"));
     EXPECT_FALSE(hasToken(guide.engine, "X"));
     EXPECT_TRUE(tokenDoes(guide.engine, "F8", "Play the sample movie"));

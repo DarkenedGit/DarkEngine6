@@ -1006,18 +1006,6 @@ void SandboxApp::handleRuntimeCommands(float wallDt, bool allowScale)
     if (auto* xf = m_demo.cube().valid() ? world().get<TransformComponent>(m_demo.cube()) : nullptr)
     {
         const NetRole role = network().role();
-        if (role == NetRole::Host)
-        {
-            constexpr float kTurnRate = 1.8f; // rad/s
-            const float     yawCmd    = m_play.simPaused() ? input().actionAxis("yaw") : 0.0f;
-            if (yawCmd != 0.0f)
-            {
-                const Quaternion yawQ = Quaternion::FromAxisAngle(Vector3f::Y_AXIS, yawCmd * kTurnRate * m_simDt);
-                xf->rotation          = yawQ * xf->rotation;
-                xf->rotation.Normalize();
-            }
-        }
-
         // Host (and offline Idle) still spin the cube. Clients must not.
         if (role == NetRole::Host || role == NetRole::Idle)
         {

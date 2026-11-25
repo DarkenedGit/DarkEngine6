@@ -238,7 +238,6 @@ namespace Dark
                 { "reset", ControlList::Engine, "Reset the demo cube", nullptr, nullptr },
                 { "speed_up", ControlList::Engine, "Spin the cube faster", nullptr, nullptr },
                 { "speed_down", ControlList::Engine, "Spin the cube slower", nullptr, nullptr },
-                { "yaw", ControlList::Engine, "Turn the cube", "Turn the cube", nullptr },
                 { "pawn_x", ControlList::Engine, "Nudge the walker right", "Nudge the walker left", nullptr },
                 { "pawn_z", ControlList::Engine, "Nudge the walker forward", "Nudge the walker back", nullptr },
                 { "fly_forward", ControlList::Engine, "Fly forward while paused", "Fly back while paused", "Fly while paused" },

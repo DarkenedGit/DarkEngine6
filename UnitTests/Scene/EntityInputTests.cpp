@@ -223,8 +223,8 @@ TEST(EntityInput, SandboxFileThenPlayerFile)
     EXPECT_TRUE(hasButton(map, "speed_up", GamepadButton::RightShoulder, 1.0f));
     EXPECT_TRUE(hasKey(map, "speed_down", Key::Minus, 1.0f));
     EXPECT_TRUE(hasButton(map, "speed_down", GamepadButton::X, 1.0f));
-    EXPECT_TRUE(hasKey(map, "yaw", Key::Q, -1.0f));
-    EXPECT_TRUE(hasKey(map, "yaw", Key::E, 1.0f));
+    EXPECT_FALSE(hasKey(map, "yaw", Key::Q, -1.0f));
+    EXPECT_FALSE(hasKey(map, "yaw", Key::E, 1.0f));
     EXPECT_FALSE(hasKey(map, "pitch", Key::Z, 1.0f));
     EXPECT_FALSE(hasKey(map, "pitch", Key::X, -1.0f));
     EXPECT_TRUE(hasKey(map, "pawn_x", Key::Left, -1.0f));
