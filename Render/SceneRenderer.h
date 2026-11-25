@@ -75,10 +75,27 @@ struct DeferredResolveInput
     const LightingConstants* lighting    = nullptr;
 };
 
+// A host callable a core pass runs at execute, held by reference: the callable must outlive
+// execute() (hosts pass their frame-local draw lambdas). `fn(ctx, pass)`.
+struct CorePassHook
+{
+    void* ctx                                    = nullptr;
+    void (*fn)(void* ctx, Rg::PassContext& pass) = nullptr;
+
+    template <class F> static CorePassHook of(F& f)
+    {
+        return { const_cast<void*>(static_cast<const void*>(&f)), [](void* c, Rg::PassContext& pass) { (*static_cast<F*>(c))(pass); } };
+    }
+    void operator()(Rg::PassContext& pass) const
+    {
+        fn(ctx, pass);
+    }
+};
+
 // What the core features (registerCoreFeatures) read this frame. Non-owning: the host fills it
-// before the registry declares the features, and everything it points to must outlive execute().
-// The settings are read when the passes are added; the camera and `resolve` when they execute.
-// ssrEnv may be null.
+// before the frame executes (the entries read it when the passes are added), and everything it
+// points to must outlive execute(). The settings and the tile request are read when the passes
+// are added; the camera, `resolve` and the hooks when they execute. ssrEnv may be null.
 struct CoreFrameInputs
 {
     World*                      world   = nullptr;
@@ -87,6 +104,18 @@ struct CoreFrameInputs
     const SsrSettings*          ssr     = nullptr;
     const IEnvironmentProvider* ssrEnv  = nullptr;
     const DeferredResolveInput* resolve = nullptr;
+    // GBuffer: the host's opaque draws, with the MRTs and depth bound.
+    CorePassHook gbuffer;
+    // Translucent: the host's forward draws, with HDR and read-only depth bound.
+    CorePassHook translucent;
+    // SsrCapture: an optional host pass ahead of the capture, named `beforeSsrCaptureName` (a
+    // literal), with no declared uses. A hook without a name is skipped (logged once); the capture
+    // still runs.
+    CorePassHook beforeSsrCapture;
+    const char*  beforeSsrCaptureName = nullptr;
+    // Overlay: the debug tiles to draw (null: no pass) and the tile size (0: a fifth of the height).
+    const DebugTileRequest* debugTiles    = nullptr;
+    int32_t                 debugTileSize = 0;
 };
 
 class SceneRenderer
@@ -114,11 +143,6 @@ public:
     // pass), so it must outlive execute(). Call endCameraFrame after execute().
     void addPostPasses(FeatureBuilder& b, Renderer& renderer, const Math::Matrix4f& viewProj, TonemapSettings tonemap, bool meterAutoExposure = false);
 
-    // The Overlay entry: the debug texture tiles `request` names, drawn onto the back buffer after
-    // Post (Render/DebugTileInputs.h). `tile` is the tile size in pixels (0: a fifth of the height).
-    // No pass when nothing is requested or the overlay pipeline is missing.
-    void addDebugTilePasses(FeatureBuilder& b, Renderer& renderer, const DebugTileRequest& request, int32_t tile = 0);
-
     // Right after FrameComposer::begin: requests this frame's TAA / GTAO / SSR graph histories
     // (render-graph plan Phase 5) and applies a pending discardTemporalHistory. `frame` must stay
     // alive until the frame executes (hosts own it).
@@ -131,27 +155,10 @@ public:
     // The shadow maps FrameComposer::begin imports this frame (a missing map imports nothing).
     FrameShadows frameShadows() const;
 
-    // `draw(Rg::PassContext&)` runs with the MRTs and depth bound and is stored until execute(). It
-    // may bind its own descriptor heaps: the executor rebinds the ring before the next declared pass.
-    template <class Draw> void addGBufferPasses(FeatureBuilder& b, Renderer& renderer, Draw&& draw)
-    {
-        Renderer* const rr = &renderer;
-        if (!addGBufferPass(b,
-                            [rr, draw = std::forward<Draw>(draw)](Rg::PassContext& c, const GBufferTargets& d)
-                            {
-                                beginGBufferPass(c, *rr, d);
-                                draw(c);
-                            }))
-            b.opaque("GBuffer", {}, {}, [](Rg::PassContext&) { logMissingSceneTargets("GBuffer"); });
-    }
-
-    // The Decals, Gtao, Ssr, Lighting and LocalVolumes entries are the core features
-    // (registerCoreFeatures). They read this frame's inputs, set before the registry declares them.
+    // The GBuffer, Decals, Gtao, Ssr, Lighting, LocalVolumes, SsrCapture, Translucent and Overlay
+    // entries are the core features (registerCoreFeatures). They read this frame's inputs, set
+    // before the frame executes.
     void setCoreFrame(const CoreFrameInputs& inputs) { m_coreFrame = inputs; }
-
-    // The SsrCapture entry with declared uses: HDR -> half-res scene color for next frame's trace
-    // and this frame's water (published as SsrCaptureOutput). Adds no pass when SSR is unavailable.
-    void addSsrCapturePasses(FeatureBuilder& b, Renderer& renderer);
 
     // The passes after lighting draw into HDR with read-only depth (Render/HdrDrawInputs.h).
     // Each pass binds its targets, builds its ring tables and runs the host's callable, which is
@@ -179,12 +186,6 @@ public:
     template <class Draw> void addHdrOverlayPasses(FeatureBuilder& b, Renderer& renderer, const char* name, Draw&& draw)
     {
         addHdrOverlayPasses(b, renderer, name, HdrDrawUses{}, std::forward<Draw>(draw));
-    }
-    // Translucent: as an overlay, also reading the shadow map (the forward materials' heaps hold
-    // its SRV, GpuResourceCache::setShadowSrv).
-    template <class Draw> void addTranslucentPasses(FeatureBuilder& b, Renderer& renderer, Draw&& draw)
-    {
-        addHdrOverlayPasses(b, renderer, "Translucent", translucentUses(), std::forward<Draw>(draw));
     }
     template <class Draw> void addHdrOverlayPasses(FeatureBuilder& b, Renderer& renderer, const char* name, const HdrDrawUses& uses, Draw&& draw)
     {
@@ -264,8 +265,12 @@ private:
         Ssr,
         Lighting,
         LocalVolumes,
+        GBuffer,
+        SsrCapture,
+        Translucent,
+        DebugTiles,
     };
-    static constexpr uint32_t kCoreEntryCount = 5;
+    static constexpr uint32_t kCoreEntryCount = 9;
 
     // One core list entry as a render feature: its passes come from the add*Passes below.
     class CoreEntry final : public IRenderFeature
@@ -321,6 +326,35 @@ private:
     // Ssr: trace -> upsample (-> confidence debug), Full for Lighting's t9; on skip Lighting binds
     // the dummy. env may be null.
     void addSsrPasses(FeatureBuilder& b, Renderer& renderer, const Camera3D& camera, const SsrSettings& settings, const IEnvironmentProvider* env = nullptr);
+    // `draw(Rg::PassContext&)` runs with the MRTs and depth bound and is stored until execute(). It
+    // may bind its own descriptor heaps: the executor rebinds the ring before the next declared pass.
+    template <class Draw> void addGBufferPasses(FeatureBuilder& b, Renderer& renderer, Draw&& draw)
+    {
+        Renderer* const rr = &renderer;
+        if (!addGBufferPass(b,
+                            [rr, draw = std::forward<Draw>(draw)](Rg::PassContext& c, const GBufferTargets& d)
+                            {
+                                beginGBufferPass(c, *rr, d);
+                                draw(c);
+                            }))
+            b.opaque("GBuffer", {}, {}, [](Rg::PassContext&) { logMissingSceneTargets("GBuffer"); });
+    }
+
+    // The SsrCapture entry with declared uses: HDR -> half-res scene color for next frame's trace
+    // and this frame's water (published as SsrCaptureOutput). Adds no pass when SSR is unavailable.
+    void addSsrCapturePasses(FeatureBuilder& b, Renderer& renderer);
+
+    // Translucent: as an overlay, also reading the shadow map (the forward materials' heaps hold
+    // its SRV, GpuResourceCache::setShadowSrv).
+    template <class Draw> void addTranslucentPasses(FeatureBuilder& b, Renderer& renderer, Draw&& draw)
+    {
+        addHdrOverlayPasses(b, renderer, "Translucent", translucentUses(), std::forward<Draw>(draw));
+    }
+    // The Overlay entry: the debug texture tiles `request` names, drawn onto the back buffer after
+    // Post (Render/DebugTileInputs.h). `tile` is the tile size in pixels (0: a fifth of the height).
+    // No pass when nothing is requested or the overlay pipeline is missing.
+    void addDebugTilePasses(FeatureBuilder& b, Renderer& renderer, const DebugTileRequest& request, int32_t tile = 0);
+
     bool wantsTaa(const Renderer& renderer) const;
     // `table`: see DeferredLightingPipeline::draw / LocalLightVolumePipeline::draw.
     void drawDeferredLighting(ID3D12GraphicsCommandList* cmd, D3D12_GPU_DESCRIPTOR_HANDLE table, const LightingConstants& lc) const;
@@ -388,13 +422,14 @@ private:
     bool           m_autoExposureEnabled    = false;
     bool           m_initialized            = false;
     CoreFrameInputs m_coreFrame{};
-    CoreEntry       m_coreEntries[kCoreEntryCount]{
-        { *this, CoreEntryKind::Decals }, { *this, CoreEntryKind::Gtao }, { *this, CoreEntryKind::Ssr }, { *this, CoreEntryKind::Lighting }, { *this, CoreEntryKind::LocalVolumes },
+    CoreEntry          m_coreEntries[kCoreEntryCount]{
+        { *this, CoreEntryKind::Decals },  { *this, CoreEntryKind::Gtao },       { *this, CoreEntryKind::Ssr },         { *this, CoreEntryKind::Lighting },   { *this, CoreEntryKind::LocalVolumes },
+        { *this, CoreEntryKind::GBuffer }, { *this, CoreEntryKind::SsrCapture }, { *this, CoreEntryKind::Translucent }, { *this, CoreEntryKind::DebugTiles },
     };
 };
 
-// Adds the Decals, Gtao, Ssr, Lighting and LocalVolumes entries. Hosts register them before
-// SceneRenderer::init and call setCoreFrame each frame.
+// Adds the GBuffer, Decals, Gtao, Ssr, Lighting, LocalVolumes, SsrCapture, Translucent and
+// Overlay entries. Hosts register them before SceneRenderer::init and call setCoreFrame each frame.
 void registerCoreFeatures(RenderFeatureRegistry& registry, SceneRenderer& scene);
 
 } // namespace Dark

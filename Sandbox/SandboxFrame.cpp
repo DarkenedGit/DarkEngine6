@@ -784,56 +784,52 @@ void SandboxFrame::render()
             }
         }
     };
-    frame.declare(PassId::GBuffer, [&](FeatureBuilder& b) { m_scene.addGBufferPasses(b, app().renderer(), drawGBuffer); });
-
-    // The core features (Decals, Gtao, Ssr, Lighting, LocalVolumes): settings are captured at build;
-    // the camera and `resolve` (lc, filled by the GBuffer draws) are read at execute.
+    // The core features (registerCoreFeatures) read `core`, handed over before execute: settings are
+    // captured at build; the camera, `resolve` (lc, filled by the GBuffer draws) and the hooks are
+    // read at execute.
     CoreFrameInputs core;
+    core.gbuffer = CorePassHook::of(drawGBuffer);
     core.world   = &app().world();
     core.camera  = &app().m_sceneWorld.camera;
     core.gtao    = &app().m_sceneWorld.ssao;
     core.ssr     = &app().m_sceneWorld.ssr;
     core.ssrEnv  = &app().m_sceneWorld.env;
     core.resolve = &resolve;
-    m_scene.setCoreFrame(core);
     m_scene.features().declare(frame, view);
 
     D3D12_GPU_VIRTUAL_ADDRESS waterLightsVa   = m_localLightGpu.isValid() ? m_localLightGpu.dummyGpuVa() : 0;
     uint32_t                  waterLightCount = 0;
     uint32_t                  waterIndex[kWaterLocalLightMax]{};
     const SsrSettings*        waterSsr = &app().m_sceneWorld.ssr;
-    frame.declare(PassId::SsrCapture,
-                  [&](FeatureBuilder& b)
-                  {
-                      // CPU only: water's local lights. Runs at execute (viewProj is filled by GBuffer).
-                      b.opaque("SsrCapture.WaterInputs", {}, {},
-                               [&](Rg::PassContext&)
-                               {
-                                   if (app().renderer().debugState().localLights && app().renderer().debugState().lightingActive() && m_localLightGpu.isValid())
-                                   {
-                                       LocalLightCullInput in{};
-                                       in.frustum      = &frustum;
-                                       in.cameraPos    = camPos;
-                                       in.cameraLook   = app().m_sceneWorld.camera.GetLook();
-                                       in.nearZ        = app().m_sceneWorld.camera.GetNearZ();
-                                       in.viewportW    = app().renderer().width();
-                                       in.viewportH    = app().renderer().height();
-                                       in.viewProj     = &viewProj;
-                                       in.localShadows = &m_scene.localShadows();
-                                       in.fogBoxes     = m_scene.fogOccluders();
-                                       in.fogBoxCount  = m_scene.fogOccluderCount();
-                                       LocalLightDrawLists lists{};
-                                       if (gatherLocalLights(app().world(), in, lists) && lists.count > 0)
-                                       {
-                                           m_localLightGpu.upload(app().renderer().frameIndex(), lists);
-                                           waterLightCount = lists.waterCount;
-                                           std::memcpy(waterIndex, lists.waterIndex, sizeof(waterIndex));
-                                           waterLightsVa = m_localLightGpu.lightsGpuVa();
-                                       }
-                                   }
-                               });
-                      m_scene.addSsrCapturePasses(b, app().renderer());
-                  });
+    // CPU only: water's local lights, a pass ahead of the SSR capture. Runs at execute (viewProj is
+    // filled by GBuffer).
+    const auto waterInputs = [&](Rg::PassContext&)
+    {
+        if (app().renderer().debugState().localLights && app().renderer().debugState().lightingActive() && m_localLightGpu.isValid())
+        {
+            LocalLightCullInput in{};
+            in.frustum      = &frustum;
+            in.cameraPos    = camPos;
+            in.cameraLook   = app().m_sceneWorld.camera.GetLook();
+            in.nearZ        = app().m_sceneWorld.camera.GetNearZ();
+            in.viewportW    = app().renderer().width();
+            in.viewportH    = app().renderer().height();
+            in.viewProj     = &viewProj;
+            in.localShadows = &m_scene.localShadows();
+            in.fogBoxes     = m_scene.fogOccluders();
+            in.fogBoxCount  = m_scene.fogOccluderCount();
+            LocalLightDrawLists lists{};
+            if (gatherLocalLights(app().world(), in, lists) && lists.count > 0)
+            {
+                m_localLightGpu.upload(app().renderer().frameIndex(), lists);
+                waterLightCount = lists.waterCount;
+                std::memcpy(waterIndex, lists.waterIndex, sizeof(waterIndex));
+                waterLightsVa = m_localLightGpu.lightsGpuVa();
+            }
+        }
+    };
+    core.beforeSsrCapture     = CorePassHook::of(waterInputs);
+    core.beforeSsrCaptureName = "SsrCapture.WaterInputs";
     const bool waterSheet = app().m_sceneWorld.water.wetChunkCount() > 0;
     if (waterSheet || !app().m_sceneWorld.water.ribbons().empty())
     {
@@ -964,7 +960,7 @@ void SandboxFrame::render()
                 drawModelForward(cmd, gpu, m_meshTransparentPipeline, m_shadows, *model, true, worldMat, viewProj, lit, fill);
         }
     };
-    frame.declare(PassId::Translucent, [&, drawTranslucent](FeatureBuilder& b) { m_scene.addTranslucentPasses(b, app().renderer(), drawTranslucent); });
+    core.translucent = CorePassHook::of(drawTranslucent);
 
     const auto drawOverlays = [&](Rg::PassContext& pass) {
         ID3D12GraphicsCommandList* const cmd = pass.cmd();
@@ -1096,10 +1092,10 @@ void SandboxFrame::render()
         m_scene.addPostPasses(b, app().renderer(), viewProj, post, deferredMeter && app().m_frame.autoExposure().mode == ExposureMode::Auto && !holdExposure);
     });
 
-    const bool movieBlocks = app().m_movie.blocksWorld();
+    const bool       movieBlocks = app().m_movie.blocksWorld();
+    DebugTileRequest tiles;
     if (!movieBlocks)
     {
-        DebugTileRequest tiles;
         tiles.gbuffer     = app().m_showGBuffer;
         tiles.velocity    = app().m_showVelocity;
         tiles.ssao        = app().renderer().debugState().ssaoDebug == 1;
@@ -1108,8 +1104,9 @@ void SandboxFrame::render()
         tiles.depth       = app().m_showDepth;
         tiles.sunShadow   = app().m_showShadowMaps;
         tiles.localShadow = app().renderer().debugState().shadowMapTiles;
-        frame.declare(PassId::Overlay, [&, tiles](FeatureBuilder& b) { m_scene.addDebugTilePasses(b, app().renderer(), tiles); });
+        core.debugTiles   = &tiles;
     }
+    m_scene.setCoreFrame(core);
     // ImGui, the movie and the HUD stay after the graph until Phase 7; endFrame still presents.
     (void)frame.execute("Sandbox");
     // After execute: the Gtao/Ssr passes read last frame's view-proj while the graph records.

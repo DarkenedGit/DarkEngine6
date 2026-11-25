@@ -17,6 +17,13 @@ namespace Dark
         case CoreEntryKind::Lighting:
         case CoreEntryKind::LocalVolumes:
             return FeatureStage::Lighting;
+        case CoreEntryKind::GBuffer:
+            return FeatureStage::GBuffer;
+        case CoreEntryKind::SsrCapture:
+        case CoreEntryKind::Translucent:
+            return FeatureStage::Transparent;
+        case CoreEntryKind::DebugTiles:
+            return FeatureStage::Overlay;
         default:
             return FeatureStage::PostGBuffer;
         }
@@ -34,6 +41,14 @@ namespace Dark
             return PassId::Lighting;
         case CoreEntryKind::LocalVolumes:
             return PassId::LocalVolumes;
+        case CoreEntryKind::GBuffer:
+            return PassId::GBuffer;
+        case CoreEntryKind::SsrCapture:
+            return PassId::SsrCapture;
+        case CoreEntryKind::Translucent:
+            return PassId::Translucent;
+        case CoreEntryKind::DebugTiles:
+            return PassId::Overlay;
         default:
             return PassId::Decals;
         }
@@ -63,6 +78,13 @@ namespace Dark
             return in.resolve != nullptr;
         case CoreEntryKind::LocalVolumes:
             return in.world && in.camera && in.resolve;
+        case CoreEntryKind::GBuffer:
+            return in.gbuffer.fn != nullptr;
+        case CoreEntryKind::Translucent:
+            return in.translucent.fn != nullptr;
+        case CoreEntryKind::SsrCapture:
+        case CoreEntryKind::DebugTiles:
+            return true;
         default:
             return in.camera && in.resolve;
         }
@@ -75,7 +97,7 @@ namespace Dark
             if (!m_loggedMissing)
             {
                 m_loggedMissing = true;
-                DE_LOG_ERROR(LogCategory::Render, "SceneRenderer: {} is missing a frame input; call setCoreFrame before declaring (logs once)", name());
+                DE_LOG_ERROR(LogCategory::Render, "SceneRenderer: {} is missing a frame input; set it with setCoreFrame before the frame executes (logs once)", name());
             }
             // The entry keeps its place in the list (the order check) with nothing to run.
             b.opaque(name(), {}, {}, [](Rg::PassContext&) {});
@@ -99,6 +121,30 @@ namespace Dark
             break;
         case CoreEntryKind::LocalVolumes:
             s.addLocalVolumesPasses(b, *m_renderer, *in.world, *in.camera, *in.resolve);
+            break;
+        case CoreEntryKind::GBuffer:
+            s.addGBufferPasses(b, *m_renderer, in.gbuffer);
+            break;
+        case CoreEntryKind::SsrCapture:
+        {
+            // The hook's pass needs a name; without one only the hook is skipped, never the capture.
+            if (const CorePassHook before = in.beforeSsrCapture; before.fn && in.beforeSsrCaptureName)
+                b.opaque(in.beforeSsrCaptureName, {}, {}, [before](Rg::PassContext& c) { before(c); });
+            else if (before.fn && !m_loggedMissing)
+            {
+                m_loggedMissing = true;
+                DE_LOG_ERROR(LogCategory::Render, "SceneRenderer: SsrCapture's beforeSsrCapture hook has no name; the hook is skipped (logs once)");
+            }
+            s.addSsrCapturePasses(b, *m_renderer);
+            break;
+        }
+        case CoreEntryKind::Translucent:
+            s.addTranslucentPasses(b, *m_renderer, in.translucent);
+            break;
+        case CoreEntryKind::DebugTiles:
+            // Off this frame (the host shows no tiles while a movie covers the world): no pass.
+            if (in.debugTiles)
+                s.addDebugTilePasses(b, *m_renderer, *in.debugTiles, in.debugTileSize);
             break;
         }
     }

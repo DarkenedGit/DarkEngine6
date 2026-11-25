@@ -606,18 +606,17 @@ void EditorApp::renderScene3D()
             resolve.lighting     = &lc;
         }
     };
-    frame.declare(PassId::GBuffer, [&](FeatureBuilder& b) { m_scene.addGBufferPasses(b, renderer(), drawGBuffer); });
-
-    // The core features (Decals, Gtao, Ssr, Lighting, LocalVolumes): settings are captured at build;
-    // the camera and `resolve` (filled by the GBuffer draws) are read at execute.
+    // The core features (registerCoreFeatures) read `core`, handed over before execute: settings are
+    // captured at build; the camera, `resolve` (filled by the GBuffer draws) and the hooks are read
+    // at execute.
     CoreFrameInputs core;
+    core.gbuffer = CorePassHook::of(drawGBuffer);
     core.world   = &world();
     core.camera  = &m_camera;
     core.gtao    = &m_sceneWorld.ssao;
     core.ssr     = &m_sceneWorld.ssr;
     core.ssrEnv  = nullptr;
     core.resolve = &resolve;
-    m_scene.setCoreFrame(core);
     SkyFrameInputs sky;
     sky.camera     = &m_camera;
     sky.env        = &m_sceneWorld.env;
@@ -626,7 +625,6 @@ void EditorApp::renderScene3D()
     sky.fogScale   = 0.0f;
     m_sky.sky.setFrameInputs(sky);
     m_scene.features().declare(frame, view);
-    frame.declare(PassId::SsrCapture, [&](FeatureBuilder& b) { m_scene.addSsrCapturePasses(b, renderer()); });
     const bool anyWater = m_sceneWorld.water.wetChunkCount() > 0 || !m_placedWater.empty() || !m_sceneWorld.water.ribbons().empty();
     if (m_haveTerrain && m_waterRendering.pipeline().isValid() && anyWater)
     {
@@ -845,7 +843,7 @@ void EditorApp::renderScene3D()
             ++draws;
         }
     };
-    frame.declare(PassId::Translucent, [&, drawTranslucent](FeatureBuilder& b) { m_scene.addTranslucentPasses(b, renderer(), drawTranslucent); });
+    core.translucent = CorePassHook::of(drawTranslucent);
 
     const auto drawParticles = [&](Rg::PassContext& pass, D3D12_CPU_DESCRIPTOR_HANDLE depthSrv, D3D12_CPU_DESCRIPTOR_HANDLE attribSrv) {
         ID3D12GraphicsCommandList* const cmd = pass.cmd();
@@ -888,17 +886,19 @@ void EditorApp::renderScene3D()
         m_scene.addPostPasses(b, renderer(), viewProj, ts);
     });
 
+    DebugTileRequest tiles;
     if (!m_movie.blocksWorld())
     {
-        DebugTileRequest tiles;
         tiles.gbuffer     = m_showGBuffer;
         tiles.velocity    = m_showVelocity;
         tiles.ssao        = renderer().debugState().ssaoDebug == 1;
         tiles.ssrFull     = renderer().debugState().ssrDebug == 1;
         tiles.ssrConf     = renderer().debugState().ssrDebug == 2;
         tiles.localShadow = renderer().debugState().shadowMapTiles;
-        frame.declare(PassId::Overlay, [&, tiles](FeatureBuilder& b) { m_scene.addDebugTilePasses(b, renderer(), tiles, 160); });
+        core.debugTiles    = &tiles;
+        core.debugTileSize = 160;
     }
+    m_scene.setCoreFrame(core);
     // The movie stays after the graph until Phase 7; endFrame still presents.
     (void)frame.execute("Editor 3D");
 
