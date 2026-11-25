@@ -40,6 +40,9 @@ namespace
         requires(S& s, FeatureBuilder& b, Renderer& r, const CorePassHook& h) { s.addTranslucentPasses(b, r, h); } ||
         requires(S& s, FeatureBuilder& b, Renderer& r) { s.addSsrCapturePasses(b, r); } ||
         requires(S& s, FeatureBuilder& b, Renderer& r, const DebugTileRequest& t) { s.addDebugTilePasses(b, r, t, 0); };
+    template <class S> constexpr bool kReachesPostPasses = requires(S& s, FeatureBuilder& b, Renderer& r, const Math::Matrix4f& vp, const TonemapSettings& t) {
+        s.addPostPasses(b, r, vp, t, false);
+    } || requires(S& s, Renderer& r) { s.syncAutoExposureSize(r); };
     // What the hosts still drive: their world draws, the shadow systems, the game passes (Phase 8) and the meter.
     template <class S> constexpr bool kHostSurface = requires(S& s) {
         s.meshPipeline();
@@ -72,6 +75,7 @@ TEST(SceneRenderer, HostsDoNotReachTheCorePipelines)
     EXPECT_FALSE(kReachesLightDraws<SceneRenderer>);
     EXPECT_FALSE(kReachesResolvePasses<SceneRenderer>);
     EXPECT_FALSE(kReachesFramePasses<SceneRenderer>);
+    EXPECT_FALSE(kReachesPostPasses<SceneRenderer>);
     EXPECT_TRUE(kHostSurface<SceneRenderer>);
 }
 

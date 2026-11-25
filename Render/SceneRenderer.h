@@ -92,6 +92,19 @@ struct CorePassHook
     }
 };
 
+// Post's optional auto exposure: the host's meter state and settings, and this frame's artistic
+// exposure. When the meter pipeline exists, Post adapts it from last frame's sample (none while
+// `hold` is on or in Manual) and meters this frame; `result` gets the outcome either way.
+struct CoreAutoExposure
+{
+    AutoExposureState*          state       = nullptr;
+    AutoExposureResult*         result      = nullptr;
+    const AutoExposureSettings* settings    = nullptr;
+    float                       envExposure = 1.0f;
+    float                       dt          = 0.0f;
+    bool                        hold        = false;
+};
+
 // What the core features (registerCoreFeatures) read this frame. Non-owning: the host fills it
 // before the frame executes (the entries read it when the passes are added), and everything it
 // points to must outlive execute(). The settings and the tile request are read when the passes
@@ -116,6 +129,16 @@ struct CoreFrameInputs
     // Overlay: the debug tiles to draw (null: no pass) and the tile size (0: a fifth of the height).
     const DebugTileRequest* debugTiles    = nullptr;
     int32_t                 debugTileSize = 0;
+    // Post: the tonemap settings (exposure is replaced when autoExposure is set) and the
+    // view-proj the host fills in its GBuffer pass (read when the passes execute).
+    const TonemapSettings* post     = nullptr;
+    const Math::Matrix4f*  viewProj = nullptr;
+    // Optional; null: no adaptation, no metering, `post`'s exposure as is.
+    const CoreAutoExposure* autoExposure = nullptr;
+    // Optional: a host HDR pass ahead of Post (reads HDR and depth, writes HDR), named
+    // `beforePostName` (a literal). A hook without a name is skipped (logged once); Post still runs.
+    CorePassHook beforePost;
+    const char*  beforePostName = nullptr;
 };
 
 class SceneRenderer
@@ -131,32 +154,16 @@ public:
     Math::Matrix4f beginCameraFrame(Camera3D& camera, Renderer& renderer);
     void           endCameraFrame(Camera3D& camera, const Math::Matrix4f& viewProj);
 
-    // The Post entry with declared uses (render-graph plan Phase 6 part 2), from the host's
-    // FrameComposer::declare(PassId::Post) callback: meter (when requested) -> bloom -> TAA ->
-    // motion blur -> tonemap, each step its own graph pass binding a descriptor-ring table, so the
-    // graph plans every barrier. tonemap.usePostHdr is set here. meterAutoExposure records this
-    // frame's 1x1. The host reads the previous sample and writes tonemap.exposure before the call,
-    // so bloom and tonemap share that exposure. FrameView::holdTemporal (see requestHistories)
-    // forces a TAA reset and skips motion blur so a strobe is not smeared. Runs while execute()
-    // builds the graph, before any pass executes: the settings and the previous view-proj are
-    // captured now, but `viewProj` is read when the passes execute (hosts fill it in their GBuffer
-    // pass), so it must outlive execute(). Call endCameraFrame after execute().
-    void addPostPasses(FeatureBuilder& b, Renderer& renderer, const Math::Matrix4f& viewProj, TonemapSettings tonemap, bool meterAutoExposure = false);
-
     // Right after FrameComposer::begin: requests this frame's TAA / GTAO / SSR graph histories
     // (render-graph plan Phase 5) and applies a pending discardTemporalHistory. `frame` must stay
     // alive until the frame executes (hosts own it).
     void requestHistories(FrameComposer& frame, Renderer& renderer);
 
-    // True when Renderer::resize recreated the meter's pyramid since the last call: the readback was
-    // dropped, and the host should zero its stored EV before adapting. Never waits.
-    bool syncAutoExposureSize(Renderer& renderer);
-
     // The shadow maps FrameComposer::begin imports this frame (a missing map imports nothing).
     FrameShadows frameShadows() const;
 
-    // The GBuffer, Decals, Gtao, Ssr, Lighting, LocalVolumes, SsrCapture, Translucent and Overlay
-    // entries are the core features (registerCoreFeatures). They read this frame's inputs, set
+    // The GBuffer, Decals, Gtao, Ssr, Lighting, LocalVolumes, SsrCapture, Translucent, Post and
+    // Overlay entries are the core features (registerCoreFeatures). They read this frame's inputs, set
     // before the frame executes.
     void setCoreFrame(const CoreFrameInputs& inputs) { m_coreFrame = inputs; }
 
@@ -269,8 +276,9 @@ private:
         SsrCapture,
         Translucent,
         DebugTiles,
+        Post,
     };
-    static constexpr uint32_t kCoreEntryCount = 9;
+    static constexpr uint32_t kCoreEntryCount = 10;
 
     // One core list entry as a render feature: its passes come from the add*Passes below.
     class CoreEntry final : public IRenderFeature
@@ -292,6 +300,7 @@ private:
 
     private:
         bool inputsOk() const;
+        void addPostPasses(FeatureBuilder& b);
 
         SceneRenderer& m_owner;
         CoreEntryKind  m_kind     = CoreEntryKind::Decals;
@@ -354,6 +363,21 @@ private:
     // Post (Render/DebugTileInputs.h). `tile` is the tile size in pixels (0: a fifth of the height).
     // No pass when nothing is requested or the overlay pipeline is missing.
     void addDebugTilePasses(FeatureBuilder& b, Renderer& renderer, const DebugTileRequest& request, int32_t tile = 0);
+
+    // The Post entry with declared uses (render-graph plan Phase 6 part 2): meter (when requested)
+    // -> bloom -> TAA -> motion blur -> tonemap, each step its own graph pass binding a
+    // descriptor-ring table, so the graph plans every barrier. tonemap.usePostHdr is set here.
+    // meterAutoExposure records this frame's 1x1. The entry adapts tonemap.exposure from the
+    // previous sample before the call (CoreAutoExposure), so bloom and tonemap share that exposure.
+    // FrameView::holdTemporal (see requestHistories) forces a TAA reset and skips motion blur so a
+    // strobe is not smeared. Runs while execute() builds the graph, before any pass executes: the
+    // settings and the previous view-proj are captured now, but `viewProj` is read when the passes
+    // execute (hosts fill it in their GBuffer pass), so it must outlive execute(). Call
+    // endCameraFrame after execute().
+    void addPostPasses(FeatureBuilder& b, Renderer& renderer, const Math::Matrix4f& viewProj, TonemapSettings tonemap, bool meterAutoExposure = false);
+    // True when Renderer::resize recreated the meter's pyramid since the last call: the readback was
+    // dropped, and the Post entry zeroes the host's stored EV before adapting. Never waits.
+    bool syncAutoExposureSize(Renderer& renderer);
 
     bool wantsTaa(const Renderer& renderer) const;
     // `table`: see DeferredLightingPipeline::draw / LocalLightVolumePipeline::draw.
@@ -424,11 +448,11 @@ private:
     CoreFrameInputs m_coreFrame{};
     CoreEntry          m_coreEntries[kCoreEntryCount]{
         { *this, CoreEntryKind::Decals },  { *this, CoreEntryKind::Gtao },       { *this, CoreEntryKind::Ssr },         { *this, CoreEntryKind::Lighting },   { *this, CoreEntryKind::LocalVolumes },
-        { *this, CoreEntryKind::GBuffer }, { *this, CoreEntryKind::SsrCapture }, { *this, CoreEntryKind::Translucent }, { *this, CoreEntryKind::DebugTiles },
+        { *this, CoreEntryKind::GBuffer }, { *this, CoreEntryKind::SsrCapture }, { *this, CoreEntryKind::Translucent }, { *this, CoreEntryKind::DebugTiles }, { *this, CoreEntryKind::Post },
     };
 };
 
-// Adds the GBuffer, Decals, Gtao, Ssr, Lighting, LocalVolumes, SsrCapture, Translucent and
+// Adds the GBuffer, Decals, Gtao, Ssr, Lighting, LocalVolumes, SsrCapture, Translucent, Post and
 // Overlay entries. Hosts register them before SceneRenderer::init and call setCoreFrame each frame.
 void registerCoreFeatures(RenderFeatureRegistry& registry, SceneRenderer& scene);
 

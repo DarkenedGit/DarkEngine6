@@ -877,14 +877,12 @@ void EditorApp::renderScene3D()
     };
     frame.declare(PassId::Particles, [&, drawParticles](FeatureBuilder& b) { addParticlesPasses(b, renderer(), drawParticles); });
 
-    // Phase 6 part 2: Post adds declared passes when execute() builds the frame.
-    frame.declare(PassId::Post, [&](FeatureBuilder& b) {
-        const bool aces = renderer().debugState().aces && renderer().debugState().lightingActive();
-        TonemapSettings ts{};
-        ts.mode     = aces ? 1.0f : 0.0f;
-        ts.exposure = 1.0f;
-        m_scene.addPostPasses(b, renderer(), viewProj, ts);
-    });
+    // Post (a core feature): no auto exposure, no pass ahead of it.
+    TonemapSettings postFx{};
+    postFx.mode     = renderer().debugState().aces && renderer().debugState().lightingActive() ? 1.0f : 0.0f;
+    postFx.exposure = 1.0f;
+    core.post       = &postFx;
+    core.viewProj   = &viewProj;
 
     DebugTileRequest tiles;
     if (!m_movie.blocksWorld())
