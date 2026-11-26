@@ -776,7 +776,7 @@ void SandboxFrame::render()
     core.ssr     = &app().m_sceneWorld.ssr;
     core.ssrEnv  = &app().m_sceneWorld.env;
     core.resolve = &resolve;
-    m_scene.features().declare(frame, view);
+    m_scene.features().declare(frame, frame.view());
 
     D3D12_GPU_VIRTUAL_ADDRESS waterLightsVa   = m_scene.localLightsDummyVa();
     uint32_t                  waterLightCount = 0;

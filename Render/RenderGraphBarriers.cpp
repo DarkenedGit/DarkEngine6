@@ -587,6 +587,8 @@ namespace Dark::Rg
             return "TooManyResources";
         case ErrorCode::NotCompiled:
             return "NotCompiled";
+        case ErrorCode::DisabledOutputUse:
+            return "DisabledOutputUse";
         }
         return "?";
     }

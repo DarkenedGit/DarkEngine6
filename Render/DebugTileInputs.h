@@ -152,7 +152,7 @@ namespace Dark
             "Overlay",
             [&](Rg::PassBuilder& pb, DebugTileReads& d)
             {
-                const auto read = [&pb](Rg::TextureHandle h) { return h.valid() ? pb.read(h, Rg::Use::PixelSrv) : Rg::TextureHandle{}; };
+                const auto read = [&pb](Rg::TextureHandle h) { return pb.tryRead(h, {}, Rg::Use::PixelSrv); };
                 d.albedo        = read(in.albedo);
                 d.attrib        = read(in.attrib);
                 d.velocity      = read(in.velocity);

@@ -7,6 +7,7 @@
 #include "Render/Renderer.h"
 #include "Render/RgViews.h"
 
+#include <chrono>
 #include <d3d12.h>
 
 namespace Dark
@@ -23,6 +24,7 @@ namespace Dark
     {
         m_renderer                 = &renderer;
         m_view                     = view;
+        m_view.setup               = m_setupHooks.resolve(view, std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count());
         Rg::CompileOptions options = m_graph.options();
         options.asyncCompute       = false; // one graphics queue until Phase 10
         m_graph.setOptions(options);

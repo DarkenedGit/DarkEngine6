@@ -283,6 +283,8 @@ public:
     bool                  isValid() const { return m_initialized; }
     // The SSR pipelines exist (the lighting constants' SSR bit, fillSsrLightingConstants).
     bool                  ssrReady() const { return m_ssr.isValid(); }
+    // This frame's setup, taken from the composer's view by requestHistories.
+    const FrameSetup&     frameSetup() const { return m_setup; }
 
 private:
     friend void registerCoreFeatures(RenderFeatureRegistry& registry, SceneRenderer& scene);
@@ -474,6 +476,7 @@ private:
         { *this, CoreEntryKind::DebugTiles },   { *this, CoreEntryKind::Post },    { *this, CoreEntryKind::Game },
     };
     std::vector<IGameFeature*> m_gameFeatures;
+    FrameSetup                 m_setup{}; // this frame's (requestHistories)
 };
 
 // Adds the GBuffer, Decals, Gtao, Ssr, Lighting, LocalVolumes, SsrCapture, Translucent, Post and

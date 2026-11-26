@@ -10,7 +10,9 @@
 
 #include "Core/Log.h"
 #include "ECS/World.h"
+#include "Render/FrameComposer.h"
 #include "Render/FrameFeatures.h"
+#include "Render/LightingInputs.h"
 #include "Render/Renderer.h"
 #include "Render/SceneRenderer.h"
 #include "Render/ShadowFeature.h"
@@ -639,4 +641,55 @@ TEST(SceneRendererCoreFeatures, AddGameFeatureRejectsNullAndDuplicatesAndShutdow
     EXPECT_TRUE(scene.addGameFeature(&feature));
     scene.shutdown();
     EXPECT_TRUE(scene.addGameFeature(&feature)); // shutdown dropped it
+}
+
+TEST(SceneRendererCoreFeatures, FrameSetupReachesTheSceneAndOffEntriesPublishDisabledOutputs)
+{
+    ErrorCapture errors;
+    Bundle       bundle;
+    ASSERT_TRUE(bundle.created);
+    bundle.scene.setCoreFrame(bundle.inputs());
+    struct Off : IFrameSetupHook
+    {
+        const char* name() const override
+        {
+            return "Off";
+        }
+        void setupFrame(const FrameView&, FrameSetup& setup) override
+        {
+            setup.disabled.set(EnginePass::Gtao);
+            setup.disabled.set(EnginePass::Ssr);
+        }
+    } off;
+    FrameComposer composer;
+    ASSERT_TRUE(composer.setupHooks().add(&off));
+    uint32_t           count = 0;
+    const FeaturePass* list  = sandboxFeatures(count);
+    FrameView          view;
+    view.holdTemporal = true;
+    composer.begin(bundle.renderer, view, list, count, FrameShadows{});
+    EXPECT_TRUE(composer.view().holdTemporal);
+    EXPECT_EQ(composer.view().setup.disabled.bits, EnginePassMask::bit(EnginePass::Gtao) | EnginePassMask::bit(EnginePass::Ssr));
+    bundle.scene.requestHistories(composer, bundle.renderer);
+    EXPECT_EQ(bundle.scene.frameSetup(), composer.view().setup);
+
+    Rg::RenderGraph graph;
+    FeatureFrame    features;
+    EXPECT_EQ(coreOrder(bundle.registry, graph, features),
+              ids({ PassId::GBuffer, PassId::Decals, PassId::Gtao, PassId::Ssr, PassId::Lighting, PassId::LocalVolumes, PassId::SsrCapture, PassId::Translucent, PassId::Post }));
+    const GtaoOutput* gtao = graph.blackboard().tryGet<GtaoOutput>();
+    const SsrOutput*  ssr  = graph.blackboard().tryGet<SsrOutput>();
+    ASSERT_NE(gtao, nullptr);
+    ASSERT_NE(ssr, nullptr);
+    EXPECT_STREQ(graph.disabledOutputName(gtao->compose), "Gtao.Compose");
+    EXPECT_FALSE(gtao->full.valid());
+    EXPECT_STREQ(graph.disabledOutputName(ssr->full), "Ssr.Full");
+    EXPECT_STREQ(graph.disabledOutputName(ssr->conf), "Ssr.Conf");
+
+    composer.setupHooks().remove(&off);
+    composer.begin(bundle.renderer, FrameView{}, list, count, FrameShadows{});
+    EXPECT_FALSE(composer.view().setup.disabled.any());
+    EXPECT_FALSE(composer.view().holdTemporal);
+    bundle.scene.requestHistories(composer, bundle.renderer);
+    EXPECT_FALSE(bundle.scene.frameSetup().disabled.any());
 }

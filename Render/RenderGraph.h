@@ -189,6 +189,9 @@ namespace Dark::Rg
         TextureHandle read(TextureHandle h, Use use = Use::PixelSrv, uint16_t mip = kAllMips);
         TextureHandle write(TextureHandle h, Use use = Use::RenderTarget); // returns the new version
         TextureHandle readWrite(TextureHandle h, Use use = Use::Uav);      // returns the new version
+        // Reads `h`, or `fallback` when `h` is not valid (missing, or a disabled pass's output); an
+        // invalid fallback reads nothing and returns an invalid handle.
+        TextureHandle tryRead(TextureHandle h, TextureHandle fallback, Use use = Use::PixelSrv, uint16_t mip = kAllMips);
         BufferHandle  read(BufferHandle h, Use use);
         BufferHandle  write(BufferHandle h, Use use);
         BufferHandle  readWrite(BufferHandle h, Use use = Use::Uav);
@@ -517,6 +520,11 @@ namespace Dark::Rg
         // Imported every frame; starts and ends in PRESENT. Writing it makes the writer a sink.
         TextureHandle importBackBuffer(ID3D12Resource* native, uint32_t width, uint32_t height, uint32_t dxgiFormat);
 
+        // The output `name` of a pass that does not run this frame: a handle that is not valid(),
+        // whose read() or write() is a DisabledOutputUse error; readers take it with tryRead.
+        TextureHandle disabledOutput(const char* name);
+        const char*   disabledOutputName(TextureHandle h) const; // null when h is not a disabled output
+
         HistoryPair history(const char* name, const TextureDesc& desc); // §3.6
         void        invalidateHistory();                                // camera cut / scene change; affects history() calls after it
         // Slots of a history requested this frame; curr == kNoPass when it was not requested.
@@ -755,6 +763,7 @@ namespace Dark::Rg
         std::vector<std::pair<uint32_t, uint32_t>> m_edges; // live dependency edges (from, to), incl. barrier edges
         uint64_t                                   m_transientBytesUnaliased = 0;
         uint64_t                                   m_transientBytesAliased   = 0;
+        std::vector<const char*>                   m_disabledOutputs; // this frame's, by tag slot (frame arena)
     };
 
 } // namespace Dark::Rg

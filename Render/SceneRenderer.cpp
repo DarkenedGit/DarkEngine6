@@ -327,6 +327,7 @@ void SceneRenderer::requestHistories(FrameComposer& frame, Renderer& renderer)
     // no history memory (its slots are collected at execute).
     m_frame        = &frame;
     m_holdTemporal = frame.view().holdTemporal;
+    m_setup        = frame.view().setup;
     if (m_discardHistory)
     {
         frame.invalidateHistory();
@@ -343,9 +344,10 @@ void SceneRenderer::requestHistories(FrameComposer& frame, Renderer& renderer)
         m_taaHistory = frame.history(RenderResource::TaaHistory, "Taa",
                                      colorTargetDesc(DXGI_FORMAT_R16G16B16A16_FLOAT, Rg::TargetSize::OutputFloor, 1, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, zero4));
     }
-    if (m_gtao.isValid() && renderer.debugState().ssaoEnabled)
+    // A pass the frame setup turns off requests none, so its history is invalid on its return.
+    if (m_gtao.isValid() && renderer.debugState().ssaoEnabled && !m_setup.disabled.has(EnginePass::Gtao))
         m_gtaoHistory = frame.history(RenderResource::GtaoHistory, "Gtao", GtaoPipeline::historyDesc());
-    if (m_ssr.isValid() && renderer.debugState().ssrEnabled)
+    if (m_ssr.isValid() && renderer.debugState().ssrEnabled && !m_setup.disabled.has(EnginePass::Ssr))
         m_ssrHistory = frame.history(RenderResource::SsrHistory, "Ssr", SsrPipeline::historyDesc());
 }
 
@@ -389,7 +391,7 @@ void SceneRenderer::addGtaoPasses(FeatureBuilder& b, Renderer& renderer, const C
     using R = RenderResource;
 
     GtaoSettings drawSettings = settings;
-    drawSettings.enabled      = settings.enabled && renderer.debugState().ssaoEnabled;
+    drawSettings.enabled      = settings.enabled && renderer.debugState().ssaoEnabled && !m_setup.disabled.has(EnginePass::Gtao);
     const TextureHandle depth    = b.handle(R::Depth);
     const TextureHandle attrib   = b.handle(R::Attrib);
     const TextureHandle velocity = b.handle(R::Velocity);
@@ -408,9 +410,11 @@ void SceneRenderer::addGtaoPasses(FeatureBuilder& b, Renderer& renderer, const C
         TextureHandle full =
             m_gtao.isValid() ? importTracked(b.graph(), GtaoPipeline::name(GtaoTarget::Full), gtao->resource(GtaoTarget::Full), textureViews(gtao->srv(GtaoTarget::Full), gtao->rtv(GtaoTarget::Full)))
                              : TextureHandle{};
+        const TextureHandle off = b.graph().disabledOutput("Gtao.Compose");
         if (!full.valid())
         {
             b.opaque("Gtao", {}, {}, [](PassContext&) {});
+            b.graph().blackboard().set(GtaoOutput{ off, {} });
             return;
         }
         // The SSAO tile samples identity, not stale contents. Lighting reads MRT3 (no compose).
@@ -425,7 +429,7 @@ void SceneRenderer::addGtaoPasses(FeatureBuilder& b, Renderer& renderer, const C
                 const float identity[4] = { 1.0f, 0.0f, 0.0f, 0.0f };
                 c.cmd()->ClearRenderTargetView(rgRtv(c, d.full), identity, 0, nullptr);
             });
-        b.graph().blackboard().set(GtaoOutput{ {}, full });
+        b.graph().blackboard().set(GtaoOutput{ off, full });
         return;
     }
 
@@ -520,7 +524,7 @@ void SceneRenderer::addSsrPasses(FeatureBuilder& b, Renderer& renderer, const Ca
     using R = RenderResource;
 
     SsrSettings drawSettings = settings;
-    drawSettings.enabled     = settings.enabled && renderer.debugState().ssrEnabled;
+    drawSettings.enabled     = settings.enabled && renderer.debugState().ssrEnabled && !m_setup.disabled.has(EnginePass::Ssr);
     const TextureHandle depth    = b.handle(R::Depth);
     const TextureHandle attrib   = b.handle(R::Attrib);
     const TextureHandle velocity = b.handle(R::Velocity);
@@ -533,9 +537,10 @@ void SceneRenderer::addSsrPasses(FeatureBuilder& b, Renderer& renderer, const Ca
     if (!run)
     {
         markHistoryUnwritten(m_ssrHistory, "Ssr");
-        // No SsrOutput: lighting binds the dummy. The pass keeps the list entry (the order check
+        // Disabled outputs: lighting binds the dummy. The pass keeps the list entry (the order check
         // needs one) and does nothing else now that Lighting binds its own target.
         b.opaque("Ssr", {}, {}, [](PassContext&) {});
+        b.graph().blackboard().set(SsrOutput{ b.graph().disabledOutput("Ssr.Full"), b.graph().disabledOutput("Ssr.Conf") });
         return;
     }
 
@@ -763,16 +768,17 @@ void SceneRenderer::addLightingPasses(FeatureBuilder& b, Renderer& renderer, con
     SceneRenderer* const              self = this;
     Renderer* const                   rr   = &renderer;
     const DeferredResolveInput* const inp  = &in; // filled by the host's GBuffer pass: read at execute
+    const bool                        ssrOn = !m_setup.disabled.has(EnginePass::Ssr);
     Rg::TextureHandle                 hdrOut;
     b.addPass<LightingReads>(
         "Lighting", [&](PassBuilder& pb, LightingReads& d) { hdrOut = declareLightingUses(pb, reads, LightingPass::Lighting, d); },
-        [self, rr, inp](PassContext& c, const LightingReads& d)
+        [self, rr, inp, ssrOn](PassContext& c, const LightingReads& d)
         {
             if (!resolveInputOk(*inp))
                 return;
             self->m_resolveLighting = *inp->lighting;
             // The SSR bit is sampled here, as addSsrPasses drew with it.
-            fillSsrLightingConstants(self->m_resolveLighting, *inp->ssr, rr->debugState().ssrEnabled, self->m_ssr.isValid());
+            fillSsrLightingConstants(self->m_resolveLighting, *inp->ssr, rr->debugState().ssrEnabled && ssrOn, self->m_ssr.isValid());
             const LightingViews v = rr->lightingViews();
             // Register order t0..t9 (SceneBuffers::kLighting*).
             const D3D12_GPU_DESCRIPTOR_HANDLE table = rgTable(c, { v.albedo, v.attrib, rgSrvCpu(c, d.depth), shadowSrv(c, v, d.shadow), v.height, rgSrvCpu(c, d.ao), v.iblIrradiance, v.iblPrefilter, v.iblBrdfLut,
