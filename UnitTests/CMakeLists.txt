@@ -61,13 +61,7 @@ set_target_properties(UnitTests PROPERTIES
     VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/bin/$<CONFIG>"
 )
 
-add_custom_command(TARGET UnitTests POST_BUILD
-    COMMAND ${CMAKE_COMMAND}
-            -DSRC=${CMAKE_SOURCE_DIR}/content
-            -DDST=$<TARGET_FILE_DIR:UnitTests>/content
-            -P ${CMAKE_SOURCE_DIR}/cmake/CopyContent.cmake
-    COMMENT "Copying content/ next to UnitTests.exe"
-)
+de_copy_content(UnitTests)
 de_host_exe(UnitTests SHADERS RUNTIME)
 
 include(GoogleTest)
