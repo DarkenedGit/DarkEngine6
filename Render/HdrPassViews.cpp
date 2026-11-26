@@ -40,6 +40,11 @@ namespace Dark
         return shadow.valid() ? rgSrvCpu(c, shadow) : v.shadow;
     }
 
+    D3D12_CPU_DESCRIPTOR_HANDLE localShadowSrv(const Rg::PassContext& c, const LightingViews& v, Rg::TextureHandle localShadow)
+    {
+        return localShadow.valid() ? rgSrvCpu(c, localShadow) : v.shadow;
+    }
+
     D3D12_GPU_DESCRIPTOR_HANDLE shadowTable(Rg::PassContext& c, const Renderer& renderer, Rg::TextureHandle shadow)
     {
         return rgTable(c, { shadowSrv(c, renderer.lightingViews(), shadow) });

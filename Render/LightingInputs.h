@@ -33,8 +33,10 @@ namespace Dark
     // compose when published (a disabled output when GTAO is off); the pass reads gtao, else ao. ssr
     // is SSR Full when published, else invalid or a disabled output (the pass binds the dummy).
     // shadow / localShadow are the shadow maps as their entries left them, or a disabled output when
-    // that shadow pass is off this frame; invalid when the frame has none (the pass binds a null
-    // view, or the local-shadow dummy). declareLightingUses leaves the AO the pass reads in `ao`.
+    // that shadow pass is off this frame; invalid when the frame has none. declareLightingUses uses
+    // tryRead with no fallback, so a disabled or missing map leaves the handle invalid and the pass
+    // binds the null texture-array view (not the real atlas: a disabled output is not "no atlas").
+    // declareLightingUses leaves the AO the pass reads in `ao`.
     struct LightingReads
     {
         Rg::TextureHandle albedo, attrib, depth, ao, ssr, hdr, shadow, localShadow, gtao;

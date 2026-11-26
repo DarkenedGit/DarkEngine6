@@ -4,6 +4,7 @@
 #include "Render/FrameFeatures.h"
 #include "Render/FrameSetup.h"
 #include "Render/FrameView.h"
+#include "Render/HdrDrawInputs.h"
 #include "Render/LightingInputs.h"
 #include "Render/ShadowInputs.h"
 #include "RenderGraphTestUtil.h"
@@ -540,17 +541,65 @@ TEST(FrameSetup, FeatureBuilderStoresADisabledOutput)
     for (uint32_t i = 0; i < count; ++i)
         if (list[i].id != PassId::Shadows)
             features.set(list[i].id, [](Rg::PassContext&) {});
-    features.declare(PassId::Shadows, [](FeatureBuilder& b) {
+    features.declare(PassId::Shadows, [imported](FeatureBuilder& b) {
         const Rg::TextureHandle off = b.graph().disabledOutput("Shadows");
         EXPECT_FALSE(off.valid());
         b.set(RenderResource::Shadow, off);
         EXPECT_TRUE(b.handle(RenderResource::Shadow).disabledOutput());
         EXPECT_STREQ(b.graph().disabledOutputName(b.handle(RenderResource::Shadow)), "Shadows");
+        EXPECT_EQ(b.imported(RenderResource::Shadow), imported);
     });
     ASSERT_TRUE(features.compileFrame(g, "test")) << errorText(g);
     EXPECT_TRUE(features.orderOk());
     EXPECT_TRUE(features.handle(RenderResource::Shadow).disabledOutput());
     EXPECT_NE(features.handle(RenderResource::Shadow), imported);
+    EXPECT_EQ(features.imported(RenderResource::Shadow), imported);
+}
+
+TEST(FrameSetup, DisabledDirectionalShadowStillReadsTheImportedMapForLayout)
+{
+    // Translucent materials keep the real cascade SRV on the material heap; the graph must still
+    // declare a PixelSrv read of the imported map so it leaves depth-write, even though the exec
+    // binds the null view (the published handle is a disabled output).
+    Rg::RenderGraph    g;
+    FeatureFrame       features;
+    uint32_t           count = 0;
+    const FeaturePass* list  = sandboxFeatures(count);
+    g.beginFrame(64, 64);
+    features.begin(list, count);
+    features.importResource(g, RenderResource::Shadow, fakeResource(2), absTex(64, 64), Rg::Layout::DepthStencilWrite, {}, Rg::Layout::DepthStencilWrite);
+    features.importResource(g, RenderResource::Depth, fakeResource(3), absTex(64, 64, Rg::Test::kD32), Rg::Layout::DepthStencilWrite);
+    features.importResource(g, RenderResource::Hdr, fakeResource(4), absTex(64, 64), Rg::Layout::RenderTarget);
+    const Rg::TextureHandle imported = features.imported(RenderResource::Shadow);
+    ASSERT_TRUE(imported.valid());
+    HdrDrawTargets got{};
+    bool           ran = false;
+    for (uint32_t i = 0; i < count; ++i)
+        if (list[i].id != PassId::Shadows && list[i].id != PassId::Translucent)
+            features.set(list[i].id, [](Rg::PassContext&) {});
+    features.declare(PassId::Shadows, [](FeatureBuilder& b) { b.set(RenderResource::Shadow, b.graph().disabledOutput("Shadows")); });
+    features.declare(PassId::Translucent,
+                     [&](FeatureBuilder& b)
+                     {
+                         ASSERT_TRUE(addHdrDrawPass(b, "Translucent", translucentUses(),
+                                                    [&](Rg::PassContext&, const HdrDrawTargets& d)
+                                                    {
+                                                        got = d;
+                                                        ran = true;
+                                                    }));
+                     });
+    ASSERT_TRUE(features.compileFrame(g, "test")) << errorText(g);
+    EXPECT_TRUE(features.orderOk());
+    std::string json;
+    g.dumpJson(json);
+    ASSERT_NE(json.find("\"name\":\"Translucent\""), std::string::npos) << json;
+    const std::string access = "\"resource\":" + std::to_string(imported.index) + ",\"version\":" + std::to_string(imported.version) +
+                               ",\"use\":\"PixelSrv\",\"read\":true";
+    EXPECT_NE(json.find(access), std::string::npos) << "imported " << imported.index << "@" << imported.version << "\n" << json;
+    EXPECT_TRUE(g.execute());
+    EXPECT_TRUE(ran);
+    EXPECT_FALSE(got.shadow.valid());
+    EXPECT_FALSE(got.shadow.disabledOutput());
 }
 
 TEST(FrameSetup, ReaderWithoutTryReadFailsTheFrame)

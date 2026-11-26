@@ -21,6 +21,9 @@ namespace Dark
 
     // `shadow` invalid: the null view (no shadow map this frame).
     D3D12_CPU_DESCRIPTOR_HANDLE shadowSrv(const Rg::PassContext& c, const LightingViews& v, Rg::TextureHandle shadow);
+    // `localShadow` invalid or disabled: the null texture-array view (`v.shadow`), not `v.localShadow`
+    // (that is the real atlas whenever LocalShadowSystem::create succeeded).
+    D3D12_CPU_DESCRIPTOR_HANDLE localShadowSrv(const Rg::PassContext& c, const LightingViews& v, Rg::TextureHandle localShadow);
     D3D12_GPU_DESCRIPTOR_HANDLE shadowTable(Rg::PassContext& c, const Renderer& renderer, Rg::TextureHandle shadow);
 
     // Copies HDR into the entry's HDR copy (Underwater, game passes).
