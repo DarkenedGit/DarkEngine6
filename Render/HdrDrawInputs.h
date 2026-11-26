@@ -51,7 +51,10 @@ namespace Dark
     }
 
     // The versions a pass used. sceneColor / attrib / shadow are invalid when not used (or, for the
-    // shadow map, when the frame has none).
+    // shadow map, when the frame has none, or when the Shadows entry published a disabled output:
+    // the pass still declares a PixelSrv read of the imported map so the graph moves it to an SRV
+    // for material heaps that keep that SRV bound, but the returned handle is invalid so the exec
+    // binds the null view).
     struct HdrDrawTargets
     {
         Rg::TextureHandle hdr, depth, sceneColor, attrib, shadow;
@@ -66,6 +69,20 @@ namespace Dark
     {
         const SsrCaptureOutput* capture = b.graph().blackboard().tryGet<SsrCaptureOutput>();
         return capture ? capture->sceneColor : Rg::TextureHandle{};
+    }
+
+    // Declares a pixel-SRV read of the published shadow map, or of the imported cascade map when the
+    // Shadows entry has replaced it with a disabled output (so the graph moves the persistent map
+    // from its depth-write frame-start layout to an SRV, and the epilogue restores depth write).
+    // Returns invalid when the published handle is a disabled output or missing, so the exec binds
+    // the null view instead of the stale map.
+    inline Rg::TextureHandle readShadowMap(FeatureBuilder& b, Rg::PassBuilder& pb, Rg::TextureHandle published)
+    {
+        // Only the disabled-output case falls back to the import (so a pass that does not sample
+        // shadows, or a frame with no map, does not declare a stray read of the imported cascade).
+        const Rg::TextureHandle fallback = published.disabledOutput() ? b.imported(RenderResource::Shadow) : Rg::TextureHandle{};
+        const Rg::TextureHandle read     = pb.tryRead(published, fallback, Rg::Use::PixelSrv);
+        return published.disabledOutput() ? Rg::TextureHandle{} : read;
     }
 
     namespace HdrDraw
@@ -110,7 +127,7 @@ namespace Dark
                 d.depth      = HdrDraw::declareDepth(pb, in.depth, uses);
                 d.sceneColor = in.sceneColor.valid() ? pb.read(in.sceneColor, Rg::Use::PixelSrv) : Rg::TextureHandle{};
                 d.attrib     = in.attrib.valid() ? pb.read(in.attrib, Rg::Use::ComputeSrv) : Rg::TextureHandle{};
-                d.shadow     = in.shadow.valid() ? pb.read(in.shadow, Rg::Use::PixelSrv) : Rg::TextureHandle{};
+                d.shadow     = uses.shadow ? readShadowMap(b, pb, in.shadow) : Rg::TextureHandle{};
                 d.hdr        = pb.readWrite(in.hdr, Rg::Use::RenderTarget);
                 out          = d;
             },
@@ -177,7 +194,7 @@ namespace Dark
                 d.copy       = pb.read(copied, Rg::Use::PixelSrv);
                 d.depth      = HdrDraw::declareDepth(pb, in.depth, drawUses);
                 d.sceneColor = in.sceneColor.valid() ? pb.read(in.sceneColor, Rg::Use::PixelSrv) : Rg::TextureHandle{};
-                d.shadow     = in.shadow.valid() ? pb.read(in.shadow, Rg::Use::PixelSrv) : Rg::TextureHandle{};
+                d.shadow     = uses.shadow ? readShadowMap(b, pb, in.shadow) : Rg::TextureHandle{};
                 d.hdr        = pb.readWrite(in.hdr, Rg::Use::RenderTarget);
                 out          = d;
             },

@@ -45,6 +45,10 @@ public:
     // frameIndex must be Renderer::frameIndex().
     void update(World& world, const Camera3D& camera, const Frustum3f& cameraFrustum, uint32_t frameIndex, bool select);
 
+    // Drop this frame's faces and zero its records (recordFor stays -1), after update() has latched
+    // the frame. The array stays allocated.
+    void clearForFrame();
+
     // Inside the LocalShadows pass: beginCapture clears this frame's slices, beginFace binds and
     // clears one face, endCapture closes the profile scopes. No barriers: the pass declares the
     // array as a depth write.

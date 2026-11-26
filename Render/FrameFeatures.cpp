@@ -217,6 +217,8 @@ namespace Dark
             s = {};
         for (Rg::TextureHandle& h : m_handles)
             h = {};
+        for (Rg::TextureHandle& h : m_imported)
+            h = {};
         for (Rg::TextureHandle& h : m_prevHandles)
             h = {};
         m_arena.reset();
@@ -236,7 +238,8 @@ namespace Dark
         // passes and the owners move them through it and the graph's barriers read it. The back buffer
         // has no final layout: it still gets ImGui and the movie after the graph (until Phase 7), so
         // Renderer::endFrame makes its RT -> PRESENT transition.
-        m_handles[i] = g.importTexture(resource == RenderResource::Swap ? "backbuffer" : renderResourceName(resource), desc, native, initial, finalLayout);
+        m_handles[i]  = g.importTexture(resource == RenderResource::Swap ? "backbuffer" : renderResourceName(resource), desc, native, initial, finalLayout);
+        m_imported[i] = m_handles[i];
         g.setViews(m_handles[i], views);
     }
 
@@ -345,6 +348,12 @@ namespace Dark
         return i < kRenderResourceCount ? m_frame.m_handles[i] : Rg::TextureHandle{};
     }
 
+    Rg::TextureHandle FeatureBuilder::imported(RenderResource resource) const
+    {
+        const auto i = static_cast<uint32_t>(resource);
+        return i < kRenderResourceCount ? m_frame.m_imported[i] : Rg::TextureHandle{};
+    }
+
     Rg::TextureHandle FeatureBuilder::prev(RenderResource resource) const
     {
         const auto i = static_cast<uint32_t>(resource);
@@ -354,7 +363,7 @@ namespace Dark
     void FeatureBuilder::set(RenderResource resource, Rg::TextureHandle h)
     {
         const auto i = static_cast<uint32_t>(resource);
-        if (i < kRenderResourceCount && h.valid())
+        if (i < kRenderResourceCount && (h.valid() || h.disabledOutput()))
             m_frame.m_handles[i] = h;
     }
 

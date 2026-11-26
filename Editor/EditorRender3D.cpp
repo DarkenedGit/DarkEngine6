@@ -217,7 +217,10 @@ void EditorApp::renderScene3D()
     const Frustum3f cameraCull(m_camera.GetCullViewProj());
     const bool selectLocalShadows = renderer().debugState().localLights
         && renderer().debugState().lightingActive();
-    m_shadowFeature.updateLocal(world(), m_camera, cameraCull, renderer().frameIndex(), selectLocalShadows);
+    FrameComposer&   frame = m_frameComposer;
+    const FrameView  view{};
+    const FrameSetup setup = frame.resolveSetup(view);
+    m_shadowFeature.updateLocal(world(), m_camera, cameraCull, renderer().frameIndex(), selectLocalShadows, setup);
     if (m_playMode)
     {
         const FacilityState& facility = m_play.facility();
@@ -232,7 +235,7 @@ void EditorApp::renderScene3D()
         if (const auto* xf = world().get<TransformComponent>(e))
             sceneBounds.ExpandToInclude(xf->position);
     });
-    m_shadowFeature.updateDirectional(m_camera, lightDir, sceneBounds, 0.8f, 0.20f, renderer().frameIndex());
+    m_shadowFeature.updateDirectional(m_camera, lightDir, sceneBounds, 0.8f, 0.20f, renderer().frameIndex(), setup);
 
     const bool instanceStatic = m_drawList.gpuReady() && renderer().debugState().instancedStatic && renderer().debugState().fill == DebugFill::Solid;
     const bool instanceSkinned = instanceStatic && m_skinnedInstances.isValid();
@@ -403,8 +406,6 @@ void EditorApp::renderScene3D()
     // state; values that cross passes are declared here and filled in order.
     uint32_t           featureCount = 0;
     const FeaturePass* featureList  = editorFeatures(featureCount);
-    FrameComposer&     frame        = m_frameComposer;
-    const FrameView    view{};
     frame.begin(renderer(), view, featureList, featureCount, m_scene.frameShadows());
     m_scene.requestHistories(frame, renderer());
 

@@ -20,11 +20,29 @@ namespace Dark
             m_histories.clear(m_renderer->targets()->pool());
     }
 
+    namespace
+    {
+        double setupClock()
+        {
+            return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+        }
+    } // namespace
+
+    const FrameSetup& FrameComposer::resolveSetup(const FrameView& view)
+    {
+        m_view           = view;
+        m_view.setup     = m_setupHooks.resolve(view, setupClock());
+        m_setupResolved  = true;
+        return m_view.setup;
+    }
+
     void FrameComposer::begin(Renderer& renderer, const FrameView& view, const FeaturePass* list, uint32_t count, const FrameShadows& shadows)
     {
-        m_renderer                 = &renderer;
-        m_view                     = view;
-        m_view.setup               = m_setupHooks.resolve(view, std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count());
+        const FrameSetup setup = m_setupResolved ? m_view.setup : m_setupHooks.resolve(view, setupClock());
+        m_setupResolved        = false;
+        m_renderer             = &renderer;
+        m_view                 = view;
+        m_view.setup           = setup;
         Rg::CompileOptions options = m_graph.options();
         options.asyncCompute       = false; // one graphics queue until Phase 10
         m_graph.setOptions(options);

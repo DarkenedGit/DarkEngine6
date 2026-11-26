@@ -443,6 +443,16 @@ void LocalShadowSystem::clearSelection()
     m_slotCount = 0;
 }
 
+void LocalShadowSystem::clearForFrame()
+{
+    clearSelection();
+    if (m_recordsMap)
+    {
+        auto* dst = reinterpret_cast<GpuLocalShadowRecord*>(m_recordsMap);
+        std::memset(dst + static_cast<size_t>(m_frame) * kMaxShadowedLocalLights, 0, sizeof(GpuLocalShadowRecord) * kMaxShadowedLocalLights);
+    }
+}
+
 void LocalShadowSystem::writeRecords(World& world)
 {
     GpuLocalShadowRecord half[kMaxShadowedLocalLights]{};
@@ -495,12 +505,7 @@ void LocalShadowSystem::update(World& world, const Camera3D& camera, const Frust
     const bool blocked = !select || !m_debugEnabled || (m_createAttempted && !m_createOk);
     if (blocked)
     {
-        clearSelection();
-        if (m_recordsMap)
-        {
-            auto* dst = reinterpret_cast<GpuLocalShadowRecord*>(m_recordsMap);
-            std::memset(dst + static_cast<size_t>(m_frame) * kMaxShadowedLocalLights, 0, sizeof(GpuLocalShadowRecord) * kMaxShadowedLocalLights);
-        }
+        clearForFrame();
         return;
     }
 

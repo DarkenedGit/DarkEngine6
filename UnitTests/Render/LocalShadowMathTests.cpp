@@ -10,6 +10,7 @@
 #include "Render/Frustum3f.h"
 #include "Render/LocalShadowMath.h"
 #include "Render/LocalShadowSystem.h"
+#include "Render/ShadowFeature.h"
 #include "Render/SkinningUploadRing.h"
 #include "Render/RhiDevice.h"
 
@@ -241,6 +242,45 @@ TEST(LocalShadowAlloc, NonFinitePositionIsSkipped)
     EXPECT_EQ(shadows.recordFor(bad), -1);
     EXPECT_GE(shadows.recordFor(good), 0);
     EXPECT_EQ(shadows.faceCountThisFrame(), 1);
+}
+
+TEST(LocalShadowAlloc, ClearForFrameDropsFacesAndRecords)
+{
+    World world;
+    Entity light = addShadowLight(world, LocalLightType::Spot, 50.0f);
+    Camera3D cam;
+    Frustum3f frustum;
+    makeView(cam, frustum);
+    LocalShadowSystem shadows;
+    shadows.update(world, cam, frustum, 0, true);
+    ASSERT_EQ(shadows.faceCountThisFrame(), 1);
+    ASSERT_GE(shadows.recordFor(light), 0);
+    shadows.clearForFrame();
+    EXPECT_EQ(shadows.faceCountThisFrame(), 0);
+    EXPECT_EQ(shadows.recordFor(light), -1);
+}
+
+TEST(LocalShadowAlloc, ShadowFeatureUpdateHonoursADisabledLocalBit)
+{
+    World world;
+    Entity light = addShadowLight(world, LocalLightType::Spot, 50.0f);
+    Camera3D cam;
+    Frustum3f frustum;
+    makeView(cam, frustum);
+    LocalShadowSystem local;
+    ShadowFeature     feature;
+    feature.bindShadowMaps(nullptr, &local, nullptr, nullptr);
+    feature.updateLocal(world, cam, frustum, 0, true);
+    ASSERT_EQ(local.faceCountThisFrame(), 1);
+    ASSERT_GE(local.recordFor(light), 0);
+    FrameSetup setup;
+    setup.disabled.set(EnginePass::LocalShadows);
+    feature.updateLocal(world, cam, frustum, 1, true, setup);
+    EXPECT_EQ(local.faceCountThisFrame(), 0);
+    EXPECT_EQ(local.recordFor(light), -1);
+    feature.updateLocal(world, cam, frustum, 2, true);
+    EXPECT_EQ(local.faceCountThisFrame(), 1);
+    EXPECT_GE(local.recordFor(light), 0);
 }
 
 TEST(SkinningUploadRing, SamePoseReusesOneSlotPerFrame)

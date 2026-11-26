@@ -816,7 +816,7 @@ void SceneRenderer::addLocalVolumesPasses(FeatureBuilder& b, Renderer& renderer,
                 return;
             const LightingViews v = rr->lightingViews();
             // LocalLightVolumePipeline::kTable* order.
-            const D3D12_GPU_DESCRIPTOR_HANDLE table = rgTable(c, { v.albedo, v.attrib, rgSrvCpu(c, d.depth), rgSrvCpu(c, d.ao), v.height, d.localShadow.valid() ? rgSrvCpu(c, d.localShadow) : v.localShadow, v.localShadowRecords });
+            const D3D12_GPU_DESCRIPTOR_HANDLE table = rgTable(c, { v.albedo, v.attrib, rgSrvCpu(c, d.depth), rgSrvCpu(c, d.ao), v.height, localShadowSrv(c, v, d.localShadow), v.localShadowRecords });
             bindHdrTarget(c.cmd(), *rr, rgRtv(c, d.hdr));
             self->drawLocalLights(c.cmd(), table, *rr, *w, *cam, *inp->viewProj, self->m_resolveLighting);
         });

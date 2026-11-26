@@ -110,9 +110,13 @@ namespace Dark
         }
         // This frame's handle (current version) of a list resource; for a history resource, curr.
         Rg::TextureHandle handle(RenderResource resource) const;
+        // The handle importResource stored this frame. set() does not overwrite it, so a disabled
+        // shadow entry can still give readers the imported map as a tryRead fallback (layout).
+        Rg::TextureHandle imported(RenderResource resource) const;
         // A history resource's prev (invalid when there is none to read).
         Rg::TextureHandle prev(RenderResource resource) const;
         // Records the new version a pass wrote, so later passes (and later list entries) see it.
+        // A disabled output (RenderGraph::disabledOutput) is stored too, so readers can tryRead it.
         void set(RenderResource resource, Rg::TextureHandle h);
 
         // A pass with declared uses. Same contract as RenderGraph::addPass.
@@ -216,6 +220,10 @@ namespace Dark
         {
             return m_handles[static_cast<uint32_t>(resource)];
         }
+        Rg::TextureHandle imported(RenderResource resource) const
+        {
+            return m_imported[static_cast<uint32_t>(resource)];
+        }
         Rg::TextureHandle prevHandle(RenderResource resource) const
         {
             return m_prevHandles[static_cast<uint32_t>(resource)];
@@ -247,6 +255,7 @@ namespace Dark
         uint32_t            m_count = 0;
         Slot                m_slots[kPassIdCount];
         Rg::TextureHandle   m_handles[kRenderResourceCount];
+        Rg::TextureHandle   m_imported[kRenderResourceCount];    // importResource; set() does not overwrite
         Rg::TextureHandle   m_prevHandles[kRenderResourceCount]; // history resources only
         std::vector<PassId> m_graphIds; // PassId per graph pass index (from m_firstPass)
         uint32_t            m_firstPass = 0;

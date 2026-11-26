@@ -693,3 +693,99 @@ TEST(SceneRendererCoreFeatures, FrameSetupReachesTheSceneAndOffEntriesPublishDis
     bundle.scene.requestHistories(composer, bundle.renderer);
     EXPECT_FALSE(bundle.scene.frameSetup().disabled.any());
 }
+
+TEST(SceneRendererCoreFeatures, ResolveSetupRunsTheHooksOnceAndBeginKeepsTheResult)
+{
+    Bundle bundle;
+    ASSERT_TRUE(bundle.created);
+    struct Off : IFrameSetupHook
+    {
+        int         calls = 0;
+        const char* name() const override
+        {
+            return "Off";
+        }
+        void setupFrame(const FrameView&, FrameSetup& setup) override
+        {
+            ++calls;
+            setup.disabled.set(EnginePass::DirectionalShadows);
+            setup.disabled.set(EnginePass::LocalShadows);
+            setup.disabled.set(EnginePass::Gtao);
+        }
+    } off;
+    FrameComposer composer;
+    ASSERT_TRUE(composer.setupHooks().add(&off));
+    FrameView view;
+    view.holdTemporal = true;
+    const FrameSetup setup = composer.resolveSetup(view);
+    EXPECT_EQ(off.calls, 1);
+    EXPECT_TRUE(setup.disabled.has(EnginePass::DirectionalShadows));
+    EXPECT_TRUE(setup.disabled.has(EnginePass::LocalShadows));
+    EXPECT_TRUE(setup.disabled.has(EnginePass::Gtao));
+    EXPECT_EQ(composer.view().setup, setup);
+    uint32_t           count = 0;
+    const FeaturePass* list  = sandboxFeatures(count);
+    composer.begin(bundle.renderer, view, list, count, FrameShadows{});
+    EXPECT_EQ(off.calls, 1); // begin did not resolve again
+    EXPECT_TRUE(composer.view().holdTemporal);
+    EXPECT_EQ(composer.view().setup, setup);
+
+    composer.setupHooks().remove(&off);
+    composer.begin(bundle.renderer, FrameView{}, list, count, FrameShadows{});
+    EXPECT_EQ(off.calls, 1);
+    EXPECT_FALSE(composer.view().setup.disabled.any());
+}
+
+TEST(SceneRendererCoreFeatures, AShadowHookDropsTheShadowPassesAndPublishesDisabledOutputs)
+{
+    Bundle bundle;
+    ASSERT_TRUE(bundle.created);
+    ShadowFeature feature;
+    registerShadowFeature(bundle.registry, feature);
+    FeatureCreateInfo info;
+    info.renderer = &bundle.renderer;
+    ASSERT_TRUE(bundle.registry.createAll(info)); // marks the new shadow entries created
+    bundle.scene.setCoreFrame(bundle.inputs());
+    struct Off : IFrameSetupHook
+    {
+        const char* name() const override
+        {
+            return "OffShadows";
+        }
+        void setupFrame(const FrameView&, FrameSetup& setup) override
+        {
+            setup.disabled.set(EnginePass::DirectionalShadows);
+            setup.disabled.set(EnginePass::LocalShadows);
+        }
+    } off;
+    FrameComposer composer;
+    ASSERT_TRUE(composer.setupHooks().add(&off));
+    FrameView view;
+    composer.resolveSetup(view);
+    uint32_t           count = 0;
+    const FeaturePass* list  = sandboxFeatures(count);
+    composer.begin(bundle.renderer, view, list, count, bundle.scene.frameShadows());
+
+    Rg::RenderGraph graph;
+    FeatureFrame    features;
+    graph.beginFrame(1280, 720);
+    features.begin(list, count);
+    for (uint32_t r = 0; r < kRenderResourceCount; ++r)
+    {
+        const auto res = static_cast<RenderResource>(r);
+        features.importResource(graph, res, reinterpret_cast<ID3D12Resource*>(static_cast<uintptr_t>(0x100 + r * 0x10)), absDesc(res == RenderResource::Depth ? 40 : 10),
+                                res == RenderResource::Shadow || res == RenderResource::LocalShadow ? Rg::Layout::DepthStencilWrite : Rg::Layout::ShaderResource);
+    }
+    for (uint32_t i = 0; i < count; ++i)
+        if (!bundle.registry.find(list[i].id) && list[i].id != PassId::Game)
+            features.set(list[i].id, [](Rg::PassContext&) {});
+    bundle.registry.declare(features, composer.view());
+    ASSERT_TRUE(features.compileFrame(graph, "test"));
+    EXPECT_TRUE(hasPass(graph, "FrameCull"));
+    EXPECT_FALSE(hasPass(graph, "Shadows"));
+    EXPECT_FALSE(hasPass(graph, "LocalShadows"));
+    EXPECT_TRUE(features.handle(RenderResource::Shadow).disabledOutput());
+    EXPECT_TRUE(features.handle(RenderResource::LocalShadow).disabledOutput());
+    EXPECT_STREQ(graph.disabledOutputName(features.handle(RenderResource::Shadow)), "Shadows");
+    EXPECT_STREQ(graph.disabledOutputName(features.handle(RenderResource::LocalShadow)), "LocalShadows");
+}

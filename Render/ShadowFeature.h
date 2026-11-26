@@ -4,6 +4,7 @@
 #include "Render/LocalShadowSystem.h"
 #include "Render/RenderFeature.h"
 #include "Render/ShadowCasterSource.h"
+#include "Render/FrameSetup.h"
 #include "Render/ShadowSystem.h"
 
 #include <cstdint>
@@ -63,9 +64,12 @@ namespace Dark
         void bindShadowMaps(ShadowSystem* shadows, LocalShadowSystem* localShadows, const SkinnedMeshPipeline* skinnedShadow, SkinningUploadRing* skinRing);
 
         // Per frame, before setFrame, in this order of the host's frame: the local faces this frame
-        // draws, then the cascades. No-ops while unbound.
-        void updateLocal(World& world, const Camera3D& camera, const Frustum3f& cameraFrustum, uint32_t frameIndex, bool select);
-        void updateDirectional(const Camera3D& camera, const Math::Vector3f& lightDirToward, const Math::AABox3f& sceneBounds, float sunElevation, float cloudCoverage, uint32_t frameIndex);
+        // draws, then the cascades. No-ops while unbound. `setup` is the resolved frame setup
+        // (FrameComposer::resolveSetup): a disabled DirectionalShadows or LocalShadows bit turns that
+        // system off (strength 0 / no faces) so the depth views, worker and lighting constants agree.
+        void updateLocal(World& world, const Camera3D& camera, const Frustum3f& cameraFrustum, uint32_t frameIndex, bool select, const FrameSetup& setup = {});
+        void updateDirectional(const Camera3D& camera, const Math::Vector3f& lightDirToward, const Math::AABox3f& sceneBounds, float sunElevation, float cloudCoverage, uint32_t frameIndex,
+                               const FrameSetup& setup = {});
 
         // The depth views of the frame's GPU cull, in the order the entries record them: each cascade
         // (when the map exists and shadows are on), then each local face. `add(viewProj, frustum)`.

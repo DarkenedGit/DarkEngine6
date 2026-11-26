@@ -32,9 +32,11 @@ namespace Dark
     // Graph handles a lighting pass reads. ao is the authored AO (G-buffer MRT3) and gtao the GTAO
     // compose when published (a disabled output when GTAO is off); the pass reads gtao, else ao. ssr
     // is SSR Full when published, else invalid or a disabled output (the pass binds the dummy).
-    // shadow / localShadow are the shadow maps as their entries left them, invalid when the frame
-    // has none (the pass binds a null view, or the local-shadow dummy). declareLightingUses leaves
-    // the AO the pass reads in `ao`.
+    // shadow / localShadow are the shadow maps as their entries left them, or a disabled output when
+    // that shadow pass is off this frame; invalid when the frame has none. declareLightingUses uses
+    // tryRead with no fallback, so a disabled or missing map leaves the handle invalid and the pass
+    // binds the null texture-array view (not the real atlas: a disabled output is not "no atlas").
+    // declareLightingUses leaves the AO the pass reads in `ao`.
     struct LightingReads
     {
         Rg::TextureHandle albedo, attrib, depth, ao, ssr, hdr, shadow, localShadow, gtao;
@@ -80,8 +82,8 @@ namespace Dark
         d.depth             = pb.read(in.depth, Rg::Use::PixelSrv);
         d.ao                = pb.tryRead(in.gtao, in.ao, Rg::Use::PixelSrv);
         d.ssr               = lighting ? pb.tryRead(in.ssr, {}, Rg::Use::PixelSrv) : Rg::TextureHandle{};
-        d.shadow            = lighting && in.shadow.valid() ? pb.read(in.shadow, Rg::Use::PixelSrv) : Rg::TextureHandle{};
-        d.localShadow       = !lighting && in.localShadow.valid() ? pb.read(in.localShadow, Rg::Use::PixelSrv) : Rg::TextureHandle{};
+        d.shadow            = lighting ? pb.tryRead(in.shadow, {}, Rg::Use::PixelSrv) : Rg::TextureHandle{};
+        d.localShadow       = !lighting ? pb.tryRead(in.localShadow, {}, Rg::Use::PixelSrv) : Rg::TextureHandle{};
         d.hdr               = pb.readWrite(in.hdr, Rg::Use::RenderTarget);
         return d.hdr;
     }
