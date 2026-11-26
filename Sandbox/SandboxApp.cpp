@@ -860,7 +860,7 @@ void SandboxApp::handleRuntimeCommands(float wallDt, bool allowScale)
             if (m_vision.echoOn || m_vision.echo > 0.0f)
             {
                 m_vision.echoChirpAge += m_simDt;
-                if (!m_vision.echoHaveChirp || m_vision.echoChirpAge >= m_vision.echoChirp.periodSeconds)
+                if (!m_vision.echoHaveChirp || m_vision.echoChirpAge >= m_frame.echo().chirp().periodSeconds)
                 {
                     m_vision.echoCapture  = true;
                     m_vision.echoChirpAge = 0.0f;
@@ -1785,7 +1785,7 @@ Terrain::GroundContact SandboxApp::groundContactAt(float x, float z) const
 void SandboxApp::onInit()
 {
     DE_LOG_INFO("SandboxApp: init");
-    loadEchoChirpSettings(m_vision.echoChirp);
+    m_frame.echo().loadChirp();
 
     m_sceneWorld.ground.loadFromContent();
     skillCatalog().loadFromContent();
@@ -1811,6 +1811,7 @@ void SandboxApp::onInit()
             requestQuit();
             return;
         }
+        m_frame.echo().create(renderer(), "SandboxApp");
         if (!m_frame.water().create(renderer(), "SandboxApp", true))
         {
             requestQuit();
@@ -2035,6 +2036,7 @@ void SandboxApp::onShutdown()
     m_hud.m_menu.shutdown(renderer());
     m_frame.terrainPipeline() = TerrainPipeline{};
     m_frame.water().release();
+    m_frame.echo().release();
     m_frame.scene().shutdown();
     m_hud.m_imgui.shutdown(renderer());
     m_hud.m_menuBackground   = Dark::Texture2D{};

@@ -1,8 +1,8 @@
-#include "Render/EchoChirpFile.h"
+#include "Game/EchoChirpFile.h"
 
 #include "Core/ContentRoots.h"
 #include "Core/Log.h"
-#include "Render/EchoPipeline.h"
+#include "Game/EchoPipeline.h"
 
 #include "third_party/nlohmann/json.hpp"
 

@@ -25,7 +25,6 @@
 #include "Render/Mesh.h"
 #include "Render/MeshPipeline.h"
 #include "Render/MotionBlurPipeline.h"
-#include "Render/EchoPipeline.h"
 #include "Render/LocalShadowSystem.h"
 #include "Render/ShadowSystem.h"
 #include "Render/SkinnedMeshPipeline.h"
@@ -256,9 +255,8 @@ public:
             m_skinRing.beginFrame(frameIndex);
     }
 
-    // The game passes' pipelines.
+    // The game pass's pipeline.
     CamouflagePipeline&       camouflage() { return m_camouflage; }
-    EchoPipeline&             echo() { return m_echo; }
 
     // A host gather of the local lights (Sandbox's water) into the list LocalVolumes draws from.
     // localLightsReady: the GPU list exists. localLightsDummyVa: the list's empty buffer (0 without
@@ -281,8 +279,6 @@ public:
     const RenderFeatureRegistry& features() const { return m_features; }
 
     const CamouflagePipeline&       camouflage() const { return m_camouflage; }
-    const EchoPipeline&             echo() const { return m_echo; }
-
 
     const Math::Matrix4f& prevViewProj() const { return m_prevViewProj; }
     bool                  havePrevViewProj() const { return m_havePrevViewProj; }
@@ -456,7 +452,6 @@ private:
     GtaoPipeline             m_gtao;
     SsrPipeline              m_ssr;
     MotionBlurPipeline       m_motionBlur;
-    EchoPipeline             m_echo;
     TaaPipeline              m_taa;
     ShadowSystem             m_shadows;
     LocalShadowSystem        m_localShadows;

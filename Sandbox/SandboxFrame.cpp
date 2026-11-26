@@ -1024,7 +1024,7 @@ void SandboxFrame::render()
     const auto echoImage = [&](Rg::PassContext& pass)
     {
         ID3D12GraphicsCommandList* const cmd               = pass.cmd();
-        EchoPipeline&                    echo              = m_scene.echo();
+        EchoPipeline&                    echo              = m_echo.pipeline();
         bool                             capturedThisFrame = false;
         if (app().m_vision.echoCapture)
         {
@@ -1050,16 +1050,16 @@ void SandboxFrame::render()
             comp.chirpCamera[0] = app().m_vision.echoChirpPos.x;
             comp.chirpCamera[1] = app().m_vision.echoChirpPos.y;
             comp.chirpCamera[2] = app().m_vision.echoChirpPos.z;
-            float radius        = Math::Min(app().m_vision.echoChirpAge * app().m_vision.echoChirp.speedMetersPerSec, app().m_vision.echoChirp.rangeMeters);
+            float radius        = Math::Min(app().m_vision.echoChirpAge * m_echo.chirp().speedMetersPerSec, m_echo.chirp().rangeMeters);
             if (capturedThisFrame)
                 radius = Math::Max(radius, EchoPipeline::kEdgeMeters);
             comp.radius   = radius;
             comp.strength = app().m_vision.echo;
-            comp.maxRange = app().m_vision.echoChirp.rangeMeters;
+            comp.maxRange = m_echo.chirp().rangeMeters;
             echo.composite(cmd, app().renderer(), comp);
         }
     };
-    if (app().m_vision.echo > 0.0f && m_scene.echo().isValid())
+    if (app().m_vision.echo > 0.0f && m_echo.isValid())
     {
         core.beforePost     = CorePassHook::of(echoImage);
         core.beforePostName = "Post.Echo";

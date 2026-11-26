@@ -51,12 +51,13 @@ namespace
     // their GBuffer/Translucent hooks and camouflage draw receive.
     template <class S> constexpr bool kReachesWorldDraws = requires(S& s) { s.meshPipeline(); } || requires(S& s) { s.meshTransparentPipeline(); } || requires(S& s) { s.skinnedPipeline(); } ||
                                                            requires(S& s) { s.skinnedTransparentPipeline(); } || requires(S& s) { s.skinRing(); } || requires(S& s) { s.worldDraws(); };
-    // What the hosts still drive: the skinning ring's frame, the game passes, the water's local
+    // Echolocation is game code (Game/EchoFeature), not a scene pipeline.
+    template <class S> constexpr bool kReachesEcho = requires(S& s) { s.echo(); } || requires(const S& s) { s.echo(); };
+    // What the hosts still drive: the skinning ring's frame, the camouflage pass, the water's local
     // lights and the meter's samples.
     template <class S> constexpr bool kHostSurface = requires(S& s, const LocalLightDrawLists& lists) {
         s.beginSkinningFrame(0u);
         s.camouflage();
-        s.echo();
         s.localLightsReady();
         s.localLightsDummyVa();
         s.uploadLocalLights(0u, lists);
@@ -86,6 +87,7 @@ TEST(SceneRenderer, HostsDoNotReachTheCorePipelines)
     EXPECT_FALSE(kReachesShadowSystems<SceneRenderer>);
     EXPECT_FALSE(kReachesLightListAndMeter<SceneRenderer>);
     EXPECT_FALSE(kReachesWorldDraws<SceneRenderer>);
+    EXPECT_FALSE(kReachesEcho<SceneRenderer>);
     EXPECT_TRUE(kHostSurface<SceneRenderer>);
 }
 

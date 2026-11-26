@@ -1,8 +1,8 @@
 #include <gtest/gtest.h>
 
 #include "Core/ContentRoots.h"
-#include "Render/EchoChirpFile.h"
-#include "Render/EchoPipeline.h"
+#include "Game/EchoChirpFile.h"
+#include "Game/EchoPipeline.h"
 
 #include <fstream>
 #include <sstream>

@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "Render/EchoPipeline.h"
+#include "Game/EchoPipeline.h"
 #include "Render/RhiDevice.h"
 
 #ifndef WIN32_LEAN_AND_MEAN

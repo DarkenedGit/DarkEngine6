@@ -5,7 +5,6 @@
 
 #include "Core/Application.h"
 #include "Network/Replication.h"
-#include "Render/EchoChirpFile.h"
 #include "Render/TonemapPipeline.h"
 #include "Gameplay/Inventory.h"
 #include "Gameplay/Quest.h"
@@ -239,7 +238,6 @@ private:
         bool                    echoHaveChirp = false;
         Dark::Math::Matrix4f    echoChirpViewProj{};
         Dark::Math::Vector3f    echoChirpPos{ 0.0f, 0.0f, 0.0f };
-        Dark::EchoChirpSettings echoChirp{};
     };
     SandboxVision m_vision;
     SandboxHud    m_hud;
