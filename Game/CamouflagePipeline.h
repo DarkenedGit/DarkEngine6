@@ -4,6 +4,7 @@
 #include "Math/Vector3f.h"
 #include "Render/DebugRenderState.h"
 #include "Render/GraphTargets.h"
+#include "Render/RenderGraph.h"
 
 #include <cstdint>
 #include <d3d12.h>
@@ -51,6 +52,8 @@ namespace Dark
         bool                        ensureCopy(Renderer& renderer);
         ID3D12Resource*             copyResource() const;
         D3D12_CPU_DESCRIPTOR_HANDLE copySrv() const;
+        // This frame's import of the HDR copy; invalid when the pipeline or the copy is missing.
+        Rg::TextureHandle importCopy(Rg::RenderGraph& g, Renderer& renderer);
         // sceneTable: a one-SRV ring table with the HDR copy (t0). HDR and writable depth are bound.
         // True when it reached the draws: depth may then hold the body, which the G-buffer does not.
         bool drawModel(ID3D12GraphicsCommandList* cmd, D3D12_GPU_DESCRIPTOR_HANDLE sceneTable, GpuResourceCache& gpu, SkinningUploadRing& ring, const Model& model, const AnimPose* pose,

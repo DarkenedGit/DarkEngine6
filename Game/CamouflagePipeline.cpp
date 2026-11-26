@@ -1,4 +1,4 @@
-#include "Render/CamouflagePipeline.h"
+#include "Game/CamouflagePipeline.h"
 #include "Render/Profile.h"
 
 #include "Assets/Model.h"
@@ -10,6 +10,7 @@
 #include "Render/GpuResourceCache.h"
 #include "Render/Mesh.h"
 #include "Render/Renderer.h"
+#include "Render/RgViews.h"
 #include "Render/ShaderCompile.h"
 #include "Render/SkinningUploadRing.h"
 
@@ -20,6 +21,9 @@ namespace Dark
 
     namespace
     {
+        // The camouflage passes' profiler colour.
+        constexpr uint32_t kCamouflageProfileColor = 0xFF7CB342;
+
         bool FailedHr(HRESULT hr, const char* what)
         {
             if (SUCCEEDED(hr))
@@ -204,6 +208,13 @@ namespace Dark
         return m_targets && m_copy.id.valid() ? m_targets->srv(m_copy.id) : D3D12_CPU_DESCRIPTOR_HANDLE{};
     }
 
+    Rg::TextureHandle CamouflagePipeline::importCopy(Rg::RenderGraph& g, Renderer& renderer)
+    {
+        if (!isValid() || !ensureCopy(renderer))
+            return {};
+        return importTracked(g, "DE.Camouflage.SceneCopy", copyResource(), textureViews(copySrv()));
+    }
+
     bool CamouflagePipeline::bindDraw(ID3D12GraphicsCommandList* cmd, D3D12_GPU_DESCRIPTOR_HANDLE sceneTable, ID3D12PipelineState* pso) const
     {
         if (!cmd || !pso || !m_rootSignature)
@@ -222,7 +233,7 @@ namespace Dark
         GpuModel* gm = gpu.model(model.id);
         if (!cmd || sceneTable.ptr == 0 || !isValid() || !gm || !gm->hasOpaque() || !copyResource())
             return false;
-        const GpuScope camouflage(cmd, "Camouflage", ProfileColor::Camouflage);
+        const GpuScope camouflage(cmd, "Camouflage", kCamouflageProfileColor);
 
         CamouflageConstants cb{};
         cb.cameraPos[0]  = cameraPos.x;

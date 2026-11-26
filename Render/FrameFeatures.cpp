@@ -88,7 +88,7 @@ namespace Dark
     {
         static const char* const kNames[] = {
             "FrameCull", "Shadows", "LocalShadows", "GBuffer",     "Decals",    "GTAO",       "SSR",  "Lighting", "LocalVolumes", "Sky",          "SsrCapture",
-            "Water",     "Clouds",  "Camouflage",   "Translucent", "Particles", "Underwater", "Post", "Overlay",  "EditorGrid",   "EditorGizmos", "DebugOverlays",
+            "Water",     "Clouds",  "Game",         "Translucent", "Particles", "Underwater", "Post", "Overlay",  "EditorGrid",   "EditorGizmos", "DebugOverlays",
         };
         static_assert(sizeof(kNames) / sizeof(kNames[0]) == kPassIdCount, "one name per PassId");
         const auto i = static_cast<uint32_t>(id);
@@ -164,7 +164,7 @@ namespace Dark
             makeNode(PassId::SsrCapture, true, { R::Hdr }, { R::Post }),
             makeNode(PassId::Water, true, { R::Depth }, { R::Hdr }),
             makeNode(PassId::Clouds, true, {}, { R::Hdr }),
-            makeNode(PassId::Camouflage, true, {}, { R::Hdr }),
+            makeNode(PassId::Game, true, {}, { R::Hdr }),
             makeNode(PassId::Translucent, false, { R::Depth }, { R::Hdr }),
             makeNode(PassId::DebugOverlays, true, { R::Depth }, { R::Hdr }),
             // GPU particles read this frame's Depth and, on Bounce, Attrib; the non-deferred blood splats run at the end.
@@ -194,6 +194,7 @@ namespace Dark
             makeNode(PassId::SsrCapture, false, { R::Hdr }, { R::Post }),
             makeNode(PassId::Water, true, { R::Depth }, { R::Hdr }),
             makeNode(PassId::Clouds, true, {}, { R::Hdr }),
+            makeNode(PassId::Game, true, {}, { R::Hdr }),
             makeNode(PassId::EditorGrid, true, {}, { R::Hdr }),
             makeNode(PassId::EditorGizmos, true, {}, { R::Hdr }),
             makeNode(PassId::DebugOverlays, true, { R::Depth }, { R::Hdr }),

@@ -131,8 +131,6 @@ bool SceneRenderer::createPostPipelines(Renderer& renderer, const char* tag)
         DE_LOG_ERROR(LogCategory::Render, "{}: LocalLightVolumePipeline create failed — local lights disabled", tag);
     if (!m_localLightGpu.create(renderer.device()))
         DE_LOG_ERROR(LogCategory::Render, "{}: LocalLightGpuList create failed — local lights disabled", tag);
-    if (!m_camouflage.create(renderer.device(), renderer.sceneColorFormat()))
-        DE_LOG_ERROR(LogCategory::Render, "{}: CamouflagePipeline create failed — camouflage disabled", tag);
 
     MeshData sphereData;
     MeshData coneData;
@@ -232,7 +230,6 @@ void SceneRenderer::shutdown()
     m_decalCube                = Mesh{};
     m_decalVolumeMesh          = LineMesh{};
     m_decalStats               = {};
-    m_camouflage.release();
     m_pointVolumeMesh          = Mesh{};
     m_spotVolumeMesh           = Mesh{};
     // Graph-target owners unregister in release() (they are not reassignable).
@@ -246,6 +243,7 @@ void SceneRenderer::shutdown()
     m_localShadows.release();
     m_debugOverlay             = DebugOverlay{};
     m_features.destroyAll();
+    m_gameFeatures.clear();
     m_coreFrame                = {};
     m_prevViewProj             = Math::Matrix4f{};
     m_havePrevViewProj         = false;
@@ -676,13 +674,6 @@ FrameShadows SceneRenderer::frameShadows() const
         f.localMapSrv = m_localShadows.srvCpu().ptr;
     }
     return f;
-}
-
-Rg::TextureHandle SceneRenderer::importCamouflageCopy(FeatureBuilder& b, Renderer& renderer)
-{
-    if (!m_camouflage.isValid() || !m_camouflage.ensureCopy(renderer))
-        return {};
-    return importTracked(b.graph(), "DE.Camouflage.SceneCopy", m_camouflage.copyResource(), textureViews(m_camouflage.copySrv()));
 }
 
 void SceneRenderer::beginGBufferPass(Rg::PassContext& c, const Renderer& renderer, const GBufferTargets& d)

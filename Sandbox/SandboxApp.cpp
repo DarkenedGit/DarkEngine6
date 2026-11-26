@@ -1812,6 +1812,8 @@ void SandboxApp::onInit()
             return;
         }
         m_frame.echo().create(renderer(), "SandboxApp");
+        m_frame.camouflage().create(renderer(), "SandboxApp");
+        m_frame.scene().addGameFeature(&m_frame.camouflage());
         if (!m_frame.water().create(renderer(), "SandboxApp", true))
         {
             requestQuit();
@@ -2037,6 +2039,7 @@ void SandboxApp::onShutdown()
     m_frame.terrainPipeline() = TerrainPipeline{};
     m_frame.water().release();
     m_frame.echo().release();
+    m_frame.camouflage().release();
     m_frame.scene().shutdown();
     m_hud.m_imgui.shutdown(renderer());
     m_hud.m_menuBackground   = Dark::Texture2D{};
