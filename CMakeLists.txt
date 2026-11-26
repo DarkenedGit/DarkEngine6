@@ -203,15 +203,7 @@ set_target_properties(Sandbox PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
 )
 
-# Keep runtime content next to Sandbox.exe (CWD is not reliable under VS).
-# Best-effort: does not fail the build if Sandbox is still running and locks files.
-add_custom_command(TARGET Sandbox POST_BUILD
-    COMMAND ${CMAKE_COMMAND}
-            -DSRC=${CMAKE_SOURCE_DIR}/content
-            -DDST=$<TARGET_FILE_DIR:Sandbox>/content
-            -P ${CMAKE_SOURCE_DIR}/cmake/CopyContent.cmake
-    COMMENT "Copying content/ next to Sandbox.exe"
-)
+de_copy_content(Sandbox)
 de_host_exe(Sandbox SHADERS BAKED_RELEASE)
 
 # --- Sandbox2D executable (side-scrolling 2D template) -----------------------------
@@ -230,13 +222,7 @@ set_target_properties(Sandbox2D PROPERTIES
     VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/bin/$<CONFIG>"
 )
 
-add_custom_command(TARGET Sandbox2D POST_BUILD
-    COMMAND ${CMAKE_COMMAND}
-            -DSRC=${CMAKE_SOURCE_DIR}/content
-            -DDST=$<TARGET_FILE_DIR:Sandbox2D>/content
-            -P ${CMAKE_SOURCE_DIR}/cmake/CopyContent.cmake
-    COMMENT "Copying content/ next to Sandbox2D.exe"
-)
+de_copy_content(Sandbox2D)
 de_host_exe(Sandbox2D SHADERS BAKED_RELEASE)
 
 # --- Dear ImGui (Editor UI) --------------------------------------------------------
@@ -321,13 +307,7 @@ set_target_properties(Editor PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
 )
 
-add_custom_command(TARGET Editor POST_BUILD
-    COMMAND ${CMAKE_COMMAND}
-            -DSRC=${CMAKE_SOURCE_DIR}/content
-            -DDST=$<TARGET_FILE_DIR:Editor>/content
-            -P ${CMAKE_SOURCE_DIR}/cmake/CopyContent.cmake
-    COMMENT "Copying content/ next to Editor.exe"
-)
+de_copy_content(Editor)
 de_host_exe(Editor SHADERS RUNTIME)
 
 # --- Visual Debugger executable ----------------------------------------------------
