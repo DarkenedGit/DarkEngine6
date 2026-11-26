@@ -48,16 +48,22 @@ namespace
     template <class S> constexpr bool kReachesShadowSystems     = requires(S& s) { s.shadows(); } || requires(S& s) { s.localShadows(); } || requires(S& s) { s.skinnedShadowPipeline(); };
     template <class S> constexpr bool kReachesLightListAndMeter = requires(S& s) { s.localLightGpu(); } || requires(S& s) { s.autoExposure(); };
     // The world-draw pipelines and the skinning ring reach the hosts only as the WorldDrawContext
-    // their GBuffer/Translucent hooks and camouflage draw receive.
+    // their GBuffer/Translucent hooks and game features receive.
     template <class S> constexpr bool kReachesWorldDraws = requires(S& s) { s.meshPipeline(); } || requires(S& s) { s.meshTransparentPipeline(); } || requires(S& s) { s.skinnedPipeline(); } ||
                                                            requires(S& s) { s.skinnedTransparentPipeline(); } || requires(S& s) { s.skinRing(); } || requires(S& s) { s.worldDraws(); };
     // Echolocation is game code (Game/EchoFeature), not a scene pipeline.
     template <class S> constexpr bool kReachesEcho = requires(S& s) { s.echo(); } || requires(const S& s) { s.echo(); };
-    // What the hosts still drive: the skinning ring's frame, the camouflage pass, the water's local
+    // Camouflage is game code (Game/CamouflageFeature in the game slot), not a scene pipeline.
+    using CamouflageDraw                                 = void (*)(Rg::PassContext&, D3D12_GPU_DESCRIPTOR_HANDLE, const WorldDrawContext&);
+    template <class S> constexpr bool kHasCamouflage     = requires(S& s) { s.camouflage(); } || requires(const S& s) { s.camouflage(); };
+    template <class S> constexpr bool kAddsCamouflage    = requires(S& s, FeatureBuilder& b, Renderer& r, CamouflageDraw draw) { s.addCamouflagePasses(b, r, draw); };
+    template <class S> constexpr bool kReachesCamouflage = kHasCamouflage<S> || kAddsCamouflage<S>;
+    // What the hosts still drive: the skinning ring's frame, the game slot, the water's local
     // lights and the meter's samples.
-    template <class S> constexpr bool kHostSurface = requires(S& s, const LocalLightDrawLists& lists) {
+    template <class S> constexpr bool kHostSurface = requires(S& s, const LocalLightDrawLists& lists, IGameFeature* g) {
         s.beginSkinningFrame(0u);
-        s.camouflage();
+        s.addGameFeature(g);
+        s.removeGameFeature(g);
         s.localLightsReady();
         s.localLightsDummyVa();
         s.uploadLocalLights(0u, lists);
@@ -88,6 +94,7 @@ TEST(SceneRenderer, HostsDoNotReachTheCorePipelines)
     EXPECT_FALSE(kReachesLightListAndMeter<SceneRenderer>);
     EXPECT_FALSE(kReachesWorldDraws<SceneRenderer>);
     EXPECT_FALSE(kReachesEcho<SceneRenderer>);
+    EXPECT_FALSE(kReachesCamouflage<SceneRenderer>);
     EXPECT_TRUE(kHostSurface<SceneRenderer>);
 }
 

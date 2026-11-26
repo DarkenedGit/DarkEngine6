@@ -21,8 +21,8 @@
 #include <vector>
 
 // registerCoreFeatures: the GBuffer, Decals, Gtao, Ssr, Lighting, LocalVolumes, SsrCapture, Translucent,
-// Post and Overlay entries as render features declared on a host list from a SceneRenderer without
-// pipelines.
+// Post and Overlay entries and the game slot as render features declared on a host list from a
+// SceneRenderer without pipelines.
 
 using namespace Dark;
 
@@ -150,7 +150,7 @@ namespace
             features.importResource(graph, res, reinterpret_cast<ID3D12Resource*>(static_cast<uintptr_t>(0x100 + r * 0x10)), absDesc(res == RenderResource::Depth ? 40 : 10), layout);
         }
         for (uint32_t i = 0; i < count; ++i)
-            if (!isCore(list[i].id))
+            if (!isCore(list[i].id) && list[i].id != PassId::Game)
                 features.set(list[i].id, [](Rg::PassContext&) {});
         registry.declare(features, FrameView{});
         std::vector<PassId> out;
@@ -189,25 +189,27 @@ namespace
     }
 } // namespace
 
-TEST(SceneRendererCoreFeatures, RegistersTheTenEntriesByStage)
+TEST(SceneRendererCoreFeatures, RegistersTheTenEntriesAndTheGameSlotByStage)
 {
     SceneRenderer         scene;
     RenderFeatureRegistry registry;
     registerCoreFeatures(registry, scene);
-    ASSERT_EQ(registry.count(), 10u);
-    const FeatureStage stages[] = { FeatureStage::GBuffer,  FeatureStage::PostGBuffer, FeatureStage::PostGBuffer, FeatureStage::PostGBuffer, FeatureStage::Lighting,
-                                    FeatureStage::Lighting, FeatureStage::Transparent, FeatureStage::Transparent, FeatureStage::Post,        FeatureStage::Overlay };
-    for (uint32_t i = 0; i < 10; ++i)
+    ASSERT_EQ(registry.count(), 11u);
+    const PassId       passes[] = { PassId::GBuffer,    PassId::Decals,      PassId::Gtao, PassId::Ssr,  PassId::Lighting, PassId::LocalVolumes,
+                                    PassId::SsrCapture, PassId::Translucent, PassId::Game, PassId::Post, PassId::Overlay };
+    const FeatureStage stages[] = { FeatureStage::GBuffer,     FeatureStage::PostGBuffer, FeatureStage::PostGBuffer, FeatureStage::PostGBuffer, FeatureStage::Lighting, FeatureStage::Lighting,
+                                    FeatureStage::Transparent, FeatureStage::Transparent, FeatureStage::Transparent, FeatureStage::Post,        FeatureStage::Overlay };
+    for (uint32_t i = 0; i < 11; ++i)
     {
-        EXPECT_EQ(registry.feature(i)->pass(), kCore[i]) << i;
+        EXPECT_EQ(registry.feature(i)->pass(), passes[i]) << i;
         EXPECT_EQ(registry.feature(i)->stage(), stages[i]) << i;
-        EXPECT_STREQ(registry.feature(i)->name(), passName(kCore[i])) << i;
+        EXPECT_STREQ(registry.feature(i)->name(), passName(passes[i])) << i;
     }
 
     ErrorCapture errors;
     registerCoreFeatures(registry, scene);
-    EXPECT_EQ(registry.count(), 10u);
-    EXPECT_EQ(g_errors.size(), 10u);
+    EXPECT_EQ(registry.count(), 11u);
+    EXPECT_EQ(g_errors.size(), 11u);
 }
 
 TEST(SceneRendererCoreFeatures, CreateNeedsARenderer)
@@ -500,4 +502,141 @@ TEST(SceneRendererCoreFeatures, DrawHookPassesTheWorldDrawsThrough)
     ASSERT_EQ(seen, &draws);
     EXPECT_EQ(&seen->mesh, &mesh);
     EXPECT_EQ(&seen->skinRing, &ring);
+}
+
+namespace
+{
+    // A game feature that adds one opaque pass named `passName` (none when null) and records the
+    // world draws it was handed.
+    struct FakeGameFeature final : IGameFeature
+    {
+        explicit FakeGameFeature(const char* n) :
+            passName(n)
+        {
+        }
+        void addPasses(FeatureBuilder& b, Renderer& renderer, const WorldDrawContext& draws) override
+        {
+            ++calls;
+            sawRenderer = &renderer;
+            mesh        = &draws.mesh;
+            ring        = &draws.skinRing;
+            seenId      = b.id();
+            if (passName)
+                b.opaque(passName, {}, { RenderResource::Hdr }, [](Rg::PassContext&) {});
+        }
+        const char*               passName;
+        int                       calls       = 0;
+        const Renderer*           sawRenderer = nullptr;
+        const MeshPipeline*       mesh        = nullptr;
+        const SkinningUploadRing* ring        = nullptr;
+        PassId                    seenId      = PassId::Count;
+    };
+
+    // Graph pass names in compiled order.
+    std::vector<std::string> compiledNames(const Rg::RenderGraph& graph)
+    {
+        std::vector<std::string> out;
+        for (const uint32_t p : graph.order())
+            out.emplace_back(graph.passName(p));
+        return out;
+    }
+
+    bool inside(const void* p, const SceneRenderer& scene)
+    {
+        const char* const base = reinterpret_cast<const char*>(&scene);
+        return reinterpret_cast<const char*>(p) >= base && reinterpret_cast<const char*>(p) < base + sizeof(SceneRenderer);
+    }
+} // namespace
+
+TEST(SceneRendererCoreFeatures, EmptyGameSlotAddsNoPassAndKeepsEveryCoreEntry)
+{
+    ErrorCapture errors;
+    Bundle       bundle;
+    ASSERT_TRUE(bundle.created);
+    bundle.scene.setCoreFrame(bundle.inputs());
+
+    Rg::RenderGraph graph;
+    FeatureFrame    features;
+    EXPECT_EQ(coreOrder(bundle.registry, graph, features),
+              ids({ PassId::GBuffer, PassId::Decals, PassId::Gtao, PassId::Ssr, PassId::Lighting, PassId::LocalVolumes, PassId::SsrCapture, PassId::Translucent, PassId::Post }));
+    EXPECT_TRUE(features.orderOk());
+    const std::vector<PassId>& order = features.compiledOrder();
+    EXPECT_EQ(std::find(order.begin(), order.end(), PassId::Game), order.end());
+    EXPECT_TRUE(hasPass(graph, "Translucent"));
+    EXPECT_TRUE(missingInputs().empty());
+    EXPECT_TRUE(g_errors.empty());
+
+    // Missing frame inputs do not give the slot a placeholder pass either.
+    bundle.scene.setCoreFrame(CoreFrameInputs{});
+    (void)coreOrder(bundle.registry, graph, features);
+    for (const PassId id : features.compiledOrder())
+        EXPECT_NE(id, PassId::Game);
+    for (const std::string& entry : missingInputs())
+        EXPECT_NE(entry, "Game");
+}
+
+TEST(SceneRendererCoreFeatures, GameFeaturesRunInTheSlotInTheOrderAdded)
+{
+    ErrorCapture    errors;
+    Bundle          bundle;
+    FakeGameFeature first("Game.First");
+    FakeGameFeature idle(nullptr);
+    FakeGameFeature second("Game.Second");
+    ASSERT_TRUE(bundle.created);
+    ASSERT_TRUE(bundle.scene.addGameFeature(&first));
+    ASSERT_TRUE(bundle.scene.addGameFeature(&idle));
+    ASSERT_TRUE(bundle.scene.addGameFeature(&second));
+    bundle.scene.setCoreFrame(bundle.inputs());
+
+    Rg::RenderGraph graph;
+    FeatureFrame    features;
+    EXPECT_EQ(coreOrder(bundle.registry, graph, features),
+              ids({ PassId::GBuffer, PassId::Decals, PassId::Gtao, PassId::Ssr, PassId::Lighting, PassId::LocalVolumes, PassId::SsrCapture, PassId::Translucent, PassId::Post }));
+    EXPECT_TRUE(features.orderOk());
+    for (const FakeGameFeature* f : { &first, &idle, &second })
+    {
+        EXPECT_EQ(f->calls, 1);
+        EXPECT_EQ(f->seenId, PassId::Game);
+        EXPECT_EQ(f->sawRenderer, &bundle.renderer);
+        EXPECT_TRUE(inside(f->mesh, bundle.scene));
+        EXPECT_TRUE(inside(f->ring, bundle.scene));
+        EXPECT_EQ(f->mesh, first.mesh);
+        EXPECT_EQ(f->ring, first.ring);
+    }
+    EXPECT_NE(static_cast<const void*>(first.mesh), static_cast<const void*>(first.ring));
+
+    // Clouds -> the slot's passes in the order added -> Translucent.
+    const std::vector<std::string> names = compiledNames(graph);
+    const auto                     at    = [&names](const char* n) { return std::find(names.begin(), names.end(), n) - names.begin(); };
+    ASSERT_LT(at("Game.First"), static_cast<std::ptrdiff_t>(names.size()));
+    ASSERT_LT(at("Game.Second"), static_cast<std::ptrdiff_t>(names.size()));
+    EXPECT_EQ(at("Clouds") + 1, at("Game.First"));
+    EXPECT_EQ(at("Game.First") + 1, at("Game.Second"));
+    EXPECT_EQ(at("Game.Second") + 1, at("Translucent"));
+    const std::vector<PassId>& order = features.compiledOrder();
+    EXPECT_EQ(std::count(order.begin(), order.end(), PassId::Game), 1);
+
+    // Removed: the next frame skips it.
+    bundle.scene.removeGameFeature(&first);
+    (void)coreOrder(bundle.registry, graph, features);
+    EXPECT_EQ(first.calls, 1);
+    EXPECT_EQ(second.calls, 2);
+    EXPECT_FALSE(hasPass(graph, "Game.First"));
+    EXPECT_TRUE(hasPass(graph, "Game.Second"));
+    EXPECT_TRUE(g_errors.empty());
+}
+
+TEST(SceneRendererCoreFeatures, AddGameFeatureRejectsNullAndDuplicatesAndShutdownForgets)
+{
+    ErrorCapture    errors;
+    SceneRenderer   scene;
+    FakeGameFeature feature("Game.Test");
+    EXPECT_FALSE(scene.addGameFeature(nullptr));
+    EXPECT_TRUE(scene.addGameFeature(&feature));
+    EXPECT_FALSE(scene.addGameFeature(&feature));
+    EXPECT_EQ(g_errors.size(), 2u);
+    scene.removeGameFeature(&feature);
+    EXPECT_TRUE(scene.addGameFeature(&feature));
+    scene.shutdown();
+    EXPECT_TRUE(scene.addGameFeature(&feature)); // shutdown dropped it
 }

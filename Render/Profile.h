@@ -31,7 +31,6 @@ constexpr uint32_t Sky              = 0xFF1E88E5;
 constexpr uint32_t Water            = 0xFF0277BD;
 constexpr uint32_t Underwater       = 0xFF006064;
 constexpr uint32_t Clouds           = 0xFF81D4FA;
-constexpr uint32_t Camouflage       = 0xFF7CB342;
 constexpr uint32_t Translucent      = 0xFFEC407A;
 constexpr uint32_t Particles        = 0xFFD81B60;
 constexpr uint32_t Blood            = 0xFFC62828;

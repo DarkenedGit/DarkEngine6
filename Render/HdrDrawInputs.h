@@ -4,8 +4,8 @@
 
 #include <utility>
 
-// The passes that draw into the lit HDR image after the lighting passes: Sky, Water, Clouds,
-// Camouflage, Translucent, the debug overlays, the Editor grid and gizmos, Particles and Underwater.
+// The passes that draw into the lit HDR image after the lighting passes: Sky, Water, Clouds, the
+// game slot, Translucent, the debug overlays, the Editor grid and gizmos, Particles and Underwater.
 // CPU only, so the native graph tests drive the same declarations SceneRenderer uses.
 
 namespace Dark
@@ -23,7 +23,7 @@ namespace Dark
     struct HdrDrawUses
     {
         bool sceneColor    = false; // this frame's SSR capture, when SsrCapture published one
-        bool depthWrite    = false; // depth tested and written instead (the camouflaged body)
+        bool depthWrite    = false; // depth tested and written instead (a body drawn over the scene)
         bool computeDepth  = false; // depth also sampled by compute work recorded in the pass
         bool computeAttrib = false; // the G-buffer attrib target sampled by compute work
         bool shadow        = false; // the directional shadow map sampled by pixel shaders
@@ -128,7 +128,7 @@ namespace Dark
         return addHdrDrawPass(b, name, uses, std::forward<Exec>(exec));
     }
 
-    // A copy of HDR, then one pass that samples the copy and rewrites HDR (Camouflage, Underwater).
+    // A copy of HDR, then one pass that samples the copy and rewrites HDR (Underwater, game passes).
     struct HdrCopyTargets
     {
         Rg::TextureHandle hdr, depth, copy, sceneColor, shadow;
@@ -195,13 +195,13 @@ namespace Dark
         return addHdrCopyPasses(b, "Underwater.Copy", "Underwater", copy, waterUses(), std::forward<CopyExec>(copyExec), std::forward<Exec>(exec));
     }
 
-    // The camouflage entry: the body samples the copy (refraction) and writes depth, so the passes
-    // after it test against the body.
-    template <class CopyExec, class Exec> bool addCamouflagePasses(FeatureBuilder& b, Rg::TextureHandle copy, CopyExec&& copyExec, Exec&& exec)
+    // As addHdrCopyPasses with no extra reads, but the draw also writes depth, so the passes after it
+    // test against what it drew. `copyName` and `drawName` must outlive the frame (literals).
+    template <class CopyExec, class Exec> bool addHdrCopyDepthWritePasses(FeatureBuilder& b, const char* copyName, const char* drawName, Rg::TextureHandle copy, CopyExec&& copyExec, Exec&& exec)
     {
         HdrDrawUses uses;
         uses.depthWrite = true;
-        return addHdrCopyPasses(b, "Camouflage.Copy", "Camouflage", copy, uses, std::forward<CopyExec>(copyExec), std::forward<Exec>(exec));
+        return addHdrCopyPasses(b, copyName, drawName, copy, uses, std::forward<CopyExec>(copyExec), std::forward<Exec>(exec));
     }
 
 } // namespace Dark

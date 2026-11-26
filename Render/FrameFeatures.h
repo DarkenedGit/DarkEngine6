@@ -57,7 +57,7 @@ namespace Dark
         SsrCapture,
         Water,
         Clouds,
-        Camouflage,
+        Game, // the game slot: the game features the scene runs (SceneRenderer::addGameFeature)
         Translucent,
         Particles,
         Underwater,

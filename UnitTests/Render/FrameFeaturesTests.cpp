@@ -31,8 +31,8 @@ namespace
 
     // Legacy pass tables, in order (sandboxDeferredPasses / editorDeferredPasses at f57ddd7).
     const std::vector<PassId> kLegacySandbox = {
-        PassId::Shadows,    PassId::LocalShadows, PassId::GBuffer, PassId::Decals,     PassId::Gtao,        PassId::Ssr,       PassId::Lighting,   PassId::LocalVolumes, PassId::Sky,
-        PassId::SsrCapture, PassId::Water,        PassId::Clouds,  PassId::Camouflage, PassId::Translucent, PassId::Particles, PassId::Underwater, PassId::Post,         PassId::Overlay,
+        PassId::Shadows,    PassId::LocalShadows, PassId::GBuffer, PassId::Decals, PassId::Gtao,        PassId::Ssr,       PassId::Lighting,   PassId::LocalVolumes, PassId::Sky,
+        PassId::SsrCapture, PassId::Water,        PassId::Clouds,  PassId::Game,   PassId::Translucent, PassId::Particles, PassId::Underwater, PassId::Post,         PassId::Overlay,
     };
     const std::vector<PassId> kLegacyEditor = {
         PassId::Shadows,      PassId::LocalShadows, PassId::GBuffer,    PassId::Decals, PassId::Gtao,    PassId::Ssr,        PassId::Lighting,
@@ -76,6 +76,8 @@ namespace
         std::vector<bool>   sawResource;
         bool                withHistories = false; // request TAA / GTAO / SSR graph histories
         Rg::HistoryPair     taa;
+        bool                declareEmptyGame = false; // declare the game slot with nothing in it
+        bool                gameDeclared     = false;
 
         bool run(const FeaturePass* list, uint32_t count, const std::vector<PassId>& ids, const char* host = "test")
         {
@@ -106,6 +108,9 @@ namespace
                                  sawResource.push_back(ctx.resource(features.handle(RenderResource::Hdr)) == fakeResource(static_cast<uint32_t>(RenderResource::Hdr)));
                              });
             }
+            gameDeclared = false;
+            if (declareEmptyGame)
+                features.declare(PassId::Game, [this](FeatureBuilder&) { gameDeclared = true; });
             if (!features.compileFrame(graph, host))
                 return false;
             return graph.execute();
@@ -153,7 +158,74 @@ TEST(FrameFeatures, ListsMatchTheLegacyTablesWithTheD12ReorderPlusDebugOverlays)
     EXPECT_EQ(without(listIds(sandbox, count), { PassId::DebugOverlays }), d12(kLegacySandbox));
     const FeaturePass* editor = editorFeatures(count);
     // Underwater is optional in both lists; the Editor never sets it (as before, it never marked it).
-    EXPECT_EQ(without(listIds(editor, count), { PassId::DebugOverlays }), d12(kLegacyEditor));
+    // The Editor's game slot is new and empty.
+    EXPECT_EQ(without(listIds(editor, count), { PassId::DebugOverlays, PassId::Game }), d12(kLegacyEditor));
+}
+
+namespace
+{
+    template <class E>
+    concept HasCamouflageEntry = requires { E::Camouflage; };
+} // namespace
+
+TEST(FrameFeatures, GameSlotTakesCamouflagesPlaceAndNoEntryIsCamouflage)
+{
+    EXPECT_FALSE(HasCamouflageEntry<PassId>);
+    for (uint32_t i = 0; i < kPassIdCount; ++i)
+        EXPECT_STRNE(passName(static_cast<PassId>(i)), "Camouflage") << i;
+    EXPECT_STREQ(passName(PassId::Game), "Game");
+    for (const bool editor : { false, true })
+    {
+        uint32_t                  count = 0;
+        const FeaturePass*        list  = editor ? editorFeatures(count) : sandboxFeatures(count);
+        const std::vector<PassId> ids   = listIds(list, count);
+        const auto                at    = [&ids](PassId id) { return std::find(ids.begin(), ids.end(), id) - ids.begin(); };
+        ASSERT_LT(at(PassId::Game), static_cast<std::ptrdiff_t>(count)) << editor;
+        EXPECT_EQ(std::count(ids.begin(), ids.end(), PassId::Game), 1) << editor;
+        // Right after Clouds, ahead of Translucent (in the Sandbox, right ahead of it).
+        EXPECT_EQ(at(PassId::Game), at(PassId::Clouds) + 1) << editor;
+        EXPECT_LT(at(PassId::Game), at(PassId::Translucent)) << editor;
+        if (!editor)
+        {
+            EXPECT_EQ(at(PassId::Translucent), at(PassId::Game) + 1);
+        }
+        // Optional, so an empty slot never fails the order check; it only writes HDR.
+        const FeaturePass& slot = list[at(PassId::Game)];
+        EXPECT_TRUE(slot.optional) << editor;
+        EXPECT_EQ(slot.readCount, 0u) << editor;
+        ASSERT_EQ(slot.writeCount, 1u) << editor;
+        EXPECT_EQ(slot.writes[0], RenderResource::Hdr) << editor;
+    }
+}
+
+TEST(FrameFeatures, EmptyGameSlotAddsNoPassAndKeepsEveryOtherEntry)
+{
+    for (const bool editor : { false, true })
+    {
+        uint32_t                  count = 0;
+        const FeaturePass*        list  = editor ? editorFeatures(count) : sandboxFeatures(count);
+        const std::vector<PassId> rest  = without(listIds(list, count), { PassId::Game });
+        HostFrame                 f;
+        const uint32_t            failures = hostPassSequenceFailures();
+        ASSERT_TRUE(f.run(list, count, rest, editor ? "Editor 3D" : "Sandbox")) << editor;
+        const uint32_t passes = f.graph.passCount();
+        std::string    plain;
+        f.graph.dumpJson(plain);
+        // The same frame with the slot declared but adding nothing: no pass, the same graph.
+        f.declareEmptyGame = true;
+        ASSERT_TRUE(f.run(list, count, rest, editor ? "Editor 3D" : "Sandbox")) << editor;
+        EXPECT_TRUE(f.gameDeclared) << editor;
+        EXPECT_EQ(f.graph.passCount(), passes) << editor;
+        EXPECT_EQ(f.ran, rest) << names(f.ran);
+        EXPECT_EQ(f.features.compiledOrder(), rest) << names(f.features.compiledOrder());
+        EXPECT_TRUE(f.features.orderOk()) << editor;
+        std::string slot;
+        f.graph.dumpJson(slot);
+        // Only the frame number differs.
+        const auto noFrame = [](std::string d) { return d.substr(d.find(',')); };
+        EXPECT_EQ(noFrame(slot), noFrame(plain)) << editor;
+        EXPECT_EQ(hostPassSequenceFailures(), failures) << editor;
+    }
 }
 
 TEST(FrameFeatures, ShadowsFollowTheGBufferAndNothingBeforeLightingReadsAShadowMap)
@@ -229,7 +301,7 @@ TEST(FrameFeatures, SandboxFrameCompilesInD12OrderWithNoBarriers)
     const FeaturePass* list  = sandboxFeatures(count);
     HostFrame          f;
     const uint32_t     failures = hostPassSequenceFailures();
-    // Every pass the Sandbox can set (underwater, camouflage, debug tiles on).
+    // Every pass the Sandbox can set (underwater, the game slot, debug tiles on).
     ASSERT_TRUE(f.run(list, count, listIds(list, count), "Sandbox"));
     EXPECT_TRUE(f.features.orderOk());
     EXPECT_EQ(f.features.compiledOrder(), listIds(list, count)) << names(f.features.compiledOrder());
@@ -242,8 +314,8 @@ TEST(FrameFeatures, SandboxFrameCompilesInD12OrderWithNoBarriers)
         EXPECT_TRUE(saw); // ctx.resource() hands the pass the imported ID3D12Resource
     EXPECT_EQ(hostPassSequenceFailures(), failures);
 
-    // A plain frame (no water, camouflage, underwater or debug tiles), set in reverse order: still list order.
-    std::vector<PassId> plain = without(listIds(list, count), { PassId::Water, PassId::Camouflage, PassId::Underwater, PassId::Overlay });
+    // A plain frame (no water, game slot, underwater or debug tiles), set in reverse order: still list order.
+    std::vector<PassId> plain = without(listIds(list, count), { PassId::Water, PassId::Game, PassId::Underwater, PassId::Overlay });
     std::vector<PassId> reversed(plain.rbegin(), plain.rend());
     ASSERT_TRUE(f.run(list, count, reversed, "Sandbox"));
     EXPECT_EQ(f.ran, plain) << names(f.ran);
@@ -259,7 +331,7 @@ TEST(FrameFeatures, EditorFrameCompilesInD12OrderWithNoBarriers)
     const std::vector<PassId> all      = without(listIds(list, count), { PassId::Underwater });
     ASSERT_TRUE(f.run(list, count, all, "Editor 3D"));
     EXPECT_EQ(f.ran, all) << names(f.ran);
-    EXPECT_EQ(without(f.ran, { PassId::DebugOverlays }), without(d12(kLegacyEditor), { PassId::Underwater }));
+    EXPECT_EQ(without(f.ran, { PassId::DebugOverlays, PassId::Game }), without(d12(kLegacyEditor), { PassId::Underwater }));
     EXPECT_TRUE(f.graph.barriers().empty());
     EXPECT_EQ(hostPassSequenceFailures(), failures);
 
@@ -284,14 +356,14 @@ TEST(FrameFeatures, MissingRequiredPassFailsTheOrderCheck)
 TEST(FrameFeatures, PassNotInTheListIsRejectedAndNeverRuns)
 {
     uint32_t           count = 0;
-    const FeaturePass* list  = editorFeatures(count);
+    const FeaturePass* list  = sandboxFeatures(count);
     Rg::RenderGraph    g;
     FeatureFrame       features;
     g.beginFrame(64, 64);
     features.begin(list, count);
     bool ran = false;
-    EXPECT_FALSE(features.set(PassId::Camouflage, [&](Rg::PassContext&) { ran = true; })); // Sandbox only
-    EXPECT_FALSE(features.isSet(PassId::Camouflage));
+    EXPECT_FALSE(features.set(PassId::EditorGrid, [&](Rg::PassContext&) { ran = true; })); // Editor only
+    EXPECT_FALSE(features.isSet(PassId::EditorGrid));
     EXPECT_TRUE(features.set(PassId::GBuffer, [&](Rg::PassContext&) {}));
     EXPECT_TRUE(features.isSet(PassId::GBuffer));
     features.begin(list, count); // a new frame forgets the callbacks
@@ -312,7 +384,7 @@ TEST(FrameFeatures, MissingImportStillCompiles)
     features.importResource(g, RenderResource::Depth, nullptr, absDesc(320, 180, kD32));
     features.importResource(g, RenderResource::Hdr, nullptr, absDesc(320, 180, kRgba));
     std::vector<PassId> ran;
-    for (const PassId id : without(listIds(list, count), { PassId::Water, PassId::Camouflage, PassId::Underwater, PassId::Overlay }))
+    for (const PassId id : without(listIds(list, count), { PassId::Water, PassId::Game, PassId::Underwater, PassId::Overlay }))
         features.set(id, [&ran, id](Rg::PassContext&) { ran.push_back(id); });
     ASSERT_TRUE(features.compileFrame(g, "partial"));
     ASSERT_TRUE(g.execute());
@@ -1384,7 +1456,7 @@ namespace
                     layout = Rg::Layout::RenderTarget;
                 host.features.importResource(g, res, fakeResource(r), absDesc(1280, 720, fmt), layout);
             }
-            for (const PassId id : without(listIds(list, count), { PassId::Sky, PassId::SsrCapture, PassId::Water, PassId::Clouds, PassId::Camouflage, PassId::Translucent, PassId::DebugOverlays,
+            for (const PassId id : without(listIds(list, count), { PassId::Sky, PassId::SsrCapture, PassId::Water, PassId::Clouds, PassId::Game, PassId::Translucent, PassId::DebugOverlays,
                                                                    PassId::Particles, PassId::Underwater }))
                 host.features.set(id, [this, id](Rg::PassContext&) { ran.push_back(passName(id)); });
             host.features.declare(PassId::Sky,
@@ -1440,13 +1512,13 @@ namespace
                                   });
             // Camouflage off: the host declares nothing and the optional entry is absent.
             if (camouflage)
-                host.features.declare(PassId::Camouflage,
+                host.features.declare(PassId::Game,
                                       [this](FeatureBuilder& fb)
                                       {
                                           const Rg::TextureHandle copy =
                                               fb.graph().importTexture("DE.Camouflage.SceneCopy", absDesc(1280, 720, kRgba), fakeResource(62), Rg::Layout::ShaderResource, Rg::Layout::Undefined);
-                                          camoAdded = addCamouflagePasses(
-                                              fb, copy,
+                                          camoAdded = addHdrCopyDepthWritePasses(
+                                              fb, "Camouflage.Copy", "Camouflage", copy,
                                               [this](Rg::PassContext&, const HdrCopyTargets& d)
                                               {
                                                   ran.push_back("Camouflage.Copy");
@@ -1785,12 +1857,13 @@ TEST(FrameFeatures, HdrDrawHelpersAddNothingWithoutHdrAndDepth)
                                   underAdded = addUnderwaterPasses(fb, copy, [](Rg::PassContext&, const UnderwaterTargets&) {}, [](Rg::PassContext&, const UnderwaterTargets&) {});
                                   fb.opaque("Underwater", {}, {}, [](Rg::PassContext&) {});
                               });
-        host.features.declare(PassId::Camouflage,
+        host.features.declare(PassId::Game,
                               [&](FeatureBuilder& fb)
                               {
                                   const Rg::TextureHandle copy =
                                       fb.graph().importTexture("DE.Camouflage.SceneCopy", absDesc(1280, 720, kRgba), fakeResource(62), Rg::Layout::ShaderResource, Rg::Layout::Undefined);
-                                  camoAdded = addCamouflagePasses(fb, copy, [](Rg::PassContext&, const HdrCopyTargets&) {}, [](Rg::PassContext&, const HdrCopyTargets&) {});
+                                  camoAdded = addHdrCopyDepthWritePasses(
+                                      fb, "Camouflage.Copy", "Camouflage", copy, [](Rg::PassContext&, const HdrCopyTargets&) {}, [](Rg::PassContext&, const HdrCopyTargets&) {});
                               });
         host.features.declare(PassId::Particles,
                               [&](FeatureBuilder& fb)

@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "Render/CamouflagePipeline.h"
+#include "Game/CamouflagePipeline.h"
 #include "Render/ShaderCompile.h"
 
 #include <d3d12.h>

@@ -8,6 +8,7 @@
 #include "Particles/ParticleRenderer.h"
 #include "Render/AutoExposure.h"
 #include "Sky/CloudVolumePipeline.h"
+#include "Game/CamouflageFeature.h"
 #include "Game/EchoFeature.h"
 #include "Render/DrawList.h"
 #include "Terrain/FoliagePipeline.h"
@@ -44,6 +45,7 @@ public:
     Dark::SkyFeatures&                sky() { return m_sky; }
     Dark::ShadowFeature&              shadowFeature() { return m_shadowFeature; }
     Dark::EchoFeature&                echo() { return m_echo; }
+    Dark::CamouflageFeature&          camouflage() { return m_camouflage; }
     Dark::DrawList&                   drawList() { return m_drawList; }
     Dark::SkinnedInstanceBuffer&      skinnedInstances() { return m_skinnedInstances; }
     std::unordered_map<Dark::EntityID, Dark::Math::Matrix4f>& prevWorldByEntity() { return m_prevWorldByEntity; }
@@ -87,6 +89,7 @@ private:
     Dark::SkyFeatures                           m_sky;
     Dark::ShadowFeature                         m_shadowFeature;
     Dark::EchoFeature                           m_echo;
+    Dark::CamouflageFeature                     m_camouflage;
     Dark::FrameComposer                         m_frameComposer; // the frame graph (render-graph plan Phase 4)
     Dark::WalkabilityDebug                      m_walkDebug;
     std::unordered_map<Dark::EntityID, Dark::Math::Matrix4f> m_prevWorldByEntity;

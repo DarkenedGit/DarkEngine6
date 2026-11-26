@@ -859,29 +859,27 @@ void SandboxFrame::render()
     m_sky.clouds.setFrameInputs(clouds);
 
     bool lateDepthWrite = false;
-    if (app().m_vision.camouflage && m_scene.camouflage().isValid())
+    const auto drawBody       = [&](Rg::PassContext& pass, D3D12_GPU_DESCRIPTOR_HANDLE sceneTable, const WorldDrawContext& worldDraws)
     {
-        const auto drawBody = [&](Rg::PassContext& pass, D3D12_GPU_DESCRIPTOR_HANDLE sceneTable, const WorldDrawContext& worldDraws) {
-            ID3D12GraphicsCommandList* const cmd = pass.cmd();
-            const Entity body = app().possessedBody();
-            const TransformComponent* xf = body.valid() ? app().world().get<TransformComponent>(body) : nullptr;
-            const ModelComponent* mc = body.valid() ? app().world().get<ModelComponent>(body) : nullptr;
-            const Model* model = (mc && xf) ? app().assets().find<Model>(mc->modelAssetID) : nullptr;
-            if (xf && model && gpu.retainModel(app().assets(), *model))
+        ID3D12GraphicsCommandList* const cmd   = pass.cmd();
+        const Entity                     body  = app().possessedBody();
+        const TransformComponent*        xf    = body.valid() ? app().world().get<TransformComponent>(body) : nullptr;
+        const ModelComponent*            mc    = body.valid() ? app().world().get<ModelComponent>(body) : nullptr;
+        const Model*                     model = (mc && xf) ? app().assets().find<Model>(mc->modelAssetID) : nullptr;
+        if (xf && model && gpu.retainModel(app().assets(), *model))
+        {
+            const Matrix4f      worldMat = makeWorldMatrix(*xf);
+            AnimGraphComponent* ag       = app().world().get<AnimGraphComponent>(body);
+            const AnimPose*     pose     = model->skinned() ? skinnedPose(*model, ag) : nullptr;
+            if (ag)
             {
-                const Matrix4f worldMat = makeWorldMatrix(*xf);
-                AnimGraphComponent* ag = app().world().get<AnimGraphComponent>(body);
-                const AnimPose* pose = model->skinned() ? skinnedPose(*model, ag) : nullptr;
-                if (ag)
-                {
-                    ag->prevWorld      = worldMat;
-                    ag->prevWorldValid = true;
-                }
-                lateDepthWrite = m_scene.camouflage().drawModel(cmd, sceneTable, gpu, worldDraws.skinRing, *model, pose, worldMat, viewProj, camPos, app().m_sceneWorld.cloudTime, fill);
+                ag->prevWorld      = worldMat;
+                ag->prevWorldValid = true;
             }
-        };
-        frame.declare(PassId::Camouflage, [&, drawBody](FeatureBuilder& b) { m_scene.addCamouflagePasses(b, app().renderer(), drawBody); });
-    }
+            lateDepthWrite = m_camouflage.pipeline().drawModel(cmd, sceneTable, gpu, worldDraws.skinRing, *model, pose, worldMat, viewProj, camPos, app().m_sceneWorld.cloudTime, fill);
+        }
+    };
+    m_camouflage.setFrameDraw(app().m_vision.camouflage ? CamouflageFeature::Draw::of(drawBody) : CamouflageFeature::Draw{});
 
     const auto drawTranslucent = [&](Rg::PassContext& pass, const WorldDrawContext& worldDraws) {
         ID3D12GraphicsCommandList* const cmd = pass.cmd();

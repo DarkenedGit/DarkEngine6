@@ -32,10 +32,10 @@
 #include "Render/TaaPipeline.h"
 #include "Render/TemporalHistory.h"
 #include "Render/TonemapPipeline.h"
-#include "Render/CamouflagePipeline.h"
 
 #include <cstdint>
 #include <utility>
+#include <vector>
 
 namespace Dark
 {
@@ -93,7 +93,7 @@ struct CorePassHook
 };
 
 // The scene's world-draw pipelines and skinning upload ring, handed to the GBuffer and Translucent
-// hooks and the camouflage draw while their passes execute.
+// hooks and the game features while their passes execute.
 struct WorldDrawContext
 {
     MeshPipeline&        mesh;
@@ -118,6 +118,17 @@ struct CoreDrawHook
     {
         fn(ctx, pass, draws);
     }
+};
+
+// A feature in the hosts' game slot (PassId::Game), added with SceneRenderer::addGameFeature. The
+// scene runs the added features in that entry, in the order they were added.
+class IGameFeature
+{
+public:
+    virtual ~IGameFeature() = default;
+    // Setup time, inside the game slot's entry. Adds nothing when the feature does not run this
+    // frame. `draws` stays valid while the passes execute.
+    virtual void addPasses(FeatureBuilder& b, Renderer& renderer, const WorldDrawContext& draws) = 0;
 };
 
 // Post's optional auto exposure: the host's meter state and settings, and this frame's artistic
@@ -200,24 +211,6 @@ public:
     // stored until execute(). Without scene targets the entry is an opaque pass that logs once.
     // Translucent samples the shadow map (declared, so the graph moves it there from the Shadows
     // pass); without one it binds a null view. Water and Underwater are Water/WaterRendering.
-    // Camouflage: copies HDR, then `draw(Rg::PassContext&, D3D12_GPU_DESCRIPTOR_HANDLE sceneTable,
-    // const WorldDrawContext&)` (the copy, for CamouflagePipeline::drawModel, and the scene's
-    // world draws) with HDR and writable depth bound: the body
-    // writes depth, and the passes after it test against the new version.
-    template <class Draw> void addCamouflagePasses(FeatureBuilder& b, Renderer& renderer, Draw&& draw)
-    {
-        Renderer* const         rr    = &renderer;
-        SceneRenderer* const    scene = this;
-        const Rg::TextureHandle copy  = importCamouflageCopy(b, renderer);
-        if (!copy.valid() || !Dark::addCamouflagePasses(
-                                 b, copy, [](Rg::PassContext& c, const HdrCopyTargets& d) { copyHdr(c, d); },
-                                 [rr, scene, draw = std::forward<Draw>(draw)](Rg::PassContext& c, const HdrCopyTargets& d)
-                                 {
-                                     bindHdrDepthWrite(c, *rr, d.hdr, d.depth);
-                                     draw(c, rgSrvTable(c, { d.copy }), scene->worldDraws());
-                                 }))
-            b.opaque("Camouflage", {}, {}, [](Rg::PassContext&) { logMissingSceneTargets("Camouflage"); });
-    }
     // DebugOverlays and the Editor grid and gizmos: `draw(Rg::PassContext&)` with HDR + read-only
     // depth bound. `name` must outlive the frame (a literal).
     template <class Draw> void addHdrOverlayPasses(FeatureBuilder& b, Renderer& renderer, const char* name, Draw&& draw)
@@ -255,8 +248,11 @@ public:
             m_skinRing.beginFrame(frameIndex);
     }
 
-    // The game pass's pipeline.
-    CamouflagePipeline&       camouflage() { return m_camouflage; }
+    // The game slot (PassId::Game): `feature` runs there each frame, after the features added
+    // before it. Non-owning: the host keeps it alive until removeGameFeature or shutdown. False
+    // (logged) for null or a feature already added.
+    bool addGameFeature(IGameFeature* feature);
+    void removeGameFeature(IGameFeature* feature);
 
     // A host gather of the local lights (Sandbox's water) into the list LocalVolumes draws from.
     // localLightsReady: the GPU list exists. localLightsDummyVa: the list's empty buffer (0 without
@@ -277,8 +273,6 @@ public:
     // after the scene pipelines and shutdown destroys them; the host declares them each frame.
     RenderFeatureRegistry&       features() { return m_features; }
     const RenderFeatureRegistry& features() const { return m_features; }
-
-    const CamouflagePipeline&       camouflage() const { return m_camouflage; }
 
     const Math::Matrix4f& prevViewProj() const { return m_prevViewProj; }
     bool                  havePrevViewProj() const { return m_havePrevViewProj; }
@@ -308,8 +302,9 @@ private:
         Translucent,
         DebugTiles,
         Post,
+        Game,
     };
-    static constexpr uint32_t kCoreEntryCount = 10;
+    static constexpr uint32_t kCoreEntryCount = 11;
 
     // One core list entry as a render feature: its passes come from the add*Passes below.
     class CoreEntry final : public IRenderFeature
@@ -423,8 +418,6 @@ private:
     bool decalPassReady() const;
     // Clears the G-buffer MRTs and binds them with depth (graph views), with the viewport.
     static void beginGBufferPass(Rg::PassContext& c, const Renderer& renderer, const GBufferTargets& d);
-    // This frame's import of the camouflage HDR copy; invalid when it cannot be made.
-    Rg::TextureHandle importCamouflageCopy(FeatureBuilder& b, Renderer& renderer);
     void storeDecalStats(uint32_t drawn, uint32_t culled, uint32_t inside, uint32_t triangles);
 
     MeshPipeline             m_meshPipeline;
@@ -444,7 +437,6 @@ private:
     Mesh                     m_decalCube;
     LineMesh                 m_decalVolumeMesh;
     DecalFrameStats          m_decalStats{};
-    CamouflagePipeline       m_camouflage;
     Mesh                     m_pointVolumeMesh;
     Mesh                     m_spotVolumeMesh;
     BloomPipeline            m_bloom;
@@ -477,13 +469,16 @@ private:
     bool           m_initialized            = false;
     CoreFrameInputs m_coreFrame{};
     CoreEntry          m_coreEntries[kCoreEntryCount]{
-        { *this, CoreEntryKind::Decals },  { *this, CoreEntryKind::Gtao },       { *this, CoreEntryKind::Ssr },         { *this, CoreEntryKind::Lighting },   { *this, CoreEntryKind::LocalVolumes },
-        { *this, CoreEntryKind::GBuffer }, { *this, CoreEntryKind::SsrCapture }, { *this, CoreEntryKind::Translucent }, { *this, CoreEntryKind::DebugTiles }, { *this, CoreEntryKind::Post },
+        { *this, CoreEntryKind::Decals },       { *this, CoreEntryKind::Gtao },    { *this, CoreEntryKind::Ssr },        { *this, CoreEntryKind::Lighting },
+        { *this, CoreEntryKind::LocalVolumes }, { *this, CoreEntryKind::GBuffer }, { *this, CoreEntryKind::SsrCapture }, { *this, CoreEntryKind::Translucent },
+        { *this, CoreEntryKind::DebugTiles },   { *this, CoreEntryKind::Post },    { *this, CoreEntryKind::Game },
     };
+    std::vector<IGameFeature*> m_gameFeatures;
 };
 
 // Adds the GBuffer, Decals, Gtao, Ssr, Lighting, LocalVolumes, SsrCapture, Translucent, Post and
-// Overlay entries. Hosts register them before SceneRenderer::init and call setCoreFrame each frame.
+// Overlay entries and the game slot. Hosts register them before SceneRenderer::init and call
+// setCoreFrame each frame.
 void registerCoreFeatures(RenderFeatureRegistry& registry, SceneRenderer& scene);
 
 // Adds the ShadowFeature entries to the scene's registry and binds the scene's shadow maps and

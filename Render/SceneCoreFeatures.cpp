@@ -4,6 +4,8 @@
 #include "Render/Renderer.h"
 #include "Render/ShadowFeature.h"
 
+#include <algorithm>
+
 namespace Dark
 {
 
@@ -23,6 +25,7 @@ namespace Dark
             return FeatureStage::GBuffer;
         case CoreEntryKind::SsrCapture:
         case CoreEntryKind::Translucent:
+        case CoreEntryKind::Game:
             return FeatureStage::Transparent;
         case CoreEntryKind::DebugTiles:
             return FeatureStage::Overlay;
@@ -55,6 +58,8 @@ namespace Dark
             return PassId::Overlay;
         case CoreEntryKind::Post:
             return PassId::Post;
+        case CoreEntryKind::Game:
+            return PassId::Game;
         default:
             return PassId::Decals;
         }
@@ -90,6 +95,7 @@ namespace Dark
             return in.translucent.fn != nullptr;
         case CoreEntryKind::SsrCapture:
         case CoreEntryKind::DebugTiles:
+        case CoreEntryKind::Game:
             return true;
         case CoreEntryKind::Post:
             return in.post && in.viewProj;
@@ -157,6 +163,11 @@ namespace Dark
         case CoreEntryKind::Post:
             addPostPasses(b);
             break;
+        case CoreEntryKind::Game:
+            // An empty slot adds no pass.
+            for (IGameFeature* const feature : s.m_gameFeatures)
+                feature->addPasses(b, *m_renderer, s.worldDraws());
+            break;
         }
     }
 
@@ -193,6 +204,22 @@ namespace Dark
             DE_LOG_ERROR(LogCategory::Render, "SceneRenderer: Post's beforePost hook has no name; the hook is skipped (logs once)");
         }
         s.addPostPasses(b, *m_renderer, *in.viewProj, tonemap, meter);
+    }
+
+    bool SceneRenderer::addGameFeature(IGameFeature* feature)
+    {
+        if (!feature || std::find(m_gameFeatures.begin(), m_gameFeatures.end(), feature) != m_gameFeatures.end())
+        {
+            DE_LOG_ERROR(LogCategory::Render, "SceneRenderer: game feature is null or already added");
+            return false;
+        }
+        m_gameFeatures.push_back(feature);
+        return true;
+    }
+
+    void SceneRenderer::removeGameFeature(IGameFeature* feature)
+    {
+        m_gameFeatures.erase(std::remove(m_gameFeatures.begin(), m_gameFeatures.end(), feature), m_gameFeatures.end());
     }
 
     void registerCoreFeatures(RenderFeatureRegistry& registry, SceneRenderer& scene)
