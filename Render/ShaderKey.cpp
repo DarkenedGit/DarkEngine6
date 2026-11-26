@@ -53,6 +53,71 @@ namespace Dark
             }
             return true;
         }
+
+        std::string slashPath(std::string_view path)
+        {
+            std::string out(path);
+            std::replace(out.begin(), out.end(), '\\', '/');
+            return out;
+        }
+
+        bool sameName(std::string_view a, std::string_view b)
+        {
+            const auto lower = [](char c) { return (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c; };
+            return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin(), [&](char x, char y) { return lower(x) == lower(y); });
+        }
+
+        // a is b or a folder under it.
+        bool isAtOrUnder(std::string_view a, std::string_view b)
+        {
+            return sameName(a.substr(0, b.size()), b) && (a.size() == b.size() || a[b.size()] == '/');
+        }
+
+        bool validRootDir(std::string_view dir)
+        {
+            // Empty parts reject a leading, trailing or doubled '/'.
+            if (dir.empty() || dir.find('\\') != std::string_view::npos || dir.find(':') != std::string_view::npos)
+                return false;
+            size_t start = 0;
+            while (start <= dir.size())
+            {
+                size_t end = dir.find('/', start);
+                if (end == std::string_view::npos)
+                    end = dir.size();
+                const std::string_view part = dir.substr(start, end - start);
+                if (part.empty() || part == "." || part == "..")
+                    return false;
+                start = end + 1;
+            }
+            return true;
+        }
+
+        void addUnique(std::vector<std::string>& names, std::string name)
+        {
+            for (const std::string& n : names)
+                if (sameName(n, name))
+                    return;
+            names.push_back(std::move(name));
+        }
+
+        bool rootHasFile(const ShaderRootSet::Root& root, std::string_view file)
+        {
+            for (const std::string& f : root.files)
+                if (sameName(f, file))
+                    return true;
+            for (const ShaderKey& key : root.manifest.keys)
+                if (sameName(key.file, file))
+                    return true;
+            return false;
+        }
+
+        bool rootHasBakedName(const ShaderRootSet::Root& root, std::string_view name)
+        {
+            for (const ShaderKey& key : root.manifest.keys)
+                if (sameName(bakedShaderFileName(key), name))
+                    return true;
+            return false;
+        }
     } // namespace
 
     const char* shaderStageId(ShaderStage stage)
@@ -253,6 +318,91 @@ namespace Dark
             out.keys.push_back(std::move(key));
         }
         return true;
+    }
+
+    bool ShaderRootSet::add(std::string_view dir, std::string_view manifestText, std::span<const std::string> files, std::string& error)
+    {
+        error.clear();
+        if (!validRootDir(dir))
+        {
+            error = std::format("shader root '{}' must be a relative folder under content/ with '/' separators", dir);
+            return false;
+        }
+        for (const Root& root : m_roots)
+        {
+            if (isAtOrUnder(dir, root.dir) || isAtOrUnder(root.dir, dir))
+            {
+                error = std::format("shader root '{}' overlaps shader root '{}'", dir, root.dir);
+                return false;
+            }
+        }
+
+        Root added;
+        added.dir = std::string(dir);
+        std::string manifestError;
+        if (!parseShaderManifest(manifestText, added.manifest, manifestError))
+        {
+            error = std::format("{}/shaders.manifest {}", dir, manifestError);
+            return false;
+        }
+        for (const std::string& file : files)
+            addUnique(added.files, slashPath(file));
+
+        std::vector<std::string> names = added.files;
+        for (const ShaderKey& key : added.manifest.keys)
+            addUnique(names, key.file);
+        for (const Root& root : m_roots)
+        {
+            for (const std::string& name : names)
+            {
+                if (rootHasFile(root, name))
+                {
+                    error = std::format("shader file '{}' is in both {}/ and {}/; shader file names must be unique across shader roots", name, root.dir, dir);
+                    return false;
+                }
+            }
+            for (const ShaderKey& key : added.manifest.keys)
+            {
+                const std::string baked = bakedShaderFileName(key);
+                if (rootHasBakedName(root, baked))
+                {
+                    error = std::format("baked shader '{}' ('{}' in {}/) is also baked from {}/", baked, formatShaderKey(key), dir, root.dir);
+                    return false;
+                }
+            }
+        }
+        m_roots.push_back(std::move(added));
+        return true;
+    }
+
+    const ShaderRootSet::Root* ShaderRootSet::find(std::string_view dir) const
+    {
+        for (const Root& root : m_roots)
+            if (sameName(root.dir, dir))
+                return &root;
+        return nullptr;
+    }
+
+    bool ShaderRootSet::contains(const ShaderKey& key) const
+    {
+        for (const Root& root : m_roots)
+            if (root.manifest.contains(key))
+                return true;
+        return false;
+    }
+
+    bool ShaderRootSet::fileFromContentPath(std::string_view relativeUnderContent, std::string& outFile) const
+    {
+        const std::string path = slashPath(relativeUnderContent);
+        for (const Root& root : m_roots)
+        {
+            if (path.size() > root.dir.size() + 1 && isAtOrUnder(path, root.dir))
+            {
+                outFile = path.substr(root.dir.size() + 1);
+                return true;
+            }
+        }
+        return false;
     }
 
     bool isDxilContainer(const void* data, size_t size)

@@ -22,7 +22,7 @@ This engine is still in progress. This README covers only what is in the tree to
 
 Hosts link only `DarkEngine`. Each engine `.cpp` compiles in exactly one target. Every `Render/*.cpp` compiles into `DarkRender`; the loading screen and the movie presenters, which call the movie player, live in `Media/` and compile into `DarkEngine`. The layer graph is documented at the top of `cmake/DarkEngineTargets.cmake`.
 
-HLSL lives in `content/shaders/`. Debug builds, the Editor and UnitTests compile it at runtime with DXC; Release game exes load DXIL baked at build time (see [Shaders](#shaders)).
+HLSL lives in `content/shaders/` (engine) and `content/game/shaders/` (game). Debug builds, the Editor and UnitTests compile it at runtime with DXC; Release game exes load DXIL baked at build time (see [Shaders](#shaders)).
 
 ## What is in the tree
 
@@ -317,8 +317,10 @@ Sandbox and Sandbox2D show a two-phase boot splash (engine logo, then host) in a
 HLSL lives in `content/shaders/`. Every permutation the engine compiles is listed in `content/shaders/shaders.manifest` (`<file> <entry> <vs|ps|cs> [NAME=VALUE,...]`, defines sorted by name). Call sites use `compileShaderFromContent(path, entry, ShaderStage::Pixel, blob, defines)`; the backend is chosen once per process (`Render/ShaderCompile.*`):
 
 - **DXC at runtime** (Debug builds of every exe, Editor and UnitTests in every config): `IDxcCompiler3` at **Shader Model 6.0** (`kShaderModelDxc` in `Render/ShaderKey.h`), HLSL 2021, strict (`-Ges`). Debug adds `-Od -Zi -Qembed_debug` so PIX and Nsight show HLSL source. DXC is loaded from `<exe dir>/dxc/` with `LoadLibrary`. Results are cached in `%LOCALAPPDATA%/DarkEngine6/ShaderCache/`, keyed by source, includes, entry, profile, defines, arguments and compiler version.
-- **Baked DXIL** (Release / RelWithDebInfo / MinSizeRel of Sandbox, Sandbox2D and VisualDebugger): the `de_shaders` target runs `dxc.exe` over the manifest at build time into `build/shaders/`, which is copied to `<exe dir>/shaders/`. These builds have no DXC DLLs. A permutation missing from the manifest fails with an error naming it (Debug logs a warning the first time code asks for one).
+- **Baked DXIL** (Release / RelWithDebInfo / MinSizeRel of Sandbox, Sandbox2D and VisualDebugger): the `de_shaders` target runs `dxc.exe` over every root's manifest at build time into `build/shaders/`, which is copied to `<exe dir>/shaders/`. These builds have no DXC DLLs. A permutation missing from the manifest fails with an error naming it (Debug logs a warning the first time code asks for one).
 - **FXC fallback** (`DE_SHADER_FXC=1`): `D3DCompile` at Shader Model 5.1, kept for DXC A/B comparison until the end of render-graph Phase 2.
+
+Game shaders live in their own root, `content/game/shaders/` (camouflage and echo), with its own `shaders.manifest`. Game code adds it with `addGameShaderRoot()` (`Game/GameShaders.h`, which calls `addShaderRoot("game/shaders")`) before compiling `"game/shaders/<file>"`. A shader's `#include "x"` looks in its own folder, then in `content/shaders/`. The bake does the same with `de_add_shader_root(<dir>)` in CMake (`cmake/ShaderBake.cmake`; the game root is added in `cmake/DarkEngineTargets.cmake`). Every root bakes into the one flat `shaders/` folder, so a file name or baked name in two roots fails: CMake stops at configure, and `addShaderRoot` logs an error and returns false. Names are compared without case.
 
 The boot splash shaders are embedded in the exe as byte arrays generated at build time (`cmake/EmbedShaders.cmake`).
 

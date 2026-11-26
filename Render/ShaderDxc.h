@@ -24,6 +24,9 @@ namespace Dark
         const char*               entry  = nullptr;
         ShaderStage               stage  = ShaderStage::Vertex;
         std::vector<ShaderDefine> defines;
+        // Searched for #include "x" after the file's own folder, in order (e.g. content/shaders for a
+        // shader in another shader root).
+        std::vector<std::filesystem::path> includeDirs;
         bool                      optimize  = true;  // false: -Od
         bool                      debugInfo = false; // true: -Zi -Qembed_debug (PIX/Nsight show HLSL source)
     };

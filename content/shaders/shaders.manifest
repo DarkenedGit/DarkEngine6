@@ -1,5 +1,7 @@
 # DarkEngine6 shader permutations (D10). Release loads only these, baked by the de_shaders target.
 # One permutation per line: <file under content/shaders> <entry> <stage vs|ps|cs> [NAME=VALUE,NAME=VALUE...]
+# Other shader roots (folders under content/ added with addShaderRoot()) list theirs in their own
+# shaders.manifest. A shader file name may be in only one root.
 # Defines are sorted by name. ShaderManifestTests checks the format; Debug runs log any
 # compileShaderFromContent() call whose key is missing here.
 
@@ -28,10 +30,6 @@ Bloom.hlsl PSDownsample ps
 Bloom.hlsl PSUpsample ps
 Bloom.hlsl PSComposite ps
 
-Camouflage.hlsl VSMain vs
-Camouflage.hlsl VSMainStatic vs
-Camouflage.hlsl PSMain ps
-
 CloudVolume.hlsl VSMain vs
 CloudVolume.hlsl PSMain ps
 
@@ -47,10 +45,6 @@ Decal.hlsl PSMain ps
 
 DeferredLighting.hlsl VSMain vs
 DeferredLighting.hlsl PSMain ps
-
-Echo.hlsl VSMain vs
-Echo.hlsl PSSnapshot ps ECHO_SNAPSHOT=1
-Echo.hlsl PSComposite ps
 
 FoliageCull.hlsl CSCompact cs
 FoliageCull.hlsl CSPrefix cs

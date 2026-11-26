@@ -41,7 +41,7 @@ namespace Dark
 
     struct ShaderKey
     {
-        std::string file;  // path under content/shaders with '/' separators, e.g. "TerrainGBuffer.hlsl"
+        std::string file;  // path under its shader root (e.g. content/shaders) with '/' separators, e.g. "TerrainGBuffer.hlsl"
         std::string entry; // "PSMain"
         ShaderStage stage = ShaderStage::Vertex;
         std::string defines; // canonical: NAME=VALUE pairs sorted by name, comma-separated, e.g. "DE_THERMAL=1,DE_THERMAL_HEAT=0.41"
@@ -74,9 +74,49 @@ namespace Dark
         bool contains(const ShaderKey& key) const;
     };
 
-    // Parses content/shaders/shaders.manifest. Blank lines and '#' comments are skipped.
-    // Fails (with "line N: reason") on a bad stage, unsorted or malformed defines, or a duplicate key.
+    // Parses a shaders.manifest (content/shaders/ or another shader root). Blank lines and '#' comments
+    // are skipped. Fails (with "line N: reason") on a bad stage, unsorted or malformed defines, or a
+    // duplicate key.
     bool parseShaderManifest(std::string_view text, ShaderManifest& out, std::string& error);
+
+    // The engine's shader root under content/.
+    inline constexpr std::string_view kEngineShaderRoot = "shaders";
+
+    // Shader roots: folders under content/, each with its own shaders.manifest. Every root bakes into
+    // the one flat shaders/ folder and a key names its file by the path under its root, so a shader
+    // file and a baked name may each be in only one root. Names are compared ignoring ASCII case, as
+    // on Windows file systems.
+    class ShaderRootSet
+    {
+    public:
+        struct Root
+        {
+            std::string              dir; // e.g. "shaders": '/' separators, no leading or trailing '/'
+            ShaderManifest           manifest;
+            std::vector<std::string> files; // .hlsl/.hlsli paths under dir found on disk
+        };
+
+        // Adds root dir with its manifest text and the shader files found under it. Fails (error says
+        // why; the set is unchanged) when dir is malformed, is a root or nests with one, the manifest
+        // does not parse, or a file (on disk or in the manifest) or a baked name is also in another root.
+        bool add(std::string_view dir, std::string_view manifestText, std::span<const std::string> files, std::string& error);
+
+        const Root*              find(std::string_view dir) const;
+        const std::vector<Root>& roots() const
+        {
+            return m_roots;
+        }
+
+        // True when any root's manifest lists the key.
+        bool contains(const ShaderKey& key) const;
+
+        // "<root dir>/<file>" -> file, for the root holding it. Backslashes become '/'. False when the
+        // path is under no root.
+        bool fileFromContentPath(std::string_view relativeUnderContent, std::string& outFile) const;
+
+    private:
+        std::vector<Root> m_roots;
+    };
 
     // True when bytecode is a shader container with a DXIL part (DXC); false for FXC DXBC or garbage.
     bool isDxilContainer(const void* data, size_t size);

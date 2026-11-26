@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <atomic>
 #include <fstream>
+#include <memory>
 #include <mutex>
 #include <vector>
 
@@ -81,6 +82,9 @@ namespace Dark
             std::once_flag         manifestOnce;
             bool                   manifestOk = false;
             ShaderManifest         manifest;
+            std::mutex             rootsMutex;
+            bool                   engineRootTried = false;
+            ShaderRootSet          roots;
             std::mutex             keysMutex;
             std::vector<ShaderKey> requested;
             std::vector<ShaderKey> warnedMissing;
@@ -141,31 +145,189 @@ namespace Dark
             return static_cast<bool>(file.read(reinterpret_cast<char*>(out.data()), size));
         }
 
-        // Path under content/shaders for an absolute shader path, so compileShaderFromFile has a key in Baked mode.
+        // Path of `path` below dir ("sub/X.hlsl"), or empty when it is not below dir.
+        std::filesystem::path pathBelow(const std::filesystem::path& path, const std::filesystem::path& dir)
+        {
+            std::error_code             ec;
+            const std::filesystem::path rel = std::filesystem::weakly_canonical(path, ec).lexically_relative(dir);
+            if (ec || rel.empty() || *rel.begin() == ".." || *rel.begin() == ".")
+                return {};
+            return rel;
+        }
+
+        // .hlsl/.hlsli paths under dir, relative to it with '/' separators.
+        std::vector<std::string> listShaderFiles(const std::filesystem::path& dir)
+        {
+            std::vector<std::string> files;
+            std::error_code          ec;
+            for (std::filesystem::recursive_directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec))
+            {
+                const std::filesystem::path ext = it->path().extension();
+                if (it->is_regular_file(ec) && (ext == ".hlsl" || ext == ".hlsli"))
+                    files.push_back(it->path().lexically_relative(dir).generic_string());
+            }
+            return files;
+        }
+
+        // Caller holds rootsMutex.
+        bool addShaderRootLocked(ShaderCompileState& s, std::string_view dir)
+        {
+            if (s.roots.find(dir))
+                return true;
+            const std::filesystem::path folder = resolveContentPath(std::filesystem::path(std::string(dir)));
+            std::error_code             ec;
+            std::string                 text;
+            if (folder.empty() || !std::filesystem::is_regular_file(folder / "shaders.manifest", ec) || !readTextFile(folder / "shaders.manifest", text))
+            {
+                DE_LOG_ERROR(LogCategory::Render, "Shader root content/{}/ not added: content/{}/shaders.manifest not found", dir, dir);
+                return false;
+            }
+            std::string error;
+            if (!s.roots.add(dir, text, listShaderFiles(folder), error))
+            {
+                DE_LOG_ERROR(LogCategory::Render, "Shader root content/{}/ not added: {}", dir, error);
+                return false;
+            }
+            return true;
+        }
+
+        // The shader roots, content/shaders first. Caller holds rootsMutex.
+        const ShaderRootSet& shaderRootsLocked(ShaderCompileState& s)
+        {
+            if (!s.engineRootTried)
+            {
+                s.engineRootTried = true;
+                addShaderRootLocked(s, kEngineShaderRoot);
+            }
+            return s.roots;
+        }
+
+        bool shaderRootsContain(const ShaderKey& key)
+        {
+            ShaderCompileState&         s = state();
+            std::lock_guard<std::mutex> lock(s.rootsMutex);
+            return shaderRootsLocked(s).contains(key);
+        }
+
+        // Key file (path under its shader root) for a path under content/, e.g. "shaders/Line.hlsl".
+        std::string shaderFileFromContent(const char* relativeUnderContent)
+        {
+            std::string file;
+            {
+                ShaderCompileState&         s = state();
+                std::lock_guard<std::mutex> lock(s.rootsMutex);
+                if (shaderRootsLocked(s).fileFromContentPath(relativeUnderContent, file))
+                    return file;
+            }
+            if (shaderFileFromContentPath(relativeUnderContent, file))
+                return file;
+            return relativeUnderContent;
+        }
+
+        // Key file for an absolute shader path, so compileShaderFromFile has a key in Baked mode.
         std::string shaderFileKey(const std::filesystem::path& path)
         {
-            std::error_code ec;
-            for (const std::filesystem::path& root : contentRootCandidates())
+            std::vector<std::string> dirs;
             {
-                if (root.empty())
+                ShaderCompileState&         s = state();
+                std::lock_guard<std::mutex> lock(s.rootsMutex);
+                for (const ShaderRootSet::Root& root : shaderRootsLocked(s).roots())
+                    dirs.push_back(root.dir);
+            }
+            if (dirs.empty())
+                dirs.emplace_back(kEngineShaderRoot);
+            std::error_code ec;
+            for (const std::filesystem::path& contentRoot : contentRootCandidates())
+            {
+                if (contentRoot.empty())
                     continue;
-                const std::filesystem::path shaders = std::filesystem::weakly_canonical(root / "shaders", ec);
-                if (ec)
-                    continue;
-                const std::filesystem::path rel = std::filesystem::weakly_canonical(path, ec).lexically_relative(shaders);
-                if (!ec && !rel.empty() && *rel.begin() != "..")
-                    return rel.generic_string();
+                for (const std::string& dir : dirs)
+                {
+                    const std::filesystem::path shaders = std::filesystem::weakly_canonical(contentRoot / dir, ec);
+                    if (ec)
+                        continue;
+                    const std::filesystem::path rel = pathBelow(path, shaders);
+                    if (!rel.empty())
+                        return rel.generic_string();
+                }
             }
             return path.filename().generic_string();
         }
 
+        // #include "x" search after the including file's folder: content/shaders, for shaders outside it.
+        std::vector<std::filesystem::path> shaderIncludeDirs(const std::filesystem::path& path)
+        {
+            const std::filesystem::path engine = resolveContentPath(std::filesystem::path(std::string(kEngineShaderRoot)));
+            if (engine.empty() || !pathBelow(path, engine).empty())
+                return {};
+            return { engine };
+        }
+
+        // FXC include handler with DXC's search order: the including file's folder, then extraDirs.
+        class SearchPathInclude final : public ID3DInclude
+        {
+        public:
+            SearchPathInclude(std::filesystem::path fileDir, std::vector<std::filesystem::path> extraDirs)
+                : m_fileDir(std::move(fileDir))
+                , m_extraDirs(std::move(extraDirs))
+            {
+            }
+
+            HRESULT STDMETHODCALLTYPE Open(D3D_INCLUDE_TYPE, LPCSTR fileName, LPCVOID parentData, LPCVOID* outData, UINT* outBytes) override
+            {
+                if (!fileName || !outData || !outBytes)
+                    return E_INVALIDARG;
+                std::vector<std::filesystem::path> dirs = { parentDir(parentData) };
+                dirs.insert(dirs.end(), m_extraDirs.begin(), m_extraDirs.end());
+                for (const std::filesystem::path& dir : dirs)
+                {
+                    const std::filesystem::path candidate = dir / std::filesystem::path(fileName);
+                    std::error_code             ec;
+                    if (!std::filesystem::is_regular_file(candidate, ec))
+                        continue;
+                    auto opened = std::make_unique<Opened>();
+                    if (!readTextFile(candidate, opened->text))
+                        return E_FAIL;
+                    opened->dir = candidate.parent_path();
+                    *outData    = opened->text.data();
+                    *outBytes   = static_cast<UINT>(opened->text.size());
+                    m_opened.push_back(std::move(opened));
+                    return S_OK;
+                }
+                return E_FAIL;
+            }
+
+            // Buffers live until the compile ends (this object's lifetime).
+            HRESULT STDMETHODCALLTYPE Close(LPCVOID) override { return S_OK; }
+
+            size_t extraDirCount() const { return m_extraDirs.size(); }
+
+        private:
+            struct Opened
+            {
+                std::string           text;
+                std::filesystem::path dir;
+            };
+
+            std::filesystem::path parentDir(LPCVOID parentData) const
+            {
+                for (const std::unique_ptr<Opened>& opened : m_opened)
+                    if (opened->text.data() == parentData)
+                        return opened->dir;
+                return m_fileDir;
+            }
+
+            std::filesystem::path                m_fileDir;
+            std::vector<std::filesystem::path>   m_extraDirs;
+            std::vector<std::unique_ptr<Opened>> m_opened;
+        };
+
         bool loadBaked(const ShaderKey& key, ComPtr<ID3DBlob>& outBytecode)
         {
-            const ShaderManifest* manifest = loadedShaderManifest();
-            if (!manifest || !manifest->contains(key))
+            if (!shaderRootsContain(key))
             {
                 DE_LOG_ERROR(LogCategory::Render,
-                             "Shader '{}' is not in content/shaders/shaders.manifest. This build loads baked shaders only; add the line and rebuild (de_shaders).",
+                             "Shader '{}' is in no shaders.manifest (content/shaders/ or a root added with addShaderRoot). This build loads baked shaders only; add the line and rebuild (de_shaders).",
                              formatShaderKey(key));
                 return false;
             }
@@ -185,6 +347,9 @@ namespace Dark
             // Full path so D3D_COMPILE_STANDARD_FILE_INCLUDE resolves sibling .hlsli files.
             const std::string sourceName = path.string();
             const std::string profile    = shaderProfile(stage, true);
+            std::vector<std::filesystem::path> includeDirs = shaderIncludeDirs(path);
+            SearchPathInclude                  searchInclude(path.parent_path(), std::move(includeDirs));
+            ID3DInclude* const                 include = searchInclude.extraDirCount() == 0 ? D3D_COMPILE_STANDARD_FILE_INCLUDE : &searchInclude;
 
             ComPtr<ID3DBlob> errors;
             UINT             flags = D3DCOMPILE_ENABLE_STRICTNESS;
@@ -195,8 +360,7 @@ namespace Dark
 #else
             (void)forceOptimize;
 #endif
-            const HRESULT hr = D3DCompile(source.data(), source.size(), sourceName.c_str(), defines, D3D_COMPILE_STANDARD_FILE_INCLUDE, entry, profile.c_str(),
-                                          flags, 0, &outBytecode, &errors);
+            const HRESULT hr = D3DCompile(source.data(), source.size(), sourceName.c_str(), defines, include, entry, profile.c_str(), flags, 0, &outBytecode, &errors);
             if (FAILED(hr))
             {
                 const char* msg = errors ? static_cast<const char*>(errors->GetBufferPointer()) : "unknown";
@@ -221,6 +385,7 @@ namespace Dark
             request.entry   = entry;
             request.stage   = stage;
             request.defines = toDefines(defines);
+            request.includeDirs = shaderIncludeDirs(path);
 #if defined(_DEBUG)
             request.optimize  = forceOptimize;
             request.debugInfo = true;
@@ -298,6 +463,19 @@ namespace Dark
             s.manifestOk = true;
         });
         return s.manifestOk ? &s.manifest : nullptr;
+    }
+
+    bool addShaderRoot(const char* relativeUnderContent)
+    {
+        if (!relativeUnderContent || relativeUnderContent[0] == '\0')
+        {
+            DE_LOG_ERROR(LogCategory::Render, "addShaderRoot: empty path");
+            return false;
+        }
+        ShaderCompileState&         s = state();
+        std::lock_guard<std::mutex> lock(s.rootsMutex);
+        shaderRootsLocked(s);
+        return addShaderRootLocked(s, relativeUnderContent);
     }
 
     ShaderKey makeShaderKey(const std::string& file, const char* entry, ShaderStage stage, const D3D_SHADER_MACRO* defines)
@@ -436,10 +614,7 @@ namespace Dark
             return false;
         }
 
-        std::string file;
-        if (!shaderFileFromContentPath(relativeUnderContent, file))
-            file = relativeUnderContent;
-        const ShaderKey key = makeShaderKey(file, entry, stage, defines);
+        const ShaderKey key = makeShaderKey(shaderFileFromContent(relativeUnderContent), entry, stage, defines);
         {
             ShaderCompileState&         s = state();
             std::lock_guard<std::mutex> lock(s.keysMutex);
@@ -453,14 +628,15 @@ namespace Dark
 
 #if defined(_DEBUG)
         // Drift check (plan §3.15.1): a key missing from the manifest only fails in Release, so say so now.
-        if (const ShaderManifest* manifest = loadedShaderManifest(); manifest && !manifest->contains(key))
+        if (!shaderRootsContain(key))
         {
             ShaderCompileState&         s = state();
             std::lock_guard<std::mutex> lock(s.keysMutex);
             if (std::find(s.warnedMissing.begin(), s.warnedMissing.end(), key) == s.warnedMissing.end())
             {
                 s.warnedMissing.push_back(key);
-                DE_LOG_WARN(LogCategory::Render, "Shader '{}' is not in content/shaders/shaders.manifest; Release builds will fail to load it", formatShaderKey(key));
+                DE_LOG_WARN(LogCategory::Render, "Shader '{}' is in no shaders.manifest (content/shaders/ or a root added with addShaderRoot); Release builds will fail to load it",
+                            formatShaderKey(key));
             }
         }
 #endif
