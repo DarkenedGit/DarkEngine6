@@ -46,6 +46,7 @@ namespace Dark
     }
 
 class FeatureBuilder;
+class ShadowFeature;
 class FrameComposer;
 class Renderer;
 class World;
@@ -223,14 +224,23 @@ public:
     MeshPipeline&             meshTransparentPipeline() { return m_meshTransparentPipeline; }
     SkinnedMeshPipeline&      skinnedPipeline() { return m_skinnedPipeline; }
     SkinnedMeshPipeline&      skinnedTransparentPipeline() { return m_skinnedTransparentPipeline; }
-    SkinnedMeshPipeline&      skinnedShadowPipeline() { return m_skinnedShadowPipeline; }
     SkinningUploadRing&       skinRing() { return m_skinRing; }
-    LocalLightGpuList&        localLightGpu() { return m_localLightGpu; }
     CamouflagePipeline&       camouflage() { return m_camouflage; }
-    AutoExposurePipeline&     autoExposure() { return m_autoExposure; }
     EchoPipeline&             echo() { return m_echo; }
-    ShadowSystem&             shadows() { return m_shadows; }
-    LocalShadowSystem&        localShadows() { return m_localShadows; }
+
+    // A host gather of the local lights (Sandbox's water) into the list LocalVolumes draws from.
+    // localLightsReady: the GPU list exists. localLightsDummyVa: the list's empty buffer (0 without
+    // the list). uploadLocalLights writes `lists` into this frame's slot and returns its address.
+    bool                      localLightsReady() const { return m_localLightGpu.isValid(); }
+    D3D12_GPU_VIRTUAL_ADDRESS localLightsDummyVa() const { return m_localLightGpu.isValid() ? m_localLightGpu.dummyGpuVa() : 0; }
+    D3D12_GPU_VIRTUAL_ADDRESS uploadLocalLights(uint32_t frameIndex, const LocalLightDrawLists& lists)
+    {
+        m_localLightGpu.upload(frameIndex, lists);
+        return m_localLightGpu.lightsGpuVa();
+    }
+    // Drops the meter's stored samples (the next reads return 0 until a later frame meters), e.g.
+    // when the host switches auto exposure back on. Does not change GPU memory.
+    void invalidateAutoExposureSamples() { m_autoExposure.invalidateReadback(); }
 
 
     // The domain features the host registered (registerXxxFeatures) before init. init creates them
@@ -242,14 +252,9 @@ public:
     const MeshPipeline&             meshTransparentPipeline() const { return m_meshTransparentPipeline; }
     const SkinnedMeshPipeline&      skinnedPipeline() const { return m_skinnedPipeline; }
     const SkinnedMeshPipeline&      skinnedTransparentPipeline() const { return m_skinnedTransparentPipeline; }
-    const SkinnedMeshPipeline&      skinnedShadowPipeline() const { return m_skinnedShadowPipeline; }
     const SkinningUploadRing&       skinRing() const { return m_skinRing; }
-    const LocalLightGpuList&        localLightGpu() const { return m_localLightGpu; }
     const CamouflagePipeline&       camouflage() const { return m_camouflage; }
-    const AutoExposurePipeline&     autoExposure() const { return m_autoExposure; }
     const EchoPipeline&             echo() const { return m_echo; }
-    const ShadowSystem&             shadows() const { return m_shadows; }
-    const LocalShadowSystem&        localShadows() const { return m_localShadows; }
 
 
     const Math::Matrix4f& prevViewProj() const { return m_prevViewProj; }
@@ -264,6 +269,7 @@ public:
 
 private:
     friend void registerCoreFeatures(RenderFeatureRegistry& registry, SceneRenderer& scene);
+    friend void registerShadowFeature(SceneRenderer& scene, ShadowFeature& feature);
 
     enum class CoreEntryKind : uint8_t
     {
@@ -455,5 +461,10 @@ private:
 // Adds the GBuffer, Decals, Gtao, Ssr, Lighting, LocalVolumes, SsrCapture, Translucent, Post and
 // Overlay entries. Hosts register them before SceneRenderer::init and call setCoreFrame each frame.
 void registerCoreFeatures(RenderFeatureRegistry& registry, SceneRenderer& scene);
+
+// Adds the ShadowFeature entries to the scene's registry and binds the scene's shadow maps and
+// skinned depth pipeline to `feature`. Hosts call it before SceneRenderer::init, after
+// registerCoreFeatures; they reach the shadow systems through the feature.
+void registerShadowFeature(SceneRenderer& scene, ShadowFeature& feature);
 
 } // namespace Dark

@@ -7,10 +7,7 @@
 #define m_meshTransparentPipeline m_scene.meshTransparentPipeline()
 #define m_skinnedPipeline m_scene.skinnedPipeline()
 #define m_skinnedTransparentPipeline m_scene.skinnedTransparentPipeline()
-#define m_skinnedShadowPipeline m_scene.skinnedShadowPipeline()
 #define m_skinRing m_scene.skinRing()
-#define m_localLightGpu m_scene.localLightGpu()
-#define m_shadows m_scene.shadows()
 
 #include "Editor/EditorObject.h"
 #include "ECS/Components.h"

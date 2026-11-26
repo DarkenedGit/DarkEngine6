@@ -96,16 +96,13 @@ TEST(ShadowCasters, ShadowFrameOfTakesTheRenderHalfOfTheHost)
     host.instanceStatic  = true;
     host.instanceSkinned = true;
     GameplayShadowCasters casters(host);
-    auto*                 local = reinterpret_cast<LocalShadowSystem*>(static_cast<uintptr_t>(0x70));
 
-    const ShadowFrame frame = shadowFrameOf(host, local, &casters);
+    // The maps and the skinned depth pipeline are bound to the feature, not part of the frame.
+    const ShadowFrame frame = shadowFrameOf(host, &casters);
     EXPECT_EQ(frame.renderer, host.renderer);
     EXPECT_EQ(frame.jobs, host.jobs);
-    EXPECT_EQ(frame.shadows, host.shadows);
-    EXPECT_EQ(frame.localShadows, local);
     EXPECT_EQ(frame.drawList, host.drawList);
     EXPECT_EQ(frame.skinned, host.skinned);
-    EXPECT_EQ(frame.skinnedShadow, host.skinnedShadow);
     EXPECT_TRUE(frame.instanceStatic);
     EXPECT_TRUE(frame.instanceSkinned);
     EXPECT_EQ(frame.casters, &casters);

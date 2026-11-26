@@ -1293,8 +1293,7 @@ void SandboxHud::drawDevTools()
         if (Dark::PropCheckbox("Shadows", &shadows))
         {
             dbg.shadows = shadows;
-            app().m_frame.scene().shadows().setDebugEnabled(shadows);
-            app().m_frame.scene().localShadows().setDebugEnabled(shadows);
+            app().m_frame.shadowFeature().setDebugEnabled(shadows);
             DE_LOG_INFO("Sandbox: shadows = {}", shadows);
         }
         if (Dark::PropCheckbox("GPU particles", &dbg.gpuParticles))
@@ -1524,7 +1523,7 @@ void SandboxHud::drawDevTools()
             if (next == ExposureMode::Auto && app().m_frame.autoExposure().mode != ExposureMode::Auto)
             {
                 resetAutoExposure(app().m_frame.autoExposureState());
-                app().m_frame.scene().autoExposure().invalidateReadback();
+                app().m_frame.scene().invalidateAutoExposureSamples();
             }
             app().m_frame.autoExposure().mode = next;
             DE_LOG_INFO(LogCategory::Render, "Exposure: auto={}", autoOn);

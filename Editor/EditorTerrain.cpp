@@ -529,7 +529,7 @@ void EditorApp::drawPlacedWater(
             nullptr,
             renderer().frameIndex(),
             tables,
-            &m_shadows,
+            &m_shadowFeature.shadowMaps(),
             ssr,
             drawIndex);
         drawIndex = 1;
@@ -548,7 +548,7 @@ void EditorApp::drawPlacedWater(
                 renderer().frameIndex(),
                 drawIndex,
                 tables,
-                &m_shadows,
+                &m_shadowFeature.shadowMaps(),
                 ssr,
                 heightMap,
                 &m_sceneWorld.env))
@@ -561,7 +561,7 @@ void EditorApp::drawPlacedWater(
         WaterParams params = m_sceneWorld.water.params();
         params.flowSpeed   = ribbon.flowSpeed;
         if (drawStreamRibbon(cmd, m_waterRendering.pipeline(), ribbon.mesh, ribbon.bounds, params, m_camera, &frustum, &renderer().debugState(), m_sceneWorld.water.time(), renderer().frameIndex(),
-                             drawIndex, tables, &m_shadows, ssr, heightMap, &m_sceneWorld.env))
+                             drawIndex, tables, &m_shadowFeature.shadowMaps(), ssr, heightMap, &m_sceneWorld.env))
             ++drawIndex;
     }
 }

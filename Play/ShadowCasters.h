@@ -22,7 +22,6 @@ namespace Dark
     class Camera3D;
     class DrawList;
     class JobSystem;
-    class LocalShadowSystem;
     class FoliagePipeline;
     class FoliagePrototypes;
     class GpuResourceCache;
@@ -47,7 +46,7 @@ namespace Dark
         World*                world             = nullptr;
         AssetManager*         assets            = nullptr;
         GpuResourceCache*     gpu               = nullptr;
-        ShadowSystem*         shadows           = nullptr;
+        const ShadowSystem*   shadows           = nullptr;
         DrawList*             drawList          = nullptr;
         SkinnedInstanceBuffer* skinned          = nullptr;
         const SkinnedMeshPipeline* skinnedShadow = nullptr;
@@ -99,7 +98,7 @@ namespace Dark
         const ShadowCasterHost& m_host;
     };
 
-    // The render half of `host`, with `casters` as its caster source.
-    ShadowFrame shadowFrameOf(const ShadowCasterHost& host, LocalShadowSystem* localShadows, IShadowCasterSource* casters);
+    // The render half of `host`, with `casters` as its caster source (the maps are bound to the feature).
+    ShadowFrame shadowFrameOf(const ShadowCasterHost& host, IShadowCasterSource* casters);
 
 } // namespace Dark

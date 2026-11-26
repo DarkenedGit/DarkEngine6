@@ -148,10 +148,7 @@ using namespace Audio;
 #define m_meshTransparentPipeline m_scene.meshTransparentPipeline()
 #define m_skinnedPipeline m_scene.skinnedPipeline()
 #define m_skinnedTransparentPipeline m_scene.skinnedTransparentPipeline()
-#define m_skinnedShadowPipeline m_scene.skinnedShadowPipeline()
 #define m_skinRing m_scene.skinRing()
-#define m_localLightGpu m_scene.localLightGpu()
-#define m_shadows m_scene.shadows()
 
 SandboxApp& SandboxFrame::app() const
 {
@@ -281,7 +278,7 @@ void SandboxFrame::render()
     const Frustum3f cameraCull(app().m_sceneWorld.camera.GetCullViewProj());
     const bool selectLocalShadows = app().renderer().debugState().localLights
         && app().renderer().debugState().lightingActive();
-    m_scene.localShadows().update(app().world(), app().m_sceneWorld.camera, cameraCull, app().renderer().frameIndex(), selectLocalShadows);
+    m_shadowFeature.updateLocal(app().world(), app().m_sceneWorld.camera, cameraCull, app().renderer().frameIndex(), selectLocalShadows);
 
     AABox3f sceneBounds = app().m_sceneWorld.terrain.shadowBounds(app().m_sceneWorld.camera);
     app().world().each<MeshComponent>([&](Entity e, MeshComponent& mc) {
@@ -303,7 +300,7 @@ void SandboxFrame::render()
     });
     if (app().m_chaseOk)
         app().m_chase.expandBounds(sceneBounds);
-    m_shadows.update(
+    m_shadowFeature.updateDirectional(
         app().m_sceneWorld.camera,
         app().m_sceneWorld.env.lightDir(),
         sceneBounds,
@@ -434,17 +431,7 @@ void SandboxFrame::render()
             m_drawList.buildView(lightFrustum, lightVp, lightVp, RenderPassKind::Depth, ViewId{ cullView });
             ++cullView;
         };
-        if (m_shadows.isValid() && m_shadows.enabled())
-        {
-            for (int i = 0; i < m_shadows.cascadeCount(); ++i)
-                addDepthView(m_shadows.cascade(i).viewProj, Frustum3f(m_shadows.cascade(i).viewProj));
-        }
-        LocalShadowSystem& cullLocals = m_scene.localShadows();
-        for (int f = 0; f < cullLocals.faceCountThisFrame(); ++f)
-        {
-            const LocalShadowFaceDraw& face = cullLocals.face(f);
-            addDepthView(face.viewProj, face.frustum);
-        }
+        m_shadowFeature.forEachDepthView(addDepthView);
         {
             const Matrix4f camVp   = m_scene.beginCameraFrame(app().m_sceneWorld.camera, app().renderer());
             const Matrix4f camPrev = m_scene.havePrevViewProj() ? m_scene.prevViewProj() : camVp;
@@ -461,10 +448,10 @@ void SandboxFrame::render()
     shadowHost.world             = &app().world();
     shadowHost.assets            = &app().assets();
     shadowHost.gpu               = &gpu;
-    shadowHost.shadows           = &m_shadows;
+    shadowHost.shadows           = &m_shadowFeature.shadowMaps();
     shadowHost.drawList          = &m_drawList;
     shadowHost.skinned           = &m_skinnedInstances;
-    shadowHost.skinnedShadow     = &m_skinnedShadowPipeline;
+    shadowHost.skinnedShadow     = m_shadowFeature.skinnedShadowPipeline();
     shadowHost.skinRing          = &m_skinRing;
     shadowHost.terrain           = &app().m_sceneWorld.terrain;
     shadowHost.foliage           = &app().m_frame.foliagePipeline();
@@ -487,7 +474,7 @@ void SandboxFrame::render()
     // The FrameCull, Shadows and LocalShadows entries are the registered ShadowFeature; it reads
     // this frame's casters when the graph executes.
     GameplayShadowCasters shadowCasters(shadowHost);
-    m_shadowFeature.setFrame(shadowFrameOf(shadowHost, &m_scene.localShadows(), &shadowCasters));
+    m_shadowFeature.setFrame(shadowFrameOf(shadowHost, &shadowCasters));
 
     // The frame graph drives the frame: each entry is declared (or set, for the opaque ones left)
     // here in recording order and run by frame.execute() below in feature-list order, which is also
@@ -549,7 +536,8 @@ void SandboxFrame::render()
         const float fogScale    = (app().renderer().debugState().lightingActive() ? 1.0f : 0.0f) * (1.0f - underDraw);
         ultraviolet = app().m_vision.ultraviolet > 0.0f ? app().m_vision.ultraviolet : 0.0f;
         thermal     = !(app().m_vision.ultraviolet > 0.0f) ? app().m_vision.infrared : 0.0f;
-        m_sky.sky.setFrameInputs({ &app().m_sceneWorld.camera, &app().m_sceneWorld.env, &m_shadows, skyExposure, app().m_sceneWorld.water.params().waterLevel, fogScale, thermal, ultraviolet });
+        m_sky.sky.setFrameInputs(
+            { &app().m_sceneWorld.camera, &app().m_sceneWorld.env, &m_shadowFeature.shadowMaps(), skyExposure, app().m_sceneWorld.water.params().waterLevel, fogScale, thermal, ultraviolet });
         const Material* material = nullptr;
         if (app().m_demo.cube().valid())
         {
@@ -797,7 +785,7 @@ void SandboxFrame::render()
     core.resolve = &resolve;
     m_scene.features().declare(frame, view);
 
-    D3D12_GPU_VIRTUAL_ADDRESS waterLightsVa   = m_localLightGpu.isValid() ? m_localLightGpu.dummyGpuVa() : 0;
+    D3D12_GPU_VIRTUAL_ADDRESS waterLightsVa   = m_scene.localLightsDummyVa();
     uint32_t                  waterLightCount = 0;
     uint32_t                  waterIndex[kWaterLocalLightMax]{};
     const SsrSettings*        waterSsr = &app().m_sceneWorld.ssr;
@@ -805,7 +793,7 @@ void SandboxFrame::render()
     // filled by GBuffer).
     const auto waterInputs = [&](Rg::PassContext&)
     {
-        if (app().renderer().debugState().localLights && app().renderer().debugState().lightingActive() && m_localLightGpu.isValid())
+        if (app().renderer().debugState().localLights && app().renderer().debugState().lightingActive() && m_scene.localLightsReady())
         {
             LocalLightCullInput in{};
             in.frustum      = &frustum;
@@ -815,16 +803,15 @@ void SandboxFrame::render()
             in.viewportW    = app().renderer().width();
             in.viewportH    = app().renderer().height();
             in.viewProj     = &viewProj;
-            in.localShadows = &m_scene.localShadows();
+            in.localShadows = &m_shadowFeature.localShadowMaps();
             in.fogBoxes     = m_scene.fogOccluders();
             in.fogBoxCount  = m_scene.fogOccluderCount();
             LocalLightDrawLists lists{};
             if (gatherLocalLights(app().world(), in, lists) && lists.count > 0)
             {
-                m_localLightGpu.upload(app().renderer().frameIndex(), lists);
+                waterLightsVa   = m_scene.uploadLocalLights(app().renderer().frameIndex(), lists);
                 waterLightCount = lists.waterCount;
                 std::memcpy(waterIndex, lists.waterIndex, sizeof(waterIndex));
-                waterLightsVa = m_localLightGpu.lightsGpuVa();
             }
         }
     };
@@ -841,7 +828,7 @@ void SandboxFrame::render()
             if (waterSheet)
             {
                 app().m_sceneWorld.water.draw(cmd, m_water.pipeline(), app().m_sceneWorld.camera, &frustum, &app().m_sceneWorld.env, &app().renderer().debugState(), waterLightsVa, waterLightCount,
-                                              waterIndex, app().renderer().frameIndex(), &tables, &m_shadows, waterSsr, drawIndex, thermal, ultraviolet, underDraw);
+                                              waterIndex, app().renderer().frameIndex(), &tables, &m_shadowFeature.shadowMaps(), waterSsr, drawIndex, thermal, ultraviolet, underDraw);
                 drawIndex = 1;
             }
             for (const WaterWorld::WaterRibbon& stream : app().m_sceneWorld.water.ribbons())
@@ -859,7 +846,7 @@ void SandboxFrame::render()
                 WaterParams streamParams = app().m_sceneWorld.water.params();
                 streamParams.flowSpeed = stream.flowSpeed;
                 if (drawStreamRibbon(cmd, m_water.pipeline(), stream.mesh, stream.bounds, streamParams, app().m_sceneWorld.camera, &frustum, &app().renderer().debugState(),
-                                     app().m_sceneWorld.water.time(), app().renderer().frameIndex(), drawIndex, &tables, &m_shadows, waterSsr, &app().m_sceneWorld.terrain.coarse(),
+                                     app().m_sceneWorld.water.time(), app().renderer().frameIndex(), drawIndex, &tables, &m_shadowFeature.shadowMaps(), waterSsr, &app().m_sceneWorld.terrain.coarse(),
                                      &app().m_sceneWorld.env, thermal, ultraviolet))
                     ++drawIndex;
             }
@@ -954,10 +941,11 @@ void SandboxFrame::render()
                 const AnimPose* pose = skinnedPose(*model, app().world().get<AnimGraphComponent>(e));
                 if (!pose)
                     continue;
-                drawSkinnedModelForward(cmd, gpu, m_skinnedTransparentPipeline, m_meshTransparentPipeline, m_shadows, m_skinRing, *model, true, *pose, worldMat, viewProj, lit, fill);
+                drawSkinnedModelForward(cmd, gpu, m_skinnedTransparentPipeline, m_meshTransparentPipeline, m_shadowFeature.shadowMaps(), m_skinRing, *model, true, *pose, worldMat, viewProj, lit,
+                                        fill);
             }
             else
-                drawModelForward(cmd, gpu, m_meshTransparentPipeline, m_shadows, *model, true, worldMat, viewProj, lit, fill);
+                drawModelForward(cmd, gpu, m_meshTransparentPipeline, m_shadowFeature.shadowMaps(), *model, true, worldMat, viewProj, lit, fill);
         }
     };
     core.translucent = CorePassHook::of(drawTranslucent);
@@ -1020,7 +1008,7 @@ void SandboxFrame::render()
         const auto drawCeiling = [&](Rg::PassContext& pass, const WaterTables& tables)
         {
             app().m_sceneWorld.water.draw(pass.cmd(), m_water.pipeline(), app().m_sceneWorld.camera, &frustum, &app().m_sceneWorld.env, &app().renderer().debugState(), waterLightsVa, waterLightCount,
-                                          waterIndex, app().renderer().frameIndex(), &tables, &m_shadows, waterSsr, 0, thermal, ultraviolet, underDraw, true);
+                                          waterIndex, app().renderer().frameIndex(), &tables, &m_shadowFeature.shadowMaps(), waterSsr, 0, thermal, ultraviolet, underDraw, true);
         };
         frame.declare(PassId::Underwater, [&, underFrame, drawCeiling](FeatureBuilder& b) { m_water.addUnderwaterPasses(b, app().renderer(), underFrame, drawCeiling); });
     }

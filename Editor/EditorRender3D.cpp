@@ -97,7 +97,7 @@ void EditorApp::drawPrimitiveShadowCasters(void* user, ID3D12GraphicsCommandList
             return;
         }
         const Matrix4f wvp = worldMat * lightViewProj;
-        app.m_shadows.pipeline().setWvp(cmd, wvp.m_afEntry);
+        app.m_shadowFeature.shadowMaps().pipeline().setWvp(cmd, wvp.m_afEntry);
         mesh->draw(cmd);
     });
 }
@@ -218,7 +218,7 @@ void EditorApp::renderScene3D()
     const Frustum3f cameraCull(m_camera.GetCullViewProj());
     const bool selectLocalShadows = renderer().debugState().localLights
         && renderer().debugState().lightingActive();
-    m_scene.localShadows().update(world(), m_camera, cameraCull, renderer().frameIndex(), selectLocalShadows);
+    m_shadowFeature.updateLocal(world(), m_camera, cameraCull, renderer().frameIndex(), selectLocalShadows);
     if (m_playMode)
     {
         const FacilityState& facility = m_play.facility();
@@ -233,7 +233,7 @@ void EditorApp::renderScene3D()
         if (const auto* xf = world().get<TransformComponent>(e))
             sceneBounds.ExpandToInclude(xf->position);
     });
-    m_shadows.update(m_camera, lightDir, sceneBounds, 0.8f, 0.20f, renderer().frameIndex());
+    m_shadowFeature.updateDirectional(m_camera, lightDir, sceneBounds, 0.8f, 0.20f, renderer().frameIndex());
 
     const bool instanceStatic = m_drawList.gpuReady() && renderer().debugState().instancedStatic && renderer().debugState().fill == DebugFill::Solid;
     const bool instanceSkinned = instanceStatic && m_skinnedInstances.isValid();
@@ -351,17 +351,7 @@ void EditorApp::renderScene3D()
             m_drawList.buildView(lightFrustum, lightVp, lightVp, RenderPassKind::Depth, ViewId{ cullView });
             ++cullView;
         };
-        if (m_shadows.isValid() && m_shadows.enabled())
-        {
-            for (int i = 0; i < m_shadows.cascadeCount(); ++i)
-                addDepthView(m_shadows.cascade(i).viewProj, Frustum3f(m_shadows.cascade(i).viewProj));
-        }
-        LocalShadowSystem& cullLocals = m_scene.localShadows();
-        for (int f = 0; f < cullLocals.faceCountThisFrame(); ++f)
-        {
-            const LocalShadowFaceDraw& face = cullLocals.face(f);
-            addDepthView(face.viewProj, face.frustum);
-        }
+        m_shadowFeature.forEachDepthView(addDepthView);
         {
             const Matrix4f camVp   = m_scene.beginCameraFrame(m_camera, renderer());
             const Matrix4f camPrev = m_scene.havePrevViewProj() ? m_scene.prevViewProj() : camVp;
@@ -378,10 +368,10 @@ void EditorApp::renderScene3D()
     shadowHost.world             = &world();
     shadowHost.assets            = &assets();
     shadowHost.gpu               = &gpu;
-    shadowHost.shadows           = &m_shadows;
+    shadowHost.shadows           = &m_shadowFeature.shadowMaps();
     shadowHost.drawList          = &m_drawList;
     shadowHost.skinned           = &m_skinnedInstances;
-    shadowHost.skinnedShadow     = &m_skinnedShadowPipeline;
+    shadowHost.skinnedShadow     = m_shadowFeature.skinnedShadowPipeline();
     shadowHost.skinRing          = &m_skinRing;
     shadowHost.terrain           = &m_sceneWorld.terrain;
     shadowHost.foliage           = &m_foliagePipeline;
@@ -406,7 +396,7 @@ void EditorApp::renderScene3D()
     // The FrameCull, Shadows and LocalShadows entries are the registered ShadowFeature; it reads
     // this frame's casters when the graph executes.
     GameplayShadowCasters shadowCasters(shadowHost);
-    m_shadowFeature.setFrame(shadowFrameOf(shadowHost, &m_scene.localShadows(), &shadowCasters));
+    m_shadowFeature.setFrame(shadowFrameOf(shadowHost, &shadowCasters));
 
     // The frame graph drives the frame: each entry is declared (or set, for the opaque ones left)
     // here in recording order and run by frame.execute() below in feature-list order, which is also
@@ -620,7 +610,7 @@ void EditorApp::renderScene3D()
     SkyFrameInputs sky;
     sky.camera     = &m_camera;
     sky.env        = &m_sceneWorld.env;
-    sky.shadows    = &m_shadows;
+    sky.shadows    = &m_shadowFeature.shadowMaps();
     sky.waterLevel = m_sceneWorld.water.params().waterLevel;
     sky.fogScale   = 0.0f;
     m_sky.sky.setFrameInputs(sky);
@@ -836,10 +826,11 @@ void EditorApp::renderScene3D()
                 const AnimPose* pose = skinnedPose(*model, world().get<AnimGraphComponent>(e));
                 if (!pose)
                     continue;
-                drawSkinnedModelForward(cmd, gpu, m_skinnedTransparentPipeline, m_meshTransparentPipeline, m_shadows, m_skinRing, *model, true, *pose, worldMat, viewProj, lit, fill);
+                drawSkinnedModelForward(cmd, gpu, m_skinnedTransparentPipeline, m_meshTransparentPipeline, m_shadowFeature.shadowMaps(), m_skinRing, *model, true, *pose, worldMat, viewProj, lit,
+                                        fill);
             }
             else
-                drawModelForward(cmd, gpu, m_meshTransparentPipeline, m_shadows, *model, true, worldMat, viewProj, lit, fill);
+                drawModelForward(cmd, gpu, m_meshTransparentPipeline, m_shadowFeature.shadowMaps(), *model, true, worldMat, viewProj, lit, fill);
             ++draws;
         }
     };

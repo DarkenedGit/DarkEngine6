@@ -113,10 +113,7 @@ static float sandboxSceneGroundY(void* user, float x, float z)
 #define m_meshTransparentPipeline m_frame.scene().meshTransparentPipeline()
 #define m_skinnedPipeline m_frame.scene().skinnedPipeline()
 #define m_skinnedTransparentPipeline m_frame.scene().skinnedTransparentPipeline()
-#define m_skinnedShadowPipeline m_frame.scene().skinnedShadowPipeline()
 #define m_skinRing m_frame.scene().skinRing()
-#define m_localLightGpu m_frame.scene().localLightGpu()
-#define m_shadows m_frame.scene().shadows()
 
 bool useAcesTonemap(const Renderer& r)
 {
@@ -1259,7 +1256,7 @@ void SandboxApp::drawPrimitiveShadowCasters(void* user, ID3D12GraphicsCommandLis
             pushShadowCaster(gpuMesh, worldMat);
             return;
         }
-        drawShadowCaster(cmd, app.m_shadows.pipeline(), lightViewProj, worldMat, *gpuMesh);
+        drawShadowCaster(cmd, app.m_frame.shadowFeature().shadowMaps().pipeline(), lightViewProj, worldMat, *gpuMesh);
     });
 }
 
@@ -1815,7 +1812,7 @@ void SandboxApp::onInit()
         sceneDesc.logTag = "SandboxApp";
         registerCoreFeatures(m_frame.scene().features(), m_frame.scene());
         registerSkyFeatures(m_frame.scene().features(), m_frame.sky());
-        registerShadowFeature(m_frame.scene().features(), m_frame.shadowFeature());
+        registerShadowFeature(m_frame.scene(), m_frame.shadowFeature());
         if (!m_frame.scene().init(renderer(), sceneDesc))
         {
             requestQuit();

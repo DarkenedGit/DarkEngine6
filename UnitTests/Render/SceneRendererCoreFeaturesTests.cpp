@@ -13,6 +13,7 @@
 #include "Render/FrameFeatures.h"
 #include "Render/Renderer.h"
 #include "Render/SceneRenderer.h"
+#include "Render/ShadowFeature.h"
 
 #include <algorithm>
 #include <functional>
@@ -446,4 +447,23 @@ TEST(SceneRendererCoreFeatures, EachEntryNeedsOnlyItsOwnInputs)
         EXPECT_EQ(hasPass(graph, "Post"), required) << c.cleared;
         EXPECT_EQ(hasPass(graph, "Post.Test"), !required && cleared != "beforePost" && cleared != "beforePostName") << c.cleared;
     }
+}
+
+TEST(SceneRendererCoreFeatures, RegisterShadowFeatureBindsTheSceneMaps)
+{
+    SceneRenderer scene;
+    ShadowFeature feature;
+    registerShadowFeature(scene, feature);
+    ASSERT_EQ(scene.features().count(), 3u);
+    EXPECT_EQ(scene.features().feature(0), &feature.cull());
+    EXPECT_EQ(scene.features().feature(1), &feature.directional());
+    EXPECT_EQ(scene.features().feature(2), &feature.local());
+    EXPECT_NE(feature.skinnedShadowPipeline(), nullptr);
+    // The scene's (uncreated) maps: the debug toggle reaches both, and there is no depth view.
+    feature.setDebugEnabled(false);
+    EXPECT_FALSE(feature.shadowMaps().debugEnabled());
+    EXPECT_FALSE(feature.localShadowMaps().debugEnabled());
+    int views = 0;
+    feature.forEachDepthView([&views](const Math::Matrix4f&, const Frustum3f&) { ++views; });
+    EXPECT_EQ(views, 0);
 }

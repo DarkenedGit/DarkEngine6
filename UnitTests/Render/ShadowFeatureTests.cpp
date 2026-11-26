@@ -203,9 +203,9 @@ TEST(ShadowFeature, DeclaresTheCullAndShadowsPassesAndNoLocalPassWithoutFaces)
     LocalShadowSystem local; // no faces selected
     for (LocalShadowSystem* localShadows : { static_cast<LocalShadowSystem*>(nullptr), &local })
     {
+        feature.bindShadowMaps(nullptr, localShadows, nullptr);
         ShadowFrame frame;
-        frame.casters      = &casters;
-        frame.localShadows = localShadows;
+        frame.casters = &casters;
         feature.setFrame(frame);
 
         Rg::RenderGraph g;
@@ -359,4 +359,33 @@ TEST(ShadowFeature, CastersAreCapturedOnlyForTheWorker)
     EXPECT_FALSE(capturingShadowCasters());
     pushShadowCaster(nullptr, Math::Matrix4f::IDENTITY);
     EXPECT_FALSE(capturingShadowCasters());
+}
+
+TEST(ShadowFeature, UnboundMapsAddNoDepthViewsAndIgnoreTheHostCalls)
+{
+    ShadowFeature feature;
+    int           views = 0;
+    feature.forEachDepthView([&views](const Math::Matrix4f&, const Frustum3f&) { ++views; });
+    EXPECT_EQ(views, 0);
+    feature.setDebugEnabled(false);
+    EXPECT_EQ(feature.skinnedShadowPipeline(), nullptr);
+}
+
+TEST(ShadowFeature, BoundMapsTakeTheDebugToggleAndAddNoViewsWithoutCascadesOrFaces)
+{
+    ShadowSystem      shadows; // not created: no map, so no cascade views
+    LocalShadowSystem local;   // no faces selected
+    ShadowFeature     feature;
+    feature.bindShadowMaps(&shadows, &local, nullptr);
+    EXPECT_EQ(&feature.shadowMaps(), &shadows);
+    EXPECT_EQ(&feature.localShadowMaps(), &local);
+    int views = 0;
+    feature.forEachDepthView([&views](const Math::Matrix4f&, const Frustum3f&) { ++views; });
+    EXPECT_EQ(views, 0);
+    feature.setDebugEnabled(false);
+    EXPECT_FALSE(shadows.debugEnabled());
+    EXPECT_FALSE(local.debugEnabled());
+    feature.setDebugEnabled(true);
+    EXPECT_TRUE(shadows.debugEnabled());
+    EXPECT_TRUE(local.debugEnabled());
 }

@@ -5,6 +5,7 @@
 #include "Render/CullResourceSet.h"
 #include "Render/DrawList.h"
 #include "Render/FrameRecord.h"
+#include "Render/GpuResourceCache.h"
 #include "Render/LocalShadowSystem.h"
 #include "Render/Mesh.h"
 #include "Render/Renderer.h"
@@ -295,6 +296,43 @@ namespace Dark
     {
     }
 
+    void ShadowFeature::bindShadowMaps(ShadowSystem* shadows, LocalShadowSystem* localShadows, const SkinnedMeshPipeline* skinnedShadow)
+    {
+        m_shadows       = shadows;
+        m_localShadows  = localShadows;
+        m_skinnedShadow = skinnedShadow;
+    }
+
+    void ShadowFeature::updateLocal(World& world, const Camera3D& camera, const Frustum3f& cameraFrustum, uint32_t frameIndex, bool select)
+    {
+        if (m_localShadows)
+            m_localShadows->update(world, camera, cameraFrustum, frameIndex, select);
+    }
+
+    void ShadowFeature::updateDirectional(const Camera3D& camera, const Math::Vector3f& lightDirToward, const Math::AABox3f& sceneBounds, float sunElevation, float cloudCoverage, uint32_t frameIndex)
+    {
+        if (m_shadows)
+            m_shadows->update(camera, lightDirToward, sceneBounds, sunElevation, cloudCoverage, frameIndex);
+    }
+
+    void ShadowFeature::publishShadowMaps(Renderer& renderer)
+    {
+        if (!m_shadows || !m_localShadows)
+            return;
+        renderer.gpuResources().setShadowSrv(m_shadows->srvCpu());
+        m_localShadows->setDepthPipeline(&m_shadows->pipeline());
+        const LocalShadowSystem::CpuSrvs localSrvs = m_localShadows->cpuSrvs();
+        renderer.setLocalShadowSrvs(localSrvs.arraySrv, localSrvs.recordsSrv);
+    }
+
+    void ShadowFeature::setDebugEnabled(bool enabled)
+    {
+        if (m_shadows)
+            m_shadows->setDebugEnabled(enabled);
+        if (m_localShadows)
+            m_localShadows->setDebugEnabled(enabled);
+    }
+
     void ShadowFeature::setFrame(const ShadowFrame& frame)
     {
         m_frame        = frame;
@@ -342,7 +380,7 @@ namespace Dark
             addShadowPass(b, [&owner](Rg::PassContext& c, const ShadowTargets&) { owner.recordDirectional(c.cmd()); });
             return;
         }
-        const LocalShadowSystem* local = owner.m_frame.localShadows;
+        const LocalShadowSystem* local = owner.m_localShadows;
         // No pass on a frame without faces or without the array.
         if (!local || local->faceCountThisFrame() <= 0 || !local->isValid())
             return;
@@ -356,7 +394,7 @@ namespace Dark
         IShadowCasterSource* casters = host.casters;
         if (!shadowWorker() || !host.jobs || !host.renderer || !host.renderer->shadowSeparateList())
             return false;
-        if (!host.shadows || !host.shadows->isValid() || !host.shadows->enabled())
+        if (!m_shadows || !m_shadows->isValid() || !m_shadows->enabled())
             return false;
         if (!depthSetsReady(host))
         {
@@ -400,19 +438,19 @@ namespace Dark
         g_job.list          = list;
         g_job.alloc         = alloc;
         g_job.renderer      = host.renderer;
-        g_job.shadows       = host.shadows;
+        g_job.shadows       = m_shadows;
         g_job.drawList      = host.drawList;
         g_job.skinned       = host.skinned;
         g_job.worker        = casters ? casters->workerDraws() : ShadowWorkerDraws{};
-        g_job.skinnedShadow = host.skinnedShadow;
+        g_job.skinnedShadow = m_skinnedShadow;
         g_job.skinUploadOk  = skinUploadOk;
         g_job.cascadeBegin  = m_viewIndex;
         g_capture           = &g_job.casters;
 
-        const int cascadeCount = host.shadows->cascadeCount();
+        const int cascadeCount = m_shadows->cascadeCount();
         for (int i = 0; i < cascadeCount; ++i)
         {
-            const Matrix4f& viewProj = host.shadows->cascade(i).viewProj;
+            const Matrix4f& viewProj = m_shadows->cascade(i).viewProj;
             const Frustum3f frustum(viewProj);
             CascadeRecord   rec;
             rec.viewProj    = viewProj;
@@ -504,16 +542,16 @@ namespace Dark
                 host.drawList->buildView(frustum, lightVp, lightVp, RenderPassKind::Depth, view);
             host.drawList->recordDepth(cmd, view, lightVp);
             ++m_viewIndex;
-            if (host.shadows)
-                host.shadows->pipeline().bind(cmd);
+            if (m_shadows)
+                m_shadows->pipeline().bind(cmd);
         }
         if (host.instanceSkinned && host.skinned)
         {
             float skinVp[16];
             lightViewProj.store(skinVp);
             host.skinned->recordDepth(cmd, skinView, skinVp);
-            if (host.shadows)
-                host.shadows->pipeline().bind(cmd);
+            if (m_shadows)
+                m_shadows->pipeline().bind(cmd);
         }
 
         if (casters)
@@ -530,7 +568,7 @@ namespace Dark
 
     void ShadowFeature::recordCascades(ID3D12GraphicsCommandList* cmd)
     {
-        ShadowSystem* shadows = m_frame.shadows;
+        ShadowSystem* shadows = m_shadows;
         if (!shadows || !shadows->isValid() || !shadows->enabled())
             return;
         shadows->beginCapture(cmd);
@@ -569,7 +607,7 @@ namespace Dark
 
     void ShadowFeature::recordLocal(ID3D12GraphicsCommandList* cmd)
     {
-        LocalShadowSystem* local = m_frame.localShadows;
+        LocalShadowSystem* local = m_localShadows;
         if (!cmd || !local || local->faceCountThisFrame() <= 0)
             return;
         local->beginCapture(cmd);
