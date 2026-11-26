@@ -83,6 +83,96 @@ TEST(ShaderManifest, RejectsBadLines)
     EXPECT_FALSE(parseShaderManifest("X.hlsl PSMain ps A=1 extra\n", manifest, error));
 }
 
+namespace
+{
+    ShaderRootSet engineAndGameRoots()
+    {
+        ShaderRootSet                  roots;
+        std::string                    error;
+        const std::vector<std::string> engineFiles = { "Bloom.hlsl", "GBuffer.hlsli", "sub/Fog.hlsl" };
+        const std::vector<std::string> gameFiles   = { "Echo.hlsl" };
+        EXPECT_TRUE(roots.add("shaders", "Bloom.hlsl VSMain vs\nsub/Fog.hlsl PSMain ps\nListed.hlsl PSMain ps\n", engineFiles, error)) << error;
+        EXPECT_TRUE(roots.add("game/shaders", "Echo.hlsl PSSnapshot ps ECHO_SNAPSHOT=1\n", gameFiles, error)) << error;
+        return roots;
+    }
+} // namespace
+
+TEST(ShaderRootSet, ResolvesFilesFromEveryRoot)
+{
+    const ShaderRootSet roots = engineAndGameRoots();
+    ASSERT_EQ(roots.roots().size(), 2u);
+    std::string file;
+    EXPECT_TRUE(roots.fileFromContentPath("game/shaders/Echo.hlsl", file));
+    EXPECT_EQ(file, "Echo.hlsl");
+    EXPECT_TRUE(roots.fileFromContentPath("game\\shaders\\Echo.hlsl", file));
+    EXPECT_EQ(file, "Echo.hlsl");
+    EXPECT_TRUE(roots.fileFromContentPath("shaders/sub/Fog.hlsl", file));
+    EXPECT_EQ(file, "sub/Fog.hlsl");
+    file = "unchanged";
+    EXPECT_FALSE(roots.fileFromContentPath("game/Echo.hlsl", file));
+    EXPECT_FALSE(roots.fileFromContentPath("game/shadersX/Echo.hlsl", file));
+    EXPECT_FALSE(roots.fileFromContentPath("game/shaders/", file));
+    EXPECT_FALSE(roots.fileFromContentPath("textures/x.png", file));
+    EXPECT_EQ(file, "unchanged");
+
+    EXPECT_TRUE(roots.contains({ "Echo.hlsl", "PSSnapshot", ShaderStage::Pixel, "ECHO_SNAPSHOT=1" }));
+    EXPECT_TRUE(roots.contains({ "Bloom.hlsl", "VSMain", ShaderStage::Vertex, "" }));
+    EXPECT_FALSE(roots.contains({ "Echo.hlsl", "PSSnapshot", ShaderStage::Pixel, "" }));
+    ASSERT_NE(roots.find("game/shaders"), nullptr);
+    EXPECT_EQ(roots.find("game/shaders")->files, std::vector<std::string>{ "Echo.hlsl" });
+    EXPECT_EQ(roots.find("game"), nullptr);
+}
+
+TEST(ShaderRootSet, RejectsAFileNameInTwoRoots)
+{
+    ShaderRootSet roots = engineAndGameRoots();
+    std::string   error;
+    // On disk in the new root only.
+    const std::vector<std::string> onDisk = { "GBuffer.hlsli" };
+    EXPECT_FALSE(roots.add("mod/shaders", "", onDisk, error));
+    EXPECT_NE(error.find("GBuffer.hlsli"), std::string::npos) << error;
+    EXPECT_NE(error.find("shaders/"), std::string::npos) << error;
+    // Listed by the new manifest, on disk in an old root; names compare without case.
+    EXPECT_FALSE(roots.add("mod/shaders", "bloom.hlsl PSMain ps\n", {}, error));
+    EXPECT_NE(error.find("unique"), std::string::npos) << error;
+    // On disk in the new root with a backslash path, on disk in an old root.
+    const std::vector<std::string> fog = { "sub\\Fog.hlsl" };
+    EXPECT_FALSE(roots.add("mod/shaders", "", fog, error));
+    // In an old root's manifest only (not in that root's file list).
+    const std::vector<std::string> listed = { "Listed.hlsl" };
+    EXPECT_FALSE(roots.add("mod/shaders", "", listed, error));
+    EXPECT_NE(error.find("Listed.hlsl"), std::string::npos) << error;
+    EXPECT_EQ(roots.roots().size(), 2u);
+    EXPECT_EQ(roots.find("mod/shaders"), nullptr);
+}
+
+TEST(ShaderRootSet, RejectsABakedNameInTwoRoots)
+{
+    ShaderRootSet roots = engineAndGameRoots();
+    std::string   error;
+    // sub_Fog.hlsl and sub/Fog.hlsl are different files with one baked name.
+    EXPECT_FALSE(roots.add("mod/shaders", "sub_Fog.hlsl PSMain ps\n", {}, error));
+    EXPECT_NE(error.find("sub_Fog.PSMain.ps.dxil"), std::string::npos) << error;
+    EXPECT_EQ(roots.roots().size(), 2u);
+    // A different entry point is a different baked name.
+    EXPECT_TRUE(roots.add("mod/shaders", "sub_Fog.hlsl VSMain vs\n", {}, error)) << error;
+}
+
+TEST(ShaderRootSet, RejectsBadOrOverlappingRoots)
+{
+    ShaderRootSet roots = engineAndGameRoots();
+    std::string   error;
+    for (const char* dir : { "", "/abs", "game/", "game\\other", "C:/x", "a/../b", "a//b", ".", "shaders", "Game/Shaders", "game", "shaders/extra" })
+    {
+        EXPECT_FALSE(roots.add(dir, "", {}, error)) << dir;
+        EXPECT_FALSE(error.empty()) << dir;
+    }
+    EXPECT_FALSE(roots.add("mod/shaders", "X.hlsl PSMain gs\n", {}, error));
+    EXPECT_NE(error.find("mod/shaders/shaders.manifest line 1"), std::string::npos) << error;
+    EXPECT_EQ(roots.roots().size(), 2u);
+    EXPECT_TRUE(roots.add("game/shaders2", "", {}, error)) << error;
+}
+
 TEST(ShaderKey, DxilContainerDetection)
 {
     // Container with two parts: 'ISG1' then 'DXIL'.

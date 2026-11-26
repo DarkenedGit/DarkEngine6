@@ -49,18 +49,26 @@ namespace Dark
     bool compileShaderFromFile(const std::filesystem::path& path, const char* entry, ShaderStage stage, ComPtr<ID3DBlob>& outBytecode,
                                const D3D_SHADER_MACRO* defines = nullptr, bool forceOptimize = false);
 
+    // Adds a shader root: a folder under content/ (e.g. "<name>/shaders") with its own shaders.manifest,
+    // used beside content/shaders. Its shaders compile as compileShaderFromContent("<root>/<file>"), and
+    // their #include "x" searches the including file's folder, then content/shaders. A shader file or
+    // baked name may be in only one root: a clash, or a missing or bad manifest, fails (logged) and the
+    // root is not added. Adding a root again returns true. Call before compiling the root's shaders.
+    bool addShaderRoot(const char* relativeUnderContent);
+
     // Resolve relativeUnderContent (e.g. "shaders/Line.hlsl"), then compile. Records the ShaderKey for the
-    // manifest drift check, and in Debug warns when the key is missing from content/shaders/shaders.manifest.
+    // manifest drift check, and in Debug warns when the key is in no shader root's shaders.manifest.
     bool compileShaderFromContent(const char* relativeUnderContent, const char* entry, ShaderStage stage, ComPtr<ID3DBlob>& outBytecode,
                                   const D3D_SHADER_MACRO* defines = nullptr, bool forceOptimize = false);
 
-    // ShaderKey for a compile call (defines sorted). file is the path under content/shaders.
+    // ShaderKey for a compile call (defines sorted). file is the path under its shader root.
     ShaderKey makeShaderKey(const std::string& file, const char* entry, ShaderStage stage, const D3D_SHADER_MACRO* defines);
 
     // Keys requested through compileShaderFromContent in this process, in first-use order.
     std::vector<ShaderKey> requestedShaderKeys();
 
-    // Loads and parses content/shaders/shaders.manifest once. Null (logged) when missing or invalid.
+    // Loads and parses content/shaders/shaders.manifest (the engine root's) once. Null (logged) when
+    // missing or invalid.
     const ShaderManifest* loadedShaderManifest();
 
     // ID3D12ShaderReflection for DXIL (through DXC) and DXBC (D3DReflect) blobs.

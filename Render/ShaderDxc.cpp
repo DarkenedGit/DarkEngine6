@@ -191,6 +191,11 @@ namespace Dark
             out.push_back(L"-Ges"); // strict mode, as D3DCOMPILE_ENABLE_STRICTNESS was for FXC
             out.push_back(L"-I");
             out.push_back(request.path.parent_path().wstring());
+            for (const std::filesystem::path& dir : request.includeDirs)
+            {
+                out.push_back(L"-I");
+                out.push_back(dir.wstring());
+            }
             for (const ShaderDefine& d : request.defines)
             {
                 out.push_back(L"-D");

@@ -8,7 +8,8 @@
   Modes:
     Includes    (default) misc-include-cleaner only, using .clang-tidy options.
     Tidy        Every check listed in .clang-tidy.
-    Duplicates  PMD CPD over engine C++ and content/shaders HLSL.
+    Duplicates  PMD CPD over engine C++ and the HLSL of every shader root (content/shaders,
+                content/game/shaders: each folder under content/ with a shaders.manifest).
     All         Includes + Duplicates.
 
   Uses the Ninja compile database from scripts/setup-sourcetrail.ps1
@@ -327,17 +328,23 @@ function Invoke-Cpd {
 
     # CPD's C++ lexer only picks up C/C++ file extensions and has no HLSL lexer, so the
     # shaders are copied to a staging folder as <name>.hlsl.h and the paths are mapped
-    # back in the report. HLSL is close enough to C++ for copy detection.
-    $shaderDir = Join-Path (Join-Path $RepoRoot "content") "shaders"
+    # back in the report. HLSL is close enough to C++ for copy detection. Every shader root (a folder
+    # under content/ with a shaders.manifest) is staged at its path under content/, in one set, so
+    # copies across roots are found too.
+    $contentDir = Join-Path $RepoRoot "content"
     $stage = Join-Path $ReportPath "cpd-hlsl-stage"
     if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
-    if ($Path.Count -eq 0 -and (Test-Path $shaderDir)) {
+    $shaderRoots = @(Get-ChildItem -Path $contentDir -Recurse -File -Filter "shaders.manifest" -ErrorAction SilentlyContinue |
+        ForEach-Object { $_.DirectoryName })
+    if ($Path.Count -eq 0 -and $shaderRoots.Count -gt 0) {
         New-Item -ItemType Directory -Force -Path $stage | Out-Null
-        Get-ChildItem -Path $shaderDir -Recurse -File -Include *.hlsl, *.hlsli | ForEach-Object {
-            $rel = $_.FullName.Substring($shaderDir.Length).TrimStart('\', '/')
-            $dest = Join-Path $stage ($rel + ".h")
-            New-Item -ItemType Directory -Force -Path (Split-Path $dest) | Out-Null
-            Copy-Item $_.FullName $dest
+        foreach ($shaderDir in $shaderRoots) {
+            Get-ChildItem -Path $shaderDir -Recurse -File -Include *.hlsl, *.hlsli | ForEach-Object {
+                $rel = $_.FullName.Substring($contentDir.Length).TrimStart('\', '/')
+                $dest = Join-Path $stage ($rel + ".h")
+                New-Item -ItemType Directory -Force -Path (Split-Path $dest) | Out-Null
+                Copy-Item $_.FullName $dest
+            }
         }
     }
 
@@ -370,7 +377,7 @@ function Invoke-Cpd {
         if (-not $text) { $text = "" }
         if ($set.Name -eq "hlsl") {
             # Point the report back at the real shader files.
-            $text = $text.Replace($stage, $shaderDir) -replace '(\.hlsli?)\.h\b', '$1'
+            $text = $text.Replace($stage, $contentDir) -replace '(\.hlsli?)\.h\b', '$1'
             [System.IO.File]::WriteAllText($report, $text)
             Remove-Item $stage -Recurse -Force
         }

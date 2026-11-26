@@ -3,6 +3,7 @@
 
 #include "Assets/Model.h"
 #include "Core/Log.h"
+#include "Game/GameShaders.h"
 #include "Math/MathHelper.h"
 #include "Render/DepthState.h"
 #include "Render/GpuModel.h"
@@ -138,9 +139,9 @@ namespace Dark
         ComPtr<ID3DBlob> vsSkinned;
         ComPtr<ID3DBlob> vsStatic;
         ComPtr<ID3DBlob> ps;
-        if (!compileShaderFromContent("shaders/Camouflage.hlsl", "VSMain", ShaderStage::Vertex, vsSkinned)
-            || !compileShaderFromContent("shaders/Camouflage.hlsl", "VSMainStatic", ShaderStage::Vertex, vsStatic)
-            || !compileShaderFromContent("shaders/Camouflage.hlsl", "PSMain", ShaderStage::Pixel, ps))
+        if (!addGameShaderRoot() || !compileShaderFromContent("game/shaders/Camouflage.hlsl", "VSMain", ShaderStage::Vertex, vsSkinned)
+            || !compileShaderFromContent("game/shaders/Camouflage.hlsl", "VSMainStatic", ShaderStage::Vertex, vsStatic)
+            || !compileShaderFromContent("game/shaders/Camouflage.hlsl", "PSMain", ShaderStage::Pixel, ps))
         {
             m_rootSignature.Reset();
             return false;

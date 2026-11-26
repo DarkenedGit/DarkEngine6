@@ -123,6 +123,8 @@ set(DE_GAMEPLAY_FOLDERS
     Combat
     Game
 )
+# The game's shader root (Game/GameShaders.h), baked beside content/shaders by de_shaders.
+set(DE_GAME_SHADER_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/content/game/shaders")
 
 # Remaining engine folders compiled by the DarkEngine umbrella only.
 set(DE_ENGINE_REST_FOLDERS
@@ -161,13 +163,19 @@ file(GLOB DE_CONTENT_CODE_SOURCES CONFIGURE_DEPENDS
 )
 list(APPEND DE_ENGINE_REST_SOURCES ${DE_CONTENT_CODE_SOURCES})
 
-# Runtime HLSL lives under content/shaders (not a Shaders/ source folder).
-# Add them to DarkEngine so they appear in the VS solution; do not compile them.
+# Runtime HLSL lives under content/shaders (not a Shaders/ source folder), the game's under
+# DE_GAME_SHADER_ROOT. Add them to DarkEngine and DarkGameplay so they appear in the VS solution;
+# do not compile them.
 file(GLOB_RECURSE DE_SHADER_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/content/shaders/*.hlsl"
     "${CMAKE_CURRENT_SOURCE_DIR}/content/shaders/*.hlsli"
 )
 list(APPEND DE_ENGINE_REST_SOURCES ${DE_SHADER_SOURCES})
+file(GLOB_RECURSE DE_GAME_SHADER_SOURCES CONFIGURE_DEPENDS
+    "${DE_GAME_SHADER_ROOT}/*.hlsl"
+    "${DE_GAME_SHADER_ROOT}/*.hlsli"
+)
+list(APPEND DE_GAMEPLAY_SOURCES ${DE_GAME_SHADER_SOURCES})
 
 de_glob_folder(DE_SANDBOX_SOURCES Sandbox)
 de_glob_folder(DE_SANDBOX2D_SOURCES Sandbox2D)
@@ -213,6 +221,7 @@ include(cmake/AgilitySdk.cmake)
 include(cmake/Dxc.cmake)
 include(cmake/D3D12MA.cmake)
 include(cmake/ShaderBake.cmake)
+de_add_shader_root("${DE_GAME_SHADER_ROOT}")
 include(cmake/HostExe.cmake)
 
 # --- Layered engine libraries ------------------------------------------------------

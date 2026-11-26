@@ -1,0 +1,11 @@
+# Game shader permutations: same format as content/shaders/shaders.manifest, with <file> under
+# content/game/shaders. Baked by de_shaders next to the engine's; a file name may not also be in
+# content/shaders. These shaders may include content/shaders .hlsli files by name.
+
+Camouflage.hlsl VSMain vs
+Camouflage.hlsl VSMainStatic vs
+Camouflage.hlsl PSMain ps
+
+Echo.hlsl VSMain vs
+Echo.hlsl PSSnapshot ps ECHO_SNAPSHOT=1
+Echo.hlsl PSComposite ps

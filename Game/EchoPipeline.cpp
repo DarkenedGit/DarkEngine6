@@ -2,6 +2,7 @@
 #include "Render/GraphTargets.h"
 
 #include "Core/Log.h"
+#include "Game/GameShaders.h"
 #include "Math/MathHelper.h"
 #include "Render/Profile.h"
 #include "Render/Renderer.h"
@@ -141,9 +142,9 @@ bool EchoPipeline::create(ID3D12Device* device)
     ComPtr<ID3DBlob> snapPs;
     ComPtr<ID3DBlob> compositePs;
     D3D_SHADER_MACRO snapMacro[2] = { { "ECHO_SNAPSHOT", "1" }, { nullptr, nullptr } };
-    if (!compileShaderFromContent("shaders/Echo.hlsl", "VSMain", ShaderStage::Vertex, vs)
-        || !compileShaderFromContent("shaders/Echo.hlsl", "PSSnapshot", ShaderStage::Pixel, snapPs, snapMacro)
-        || !compileShaderFromContent("shaders/Echo.hlsl", "PSComposite", ShaderStage::Pixel, compositePs))
+    if (!addGameShaderRoot() || !compileShaderFromContent("game/shaders/Echo.hlsl", "VSMain", ShaderStage::Vertex, vs)
+        || !compileShaderFromContent("game/shaders/Echo.hlsl", "PSSnapshot", ShaderStage::Pixel, snapPs, snapMacro)
+        || !compileShaderFromContent("game/shaders/Echo.hlsl", "PSComposite", ShaderStage::Pixel, compositePs))
     {
         m_snapRoot.Reset();
         m_compositeRoot.Reset();
