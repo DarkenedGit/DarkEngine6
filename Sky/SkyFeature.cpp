@@ -1,6 +1,7 @@
 #include "Sky/SkyFeature.h"
 
 #include "Core/Log.h"
+#include "Render/FrameView.h"
 #include "Render/HdrDrawInputs.h"
 #include "Render/HdrPassViews.h"
 #include "Render/Renderer.h"
@@ -29,8 +30,10 @@ namespace Dark
         m_inputs   = {};
     }
 
-    void SkyFeature::addPasses(FeatureBuilder& b, const FrameView&)
+    void SkyFeature::addPasses(FeatureBuilder& b, const FrameView& view)
     {
+        if (view.setup.disabled.has(EnginePass::Sky))
+            return;
         Renderer* const rr = m_renderer;
         if (!rr || !addHdrDrawPass(b, "Sky", skyUses(),
                                    [this, rr](Rg::PassContext& c, const HdrDrawTargets& d)

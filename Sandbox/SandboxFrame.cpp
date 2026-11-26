@@ -276,6 +276,7 @@ void SandboxFrame::render()
     // Echolocation strobes: no TAA / GTAO / SSR history from (or into) a held frame, no motion blur.
     view.holdTemporal = app().m_vision.echo > 0.0f;
     const FrameSetup setup = frame.resolveSetup(view);
+    m_scene.setFrameSetup(setup);
     m_shadowFeature.updateLocal(app().world(), app().m_sceneWorld.camera, cameraCull, app().renderer().frameIndex(), selectLocalShadows, setup);
 
     AABox3f sceneBounds = app().m_sceneWorld.terrain.shadowBounds(app().m_sceneWorld.camera);
@@ -1003,7 +1004,7 @@ void SandboxFrame::render()
             app().m_sceneWorld.water.draw(pass.cmd(), m_water.pipeline(), app().m_sceneWorld.camera, &frustum, &app().m_sceneWorld.env, &app().renderer().debugState(), waterLightsVa, waterLightCount,
                                           waterIndex, app().renderer().frameIndex(), &tables, &m_shadowFeature.shadowMaps(), waterSsr, 0, thermal, ultraviolet, underDraw, true);
         };
-        frame.declare(PassId::Underwater, [&, underFrame, drawCeiling](FeatureBuilder& b) { m_water.addUnderwaterPasses(b, app().renderer(), underFrame, drawCeiling); });
+        frame.declare(PassId::Underwater, [&, underFrame, drawCeiling](FeatureBuilder& b) { m_water.addUnderwaterPasses(b, app().renderer(), underFrame, drawCeiling, frame.view().setup); });
     }
 
     // Post (a core feature): the player's post settings and auto exposure, with the echo image as

@@ -4,6 +4,7 @@
 #include "Render/FrameFeatures.h"
 #include "Render/FrameSetup.h"
 #include "Render/FrameView.h"
+#include "Render/GBufferInputs.h"
 #include "Render/HdrDrawInputs.h"
 #include "Render/LightingInputs.h"
 #include "Render/ShadowInputs.h"
@@ -65,12 +66,22 @@ namespace
         }
     };
 
-    constexpr uint32_t kDir   = EnginePassMask::bit(EnginePass::DirectionalShadows);
-    constexpr uint32_t kLocal = EnginePassMask::bit(EnginePass::LocalShadows);
-    constexpr uint32_t kGtao  = EnginePassMask::bit(EnginePass::Gtao);
-    constexpr uint32_t kSsr   = EnginePassMask::bit(EnginePass::Ssr);
-    constexpr uint32_t kBloom = EnginePassMask::bit(EnginePass::Bloom);
-    constexpr uint32_t kHonoured = kDir | kLocal | kGtao | kSsr;
+    constexpr uint32_t kDir      = EnginePassMask::bit(EnginePass::DirectionalShadows);
+    constexpr uint32_t kLocal    = EnginePassMask::bit(EnginePass::LocalShadows);
+    constexpr uint32_t kDecals   = EnginePassMask::bit(EnginePass::Decals);
+    constexpr uint32_t kGtao     = EnginePassMask::bit(EnginePass::Gtao);
+    constexpr uint32_t kSsr      = EnginePassMask::bit(EnginePass::Ssr);
+    constexpr uint32_t kLighting = EnginePassMask::bit(EnginePass::DeferredLighting);
+    constexpr uint32_t kLights   = EnginePassMask::bit(EnginePass::LocalLights);
+    constexpr uint32_t kSky      = EnginePassMask::bit(EnginePass::Sky);
+    constexpr uint32_t kClouds   = EnginePassMask::bit(EnginePass::Clouds);
+    constexpr uint32_t kCapture  = EnginePassMask::bit(EnginePass::SsrCapture);
+    constexpr uint32_t kUnder    = EnginePassMask::bit(EnginePass::Underwater);
+    constexpr uint32_t kBloom    = EnginePassMask::bit(EnginePass::Bloom);
+    constexpr uint32_t kTaa      = EnginePassMask::bit(EnginePass::Taa);
+    constexpr uint32_t kMb       = EnginePassMask::bit(EnginePass::MotionBlur);
+    constexpr uint32_t kAe       = EnginePassMask::bit(EnginePass::AutoExposure);
+    constexpr uint32_t kHonoured = kEnginePassesHonoured;
 } // namespace
 
 TEST(FrameSetup, NoHookKeepsTheViewSetup)
@@ -146,31 +157,33 @@ TEST(FrameSetup, UnnamedHookIsSkippedAndLoggedOnce)
     EXPECT_EQ(logsWith("has no name"), 2u); // once per hook
 }
 
-TEST(FrameSetup, PassesThisBuildDoesNotHonourStayOnAndLogOnce)
+TEST(FrameSetup, EveryEnginePassBitIsHonoured)
 {
     LogCapture      logs;
     FrameSetupHooks hooks;
     Hook            h;
-    h.disable = kBloom | kGtao;
+    h.disable = kEnginePassesHonoured;
     ASSERT_TRUE(hooks.add(&h));
-    EXPECT_EQ(hooks.resolve(FrameView{}, 0.0).disabled.bits, kGtao);
-    EXPECT_EQ(hooks.resolve(FrameView{}, 0.1).disabled.bits, kGtao);
-    EXPECT_EQ(logsWith("turning Bloom off is not supported"), 1u);
+    const FrameSetup a = hooks.resolve(FrameView{}, 0.0);
+    const FrameSetup b = hooks.resolve(FrameView{}, 0.1);
+    EXPECT_EQ(a.disabled.bits, kEnginePassesHonoured);
+    EXPECT_EQ(b.disabled.bits, kEnginePassesHonoured);
+    EXPECT_EQ(logsWith("not supported yet"), 0u);
+    for (uint32_t i = 0; i < kEnginePassCount; ++i)
+        EXPECT_TRUE(a.disabled.has(static_cast<EnginePass>(i))) << enginePassName(static_cast<EnginePass>(i));
+    EXPECT_EQ(kEnginePassesHonoured, (1u << kEnginePassCount) - 1u);
 }
 
-TEST(FrameSetup, ShadowBitsAreHonouredAndUnwiredBitsStillLogOnce)
+TEST(FrameSetup, BloomAndThePostBitsAreHonoured)
 {
     LogCapture      logs;
     FrameSetupHooks hooks;
     Hook            h;
-    h.disable = kDir | kLocal | kBloom;
+    h.disable = kDir | kLocal | kBloom | kTaa | kMb | kAe;
     ASSERT_TRUE(hooks.add(&h));
-    EXPECT_EQ(hooks.resolve(FrameView{}, 0.0).disabled.bits, kDir | kLocal);
-    EXPECT_EQ(hooks.resolve(FrameView{}, 0.1).disabled.bits, kDir | kLocal);
-    EXPECT_EQ(logsWith("turning Bloom off is not supported"), 1u);
-    EXPECT_EQ(logsWith("DirectionalShadows"), 0u);
-    EXPECT_EQ(logsWith("LocalShadows"), 0u);
-    EXPECT_EQ(kEnginePassesHonoured, kHonoured);
+    EXPECT_EQ(hooks.resolve(FrameView{}, 0.0).disabled.bits, kDir | kLocal | kBloom | kTaa | kMb | kAe);
+    EXPECT_EQ(hooks.resolve(FrameView{}, 0.1).disabled.bits, kDir | kLocal | kBloom | kTaa | kMb | kAe);
+    EXPECT_EQ(logsWith("not supported yet"), 0u);
 }
 
 TEST(FrameSetup, MaskChangesAboveTheRateWarnOnce)
@@ -313,11 +326,14 @@ namespace
         FrameSetupHooks hooks;
         FrameSetup      setup;
         LightingReads   lit{};
-        bool            litRan        = false;
-        bool            gtaoPrev      = false; // the GTAO history had a valid prev this frame
-        bool            ssrPrev       = false;
+        bool            litRan          = false;
+        bool            localRan        = false;
+        bool            gtaoPrev        = false; // the GTAO history had a valid prev this frame
+        bool            ssrPrev         = false;
+        bool            taaPrev         = false;
         bool            gtaoRequested   = false;
         bool            ssrRequested    = false;
+        bool            taaRequested    = false;
         bool            shadowRequested = false;
         bool            localRequested  = false;
         bool            strictReader    = false; // Lighting reads GTAO's compose with read(), not tryRead
@@ -329,6 +345,7 @@ namespace
             Rg::RenderGraph&   g     = graph;
             lit                      = {};
             litRan                   = false;
+            localRan                 = false;
             g.beginFrame(1280, 720);
             features.begin(list, count);
             setup = hooks.resolve(FrameView{}, seconds);
@@ -339,9 +356,10 @@ namespace
             }
             gtaoRequested   = !setup.disabled.has(EnginePass::Gtao);
             ssrRequested    = !setup.disabled.has(EnginePass::Ssr);
+            taaRequested    = !setup.disabled.has(EnginePass::Taa);
             shadowRequested = !setup.disabled.has(EnginePass::DirectionalShadows);
             localRequested  = !setup.disabled.has(EnginePass::LocalShadows);
-            gtaoPrev = ssrPrev = false;
+            gtaoPrev = ssrPrev = taaPrev = false;
             if (gtaoRequested)
             {
                 const Rg::HistoryPair h = g.history("Gtao", absTex(1280, 720));
@@ -354,17 +372,47 @@ namespace
                 ssrPrev                 = h.prev.valid();
                 features.setHistory(RenderResource::SsrHistory, h);
             }
+            if (taaRequested)
+            {
+                const Rg::HistoryPair h = g.history("Taa", absTex(1280, 720));
+                taaPrev                 = h.prev.valid();
+                features.setHistory(RenderResource::TaaHistory, h);
+            }
             for (uint32_t i = 0; i < count; ++i)
             {
                 const PassId id = list[i].id;
-                if (id != PassId::Gtao && id != PassId::Ssr && id != PassId::Lighting && id != PassId::Shadows && id != PassId::LocalShadows)
+                switch (id)
+                {
+                case PassId::Gtao:
+                case PassId::Ssr:
+                case PassId::Lighting:
+                case PassId::Shadows:
+                case PassId::LocalShadows:
+                case PassId::Decals:
+                case PassId::LocalVolumes:
+                case PassId::Sky:
+                case PassId::Clouds:
+                case PassId::SsrCapture:
+                case PassId::Underwater:
+                case PassId::Post:
+                    break;
+                default:
                     features.set(id, [](Rg::PassContext&) {});
+                    break;
+                }
             }
             features.declare(PassId::Shadows, [this](FeatureBuilder& b) { declareShadows(b); });
             features.declare(PassId::LocalShadows, [this](FeatureBuilder& b) { declareLocalShadows(b); });
+            features.declare(PassId::Decals, [this](FeatureBuilder& b) { declareDecals(b); });
             features.declare(PassId::Gtao, [this](FeatureBuilder& b) { declareGtao(b); });
             features.declare(PassId::Ssr, [this](FeatureBuilder& b) { declareSsr(b); });
             features.declare(PassId::Lighting, [this](FeatureBuilder& b) { declareLighting(b); });
+            features.declare(PassId::LocalVolumes, [this](FeatureBuilder& b) { declareLocalVolumes(b); });
+            features.declare(PassId::Sky, [this](FeatureBuilder& b) { declareSky(b); });
+            features.declare(PassId::Clouds, [this](FeatureBuilder& b) { declareClouds(b); });
+            features.declare(PassId::SsrCapture, [this](FeatureBuilder& b) { declareSsrCapture(b); });
+            features.declare(PassId::Underwater, [this](FeatureBuilder& b) { declareUnderwater(b); });
+            features.declare(PassId::Post, [this](FeatureBuilder& b) { declarePost(b); });
             if (!features.compileFrame(g, "test"))
                 return false;
             return g.execute();
@@ -444,8 +492,21 @@ namespace
             b.graph().blackboard().set(SsrOutput{ full, {} });
         }
 
+        void declareDecals(FeatureBuilder& b)
+        {
+            // The Decals bit drops the G-buffer edit, not the HDR clear lighting draws onto.
+            if (!setup.disabled.has(EnginePass::Decals))
+                addDecalPass(b, [](Rg::PassContext&, const DecalTargets&) {});
+            ASSERT_TRUE(addHdrClearPass(b, [](Rg::PassContext&, const HdrTarget&) {}));
+        }
+
         void declareLighting(FeatureBuilder& b)
         {
+            if (setup.disabled.has(EnginePass::DeferredLighting))
+            {
+                b.opaque("Lighting", {}, {}, [](Rg::PassContext&) {});
+                return;
+            }
             const LightingReads in = lightingReads(b);
             ASSERT_TRUE(in.valid());
             Rg::TextureHandle hdr;
@@ -463,6 +524,132 @@ namespace
                     lit    = d;
                 });
             b.set(RenderResource::Hdr, hdr);
+        }
+
+        void declareLocalVolumes(FeatureBuilder& b)
+        {
+            if (setup.disabled.has(EnginePass::LocalLights))
+            {
+                b.opaque("LocalVolumes", {}, {}, [](Rg::PassContext&) {});
+                return;
+            }
+            Rg::TextureHandle hdr = b.handle(RenderResource::Hdr);
+            b.addPass<Rg::NoData>(
+                "LocalVolumes",
+                [&](Rg::PassBuilder& pb, Rg::NoData&) { hdr = pb.readWrite(hdr, Rg::Use::RenderTarget); },
+                [this](Rg::PassContext&, const Rg::NoData&) { localRan = true; });
+            b.set(RenderResource::Hdr, hdr);
+        }
+
+        void declareSky(FeatureBuilder& b)
+        {
+            if (setup.disabled.has(EnginePass::Sky))
+                return;
+            addHdrDrawPass(b, "Sky", skyUses(), [](Rg::PassContext&, const HdrDrawTargets&) {});
+        }
+
+        void declareClouds(FeatureBuilder& b)
+        {
+            if (setup.disabled.has(EnginePass::Clouds))
+                return;
+            addHdrDrawPass(b, "Clouds", false, [](Rg::PassContext&, const HdrDrawTargets&) {});
+        }
+
+        void declareSsrCapture(FeatureBuilder& b)
+        {
+            if (setup.disabled.has(EnginePass::SsrCapture))
+                return;
+            Rg::TextureHandle hdr = b.handle(RenderResource::Hdr);
+            Rg::TextureHandle dst = b.graph().importTexture("DE.Ssr.Capture", absTex(1280, 720), fakeResource(53), Rg::Layout::ShaderResource, Rg::Layout::Undefined);
+            b.addPass<Rg::NoData>(
+                "SsrCapture",
+                [&](Rg::PassBuilder& pb, Rg::NoData&)
+                {
+                    pb.read(hdr, Rg::Use::PixelSrv);
+                    dst = pb.write(dst, Rg::Use::RenderTarget);
+                },
+                [](Rg::PassContext&, const Rg::NoData&) {});
+            b.graph().blackboard().set(SsrCaptureOutput{ dst });
+        }
+
+        void declareUnderwater(FeatureBuilder& b)
+        {
+            if (setup.disabled.has(EnginePass::Underwater))
+                return;
+            addHdrDrawPass(b, "Underwater", waterUses(), [](Rg::PassContext&, const HdrDrawTargets&) {});
+        }
+
+        void declarePost(FeatureBuilder& b)
+        {
+            Rg::TextureHandle hdr  = b.handle(RenderResource::Hdr);
+            Rg::TextureHandle post = b.handle(RenderResource::Post);
+            Rg::TextureHandle swap = b.handle(RenderResource::Swap);
+            if (!setup.disabled.has(EnginePass::AutoExposure))
+            {
+                b.addPass<Rg::NoData>(
+                    "Post.AutoExposure.Reduce",
+                    [&](Rg::PassBuilder& pb, Rg::NoData&)
+                    {
+                        pb.flags(Rg::PassFlags::SideEffect);
+                        pb.read(hdr, Rg::Use::PixelSrv);
+                    },
+                    [](Rg::PassContext&, const Rg::NoData&) {});
+            }
+            if (!setup.disabled.has(EnginePass::Bloom))
+            {
+                b.addPass<Rg::NoData>(
+                    "Post.Bloom.Composite",
+                    [&](Rg::PassBuilder& pb, Rg::NoData&) { hdr = pb.readWrite(hdr, Rg::Use::RenderTarget); },
+                    [](Rg::PassContext&, const Rg::NoData&) {});
+                b.set(RenderResource::Hdr, hdr);
+            }
+            if (taaRequested)
+            {
+                const Rg::TextureHandle histCurr = b.handle(RenderResource::TaaHistory);
+                const Rg::TextureHandle histPrev = b.prev(RenderResource::TaaHistory);
+                Rg::TextureHandle       histOut;
+                b.addPass<Rg::NoData>(
+                    "Post.Taa",
+                    [&](Rg::PassBuilder& pb, Rg::NoData&)
+                    {
+                        pb.read(hdr, Rg::Use::PixelSrv);
+                        if (histPrev.valid())
+                            pb.read(histPrev, Rg::Use::PixelSrv);
+                        post    = pb.write(post, Rg::Use::RenderTarget);
+                        histOut = pb.write(histCurr, Rg::Use::RenderTarget);
+                    },
+                    [](Rg::PassContext&, const Rg::NoData&) {});
+                b.set(RenderResource::Post, post);
+                b.set(RenderResource::TaaHistory, histOut);
+            }
+            if (!setup.disabled.has(EnginePass::MotionBlur))
+            {
+                Rg::TextureHandle& src = taaRequested ? post : hdr;
+                Rg::TextureHandle& dst = taaRequested ? hdr : post;
+                b.addPass<Rg::NoData>(
+                    "Post.MotionBlur",
+                    [&](Rg::PassBuilder& pb, Rg::NoData&)
+                    {
+                        pb.read(src, Rg::Use::PixelSrv);
+                        dst = pb.write(dst, Rg::Use::RenderTarget);
+                    },
+                    [](Rg::PassContext&, const Rg::NoData&) {});
+                b.set(taaRequested ? RenderResource::Hdr : RenderResource::Post, dst);
+            }
+            const Rg::TextureHandle toneSrc = (taaRequested != !setup.disabled.has(EnginePass::MotionBlur)) ? b.handle(RenderResource::Post) : b.handle(RenderResource::Hdr);
+            // After TAA-only, tone reads Post; after MB-only, tone reads Post; after TAA+MB, tone reads HDR;
+            // after neither, tone reads HDR. usedPostHdr = TAA xor MB? Wait: production: TAA sets usedPostHdr=true,
+            // then MB with TAA writes back to HDR and usedPostHdr=false; MB without TAA sets usedPostHdr=true.
+            // So tone reads Post iff (TAA && !MB) || (!TAA && MB) == TAA xor MB. Yes.
+            b.addPass<Rg::NoData>(
+                "Post.Tonemap",
+                [&](Rg::PassBuilder& pb, Rg::NoData&)
+                {
+                    pb.read(toneSrc.valid() ? toneSrc : hdr, Rg::Use::PixelSrv);
+                    swap = pb.write(swap, Rg::Use::RenderTarget);
+                },
+                [](Rg::PassContext&, const Rg::NoData&) {});
+            b.set(RenderResource::Swap, swap);
         }
 
         std::string resName(Rg::TextureHandle h) const
@@ -620,9 +807,10 @@ TEST(FrameSetup, HistoryIsInvalidOnceWhenAPassComesBack)
     SetupFrame f;
     Hook       h;
     ASSERT_TRUE(f.hooks.add(&h));
-    const uint32_t masks[]    = { 0, 0, kGtao, kGtao, 0, 0, 0, kSsr, 0, kGtao | kSsr, 0, 0 };
-    const bool     gtaoPrev[] = { false, true, false, false, false, true, true, true, true, false, false, true };
-    const bool     ssrPrev[]  = { false, true, true, true, true, true, true, false, false, false, false, true };
+    const uint32_t masks[]    = { 0, 0, kGtao, kGtao, 0, 0, 0, kSsr, 0, kGtao | kSsr, 0, kTaa, kTaa, 0, 0 };
+    const bool     gtaoPrev[] = { false, true, false, false, false, true, true, true, true, false, false, true, true, true, true };
+    const bool     ssrPrev[]  = { false, true, true, true, true, true, true, false, false, false, false, true, true, true, true };
+    const bool     taaPrev[]  = { false, true, true, true, true, true, true, true, true, true, true, false, false, false, true };
     for (size_t i = 0; i < std::size(masks); ++i)
     {
         SCOPED_TRACE(i);
@@ -630,14 +818,72 @@ TEST(FrameSetup, HistoryIsInvalidOnceWhenAPassComesBack)
         ASSERT_TRUE(f.run(static_cast<double>(i))) << errorText(f.graph);
         EXPECT_EQ(f.gtaoPrev, gtaoPrev[i]);
         EXPECT_EQ(f.ssrPrev, ssrPrev[i]);
+        EXPECT_EQ(f.taaPrev, taaPrev[i]);
     }
+}
+
+TEST(FrameSetup, DisabledRemainingPassesDropWorkAndKeepTheHdrClear)
+{
+    SetupFrame f;
+    Hook       h;
+    ASSERT_TRUE(f.hooks.add(&h));
+    ASSERT_TRUE(f.run(0.0)) << errorText(f.graph);
+    EXPECT_TRUE(f.litRan);
+    EXPECT_TRUE(f.localRan);
+    EXPECT_NE(f.graph.findPass("Decals"), Rg::kNoPass);
+    EXPECT_NE(f.graph.findPass("Decals.ClearHdr"), Rg::kNoPass);
+    EXPECT_NE(f.graph.findPass("Sky"), Rg::kNoPass);
+    EXPECT_NE(f.graph.findPass("Clouds"), Rg::kNoPass);
+    EXPECT_NE(f.graph.findPass("SsrCapture"), Rg::kNoPass);
+    EXPECT_NE(f.graph.findPass("Underwater"), Rg::kNoPass);
+    EXPECT_NE(f.graph.findPass("Post.Bloom.Composite"), Rg::kNoPass);
+    EXPECT_NE(f.graph.findPass("Post.Taa"), Rg::kNoPass);
+    EXPECT_NE(f.graph.findPass("Post.MotionBlur"), Rg::kNoPass);
+    EXPECT_NE(f.graph.findPass("Post.AutoExposure.Reduce"), Rg::kNoPass);
+    EXPECT_NE(f.graph.findPass("Post.Tonemap"), Rg::kNoPass);
+
+    h.disable = kDecals | kLighting | kLights | kSky | kClouds | kCapture | kUnder | kBloom | kTaa | kMb | kAe;
+    ASSERT_TRUE(f.run(1.0)) << errorText(f.graph);
+    EXPECT_FALSE(f.litRan);
+    EXPECT_FALSE(f.localRan);
+    EXPECT_EQ(f.graph.findPass("Decals"), Rg::kNoPass);
+    EXPECT_NE(f.graph.findPass("Decals.ClearHdr"), Rg::kNoPass); // lighting still needs a cleared HDR
+    EXPECT_NE(f.graph.findPass("Lighting"), Rg::kNoPass);        // required entry keeps its place
+    EXPECT_NE(f.graph.findPass("LocalVolumes"), Rg::kNoPass);
+    EXPECT_EQ(f.graph.findPass("Sky"), Rg::kNoPass);
+    EXPECT_EQ(f.graph.findPass("Clouds"), Rg::kNoPass);
+    EXPECT_EQ(f.graph.findPass("SsrCapture"), Rg::kNoPass);
+    EXPECT_EQ(f.graph.blackboard().tryGet<SsrCaptureOutput>(), nullptr);
+    EXPECT_EQ(f.graph.findPass("Underwater"), Rg::kNoPass);
+    EXPECT_EQ(f.graph.findPass("Post.Bloom.Composite"), Rg::kNoPass);
+    EXPECT_EQ(f.graph.findPass("Post.Taa"), Rg::kNoPass);
+    EXPECT_EQ(f.graph.findPass("Post.MotionBlur"), Rg::kNoPass);
+    EXPECT_EQ(f.graph.findPass("Post.AutoExposure.Reduce"), Rg::kNoPass);
+    EXPECT_NE(f.graph.findPass("Post.Tonemap"), Rg::kNoPass);
+    EXPECT_TRUE(f.features.orderOk());
+}
+
+TEST(FrameSetup, EmptyHookLeavesNewlyHonouredPassesOn)
+{
+    SetupFrame f;
+    Hook       empty;
+    ASSERT_TRUE(f.hooks.add(&empty));
+    ASSERT_TRUE(f.run(0.0)) << errorText(f.graph);
+    EXPECT_FALSE(f.setup.disabled.any());
+    EXPECT_TRUE(f.litRan);
+    EXPECT_TRUE(f.localRan);
+    EXPECT_NE(f.graph.findPass("Decals"), Rg::kNoPass);
+    EXPECT_NE(f.graph.findPass("Sky"), Rg::kNoPass);
+    EXPECT_NE(f.graph.findPass("Post.Taa"), Rg::kNoPass);
+    EXPECT_NE(f.graph.findPass("Post.Bloom.Composite"), Rg::kNoPass);
 }
 
 TEST(FrameSetup, RandomDisableMasksValidateBindFallbacksAndInvalidateHistoryOnce)
 {
     LogCapture     logs;
     const uint32_t bitsPool[] = { 0, kGtao, kSsr, kBloom, kGtao | kSsr, kDir, kLocal, kDir | kLocal, kDir | kGtao, kLocal | kSsr,
-                                  EnginePassMask::bit(EnginePass::Taa) | kSsr };
+                                  kTaa | kSsr, kLighting, kLights, kSky | kClouds, kCapture | kUnder, kDecals, kMb | kAe | kBloom,
+                                  kLighting | kLights | kSky, kTaa | kMb | kAe, kEnginePassesHonoured };
     int            returns    = 0;
     for (uint32_t seed = 1; seed <= 24; ++seed)
     {
@@ -648,7 +894,7 @@ TEST(FrameSetup, RandomDisableMasksValidateBindFallbacksAndInvalidateHistoryOnce
         hooks[1].hookName = (seed % 3 == 0) ? "" : "Second"; // sometimes unnamed: skipped
         for (Hook& h : hooks)
             ASSERT_TRUE(f.hooks.add(&h));
-        bool gtaoWas = false, ssrWas = false;
+        bool gtaoWas = false, ssrWas = false, taaWas = false;
         for (int frame = 0; frame < 100; ++frame)
         {
             SCOPED_TRACE(frame);
@@ -664,24 +910,54 @@ TEST(FrameSetup, RandomDisableMasksValidateBindFallbacksAndInvalidateHistoryOnce
             std::string why;
             ASSERT_TRUE(f.graph.validateCompiled(&why)) << why;
             ASSERT_EQ(f.setup.disabled.bits, expect);
-            ASSERT_TRUE(f.litRan);
-            const bool gtaoOn  = !(expect & kGtao);
-            const bool ssrOn   = !(expect & kSsr);
-            const bool dirOn   = !(expect & kDir);
-            const bool localOn = !(expect & kLocal);
-            EXPECT_EQ(f.resName(f.lit.ao), gtaoOn ? "DE.Gtao.AoCompose" : "Ao");
-            EXPECT_EQ(f.resName(f.lit.ssr), ssrOn ? "DE.Ssr.Full" : "");
+            const bool gtaoOn   = !(expect & kGtao);
+            const bool ssrOn    = !(expect & kSsr);
+            const bool dirOn    = !(expect & kDir);
+            const bool localOn  = !(expect & kLocal);
+            const bool lightOn  = !(expect & kLighting);
+            const bool volumesOn= !(expect & kLights);
+            const bool decalsOn = !(expect & kDecals);
+            const bool skyOn    = !(expect & kSky);
+            const bool cloudsOn = !(expect & kClouds);
+            const bool capOn    = !(expect & kCapture);
+            const bool underOn  = !(expect & kUnder);
+            const bool bloomOn  = !(expect & kBloom);
+            const bool taaOn    = !(expect & kTaa);
+            const bool mbOn     = !(expect & kMb);
+            const bool aeOn     = !(expect & kAe);
+            EXPECT_EQ(f.litRan, lightOn);
+            EXPECT_EQ(f.localRan, volumesOn);
+            if (lightOn)
+            {
+                EXPECT_EQ(f.resName(f.lit.ao), gtaoOn ? "DE.Gtao.AoCompose" : "Ao");
+                EXPECT_EQ(f.resName(f.lit.ssr), ssrOn ? "DE.Ssr.Full" : "");
+                EXPECT_EQ(f.lit.shadow.valid(), dirOn);
+            }
             EXPECT_EQ(f.graph.findPass("Shadows") != Rg::kNoPass, dirOn);
             EXPECT_EQ(f.graph.findPass("LocalShadows") != Rg::kNoPass, localOn);
-            EXPECT_EQ(f.lit.shadow.valid(), dirOn);
             EXPECT_EQ(f.features.handle(RenderResource::Shadow).disabledOutput(), !dirOn);
             EXPECT_EQ(f.features.handle(RenderResource::LocalShadow).disabledOutput(), !localOn);
+            EXPECT_EQ(f.graph.findPass("Decals") != Rg::kNoPass, decalsOn);
+            EXPECT_NE(f.graph.findPass("Decals.ClearHdr"), Rg::kNoPass);
+            EXPECT_NE(f.graph.findPass("Lighting"), Rg::kNoPass);
+            EXPECT_NE(f.graph.findPass("LocalVolumes"), Rg::kNoPass);
+            EXPECT_EQ(f.graph.findPass("Sky") != Rg::kNoPass, skyOn);
+            EXPECT_EQ(f.graph.findPass("Clouds") != Rg::kNoPass, cloudsOn);
+            EXPECT_EQ(f.graph.findPass("SsrCapture") != Rg::kNoPass, capOn);
+            EXPECT_EQ(f.graph.findPass("Underwater") != Rg::kNoPass, underOn);
+            EXPECT_EQ(f.graph.findPass("Post.Bloom.Composite") != Rg::kNoPass, bloomOn);
+            EXPECT_EQ(f.graph.findPass("Post.Taa") != Rg::kNoPass, taaOn);
+            EXPECT_EQ(f.graph.findPass("Post.MotionBlur") != Rg::kNoPass, mbOn);
+            EXPECT_EQ(f.graph.findPass("Post.AutoExposure.Reduce") != Rg::kNoPass, aeOn);
+            EXPECT_NE(f.graph.findPass("Post.Tonemap"), Rg::kNoPass);
             // A history is valid exactly when its pass ran last frame and runs now: invalid once on return.
             EXPECT_EQ(f.gtaoPrev, gtaoOn && gtaoWas);
             EXPECT_EQ(f.ssrPrev, ssrOn && ssrWas);
-            returns += (gtaoOn && frame > 0 && !gtaoWas) + (ssrOn && frame > 0 && !ssrWas);
+            EXPECT_EQ(f.taaPrev, taaOn && taaWas);
+            returns += (gtaoOn && frame > 0 && !gtaoWas) + (ssrOn && frame > 0 && !ssrWas) + (taaOn && frame > 0 && !taaWas);
             gtaoWas = gtaoOn;
             ssrWas  = ssrOn;
+            taaWas  = taaOn;
         }
     }
     EXPECT_GT(returns, 100);

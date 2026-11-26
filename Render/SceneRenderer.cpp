@@ -260,7 +260,7 @@ void SceneRenderer::shutdown()
 
 bool SceneRenderer::wantsTaa(const Renderer& renderer) const
 {
-    return renderer.debugState().taa && m_taa.isValid();
+    return renderer.debugState().taa && m_taa.isValid() && !m_setup.disabled.has(EnginePass::Taa);
 }
 
 void SceneRenderer::addDebugTilePasses(FeatureBuilder& b, Renderer& renderer, const DebugTileRequest& request, int32_t tile)
@@ -637,6 +637,13 @@ void SceneRenderer::addSsrCapturePasses(FeatureBuilder& b, Renderer& renderer)
     using Rg::TextureHandle;
     using Rg::Use;
     const TextureHandle hdr = b.handle(RenderResource::Hdr);
+    if (m_setup.disabled.has(EnginePass::SsrCapture))
+    {
+        // Keep the entry's place (required on the Editor list). Water and the underwater ceiling
+        // already treat a missing SsrCaptureOutput as "no scene color" (no stale capture publish).
+        b.opaque("SsrCapture", {}, {}, [](Rg::PassContext&) {});
+        return;
+    }
     if (!m_ssr.isValid() || !renderer.hasSceneBuffers() || !hdr.valid())
         return;
     SsrPipeline* const ssr     = &m_ssr;
@@ -709,7 +716,10 @@ void SceneRenderer::addDecalsPasses(FeatureBuilder& b, Renderer& renderer, const
     const Camera3D* const             cam  = &camera;
     const DeferredResolveInput* const inp  = &in; // viewProj is filled by the host's GBuffer pass
     // Off, not ready, or nothing alive: no pass at all (no UAV round trip on the G-buffer).
-    const bool draw = renderer.debugState().decalsEnabled && decalPassReady() && m_decalPool.aliveCount() > 0;
+    // EnginePass::Decals turns the decal draw off, not the HDR clear: lighting and the HDR tail
+    // still need a cleared target (the clear is the rest of this entry).
+    const bool draw = renderer.debugState().decalsEnabled && decalPassReady() && m_decalPool.aliveCount() > 0
+                   && !m_setup.disabled.has(EnginePass::Decals);
     if (!draw)
         storeDecalStats(0, 0, 0, 0);
     else
@@ -760,9 +770,11 @@ void SceneRenderer::addLightingPasses(FeatureBuilder& b, Renderer& renderer, con
     using Rg::PassBuilder;
     using Rg::PassContext;
     const LightingReads reads = lightingReads(b);
-    if (!reads.valid() || !m_lighting.isValid())
+    if (!reads.valid() || !m_lighting.isValid() || m_setup.disabled.has(EnginePass::DeferredLighting))
     {
-        b.opaque("Lighting", {}, {}, [](PassContext&) {}); // no scene buffers or PSO: nothing to light
+        // Missing buffers/PSO, or a hook turned lighting off: keep the entry's place; HDR stays as
+        // Decals.ClearHdr left it (black) for LocalVolumes, sky and the rest to draw onto.
+        b.opaque("Lighting", {}, {}, [](PassContext&) {});
         return;
     }
     SceneRenderer* const              self = this;
@@ -794,7 +806,7 @@ void SceneRenderer::addLocalVolumesPasses(FeatureBuilder& b, Renderer& renderer,
     using Rg::PassBuilder;
     using Rg::PassContext;
     const LightingReads reads = lightingReads(b);
-    if (!reads.valid() || !m_localLightVolumes.isValid())
+    if (!reads.valid() || !m_localLightVolumes.isValid() || m_setup.disabled.has(EnginePass::LocalLights))
     {
         b.opaque("LocalVolumes", {}, {}, [](PassContext&) {});
         return;
@@ -1054,7 +1066,7 @@ void SceneRenderer::addPostPasses(FeatureBuilder& b, Renderer& renderer, const M
     };
 
     // ---- Auto exposure: reduce -> downsample chain -> copy the 1x1 into this frame's readback.
-    if (meterAutoExposure && m_autoExposure.prepare())
+    if (meterAutoExposure && !m_setup.disabled.has(EnginePass::AutoExposure) && m_autoExposure.prepare())
     {
         AutoExposurePipeline* ae     = &m_autoExposure;
         const uint32_t        levels = ae->levelCount();
@@ -1113,7 +1125,7 @@ void SceneRenderer::addPostPasses(FeatureBuilder& b, Renderer& renderer, const M
     }
 
     // ---- Bloom: extract -> downsample -> additive upsample -> additive composite into HDR.
-    if (renderer.debugState().bloom && m_bloom.prepare())
+    if (renderer.debugState().bloom && !m_setup.disabled.has(EnginePass::Bloom) && m_bloom.prepare())
     {
         const BloomPipeline* bloom    = &m_bloom;
         const float          strength = BloomPipeline::kDefaultStrength;
@@ -1226,7 +1238,8 @@ void SceneRenderer::addPostPasses(FeatureBuilder& b, Renderer& renderer, const M
         markHistoryUnwritten(m_taaHistory, "Taa");
 
     // ---- Motion blur: post -> scene HDR after TAA, scene HDR -> post without it.
-    const bool useMb = !holdTemporal && renderer.debugState().motionBlur && m_motionBlur.isValid() && velocity.valid() && post.valid();
+    const bool useMb = !holdTemporal && renderer.debugState().motionBlur && !m_setup.disabled.has(EnginePass::MotionBlur)
+                    && m_motionBlur.isValid() && velocity.valid() && post.valid();
     if (useMb)
     {
         MotionBlurSettings mb{};

@@ -1,6 +1,7 @@
 #include "Sky/CloudVolumeFeature.h"
 
 #include "Core/Log.h"
+#include "Render/FrameView.h"
 #include "Render/HdrDrawInputs.h"
 #include "Render/HdrPassViews.h"
 #include "Render/Renderer.h"
@@ -35,9 +36,9 @@ namespace Dark
         m_inputs   = {};
     }
 
-    void CloudVolumeFeature::addPasses(FeatureBuilder& b, const FrameView&)
+    void CloudVolumeFeature::addPasses(FeatureBuilder& b, const FrameView& view)
     {
-        if (!enabled())
+        if (!enabled() || view.setup.disabled.has(EnginePass::Clouds))
             return;
         Renderer* const rr = m_renderer;
         if (!addHdrDrawPass(b, "Clouds", false,

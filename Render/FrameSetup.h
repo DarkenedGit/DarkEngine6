@@ -60,9 +60,9 @@ namespace Dark
         bool operator==(const EnginePassMask&) const = default;
     };
 
-    // The engine passes a frame setup can turn off in this build; other bits are dropped (logged once).
-    inline constexpr uint32_t kEnginePassesHonoured = EnginePassMask::bit(EnginePass::DirectionalShadows) | EnginePassMask::bit(EnginePass::LocalShadows)
-                                                    | EnginePassMask::bit(EnginePass::Gtao) | EnginePassMask::bit(EnginePass::Ssr);
+    // Every EnginePass bit a hook may turn off. Scalar fields, DebugRenderState folding and the
+    // plan-cache hit rate are a later slice; this build honours the disabled mask only.
+    inline constexpr uint32_t kEnginePassesHonoured = (1u << kEnginePassCount) - 1u;
 
     // One frame's setup. The default is the frame as the host's settings and debug state draw it.
     struct FrameSetup

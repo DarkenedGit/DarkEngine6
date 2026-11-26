@@ -284,6 +284,9 @@ public:
     // The SSR pipelines exist (the lighting constants' SSR bit, fillSsrLightingConstants).
     bool                  ssrReady() const { return m_ssr.isValid(); }
     // This frame's setup, taken from the composer's view by requestHistories.
+    // Hosts call this after resolveSetup so wantsTaa() (the GPU-cull camera view is built before
+    // requestHistories) and the pass adders see this frame's bits.
+    void                  setFrameSetup(const FrameSetup& setup) { m_setup = setup; }
     const FrameSetup&     frameSetup() const { return m_setup; }
 
 private:
