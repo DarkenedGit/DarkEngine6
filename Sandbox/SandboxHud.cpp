@@ -11,6 +11,7 @@
 #include "ECS/Components.h"
 #include "Combat/ArmorStats.h"
 #include "Character/ItemView.h"
+#include "Game/EchoChirpFile.h"
 #include "Gameplay/Inventory.h"
 #include "Gameplay/PowerComponents.h"
 #include "Gameplay/QuestZone.h"

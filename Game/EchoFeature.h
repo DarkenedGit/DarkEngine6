@@ -7,9 +7,7 @@ namespace Dark
 {
     class Renderer;
 
-    // The echolocation image: its pipeline and the chirp settings. The host creates it after the
-    // scene renderer and draws it through the Post.Echo hook (CoreFrameInputs::beforePost) only while
-    // it is valid; without it Post runs unchanged.
+    // Install the echo hook only while isValid().
     class EchoFeature
     {
     public:
