@@ -613,7 +613,7 @@ void EditorApp::renderScene3D()
     sky.waterLevel = m_sceneWorld.water.params().waterLevel;
     sky.fogScale   = 0.0f;
     m_sky.sky.setFrameInputs(sky);
-    m_scene.features().declare(frame, view);
+    m_scene.features().declare(frame, frame.view());
     const bool anyWater = m_sceneWorld.water.wetChunkCount() > 0 || !m_placedWater.empty() || !m_sceneWorld.water.ribbons().empty();
     if (m_haveTerrain && m_waterRendering.pipeline().isValid() && anyWater)
     {

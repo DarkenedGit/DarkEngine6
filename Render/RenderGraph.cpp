@@ -164,6 +164,13 @@ namespace Dark::Rg
         return v == kInvalidIndex ? TextureHandle{} : TextureHandle{ h.index, v };
     }
 
+    TextureHandle PassBuilder::tryRead(TextureHandle h, TextureHandle fallback, Use use, uint16_t mip)
+    {
+        if (h.valid())
+            return read(h, use, mip);
+        return fallback.valid() ? read(fallback, use, mip) : TextureHandle{};
+    }
+
     BufferHandle PassBuilder::read(BufferHandle h, Use use)
     {
         const uint16_t v = m_graph.recordRead(m_pass, h.index, h.version, ResourceKind::Buffer, use, kAllMips);
@@ -441,6 +448,7 @@ namespace Dark::Rg
         m_resources.clear();
         m_errors.clear();
         m_blackboard.reset();
+        m_disabledOutputs.clear();
         m_arena.reset();
         m_executed   = false;
         m_compiledOk = false;
@@ -526,6 +534,11 @@ namespace Dark::Rg
     bool RenderGraph::checkHandle(uint32_t pass, uint16_t index, uint16_t version, ResourceKind kind, const char* what)
     {
         const std::string passText = pass == kNoPass ? std::string("graph") : std::string("pass '") + m_passes[pass].name + "'";
+        if (const char* disabled = kind == ResourceKind::Texture ? disabledOutputName({ index, version }) : nullptr)
+        {
+            addError(ErrorCode::DisabledOutputUse, pass, kInvalidIndex, passText + ": " + what + " of '" + disabled + "', the output of a pass that does not run this frame; read it with tryRead");
+            return false;
+        }
         if (index >= m_resources.size())
         {
             addError(ErrorCode::InvalidHandle, pass, kInvalidIndex, passText + ": " + what + " of an invalid " + kindName(kind) + " handle");
@@ -695,6 +708,23 @@ namespace Dark::Rg
         desc.height   = height;
         desc.format   = dxgiFormat;
         return importTexture("backbuffer", desc, native, Layout::Present, Layout::Present);
+    }
+
+    TextureHandle RenderGraph::disabledOutput(const char* name)
+    {
+        const uint16_t slot = static_cast<uint16_t>(m_disabledOutputs.size());
+        if (slot >= kDisabledOutputTag)
+            return {};
+        m_disabledOutputs.push_back(m_arena.copyString(name ? name : ""));
+        return { kInvalidIndex, static_cast<uint16_t>(kDisabledOutputTag | slot) };
+    }
+
+    const char* RenderGraph::disabledOutputName(TextureHandle h) const
+    {
+        if (!h.disabledOutput())
+            return nullptr;
+        const uint16_t slot = static_cast<uint16_t>(h.version & ~kDisabledOutputTag);
+        return slot < m_disabledOutputs.size() ? m_disabledOutputs[slot] : nullptr;
     }
 
     HistoryPair RenderGraph::history(const char* name, const TextureDesc& desc)

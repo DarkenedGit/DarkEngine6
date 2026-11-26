@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Render/FrameFeatures.h"
+#include "Render/FrameSetup.h"
 #include "Render/FrameView.h"
 #include "Render/RenderGraph.h"
 #include "Render/RgExecutor.h"
@@ -43,9 +44,15 @@ namespace Dark
         {
             m_graph.markHistoryUnwritten(name);
         }
+        // This frame's view: the host's, with the setup hooks' disabled passes added (begin()).
         const FrameView& view() const
         {
             return m_view;
+        }
+        // The game's frame setup hooks (Render/FrameSetup.h), run by every begin().
+        FrameSetupHooks& setupHooks()
+        {
+            return m_setupHooks;
         }
 
         template <class Fn> bool set(PassId id, Fn&& fn)
@@ -86,6 +93,7 @@ namespace Dark
         FrameView            m_view;
         bool                 m_holdNext = false; // the frame after a held one also starts without history
         Rg::HistoryTargetSet m_histories;
+        FrameSetupHooks      m_setupHooks;
     };
 
 } // namespace Dark

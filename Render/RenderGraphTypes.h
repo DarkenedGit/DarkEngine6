@@ -18,6 +18,8 @@ namespace Dark::Rg
     // Graphics-queue barrier/sync slots before the first pass and after the last one.
     inline constexpr uint32_t kPrologue = 0xFFFFFFFEu;
     inline constexpr uint32_t kEpilogue = 0xFFFFFFFDu;
+    // A texture handle's version bit for a disabled pass's output (RenderGraph::disabledOutput).
+    inline constexpr uint16_t kDisabledOutputTag = 0x8000;
 
     struct TextureHandle
     {
@@ -26,6 +28,11 @@ namespace Dark::Rg
         bool     valid() const
         {
             return index != kInvalidIndex;
+        }
+        // The output of a pass that did not run this frame: names no resource (never valid()).
+        bool disabledOutput() const
+        {
+            return index == kInvalidIndex && (version & kDisabledOutputTag) != 0;
         }
         bool operator==(const TextureHandle&) const = default;
     };
@@ -284,7 +291,8 @@ namespace Dark::Rg
         Cycle,
         HistoryDescMismatch, // history(name) twice in one frame with different descs
         TooManyResources,
-        NotCompiled, // execute() without a successful compile()
+        NotCompiled,       // execute() without a successful compile()
+        DisabledOutputUse, // read or write of a disabled pass's output (PassBuilder::tryRead takes a fallback)
     };
 
     struct Error

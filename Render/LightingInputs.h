@@ -15,29 +15,33 @@
 namespace Dark
 {
 
-    // Published by addGtaoPasses. compose is valid when the compose ran this frame; full is the
-    // full-resolution AO (the upsample's, or the identity clear when GTAO is off) for the SSAO tile.
+    // Published by addGtaoPasses. compose is valid when the compose ran this frame, else a disabled
+    // output; full is the full-resolution AO (the upsample's, or the identity clear when GTAO is off)
+    // for the SSAO tile.
     struct GtaoOutput
     {
         Rg::TextureHandle compose, full;
     };
-    // Published by addSsrPasses when the upsample ran this frame; conf when the confidence debug ran.
+    // Published by addSsrPasses: full when the upsample ran this frame, conf when the confidence debug
+    // ran; disabled outputs when SSR is off.
     struct SsrOutput
     {
         Rg::TextureHandle full, conf;
     };
 
-    // Graph handles a lighting pass reads. ao is the GTAO compose when published, else the authored
-    // AO (G-buffer MRT3); ssr is SSR Full when published, else invalid (the pass binds the dummy).
+    // Graph handles a lighting pass reads. ao is the authored AO (G-buffer MRT3) and gtao the GTAO
+    // compose when published (a disabled output when GTAO is off); the pass reads gtao, else ao. ssr
+    // is SSR Full when published, else invalid or a disabled output (the pass binds the dummy).
     // shadow / localShadow are the shadow maps as their entries left them, invalid when the frame
-    // has none (the pass binds a null view, or the local-shadow dummy).
+    // has none (the pass binds a null view, or the local-shadow dummy). declareLightingUses leaves
+    // the AO the pass reads in `ao`.
     struct LightingReads
     {
-        Rg::TextureHandle albedo, attrib, depth, ao, ssr, hdr, shadow, localShadow;
+        Rg::TextureHandle albedo, attrib, depth, ao, ssr, hdr, shadow, localShadow, gtao;
 
         bool valid() const
         {
-            return albedo.valid() && attrib.valid() && depth.valid() && ao.valid() && hdr.valid();
+            return albedo.valid() && attrib.valid() && depth.valid() && (gtao.valid() || ao.valid()) && hdr.valid();
         }
     };
 
@@ -51,9 +55,9 @@ namespace Dark
         r.ao          = b.handle(RenderResource::Ao);
         r.shadow      = b.handle(RenderResource::Shadow);
         r.localShadow = b.handle(RenderResource::LocalShadow);
-        if (const GtaoOutput* gtao = b.graph().blackboard().tryGet<GtaoOutput>(); gtao && gtao->compose.valid())
-            r.ao = gtao->compose;
-        if (const SsrOutput* ssr = b.graph().blackboard().tryGet<SsrOutput>(); ssr && ssr->full.valid())
+        if (const GtaoOutput* gtao = b.graph().blackboard().tryGet<GtaoOutput>())
+            r.gtao = gtao->compose;
+        if (const SsrOutput* ssr = b.graph().blackboard().tryGet<SsrOutput>())
             r.ssr = ssr->full;
         return r;
     }
@@ -74,8 +78,8 @@ namespace Dark
         d.albedo            = pb.read(in.albedo, Rg::Use::PixelSrv);
         d.attrib            = pb.read(in.attrib, Rg::Use::PixelSrv);
         d.depth             = pb.read(in.depth, Rg::Use::PixelSrv);
-        d.ao                = pb.read(in.ao, Rg::Use::PixelSrv);
-        d.ssr               = lighting && in.ssr.valid() ? pb.read(in.ssr, Rg::Use::PixelSrv) : Rg::TextureHandle{};
+        d.ao                = pb.tryRead(in.gtao, in.ao, Rg::Use::PixelSrv);
+        d.ssr               = lighting ? pb.tryRead(in.ssr, {}, Rg::Use::PixelSrv) : Rg::TextureHandle{};
         d.shadow            = lighting && in.shadow.valid() ? pb.read(in.shadow, Rg::Use::PixelSrv) : Rg::TextureHandle{};
         d.localShadow       = !lighting && in.localShadow.valid() ? pb.read(in.localShadow, Rg::Use::PixelSrv) : Rg::TextureHandle{};
         d.hdr               = pb.readWrite(in.hdr, Rg::Use::RenderTarget);
