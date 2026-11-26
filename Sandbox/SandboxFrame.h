@@ -61,7 +61,7 @@ public:
     Dark::AutoExposureResult&    autoExposureResult() { return m_autoExposureResult; }
 
 private:
-    void drawProjectilesGBuffer(ID3D12GraphicsCommandList* cmd, const Dark::Math::Matrix4f& viewProj, const Dark::Math::Matrix4f& prevViewProj, bool instanced, const std::vector<int>* rejectedShots);
+    void drawProjectilesGBuffer(ID3D12GraphicsCommandList* cmd, Dark::MeshPipeline& mesh, const Dark::Math::Matrix4f& viewProj, const Dark::Math::Matrix4f& prevViewProj, bool instanced, const std::vector<int>* rejectedShots);
     void dropDeadPrevWorlds();
     SandboxApp& app() const;
 

@@ -54,8 +54,7 @@ void EditorApp::onRender()
         return;
     }
     frameNoteBeginFrame(jobs(), renderer().frameIndex());
-    if (m_skinRing.isValid())
-        m_skinRing.beginFrame(renderer().frameIndex());
+    m_scene.beginSkinningFrame(renderer().frameIndex());
     if (m_skinnedInstances.isValid())
         m_skinnedInstances.beginFrame(renderer().frameIndex());
     auto* cmd = renderer().commandList();

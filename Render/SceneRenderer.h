@@ -93,6 +93,34 @@ struct CorePassHook
     }
 };
 
+// The scene's world-draw pipelines and skinning upload ring, handed to the GBuffer and Translucent
+// hooks and the camouflage draw while their passes execute.
+struct WorldDrawContext
+{
+    MeshPipeline&        mesh;
+    MeshPipeline&        meshTransparent;
+    SkinnedMeshPipeline& skinned;
+    SkinnedMeshPipeline& skinnedTransparent;
+    SkinningUploadRing&  skinRing;
+};
+
+// A host draw callable the GBuffer or Translucent pass runs at execute, held by reference like
+// CorePassHook. `fn(ctx, pass, draws)`.
+struct CoreDrawHook
+{
+    void* ctx                                                                   = nullptr;
+    void (*fn)(void* ctx, Rg::PassContext& pass, const WorldDrawContext& draws) = nullptr;
+
+    template <class F> static CoreDrawHook of(F& f)
+    {
+        return { const_cast<void*>(static_cast<const void*>(&f)), [](void* c, Rg::PassContext& pass, const WorldDrawContext& draws) { (*static_cast<F*>(c))(pass, draws); } };
+    }
+    void operator()(Rg::PassContext& pass, const WorldDrawContext& draws) const
+    {
+        fn(ctx, pass, draws);
+    }
+};
+
 // Post's optional auto exposure: the host's meter state and settings, and this frame's artistic
 // exposure. When the meter pipeline exists, Post adapts it from last frame's sample (none while
 // `hold` is on or in Manual) and meters this frame; `result` gets the outcome either way.
@@ -119,9 +147,9 @@ struct CoreFrameInputs
     const IEnvironmentProvider* ssrEnv  = nullptr;
     const DeferredResolveInput* resolve = nullptr;
     // GBuffer: the host's opaque draws, with the MRTs and depth bound.
-    CorePassHook gbuffer;
+    CoreDrawHook gbuffer;
     // Translucent: the host's forward draws, with HDR and read-only depth bound.
-    CorePassHook translucent;
+    CoreDrawHook translucent;
     // SsrCapture: an optional host pass ahead of the capture, named `beforeSsrCaptureName` (a
     // literal), with no declared uses. A hook without a name is skipped (logged once); the capture
     // still runs.
@@ -173,19 +201,21 @@ public:
     // stored until execute(). Without scene targets the entry is an opaque pass that logs once.
     // Translucent samples the shadow map (declared, so the graph moves it there from the Shadows
     // pass); without one it binds a null view. Water and Underwater are Water/WaterRendering.
-    // Camouflage: copies HDR, then `draw(Rg::PassContext&, D3D12_GPU_DESCRIPTOR_HANDLE sceneTable)`
-    // (the copy, for CamouflagePipeline::drawModel) with HDR and writable depth bound: the body
+    // Camouflage: copies HDR, then `draw(Rg::PassContext&, D3D12_GPU_DESCRIPTOR_HANDLE sceneTable,
+    // const WorldDrawContext&)` (the copy, for CamouflagePipeline::drawModel, and the scene's
+    // world draws) with HDR and writable depth bound: the body
     // writes depth, and the passes after it test against the new version.
     template <class Draw> void addCamouflagePasses(FeatureBuilder& b, Renderer& renderer, Draw&& draw)
     {
-        Renderer* const         rr   = &renderer;
-        const Rg::TextureHandle copy = importCamouflageCopy(b, renderer);
+        Renderer* const         rr    = &renderer;
+        SceneRenderer* const    scene = this;
+        const Rg::TextureHandle copy  = importCamouflageCopy(b, renderer);
         if (!copy.valid() || !Dark::addCamouflagePasses(
                                  b, copy, [](Rg::PassContext& c, const HdrCopyTargets& d) { copyHdr(c, d); },
-                                 [rr, draw = std::forward<Draw>(draw)](Rg::PassContext& c, const HdrCopyTargets& d)
+                                 [rr, scene, draw = std::forward<Draw>(draw)](Rg::PassContext& c, const HdrCopyTargets& d)
                                  {
                                      bindHdrDepthWrite(c, *rr, d.hdr, d.depth);
-                                     draw(c, rgSrvTable(c, { d.copy }));
+                                     draw(c, rgSrvTable(c, { d.copy }), scene->worldDraws());
                                  }))
             b.opaque("Camouflage", {}, {}, [](Rg::PassContext&) { logMissingSceneTargets("Camouflage"); });
     }
@@ -219,12 +249,14 @@ public:
     // HDR + D32 already bound. Not the decal UAV pass.
     void drawDecalVolumes(ID3D12GraphicsCommandList* cmd, Renderer& renderer, LinePipeline& lines, const Math::Matrix4f& viewProj);
 
-    // --- Pipeline accessors (hosts use these for special / world draws) ---
-    MeshPipeline&             meshPipeline() { return m_meshPipeline; }
-    MeshPipeline&             meshTransparentPipeline() { return m_meshTransparentPipeline; }
-    SkinnedMeshPipeline&      skinnedPipeline() { return m_skinnedPipeline; }
-    SkinnedMeshPipeline&      skinnedTransparentPipeline() { return m_skinnedTransparentPipeline; }
-    SkinningUploadRing&       skinRing() { return m_skinRing; }
+    // Starts this frame's slot of the skinning upload ring. Once per frame, before any skinned draw.
+    void beginSkinningFrame(uint32_t frameIndex)
+    {
+        if (m_skinRing.isValid())
+            m_skinRing.beginFrame(frameIndex);
+    }
+
+    // The game passes' pipelines.
     CamouflagePipeline&       camouflage() { return m_camouflage; }
     EchoPipeline&             echo() { return m_echo; }
 
@@ -248,11 +280,6 @@ public:
     RenderFeatureRegistry&       features() { return m_features; }
     const RenderFeatureRegistry& features() const { return m_features; }
 
-    const MeshPipeline&             meshPipeline() const { return m_meshPipeline; }
-    const MeshPipeline&             meshTransparentPipeline() const { return m_meshTransparentPipeline; }
-    const SkinnedMeshPipeline&      skinnedPipeline() const { return m_skinnedPipeline; }
-    const SkinnedMeshPipeline&      skinnedTransparentPipeline() const { return m_skinnedTransparentPipeline; }
-    const SkinningUploadRing&       skinRing() const { return m_skinRing; }
     const CamouflagePipeline&       camouflage() const { return m_camouflage; }
     const EchoPipeline&             echo() const { return m_echo; }
 
@@ -270,6 +297,8 @@ public:
 private:
     friend void registerCoreFeatures(RenderFeatureRegistry& registry, SceneRenderer& scene);
     friend void registerShadowFeature(SceneRenderer& scene, ShadowFeature& feature);
+
+    WorldDrawContext worldDraws() { return { m_meshPipeline, m_meshTransparentPipeline, m_skinnedPipeline, m_skinnedTransparentPipeline, m_skinRing }; }
 
     enum class CoreEntryKind : uint8_t
     {

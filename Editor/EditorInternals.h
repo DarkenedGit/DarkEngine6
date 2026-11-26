@@ -2,13 +2,6 @@
 
 #include "Editor/EditorApp.h"
 
-// SceneRenderer owns shared pipelines; keep existing call sites stable.
-#define m_meshPipeline m_scene.meshPipeline()
-#define m_meshTransparentPipeline m_scene.meshTransparentPipeline()
-#define m_skinnedPipeline m_scene.skinnedPipeline()
-#define m_skinnedTransparentPipeline m_scene.skinnedTransparentPipeline()
-#define m_skinRing m_scene.skinRing()
-
 #include "Editor/EditorObject.h"
 #include "ECS/Components.h"
 #include "Network/Replication.h"

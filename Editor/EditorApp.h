@@ -230,7 +230,7 @@ private:
     void   ensurePlayReticle();
     WeaponLoadout* playWeapons();
     void   submitPlayProjectiles(std::vector<int>& rejected);
-    void   drawPlayProjectiles(ID3D12GraphicsCommandList* cmd, const Math::Matrix4f& viewProj, const Math::Matrix4f& prevViewProj, bool instanced,
+    void   drawPlayProjectiles(ID3D12GraphicsCommandList* cmd, MeshPipeline& mesh, const Math::Matrix4f& viewProj, const Math::Matrix4f& prevViewProj, bool instanced,
                                const std::vector<int>* rejectedShots);
     void   spawnPlayPickups();
     void   releasePlayPickups();

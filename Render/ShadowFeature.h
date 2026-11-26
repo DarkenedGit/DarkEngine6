@@ -22,6 +22,7 @@ namespace Dark
     class SceneRenderer;
     class SkinnedInstanceBuffer;
     class SkinnedMeshPipeline;
+    class SkinningUploadRing;
     class World;
 
     // Non-owning. The host fills one each frame before the registry declares the features. The
@@ -55,10 +56,11 @@ namespace Dark
         ShadowFeature(const ShadowFeature&)            = delete;
         ShadowFeature& operator=(const ShadowFeature&) = delete;
 
-        // The maps and the skinned depth pipeline the entries record into. SceneRenderer owns them;
+        // The maps and the skinned depth pipeline the entries record into, and the skinning ring the
+        // host's skinned casters upload through. SceneRenderer owns them;
         // registerShadowFeature(SceneRenderer&, ShadowFeature&) binds its own before init. Null
         // (unbound): no cascades, no faces, no skinned worker casters.
-        void bindShadowMaps(ShadowSystem* shadows, LocalShadowSystem* localShadows, const SkinnedMeshPipeline* skinnedShadow);
+        void bindShadowMaps(ShadowSystem* shadows, LocalShadowSystem* localShadows, const SkinnedMeshPipeline* skinnedShadow, SkinningUploadRing* skinRing);
 
         // Per frame, before setFrame, in this order of the host's frame: the local faces this frame
         // draws, then the cascades. No-ops while unbound.
@@ -103,6 +105,10 @@ namespace Dark
         const SkinnedMeshPipeline* skinnedShadowPipeline() const
         {
             return m_skinnedShadow;
+        }
+        SkinningUploadRing* skinRing() const
+        {
+            return m_skinRing;
         }
 
         void               setFrame(const ShadowFrame& frame);
@@ -176,6 +182,7 @@ namespace Dark
         ShadowSystem*              m_shadows       = nullptr;
         LocalShadowSystem*         m_localShadows  = nullptr;
         const SkinnedMeshPipeline* m_skinnedShadow = nullptr;
+        SkinningUploadRing*        m_skinRing      = nullptr;
         ShadowFrame                m_frame;
         uint8_t                    m_viewIndex = 1;
         // Set by recordFrameCull: it ran; the worker has the cascades.

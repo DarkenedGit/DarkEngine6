@@ -47,12 +47,14 @@ namespace
     // local-light list and the meter through narrow calls.
     template <class S> constexpr bool kReachesShadowSystems     = requires(S& s) { s.shadows(); } || requires(S& s) { s.localShadows(); } || requires(S& s) { s.skinnedShadowPipeline(); };
     template <class S> constexpr bool kReachesLightListAndMeter = requires(S& s) { s.localLightGpu(); } || requires(S& s) { s.autoExposure(); };
-    // What the hosts still drive: their world draws, the game passes, the water's local
+    // The world-draw pipelines and the skinning ring reach the hosts only as the WorldDrawContext
+    // their GBuffer/Translucent hooks and camouflage draw receive.
+    template <class S> constexpr bool kReachesWorldDraws = requires(S& s) { s.meshPipeline(); } || requires(S& s) { s.meshTransparentPipeline(); } || requires(S& s) { s.skinnedPipeline(); } ||
+                                                           requires(S& s) { s.skinnedTransparentPipeline(); } || requires(S& s) { s.skinRing(); } || requires(S& s) { s.worldDraws(); };
+    // What the hosts still drive: the skinning ring's frame, the game passes, the water's local
     // lights and the meter's samples.
     template <class S> constexpr bool kHostSurface = requires(S& s, const LocalLightDrawLists& lists) {
-        s.meshPipeline();
-        s.skinnedPipeline();
-        s.skinRing();
+        s.beginSkinningFrame(0u);
         s.camouflage();
         s.echo();
         s.localLightsReady();
@@ -83,6 +85,7 @@ TEST(SceneRenderer, HostsDoNotReachTheCorePipelines)
     EXPECT_FALSE(kReachesPostPasses<SceneRenderer>);
     EXPECT_FALSE(kReachesShadowSystems<SceneRenderer>);
     EXPECT_FALSE(kReachesLightListAndMeter<SceneRenderer>);
+    EXPECT_FALSE(kReachesWorldDraws<SceneRenderer>);
     EXPECT_TRUE(kHostSurface<SceneRenderer>);
 }
 
@@ -102,4 +105,12 @@ TEST(SceneRenderer, UncreatedLocalLightListIsNotReadyAndHasNoAddress)
     lists.count = 1;
     EXPECT_EQ(scene.uploadLocalLights(0, lists), 0u);
     scene.invalidateAutoExposureSamples();
+}
+
+TEST(SceneRenderer, UncreatedSkinningRingIgnoresTheFrameStart)
+{
+    SceneRenderer scene;
+    scene.beginSkinningFrame(0);
+    scene.beginSkinningFrame(1);
+    EXPECT_FALSE(scene.isValid());
 }

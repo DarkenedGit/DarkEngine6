@@ -296,11 +296,12 @@ namespace Dark
     {
     }
 
-    void ShadowFeature::bindShadowMaps(ShadowSystem* shadows, LocalShadowSystem* localShadows, const SkinnedMeshPipeline* skinnedShadow)
+    void ShadowFeature::bindShadowMaps(ShadowSystem* shadows, LocalShadowSystem* localShadows, const SkinnedMeshPipeline* skinnedShadow, SkinningUploadRing* skinRing)
     {
         m_shadows       = shadows;
         m_localShadows  = localShadows;
         m_skinnedShadow = skinnedShadow;
+        m_skinRing      = skinRing;
     }
 
     void ShadowFeature::updateLocal(World& world, const Camera3D& camera, const Frustum3f& cameraFrustum, uint32_t frameIndex, bool select)
