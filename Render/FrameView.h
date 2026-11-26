@@ -11,7 +11,7 @@ namespace Dark
         // A strobe-like frame (echolocation pulse) whose image must not feed temporal filters:
         // every graph history reads as invalid this frame and the next, and motion blur is off.
         bool holdTemporal = false;
-        // The engine passes that run (Render/FrameSetup.h). FrameComposer::begin adds its hooks' bits.
+        // The engine passes that run (Render/FrameSetup.h). FrameComposer::resolveSetup (or begin, if that was not called) adds its hooks' bits.
         FrameSetup setup;
     };
 

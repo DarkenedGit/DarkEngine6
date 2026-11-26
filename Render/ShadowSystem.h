@@ -60,6 +60,12 @@ public:
     int  cascadeCount() const { return m_cascadeCount; }
     bool enabled() const { return m_enabled; }
     bool isValid() const { return m_resource != nullptr && m_pipeline.isValid(); }
+    // ShadowConstants params[1]: 0 means unshadowed. Packed by update() and disableThisFrame().
+    float strength() const { return m_cpuConstants.params[1]; }
+
+    // This frame is unshadowed: enabled is false and the packed strength is 0. Call after update()
+    // so the CBV slot matches this frame. The map stays allocated.
+    void disableThisFrame();
 
     // Debug overlay / F7: when false, skip capture and pack strength 0.
     void setDebugEnabled(bool enabled) { m_debugEnabled = enabled; }

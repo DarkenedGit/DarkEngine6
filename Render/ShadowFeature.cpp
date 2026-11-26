@@ -304,16 +304,20 @@ namespace Dark
         m_skinRing      = skinRing;
     }
 
-    void ShadowFeature::updateLocal(World& world, const Camera3D& camera, const Frustum3f& cameraFrustum, uint32_t frameIndex, bool select)
+    void ShadowFeature::updateLocal(World& world, const Camera3D& camera, const Frustum3f& cameraFrustum, uint32_t frameIndex, bool select, const FrameSetup& setup)
     {
         if (m_localShadows)
-            m_localShadows->update(world, camera, cameraFrustum, frameIndex, select);
+            m_localShadows->update(world, camera, cameraFrustum, frameIndex, select && !setup.disabled.has(EnginePass::LocalShadows));
     }
 
-    void ShadowFeature::updateDirectional(const Camera3D& camera, const Math::Vector3f& lightDirToward, const Math::AABox3f& sceneBounds, float sunElevation, float cloudCoverage, uint32_t frameIndex)
+    void ShadowFeature::updateDirectional(const Camera3D& camera, const Math::Vector3f& lightDirToward, const Math::AABox3f& sceneBounds, float sunElevation, float cloudCoverage, uint32_t frameIndex,
+                                          const FrameSetup& setup)
     {
-        if (m_shadows)
-            m_shadows->update(camera, lightDirToward, sceneBounds, sunElevation, cloudCoverage, frameIndex);
+        if (!m_shadows)
+            return;
+        m_shadows->update(camera, lightDirToward, sceneBounds, sunElevation, cloudCoverage, frameIndex);
+        if (setup.disabled.has(EnginePass::DirectionalShadows))
+            m_shadows->disableThisFrame();
     }
 
     void ShadowFeature::publishShadowMaps(Renderer& renderer)
@@ -368,17 +372,33 @@ namespace Dark
         }
     }
 
-    void ShadowFeature::Entry::addPasses(FeatureBuilder& b, const FrameView&)
+    void ShadowFeature::Entry::addPasses(FeatureBuilder& b, const FrameView& view)
     {
         ShadowFeature& owner = m_owner;
         if (m_kind == EntryKind::Cull)
         {
+            // After begin(): honour a hook the host did not apply before update, so the worker and
+            // cascade record see enabled() == false / no faces before they run.
+            if (view.setup.disabled.has(EnginePass::DirectionalShadows) && owner.m_shadows)
+                owner.m_shadows->disableThisFrame();
+            if (view.setup.disabled.has(EnginePass::LocalShadows) && owner.m_localShadows)
+                owner.m_localShadows->clearForFrame();
             addFrameCullPass(b, [&owner](Rg::PassContext& c, const Rg::NoData&) { owner.recordFrameCull(c.cmd()); });
             return;
         }
         if (m_kind == EntryKind::Directional)
         {
+            if (view.setup.disabled.has(EnginePass::DirectionalShadows))
+            {
+                b.set(RenderResource::Shadow, b.graph().disabledOutput("Shadows"));
+                return;
+            }
             addShadowPass(b, [&owner](Rg::PassContext& c, const ShadowTargets&) { owner.recordDirectional(c.cmd()); });
+            return;
+        }
+        if (view.setup.disabled.has(EnginePass::LocalShadows))
+        {
+            b.set(RenderResource::LocalShadow, b.graph().disabledOutput("LocalShadows"));
             return;
         }
         const LocalShadowSystem* local = owner.m_localShadows;

@@ -55,8 +55,10 @@ namespace Dark
     }
 
     // The Shadows entry: one pass after the G-buffer that records the main-list cascades, writing the
-    // whole map (no barrier: it starts the frame writable). It always runs (without a FrameCull entry
-    // it records the frame's cull too), so it is a side effect even without a map.
+    // whole map (no barrier: it starts the frame writable). It always runs when shadows are on
+    // (without a FrameCull entry it records the frame's cull too), so it is a side effect even
+    // without a map. When EnginePass::DirectionalShadows is off, the entry adds no pass and publishes
+    // a disabled output.
     // `exec(PassContext&, const ShadowTargets&)`.
     template <class Exec> void addShadowPass(FeatureBuilder& b, Exec&& exec)
     {
@@ -76,7 +78,8 @@ namespace Dark
     }
 
     // The LocalShadows entry: one pass that clears this frame's half of the array and draws each face
-    // into it. Returns false (and adds nothing) without the array.
+    // into it. Returns false (and adds nothing) without the array. When EnginePass::LocalShadows is
+    // off, the entry adds no pass and publishes a disabled output.
     template <class Exec> bool addLocalShadowPass(FeatureBuilder& b, Exec&& exec)
     {
         const Rg::TextureHandle in = b.handle(RenderResource::LocalShadow);

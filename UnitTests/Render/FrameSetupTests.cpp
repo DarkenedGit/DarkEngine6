@@ -5,6 +5,7 @@
 #include "Render/FrameSetup.h"
 #include "Render/FrameView.h"
 #include "Render/LightingInputs.h"
+#include "Render/ShadowInputs.h"
 #include "RenderGraphTestUtil.h"
 
 #include <algorithm>
@@ -63,9 +64,12 @@ namespace
         }
     };
 
+    constexpr uint32_t kDir   = EnginePassMask::bit(EnginePass::DirectionalShadows);
+    constexpr uint32_t kLocal = EnginePassMask::bit(EnginePass::LocalShadows);
     constexpr uint32_t kGtao  = EnginePassMask::bit(EnginePass::Gtao);
     constexpr uint32_t kSsr   = EnginePassMask::bit(EnginePass::Ssr);
     constexpr uint32_t kBloom = EnginePassMask::bit(EnginePass::Bloom);
+    constexpr uint32_t kHonoured = kDir | kLocal | kGtao | kSsr;
 } // namespace
 
 TEST(FrameSetup, NoHookKeepsTheViewSetup)
@@ -151,7 +155,21 @@ TEST(FrameSetup, PassesThisBuildDoesNotHonourStayOnAndLogOnce)
     EXPECT_EQ(hooks.resolve(FrameView{}, 0.0).disabled.bits, kGtao);
     EXPECT_EQ(hooks.resolve(FrameView{}, 0.1).disabled.bits, kGtao);
     EXPECT_EQ(logsWith("turning Bloom off is not supported"), 1u);
-    EXPECT_EQ(kEnginePassesHonoured, kGtao | kSsr);
+}
+
+TEST(FrameSetup, ShadowBitsAreHonouredAndUnwiredBitsStillLogOnce)
+{
+    LogCapture      logs;
+    FrameSetupHooks hooks;
+    Hook            h;
+    h.disable = kDir | kLocal | kBloom;
+    ASSERT_TRUE(hooks.add(&h));
+    EXPECT_EQ(hooks.resolve(FrameView{}, 0.0).disabled.bits, kDir | kLocal);
+    EXPECT_EQ(hooks.resolve(FrameView{}, 0.1).disabled.bits, kDir | kLocal);
+    EXPECT_EQ(logsWith("turning Bloom off is not supported"), 1u);
+    EXPECT_EQ(logsWith("DirectionalShadows"), 0u);
+    EXPECT_EQ(logsWith("LocalShadows"), 0u);
+    EXPECT_EQ(kEnginePassesHonoured, kHonoured);
 }
 
 TEST(FrameSetup, MaskChangesAboveTheRateWarnOnce)
@@ -297,9 +315,11 @@ namespace
         bool            litRan        = false;
         bool            gtaoPrev      = false; // the GTAO history had a valid prev this frame
         bool            ssrPrev       = false;
-        bool            gtaoRequested = false;
-        bool            ssrRequested  = false;
-        bool            strictReader  = false; // Lighting reads GTAO's compose with read(), not tryRead
+        bool            gtaoRequested   = false;
+        bool            ssrRequested    = false;
+        bool            shadowRequested = false;
+        bool            localRequested  = false;
+        bool            strictReader    = false; // Lighting reads GTAO's compose with read(), not tryRead
 
         bool run(double seconds)
         {
@@ -316,8 +336,10 @@ namespace
                 const auto res = static_cast<RenderResource>(r);
                 features.importResource(g, res, fakeResource(r), absTex(1280, 720, res == RenderResource::Depth ? Rg::Test::kD32 : Rg::Test::kRgba16F), Rg::Layout::RenderTarget);
             }
-            gtaoRequested = !setup.disabled.has(EnginePass::Gtao);
-            ssrRequested  = !setup.disabled.has(EnginePass::Ssr);
+            gtaoRequested   = !setup.disabled.has(EnginePass::Gtao);
+            ssrRequested    = !setup.disabled.has(EnginePass::Ssr);
+            shadowRequested = !setup.disabled.has(EnginePass::DirectionalShadows);
+            localRequested  = !setup.disabled.has(EnginePass::LocalShadows);
             gtaoPrev = ssrPrev = false;
             if (gtaoRequested)
             {
@@ -332,14 +354,39 @@ namespace
                 features.setHistory(RenderResource::SsrHistory, h);
             }
             for (uint32_t i = 0; i < count; ++i)
-                if (list[i].id != PassId::Gtao && list[i].id != PassId::Ssr && list[i].id != PassId::Lighting)
-                    features.set(list[i].id, [](Rg::PassContext&) {});
+            {
+                const PassId id = list[i].id;
+                if (id != PassId::Gtao && id != PassId::Ssr && id != PassId::Lighting && id != PassId::Shadows && id != PassId::LocalShadows)
+                    features.set(id, [](Rg::PassContext&) {});
+            }
+            features.declare(PassId::Shadows, [this](FeatureBuilder& b) { declareShadows(b); });
+            features.declare(PassId::LocalShadows, [this](FeatureBuilder& b) { declareLocalShadows(b); });
             features.declare(PassId::Gtao, [this](FeatureBuilder& b) { declareGtao(b); });
             features.declare(PassId::Ssr, [this](FeatureBuilder& b) { declareSsr(b); });
             features.declare(PassId::Lighting, [this](FeatureBuilder& b) { declareLighting(b); });
             if (!features.compileFrame(g, "test"))
                 return false;
             return g.execute();
+        }
+
+        void declareShadows(FeatureBuilder& b)
+        {
+            if (!shadowRequested)
+            {
+                b.set(RenderResource::Shadow, b.graph().disabledOutput("Shadows"));
+                return;
+            }
+            addShadowPass(b, [](Rg::PassContext&, const ShadowTargets&) {});
+        }
+
+        void declareLocalShadows(FeatureBuilder& b)
+        {
+            if (!localRequested)
+            {
+                b.set(RenderResource::LocalShadow, b.graph().disabledOutput("LocalShadows"));
+                return;
+            }
+            addLocalShadowPass(b, [](Rg::PassContext&, const ShadowTargets&) {});
         }
 
         void declareGtao(FeatureBuilder& b)
@@ -444,6 +491,68 @@ TEST(FrameSetup, DisabledGtaoAndSsrBindTheFallbacks)
     EXPECT_TRUE(f.features.orderOk());
 }
 
+TEST(FrameSetup, DisabledShadowsAddNoPassAndLightingBindsTheFallback)
+{
+    SetupFrame f;
+    Hook       h;
+    ASSERT_TRUE(f.hooks.add(&h));
+    ASSERT_TRUE(f.run(0.0)) << errorText(f.graph);
+    EXPECT_NE(f.graph.findPass("Shadows"), Rg::kNoPass);
+    EXPECT_NE(f.graph.findPass("LocalShadows"), Rg::kNoPass);
+    EXPECT_TRUE(f.lit.shadow.valid());
+    h.disable = kDir | kLocal;
+    ASSERT_TRUE(f.run(1.0)) << errorText(f.graph);
+    EXPECT_TRUE(f.litRan);
+    EXPECT_EQ(f.graph.findPass("Shadows"), Rg::kNoPass);
+    EXPECT_EQ(f.graph.findPass("LocalShadows"), Rg::kNoPass);
+    EXPECT_FALSE(f.lit.shadow.valid());
+    EXPECT_FALSE(f.lit.shadow.disabledOutput());
+    EXPECT_TRUE(f.features.handle(RenderResource::Shadow).disabledOutput());
+    EXPECT_TRUE(f.features.handle(RenderResource::LocalShadow).disabledOutput());
+    EXPECT_STREQ(f.graph.disabledOutputName(f.features.handle(RenderResource::Shadow)), "Shadows");
+    EXPECT_STREQ(f.graph.disabledOutputName(f.features.handle(RenderResource::LocalShadow)), "LocalShadows");
+    EXPECT_TRUE(f.features.orderOk());
+}
+
+TEST(FrameSetup, EmptyHookLeavesShadowPassesOn)
+{
+    SetupFrame f;
+    Hook       empty;
+    ASSERT_TRUE(f.hooks.add(&empty));
+    ASSERT_TRUE(f.run(0.0)) << errorText(f.graph);
+    EXPECT_FALSE(f.setup.disabled.any());
+    EXPECT_NE(f.graph.findPass("Shadows"), Rg::kNoPass);
+    EXPECT_NE(f.graph.findPass("LocalShadows"), Rg::kNoPass);
+    EXPECT_TRUE(f.lit.shadow.valid());
+}
+
+TEST(FrameSetup, FeatureBuilderStoresADisabledOutput)
+{
+    Rg::RenderGraph g;
+    FeatureFrame    features;
+    uint32_t        count = 0;
+    const FeaturePass* list = sandboxFeatures(count);
+    g.beginFrame(64, 64);
+    features.begin(list, count);
+    features.importResource(g, RenderResource::Shadow, fakeResource(2), absTex(64, 64), Rg::Layout::DepthStencilWrite);
+    const Rg::TextureHandle imported = features.handle(RenderResource::Shadow);
+    EXPECT_TRUE(imported.valid());
+    for (uint32_t i = 0; i < count; ++i)
+        if (list[i].id != PassId::Shadows)
+            features.set(list[i].id, [](Rg::PassContext&) {});
+    features.declare(PassId::Shadows, [](FeatureBuilder& b) {
+        const Rg::TextureHandle off = b.graph().disabledOutput("Shadows");
+        EXPECT_FALSE(off.valid());
+        b.set(RenderResource::Shadow, off);
+        EXPECT_TRUE(b.handle(RenderResource::Shadow).disabledOutput());
+        EXPECT_STREQ(b.graph().disabledOutputName(b.handle(RenderResource::Shadow)), "Shadows");
+    });
+    ASSERT_TRUE(features.compileFrame(g, "test")) << errorText(g);
+    EXPECT_TRUE(features.orderOk());
+    EXPECT_TRUE(features.handle(RenderResource::Shadow).disabledOutput());
+    EXPECT_NE(features.handle(RenderResource::Shadow), imported);
+}
+
 TEST(FrameSetup, ReaderWithoutTryReadFailsTheFrame)
 {
     SetupFrame f;
@@ -478,7 +587,8 @@ TEST(FrameSetup, HistoryIsInvalidOnceWhenAPassComesBack)
 TEST(FrameSetup, RandomDisableMasksValidateBindFallbacksAndInvalidateHistoryOnce)
 {
     LogCapture     logs;
-    const uint32_t bitsPool[] = { 0, kGtao, kSsr, kBloom, kGtao | kSsr, EnginePassMask::bit(EnginePass::Taa) | kSsr };
+    const uint32_t bitsPool[] = { 0, kGtao, kSsr, kBloom, kGtao | kSsr, kDir, kLocal, kDir | kLocal, kDir | kGtao, kLocal | kSsr,
+                                  EnginePassMask::bit(EnginePass::Taa) | kSsr };
     int            returns    = 0;
     for (uint32_t seed = 1; seed <= 24; ++seed)
     {
@@ -506,10 +616,17 @@ TEST(FrameSetup, RandomDisableMasksValidateBindFallbacksAndInvalidateHistoryOnce
             ASSERT_TRUE(f.graph.validateCompiled(&why)) << why;
             ASSERT_EQ(f.setup.disabled.bits, expect);
             ASSERT_TRUE(f.litRan);
-            const bool gtaoOn = !(expect & kGtao);
-            const bool ssrOn  = !(expect & kSsr);
+            const bool gtaoOn  = !(expect & kGtao);
+            const bool ssrOn   = !(expect & kSsr);
+            const bool dirOn   = !(expect & kDir);
+            const bool localOn = !(expect & kLocal);
             EXPECT_EQ(f.resName(f.lit.ao), gtaoOn ? "DE.Gtao.AoCompose" : "Ao");
             EXPECT_EQ(f.resName(f.lit.ssr), ssrOn ? "DE.Ssr.Full" : "");
+            EXPECT_EQ(f.graph.findPass("Shadows") != Rg::kNoPass, dirOn);
+            EXPECT_EQ(f.graph.findPass("LocalShadows") != Rg::kNoPass, localOn);
+            EXPECT_EQ(f.lit.shadow.valid(), dirOn);
+            EXPECT_EQ(f.features.handle(RenderResource::Shadow).disabledOutput(), !dirOn);
+            EXPECT_EQ(f.features.handle(RenderResource::LocalShadow).disabledOutput(), !localOn);
             // A history is valid exactly when its pass ran last frame and runs now: invalid once on return.
             EXPECT_EQ(f.gtaoPrev, gtaoOn && gtaoWas);
             EXPECT_EQ(f.ssrPrev, ssrOn && ssrWas);

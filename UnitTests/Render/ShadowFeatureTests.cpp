@@ -101,7 +101,8 @@ namespace
 
     // Declares the registry on the Sandbox (or Editor) list with the shadow maps imported. With
     // `ran`, every other list entry is a stub that logs its PassId.
-    bool declareFrame(const RenderFeatureRegistry& registry, Rg::RenderGraph& g, FeatureFrame& features, uint32_t& declared, bool editor = false, std::vector<PassId>* ran = nullptr)
+    bool declareFrame(const RenderFeatureRegistry& registry, Rg::RenderGraph& g, FeatureFrame& features, uint32_t& declared, bool editor = false, std::vector<PassId>* ran = nullptr,
+                      const FrameView& view = {})
     {
         uint32_t           count = 0;
         const FeaturePass* list  = editor ? editorFeatures(count) : sandboxFeatures(count);
@@ -109,7 +110,7 @@ namespace
         features.begin(list, count);
         features.importResource(g, RenderResource::Shadow, nullptr, absDesc(40), Rg::Layout::DepthStencilWrite);
         features.importResource(g, RenderResource::LocalShadow, nullptr, absDesc(40));
-        declared = registry.declare(features, FrameView{});
+        declared = registry.declare(features, view);
         for (uint32_t i = 0; ran && i < count; ++i)
         {
             const PassId id = list[i].id;
@@ -388,4 +389,70 @@ TEST(ShadowFeature, BoundMapsTakeTheDebugToggleAndAddNoViewsWithoutCascadesOrFac
     feature.setDebugEnabled(true);
     EXPECT_TRUE(shadows.debugEnabled());
     EXPECT_TRUE(local.debugEnabled());
+}
+
+TEST(ShadowFeature, DisableThisFrameClearsEnabledAndStrength)
+{
+    ShadowSystem shadows;
+    EXPECT_FALSE(shadows.enabled());
+    shadows.disableThisFrame();
+    EXPECT_FALSE(shadows.enabled());
+    EXPECT_EQ(shadows.strength(), 0.0f);
+}
+
+TEST(ShadowFeature, ADisabledDirectionalBitAddsNoShadowsPassAndPublishesADisabledOutput)
+{
+    ShadowFeature         feature;
+    RenderFeatureRegistry registry;
+    registerShadowFeature(registry, feature);
+    ASSERT_TRUE(registry.createAll({}));
+    FrameView view;
+    view.setup.disabled.set(EnginePass::DirectionalShadows);
+    Rg::RenderGraph g;
+    FeatureFrame    features;
+    uint32_t        declared = 0;
+    ASSERT_TRUE(declareFrame(registry, g, features, declared, false, nullptr, view));
+    const std::vector<std::string> names = passNames(g);
+    EXPECT_TRUE(has(names, "FrameCull"));
+    EXPECT_FALSE(has(names, "Shadows"));
+    EXPECT_TRUE(features.handle(RenderResource::Shadow).disabledOutput());
+    EXPECT_STREQ(g.disabledOutputName(features.handle(RenderResource::Shadow)), "Shadows");
+    EXPECT_EQ(std::find(features.compiledOrder().begin(), features.compiledOrder().end(), PassId::Shadows), features.compiledOrder().end());
+    registry.destroyAll();
+}
+
+TEST(ShadowFeature, ADisabledLocalBitAddsNoLocalShadowsPassAndPublishesADisabledOutput)
+{
+    ShadowFeature         feature;
+    RenderFeatureRegistry registry;
+    registerShadowFeature(registry, feature);
+    ASSERT_TRUE(registry.createAll({}));
+    LocalShadowSystem local;
+    feature.bindShadowMaps(nullptr, &local, nullptr, nullptr);
+    FrameView view;
+    view.setup.disabled.set(EnginePass::LocalShadows);
+    Rg::RenderGraph g;
+    FeatureFrame    features;
+    uint32_t        declared = 0;
+    ASSERT_TRUE(declareFrame(registry, g, features, declared, false, nullptr, view));
+    EXPECT_FALSE(has(passNames(g), "LocalShadows"));
+    EXPECT_TRUE(features.handle(RenderResource::LocalShadow).disabledOutput());
+    EXPECT_STREQ(g.disabledOutputName(features.handle(RenderResource::LocalShadow)), "LocalShadows");
+    registry.destroyAll();
+}
+
+TEST(ShadowFeature, AnEmptySetupStillDeclaresTheShadowsPass)
+{
+    ShadowFeature         feature;
+    RenderFeatureRegistry registry;
+    registerShadowFeature(registry, feature);
+    ASSERT_TRUE(registry.createAll({}));
+    FrameView view; // no bits: an empty hook's resolved setup
+    Rg::RenderGraph g;
+    FeatureFrame    features;
+    uint32_t        declared = 0;
+    ASSERT_TRUE(declareFrame(registry, g, features, declared, false, nullptr, view));
+    EXPECT_TRUE(has(passNames(g), "Shadows"));
+    EXPECT_FALSE(features.handle(RenderResource::Shadow).disabledOutput());
+    registry.destroyAll();
 }

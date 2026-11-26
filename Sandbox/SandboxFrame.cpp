@@ -271,7 +271,12 @@ void SandboxFrame::render()
     const Frustum3f cameraCull(app().m_sceneWorld.camera.GetCullViewProj());
     const bool selectLocalShadows = app().renderer().debugState().localLights
         && app().renderer().debugState().lightingActive();
-    m_shadowFeature.updateLocal(app().world(), app().m_sceneWorld.camera, cameraCull, app().renderer().frameIndex(), selectLocalShadows);
+    FrameComposer& frame = m_frameComposer;
+    FrameView      view;
+    // Echolocation strobes: no TAA / GTAO / SSR history from (or into) a held frame, no motion blur.
+    view.holdTemporal = app().m_vision.echo > 0.0f;
+    const FrameSetup setup = frame.resolveSetup(view);
+    m_shadowFeature.updateLocal(app().world(), app().m_sceneWorld.camera, cameraCull, app().renderer().frameIndex(), selectLocalShadows, setup);
 
     AABox3f sceneBounds = app().m_sceneWorld.terrain.shadowBounds(app().m_sceneWorld.camera);
     app().world().each<MeshComponent>([&](Entity e, MeshComponent& mc) {
@@ -299,7 +304,8 @@ void SandboxFrame::render()
         sceneBounds,
         app().m_sceneWorld.env.sunElevation(),
         app().m_sceneWorld.env.weather.cloudCoverage,
-        app().renderer().frameIndex());
+        app().renderer().frameIndex(),
+        setup);
 
     const bool instanceStatic = m_drawList.gpuReady() && app().renderer().debugState().instancedStatic && app().renderer().debugState().fill == DebugFill::Solid;
     const bool instanceSkinned = instanceStatic && m_skinnedInstances.isValid();
@@ -475,10 +481,6 @@ void SandboxFrame::render()
     // state; values that cross passes are declared here and filled in order.
     uint32_t           featureCount = 0;
     const FeaturePass* featureList  = sandboxFeatures(featureCount);
-    FrameComposer&     frame        = m_frameComposer;
-    FrameView          view;
-    // Echolocation strobes: no TAA / GTAO / SSR history from (or into) a held frame, no motion blur.
-    view.holdTemporal = app().m_vision.echo > 0.0f;
     frame.begin(app().renderer(), view, featureList, featureCount, m_scene.frameShadows());
     m_scene.requestHistories(frame, app().renderer());
 

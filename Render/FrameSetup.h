@@ -61,7 +61,8 @@ namespace Dark
     };
 
     // The engine passes a frame setup can turn off in this build; other bits are dropped (logged once).
-    inline constexpr uint32_t kEnginePassesHonoured = EnginePassMask::bit(EnginePass::Gtao) | EnginePassMask::bit(EnginePass::Ssr);
+    inline constexpr uint32_t kEnginePassesHonoured = EnginePassMask::bit(EnginePass::DirectionalShadows) | EnginePassMask::bit(EnginePass::LocalShadows)
+                                                    | EnginePassMask::bit(EnginePass::Gtao) | EnginePassMask::bit(EnginePass::Ssr);
 
     // One frame's setup. The default is the frame as the host's settings and debug state draw it.
     struct FrameSetup

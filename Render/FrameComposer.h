@@ -44,12 +44,17 @@ namespace Dark
         {
             m_graph.markHistoryUnwritten(name);
         }
-        // This frame's view: the host's, with the setup hooks' disabled passes added (begin()).
+        // This frame's view: the host's, with the setup hooks' disabled passes added
+        // (resolveSetup(), or begin() if that was not called).
         const FrameView& view() const
         {
             return m_view;
         }
-        // The game's frame setup hooks (Render/FrameSetup.h), run by every begin().
+        // Resolve the setup hooks before the host's shadow update, worker/cull views and lighting
+        // constants, so those honour this frame's disabled bits. begin() then keeps this result and
+        // does not run the hooks again. Call once per frame, with the same view begin() will get.
+        const FrameSetup& resolveSetup(const FrameView& view);
+        // The game's frame setup hooks (Render/FrameSetup.h).
         FrameSetupHooks& setupHooks()
         {
             return m_setupHooks;
@@ -94,6 +99,7 @@ namespace Dark
         bool                 m_holdNext = false; // the frame after a held one also starts without history
         Rg::HistoryTargetSet m_histories;
         FrameSetupHooks      m_setupHooks;
+        bool                 m_setupResolved = false; // resolveSetup() ran; begin() consumes it
     };
 
 } // namespace Dark

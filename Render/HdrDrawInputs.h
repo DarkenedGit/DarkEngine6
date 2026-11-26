@@ -110,7 +110,7 @@ namespace Dark
                 d.depth      = HdrDraw::declareDepth(pb, in.depth, uses);
                 d.sceneColor = in.sceneColor.valid() ? pb.read(in.sceneColor, Rg::Use::PixelSrv) : Rg::TextureHandle{};
                 d.attrib     = in.attrib.valid() ? pb.read(in.attrib, Rg::Use::ComputeSrv) : Rg::TextureHandle{};
-                d.shadow     = in.shadow.valid() ? pb.read(in.shadow, Rg::Use::PixelSrv) : Rg::TextureHandle{};
+                d.shadow     = pb.tryRead(in.shadow, {}, Rg::Use::PixelSrv);
                 d.hdr        = pb.readWrite(in.hdr, Rg::Use::RenderTarget);
                 out          = d;
             },
@@ -177,7 +177,7 @@ namespace Dark
                 d.copy       = pb.read(copied, Rg::Use::PixelSrv);
                 d.depth      = HdrDraw::declareDepth(pb, in.depth, drawUses);
                 d.sceneColor = in.sceneColor.valid() ? pb.read(in.sceneColor, Rg::Use::PixelSrv) : Rg::TextureHandle{};
-                d.shadow     = in.shadow.valid() ? pb.read(in.shadow, Rg::Use::PixelSrv) : Rg::TextureHandle{};
+                d.shadow     = pb.tryRead(in.shadow, {}, Rg::Use::PixelSrv);
                 d.hdr        = pb.readWrite(in.hdr, Rg::Use::RenderTarget);
                 out          = d;
             },

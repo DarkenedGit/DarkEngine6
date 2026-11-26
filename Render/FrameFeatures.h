@@ -113,6 +113,7 @@ namespace Dark
         // A history resource's prev (invalid when there is none to read).
         Rg::TextureHandle prev(RenderResource resource) const;
         // Records the new version a pass wrote, so later passes (and later list entries) see it.
+        // A disabled output (RenderGraph::disabledOutput) is stored too, so readers can tryRead it.
         void set(RenderResource resource, Rg::TextureHandle h);
 
         // A pass with declared uses. Same contract as RenderGraph::addPass.

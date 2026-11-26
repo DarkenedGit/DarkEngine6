@@ -354,7 +354,7 @@ namespace Dark
     void FeatureBuilder::set(RenderResource resource, Rg::TextureHandle h)
     {
         const auto i = static_cast<uint32_t>(resource);
-        if (i < kRenderResourceCount && h.valid())
+        if (i < kRenderResourceCount && (h.valid() || h.disabledOutput()))
             m_frame.m_handles[i] = h;
     }
 
