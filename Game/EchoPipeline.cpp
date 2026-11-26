@@ -1,4 +1,4 @@
-#include "Render/EchoPipeline.h"
+#include "Game/EchoPipeline.h"
 #include "Render/GraphTargets.h"
 
 #include "Core/Log.h"
@@ -14,6 +14,9 @@ namespace Dark
 
 namespace
 {
+
+// The echo passes' profiler colour.
+constexpr uint32_t kEchoProfileColor = 0xFF00B8D4;
 
 bool FailedHr(HRESULT hr, const char* what)
 {
@@ -214,7 +217,7 @@ bool EchoPipeline::capture(ID3D12GraphicsCommandList* cmd, Renderer& renderer, c
     if (!device || attrib.ptr == 0 || depth.ptr == 0)
         return false;
 
-    const GpuScope snapScope(cmd, "Echo Snapshot", ProfileColor::Echo);
+    const GpuScope snapScope(cmd, "Echo Snapshot", kEchoProfileColor);
     renderer.bindHdr(false);
     m_targets->transition(cmd, m_snap, D3D12_RESOURCE_STATE_RENDER_TARGET);
 
@@ -277,7 +280,7 @@ void EchoPipeline::composite(ID3D12GraphicsCommandList* cmd, Renderer& renderer,
     const uint32_t snapW = m_targets->width(m_snap.id);
     const uint32_t snapH = m_targets->height(m_snap.id);
 
-    const GpuScope viewScope(cmd, "Echo Composite", ProfileColor::Echo);
+    const GpuScope viewScope(cmd, "Echo Composite", kEchoProfileColor);
     cmd->OMSetRenderTargets(0, nullptr, FALSE, nullptr);
     renderer.transitionHdr(cmd, D3D12_RESOURCE_STATE_COPY_SOURCE);
     m_targets->transition(cmd, m_copy, D3D12_RESOURCE_STATE_COPY_DEST);

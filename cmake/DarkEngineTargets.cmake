@@ -121,6 +121,7 @@ set(DE_GAMEPLAY_FOLDERS
     Weapons
     Gameplay
     Combat
+    Game
 )
 
 # Remaining engine folders compiled by the DarkEngine umbrella only.
@@ -224,7 +225,7 @@ include(cmake/HostExe.cmake)
 #        |        `-- DarkRender  (Render/* + D3D12 stack; PUBLIC-links DarkAssets)
 #        |
 #        |-- DarkNet       (Network/*; PRIVATE ws2_32)
-#        `-- DarkGameplay  (Weapons/* + Gameplay/* + Combat/*; PUBLIC Foundation)
+#        `-- DarkGameplay  (Weapons/* + Gameplay/* + Combat/* + Game/*; PUBLIC Foundation)
 #
 #   DarkEngine umbrella PUBLIC-links all layers and compiles the rest
 #   (AI Animation Audio Character Debug Input Media Particles Scene Sky Sprite
@@ -233,7 +234,8 @@ include(cmake/HostExe.cmake)
 #   Assets headers include Animation types; Animation/*.cpp stay in DarkEngine.
 #   Gameplay/HealthPack includes Character/Health; ProjectileWeapon includes
 #   Audio/Particles. Those .cpp stay in DarkEngine — unresolved symbols in
-#   DarkAssets / DarkGameplay resolve at final link.
+#   DarkAssets / DarkGameplay resolve at final link. Game/* (the game's render code)
+#   calls DarkRender the same way.
 
 add_library(DarkFoundation STATIC ${DE_FOUNDATION_SOURCES})
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${DE_FOUNDATION_SOURCES})

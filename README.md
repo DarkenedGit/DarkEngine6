@@ -12,7 +12,7 @@ This engine is still in progress. This README covers only what is in the tree to
 | `DarkAssets` | static lib | `Assets/*` (WIC image decode, glTF via cgltf) |
 | `DarkRender` | static lib | `Render/*` + D3D12 (Agility SDK headers) / DXGI / DXC (loaded at runtime) / `d3dcompiler` (FXC fallback only); PIX + NVTX markers when `DE_ENABLE_GPU_MARKERS` is on |
 | `DarkNet` | static lib | `Network/*` (`ws2_32`) |
-| `DarkGameplay` | static lib | `Weapons/*`, `Gameplay/*`, `Combat/*` |
+| `DarkGameplay` | static lib | `Weapons/*`, `Gameplay/*`, `Combat/*`, `Game/*` (the game's render code: echolocation) |
 | `DarkEngine` | static lib | Umbrella: `AI`, `Animation`, `Audio`, `Character`, `Debug`, `Input`, `Media`, `Particles`, `Physics`, `Play`, `Save`, `Scene`, `Sky`, `Sprite`, `Terrain`, `Water`, the content database (`content/Content*.cpp`, top-level only), plus `Application` / `Window` / `MemoryTracker` and `Ui/MainMenu`. PUBLIC-links every layer; PRIVATE-links Box3D |
 | `Sandbox` | exe | 3D sample game (ImGui Dev Tools) |
 | `Sandbox2D` | exe | Side-scrolling 2D sample (Box2D) |
@@ -373,7 +373,7 @@ Tests live under `UnitTests/<Module>/` (including `UnitTests/Play/`) and use Goo
 
 ```
 AI/ Animation/ Assets/ Audio/ Character/ Collision/ Combat/ Core/
-Debug/ ECS/ Gameplay/ Input/ Math/ Media/ Network/ Particles/
+Debug/ ECS/ Game/ Gameplay/ Input/ Math/ Media/ Network/ Particles/
 Physics/ Render/ Save/ Scene/ Sky/ Sprite/ Terrain/ Water/ Weapons/
 Play/             play code shared by Sandbox and Editor Play (attach, camera, motor, spawners, crows, facility, PlaySession, ...)
 Scene/SceneWorld.h  one scene simulation per app (terrain, water, foliage, physics, sky)

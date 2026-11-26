@@ -11,6 +11,7 @@
 #include "ECS/Components.h"
 #include "Combat/ArmorStats.h"
 #include "Character/ItemView.h"
+#include "Game/EchoChirpFile.h"
 #include "Gameplay/Inventory.h"
 #include "Gameplay/PowerComponents.h"
 #include "Gameplay/QuestZone.h"
@@ -1959,12 +1960,12 @@ void SandboxHud::drawDevTools()
         ImGui::TextDisabled("Infrared %s  (H)", app().m_vision.infraredOn ? "on" : "off");
         ImGui::TextDisabled("Ultraviolet %s  (U)", app().m_vision.ultravioletOn ? "on" : "off");
         ImGui::TextDisabled("Echolocation %s  (B)", app().m_vision.echoOn ? "on" : "off");
-        Dark::PropSlider("Refresh period (s)", &app().m_vision.echoChirp.periodSeconds, Dark::EchoChirpSettings::kPeriodMin, Dark::EchoChirpSettings::kPeriodMax, "%.2f");
-        Dark::PropSlider("Shell speed (m/s)", &app().m_vision.echoChirp.speedMetersPerSec, Dark::EchoChirpSettings::kSpeedMin, Dark::EchoChirpSettings::kSpeedMax, "%.1f");
-        Dark::PropSlider("Shell range (m)", &app().m_vision.echoChirp.rangeMeters, Dark::EchoChirpSettings::kRangeMin, Dark::EchoChirpSettings::kRangeMax, "%.1f");
-        const float period = app().m_vision.echoChirp.periodSeconds;
-        const float speed  = app().m_vision.echoChirp.speedMetersPerSec;
-        const float range  = app().m_vision.echoChirp.rangeMeters;
+        Dark::PropSlider("Refresh period (s)", &app().m_frame.echo().chirp().periodSeconds, Dark::EchoChirpSettings::kPeriodMin, Dark::EchoChirpSettings::kPeriodMax, "%.2f");
+        Dark::PropSlider("Shell speed (m/s)", &app().m_frame.echo().chirp().speedMetersPerSec, Dark::EchoChirpSettings::kSpeedMin, Dark::EchoChirpSettings::kSpeedMax, "%.1f");
+        Dark::PropSlider("Shell range (m)", &app().m_frame.echo().chirp().rangeMeters, Dark::EchoChirpSettings::kRangeMin, Dark::EchoChirpSettings::kRangeMax, "%.1f");
+        const float period = app().m_frame.echo().chirp().periodSeconds;
+        const float speed  = app().m_frame.echo().chirp().speedMetersPerSec;
+        const float range  = app().m_frame.echo().chirp().rangeMeters;
         const float hz     = period > 0.0f ? (1.0f / period) : 0.0f;
         const float travel = speed > 0.0f ? (range / speed) : 0.0f;
         ImGui::TextDisabled("%.2f Hz. %.0f m in %.2f s. content/render/echolocation.json is the startup value.", static_cast<double>(hz), static_cast<double>(range), static_cast<double>(travel));
