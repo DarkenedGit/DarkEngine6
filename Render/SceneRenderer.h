@@ -288,6 +288,9 @@ public:
     // requestHistories) and the pass adders see this frame's bits.
     void                  setFrameSetup(const FrameSetup& setup) { m_setup = setup; }
     const FrameSetup&     frameSetup() const { return m_setup; }
+    // Lighting constants published by the Lighting entry (the fullscreen draw, or the hook-off
+    // placeholder) for LocalVolumes to consume this frame.
+    const LightingConstants& resolveLighting() const { return m_resolveLighting; }
 
 private:
     friend void registerCoreFeatures(RenderFeatureRegistry& registry, SceneRenderer& scene);
@@ -354,6 +357,8 @@ private:
     // for LocalVolumes.
     void addLightingPasses(FeatureBuilder& b, Renderer& renderer, const DeferredResolveInput& in);
     void addLocalVolumesPasses(FeatureBuilder& b, Renderer& renderer, World& world, const Camera3D& camera, const DeferredResolveInput& in);
+    // Copies this frame's lighting constants (and the SSR bit) into m_resolveLighting. No draw.
+    void publishResolveLighting(const DeferredResolveInput& in, const Renderer& renderer);
     // The Gtao and Ssr entries with declared uses (render-graph plan Phase 6 part 3). Each step is a
     // graph pass binding a descriptor-ring table; the graph plans every barrier on the targets
     // (imported from the ResourceStateTracker). Settings are captured now; the camera (jittered by

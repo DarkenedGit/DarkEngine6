@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <random>
 #include <string>
+#include <tuple>
 #include <vector>
 
 // Frame setup (render-graph plan §3.4.2): FrameSetupHooks resolves the passes a frame turns off,
@@ -557,8 +558,13 @@ namespace
 
         void declareSsrCapture(FeatureBuilder& b)
         {
+            // Match production: the Editor list marks this entry required, so a hook-off frame still
+            // adds an empty placeholder and does not publish a capture.
             if (setup.disabled.has(EnginePass::SsrCapture))
+            {
+                b.opaque("SsrCapture", {}, {}, [](Rg::PassContext&) {});
                 return;
+            }
             Rg::TextureHandle hdr = b.handle(RenderResource::Hdr);
             Rg::TextureHandle dst = b.graph().importTexture("DE.Ssr.Capture", absTex(1280, 720), fakeResource(53), Rg::Layout::ShaderResource, Rg::Layout::Undefined);
             b.addPass<Rg::NoData>(
@@ -636,11 +642,8 @@ namespace
                     [](Rg::PassContext&, const Rg::NoData&) {});
                 b.set(taaRequested ? RenderResource::Hdr : RenderResource::Post, dst);
             }
+            // Tone reads Post only when exactly one of TAA and motion blur ran: TAA-then-blur writes back to HDR.
             const Rg::TextureHandle toneSrc = (taaRequested != !setup.disabled.has(EnginePass::MotionBlur)) ? b.handle(RenderResource::Post) : b.handle(RenderResource::Hdr);
-            // After TAA-only, tone reads Post; after MB-only, tone reads Post; after TAA+MB, tone reads HDR;
-            // after neither, tone reads HDR. usedPostHdr = TAA xor MB? Wait: production: TAA sets usedPostHdr=true,
-            // then MB with TAA writes back to HDR and usedPostHdr=false; MB without TAA sets usedPostHdr=true.
-            // So tone reads Post iff (TAA && !MB) || (!TAA && MB) == TAA xor MB. Yes.
             b.addPass<Rg::NoData>(
                 "Post.Tonemap",
                 [&](Rg::PassBuilder& pb, Rg::NoData&)
@@ -852,7 +855,7 @@ TEST(FrameSetup, DisabledRemainingPassesDropWorkAndKeepTheHdrClear)
     EXPECT_NE(f.graph.findPass("LocalVolumes"), Rg::kNoPass);
     EXPECT_EQ(f.graph.findPass("Sky"), Rg::kNoPass);
     EXPECT_EQ(f.graph.findPass("Clouds"), Rg::kNoPass);
-    EXPECT_EQ(f.graph.findPass("SsrCapture"), Rg::kNoPass);
+    EXPECT_NE(f.graph.findPass("SsrCapture"), Rg::kNoPass); // required Editor placeholder
     EXPECT_EQ(f.graph.blackboard().tryGet<SsrCaptureOutput>(), nullptr);
     EXPECT_EQ(f.graph.findPass("Underwater"), Rg::kNoPass);
     EXPECT_EQ(f.graph.findPass("Post.Bloom.Composite"), Rg::kNoPass);
@@ -943,7 +946,8 @@ TEST(FrameSetup, RandomDisableMasksValidateBindFallbacksAndInvalidateHistoryOnce
             EXPECT_NE(f.graph.findPass("LocalVolumes"), Rg::kNoPass);
             EXPECT_EQ(f.graph.findPass("Sky") != Rg::kNoPass, skyOn);
             EXPECT_EQ(f.graph.findPass("Clouds") != Rg::kNoPass, cloudsOn);
-            EXPECT_EQ(f.graph.findPass("SsrCapture") != Rg::kNoPass, capOn);
+            EXPECT_NE(f.graph.findPass("SsrCapture"), Rg::kNoPass);
+            EXPECT_EQ(f.graph.blackboard().tryGet<SsrCaptureOutput>() != nullptr, capOn);
             EXPECT_EQ(f.graph.findPass("Underwater") != Rg::kNoPass, underOn);
             EXPECT_EQ(f.graph.findPass("Post.Bloom.Composite") != Rg::kNoPass, bloomOn);
             EXPECT_EQ(f.graph.findPass("Post.Taa") != Rg::kNoPass, taaOn);
@@ -961,4 +965,44 @@ TEST(FrameSetup, RandomDisableMasksValidateBindFallbacksAndInvalidateHistoryOnce
         }
     }
     EXPECT_GT(returns, 100);
+}
+
+TEST(FrameSetup, DisabledSsrCaptureKeepsTheEditorPlaceholderAndPublishesNoCapture)
+{
+    // editorFeatures marks SsrCapture required: omitting the entry fails the order check; a hook-off
+    // frame must still add the empty placeholder and must not publish a capture.
+    auto compileEditor = [](bool declarePlaceholder) {
+        Rg::RenderGraph    g;
+        FeatureFrame       features;
+        uint32_t           count = 0;
+        const FeaturePass* list  = editorFeatures(count);
+        g.beginFrame(64, 64);
+        features.begin(list, count);
+        for (uint32_t r = 0; r < kRenderResourceCount; ++r)
+        {
+            const auto res = static_cast<RenderResource>(r);
+            features.importResource(g, res, fakeResource(r), absTex(64, 64, res == RenderResource::Depth ? Rg::Test::kD32 : Rg::Test::kRgba16F),
+                                    Rg::Layout::RenderTarget);
+        }
+        for (uint32_t i = 0; i < count; ++i)
+        {
+            if (list[i].id == PassId::SsrCapture)
+                continue;
+            features.set(list[i].id, [](Rg::PassContext&) {});
+        }
+        if (declarePlaceholder)
+            features.declare(PassId::SsrCapture, [](FeatureBuilder& b) { b.opaque("SsrCapture", {}, {}, [](Rg::PassContext&) {}); });
+        const bool compiled = features.compileFrame(g, "test");
+        return std::tuple<bool, bool, bool, bool>(compiled, features.orderOk(), g.findPass("SsrCapture") != Rg::kNoPass,
+                                                  g.blackboard().tryGet<SsrCaptureOutput>() != nullptr);
+    };
+    const auto missing = compileEditor(false);
+    EXPECT_TRUE(std::get<0>(missing));
+    EXPECT_FALSE(std::get<1>(missing));
+    EXPECT_FALSE(std::get<2>(missing));
+    const auto kept = compileEditor(true);
+    EXPECT_TRUE(std::get<0>(kept));
+    EXPECT_TRUE(std::get<1>(kept));
+    EXPECT_TRUE(std::get<2>(kept));
+    EXPECT_FALSE(std::get<3>(kept));
 }

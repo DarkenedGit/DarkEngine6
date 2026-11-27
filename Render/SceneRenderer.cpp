@@ -765,32 +765,42 @@ namespace
     }
 } // namespace
 
+void SceneRenderer::publishResolveLighting(const DeferredResolveInput& in, const Renderer& renderer)
+{
+    if (!resolveInputOk(in))
+        return;
+    m_resolveLighting = *in.lighting;
+    fillSsrLightingConstants(m_resolveLighting, *in.ssr, renderer.debugState().ssrEnabled && !m_setup.disabled.has(EnginePass::Ssr), m_ssr.isValid());
+}
+
 void SceneRenderer::addLightingPasses(FeatureBuilder& b, Renderer& renderer, const DeferredResolveInput& in)
 {
     using Rg::PassBuilder;
     using Rg::PassContext;
-    const LightingReads reads = lightingReads(b);
-    if (!reads.valid() || !m_lighting.isValid() || m_setup.disabled.has(EnginePass::DeferredLighting))
-    {
-        // Missing buffers/PSO, or a hook turned lighting off: keep the entry's place; HDR stays as
-        // Decals.ClearHdr left it (black) for LocalVolumes, sky and the rest to draw onto.
-        b.opaque("Lighting", {}, {}, [](PassContext&) {});
-        return;
-    }
     SceneRenderer* const              self = this;
     Renderer* const                   rr   = &renderer;
     const DeferredResolveInput* const inp  = &in; // filled by the host's GBuffer pass: read at execute
-    const bool                        ssrOn = !m_setup.disabled.has(EnginePass::Ssr);
-    Rg::TextureHandle                 hdrOut;
+    // Hook off: keep the entry's place and publish this frame's constants for LocalVolumes. No draw;
+    // HDR stays as Decals.ClearHdr left it. The copy does not need the lighting PSO or G-buffer handles.
+    if (m_setup.disabled.has(EnginePass::DeferredLighting))
+    {
+        b.opaque("Lighting", {}, {}, [self, rr, inp](PassContext&) { self->publishResolveLighting(*inp, *rr); });
+        return;
+    }
+    const LightingReads reads = lightingReads(b);
+    if (!reads.valid() || !m_lighting.isValid())
+    {
+        b.opaque("Lighting", {}, {}, [](PassContext&) {});
+        return;
+    }
+    Rg::TextureHandle hdrOut;
     b.addPass<LightingReads>(
         "Lighting", [&](PassBuilder& pb, LightingReads& d) { hdrOut = declareLightingUses(pb, reads, LightingPass::Lighting, d); },
-        [self, rr, inp, ssrOn](PassContext& c, const LightingReads& d)
+        [self, rr, inp](PassContext& c, const LightingReads& d)
         {
+            self->publishResolveLighting(*inp, *rr);
             if (!resolveInputOk(*inp))
                 return;
-            self->m_resolveLighting = *inp->lighting;
-            // The SSR bit is sampled here, as addSsrPasses drew with it.
-            fillSsrLightingConstants(self->m_resolveLighting, *inp->ssr, rr->debugState().ssrEnabled && ssrOn, self->m_ssr.isValid());
             const LightingViews v = rr->lightingViews();
             // Register order t0..t9 (SceneBuffers::kLighting*).
             const D3D12_GPU_DESCRIPTOR_HANDLE table = rgTable(c, { v.albedo, v.attrib, rgSrvCpu(c, d.depth), shadowSrv(c, v, d.shadow), v.height, rgSrvCpu(c, d.ao), v.iblIrradiance, v.iblPrefilter, v.iblBrdfLut,
