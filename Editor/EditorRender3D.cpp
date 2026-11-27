@@ -220,6 +220,7 @@ void EditorApp::renderScene3D()
     FrameComposer&   frame = m_frameComposer;
     const FrameView  view{};
     const FrameSetup setup = frame.resolveSetup(view);
+    m_scene.setFrameSetup(setup);
     m_shadowFeature.updateLocal(world(), m_camera, cameraCull, renderer().frameIndex(), selectLocalShadows, setup);
     if (m_playMode)
     {

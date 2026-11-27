@@ -789,3 +789,67 @@ TEST(SceneRendererCoreFeatures, AShadowHookDropsTheShadowPassesAndPublishesDisab
     EXPECT_STREQ(graph.disabledOutputName(features.handle(RenderResource::Shadow)), "Shadows");
     EXPECT_STREQ(graph.disabledOutputName(features.handle(RenderResource::LocalShadow)), "LocalShadows");
 }
+
+TEST(SceneRendererCoreFeatures, DisabledDeferredLightingStillPublishesConstantsForLocalVolumes)
+{
+    // Turning DeferredLighting off must still copy this frame's lighting constants for LocalVolumes
+    // (its execute reads m_resolveLighting). The CoreFeatures device has no lighting PSO, so this
+    // hits the hook-off placeholder, not the fullscreen draw.
+    ErrorCapture errors;
+    Bundle       bundle;
+    ASSERT_TRUE(bundle.created);
+
+    LightingConstants lighting{};
+    lighting.lighting       = 1.0f;
+    lighting.invViewProj[0] = 3.25f;
+    lighting.invViewProj[15] = 9.5f;
+    lighting.fogDensity     = 0.4f;
+    bundle.resolve.viewProj     = &bundle.viewProj;
+    bundle.resolve.prevViewProj = &bundle.viewProj;
+    bundle.resolve.gtao         = &bundle.gtao;
+    bundle.resolve.ssr          = &bundle.ssr;
+    bundle.resolve.lighting     = &lighting;
+    bundle.scene.setCoreFrame(bundle.inputs());
+
+    struct Off : IFrameSetupHook
+    {
+        const char* name() const override
+        {
+            return "OffLighting";
+        }
+        void setupFrame(const FrameView&, FrameSetup& setup) override
+        {
+            setup.disabled.set(EnginePass::DeferredLighting);
+        }
+    } off;
+    FrameComposer composer;
+    ASSERT_TRUE(composer.setupHooks().add(&off));
+    FrameView          view;
+    const FrameSetup   setup = composer.resolveSetup(view);
+    bundle.scene.setFrameSetup(setup);
+    EXPECT_TRUE(bundle.scene.frameSetup().disabled.has(EnginePass::DeferredLighting));
+    EXPECT_FALSE(bundle.scene.frameSetup().disabled.has(EnginePass::LocalLights));
+
+    auto run = [&]() {
+        Rg::RenderGraph graph;
+        FeatureFrame    features;
+        // No imported scene targets (same as HooksRunAtExecute): GBuffer skips the draw; the hook-off
+        // Lighting placeholder still runs and publishes constants.
+        EXPECT_EQ(coreOrder(bundle.registry, graph, features, false),
+                  ids({ PassId::GBuffer, PassId::Decals, PassId::Gtao, PassId::Ssr, PassId::Lighting, PassId::LocalVolumes, PassId::SsrCapture, PassId::Translucent, PassId::Post }));
+        EXPECT_TRUE(hasPass(graph, "Lighting"));
+        ASSERT_TRUE(graph.execute());
+    };
+    run();
+    EXPECT_FLOAT_EQ(bundle.scene.resolveLighting().lighting, 1.0f);
+    EXPECT_FLOAT_EQ(bundle.scene.resolveLighting().invViewProj[0], 3.25f);
+    EXPECT_FLOAT_EQ(bundle.scene.resolveLighting().invViewProj[15], 9.5f);
+    EXPECT_FLOAT_EQ(bundle.scene.resolveLighting().fogDensity, 0.4f);
+
+    lighting.invViewProj[0] = 7.5f;
+    lighting.fogDensity     = 0.2f;
+    run();
+    EXPECT_FLOAT_EQ(bundle.scene.resolveLighting().invViewProj[0], 7.5f);
+    EXPECT_FLOAT_EQ(bundle.scene.resolveLighting().fogDensity, 0.2f);
+    EXPECT_FLOAT_EQ(bundle.scene.resolveLighting().lighting, 1.0f);
+}

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Render/FrameFeatures.h"
+#include "Render/FrameSetup.h"
 #include "Render/HdrDrawInputs.h"
 #include "Render/HdrPassViews.h"
 #include "Water/UnderwaterPipeline.h"
@@ -66,8 +67,10 @@ namespace Dark
         // Underwater: copies HDR, draws the fog from the copy with `frame(Rg::PassContext&)` (an
         // UnderwaterFrame, read at execute), then `ceiling(Rg::PassContext&, const WaterTables&)` with HDR
         // + read-only depth bound. Without the copy (or its pipeline) only the ceiling draws.
-        template <class Frame, class Ceiling> void addUnderwaterPasses(FeatureBuilder& b, Renderer& renderer, Frame&& frame, Ceiling&& ceiling)
+        template <class Frame, class Ceiling> void addUnderwaterPasses(FeatureBuilder& b, Renderer& renderer, Frame&& frame, Ceiling&& ceiling, const FrameSetup& setup = {})
         {
+            if (setup.disabled.has(EnginePass::Underwater))
+                return;
             WaterRendering* const   self = this;
             Renderer* const         rr   = &renderer;
             const Rg::TextureHandle copy = importUnderwaterCopy(b, renderer);

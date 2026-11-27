@@ -183,7 +183,15 @@ namespace Dark
             *ae->result               = {};
             ae->result->finalExposure = exposure;
             const bool deferredMeter  = s.m_autoExposure.isValid();
-            if (deferredMeter)
+            if (s.m_setup.disabled.has(EnginePass::AutoExposure))
+            {
+                // No samples this frame: drop the readback and the CPU state so the first frame back
+                // does not apply a stale correction (the generic "history invalid once on return").
+                s.m_autoExposure.invalidateReadback();
+                resetAutoExposure(*ae->state);
+                meter = false;
+            }
+            else if (deferredMeter)
             {
                 // Resize drops the 1x1. Zero the correction before this frame can apply a stale sample.
                 if (s.syncAutoExposureSize(*m_renderer))
@@ -191,9 +199,9 @@ namespace Dark
                 const float measured = (ae->settings->mode == ExposureMode::Auto && !ae->hold) ? s.m_autoExposure.readMeasuredLuma(m_renderer->frameIndex()) : 0.0f;
                 *ae->result          = adaptExposure(*ae->state, measured, exposure, ae->dt, *ae->settings);
                 exposure             = ae->result->finalExposure;
+                meter                = ae->settings->mode == ExposureMode::Auto && !ae->hold;
             }
             tonemap.exposure = exposure;
-            meter            = deferredMeter && ae->settings->mode == ExposureMode::Auto && !ae->hold;
         }
         // The hook's pass needs a name; without one only the hook is skipped, never Post.
         if (const CorePassHook before = in.beforePost; before.fn && in.beforePostName)
