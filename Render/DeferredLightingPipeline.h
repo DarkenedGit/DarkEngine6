@@ -77,9 +77,10 @@ namespace Dark
         lc.iblDebug           = static_cast<float>(d);
     }
 
-    inline void fillSsrLightingConstants(LightingConstants& lc, const SsrSettings& settings, bool debugEnabled, bool pipelineValid)
+    inline void fillSsrLightingConstants(LightingConstants& lc, const SsrSettings& settings, bool debugEnabled, bool pipelineValid, float strength = 1.0f)
     {
-        lc.ssrEnabled = (settings.enabled && debugEnabled && pipelineValid) ? 1.0f : 0.0f;
+        const float s = strength < 0.0f ? 0.0f : (strength > 1.0f ? 1.0f : strength);
+        lc.ssrEnabled = (settings.enabled && debugEnabled && pipelineValid) ? s : 0.0f;
     }
 
     class DeferredLightingPipeline

@@ -402,6 +402,11 @@ void EditorApp::drawEditorUi()
                 }
                 ImGui::EndTabBar();
             }
+            const Rg::RenderGraph& graph = m_frameComposer.graph();
+            const uint64_t         hits  = graph.planCacheHits();
+            const uint64_t         n     = hits + graph.planCacheMisses();
+            ImGui::TextDisabled("Plan cache  %.1f%%  (%llu hits / %llu compiles)", static_cast<double>(graph.planCacheHitRate()) * 100.0,
+                                static_cast<unsigned long long>(hits), static_cast<unsigned long long>(n));
         }
         ImGui::End();
     }

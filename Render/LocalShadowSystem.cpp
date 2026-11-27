@@ -472,7 +472,7 @@ void LocalShadowSystem::writeRecords(World& world)
         rec.faceCount = static_cast<float>(faceCount);
         rec.mapSize   = static_cast<float>(m_settings.mapSize);
         rec.depthBias = m_settings.depthBias;
-        rec.strength  = 1.0f;
+        rec.strength  = m_strengthScale;
 
         for (int f = 0; f < m_faceCount; ++f)
         {

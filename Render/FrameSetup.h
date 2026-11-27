@@ -60,17 +60,41 @@ namespace Dark
         bool operator==(const EnginePassMask&) const = default;
     };
 
-    // Every EnginePass bit a hook may turn off. Scalar fields, DebugRenderState folding and the
-    // plan-cache hit rate are a later slice; this build honours the disabled mask only.
+    // Every EnginePass bit a hook may turn off.
     inline constexpr uint32_t kEnginePassesHonoured = (1u << kEnginePassCount) - 1u;
 
-    // One frame's setup. The default is the frame as the host's settings and debug state draw it.
+    // out = lerp(c, M * float4(c, aux), strength). Identity / strength 0 means unchanged
+    // (render-graph plan §3.4.2). Shader ApplyColorRemap is a later slice; these fields travel with
+    // the resolved setup so a hook can record them now.
+    struct ColorRemap
+    {
+        float m[3][4]  = { { 1, 0, 0, 0 }, { 0, 1, 0, 0 }, { 0, 0, 1, 0 } };
+        float aux      = 0.0f;
+        float strength = 0.0f;
+
+        bool operator==(const ColorRemap&) const = default;
+    };
+
+    // One frame's setup. The default (scalars 1, remaps identity) leaves the frame as the host's
+    // settings and debug state draw it. Hooks may only turn passes off and only lower a scalar.
     struct FrameSetup
     {
         EnginePassMask disabled;
+        float          shadowStrength = 1.0f; // 0..1, scales the packed shadow strength (lighting, water, translucent)
+        float          aoStrength     = 1.0f; // 0..1, scales GTAO intensity
+        float          ssrStrength    = 1.0f; // 0..1, scales the lighting SSR blend (ssrEnabled)
+        float          emissiveGain   = 1.0f; // 0..1, multiplies the host's LightingConstants::emissiveGain
+        ColorRemap     albedoRemap, fogRemap, waterRemap, skyRemap;
 
         bool operator==(const FrameSetup&) const = default;
     };
+
+    struct DebugRenderState;
+
+    // OR the DebugRenderState toggles that match an EnginePass into disabled (plan D8). A toggle
+    // that's off is the same bit a hook would set. lighting / localLights / showAlbedoLinear are not
+    // folded: they still run their passes and only change draw constants, as they do today.
+    void applyDebugToggles(FrameSetup& setup, const DebugRenderState& debug);
 
     // A game's per-frame setup. setupFrame runs on the main thread before any pass is declared; it
     // records no GPU work and allocates nothing. It can only turn passes off: bits it clears are
@@ -100,8 +124,10 @@ namespace Dark
             return static_cast<uint32_t>(m_hooks.size());
         }
 
-        // The frame's setup: `view.setup` with every named hook's disabled bits added, minus the bits
-        // this build does not honour. `seconds` is a monotonic clock for the mask-change warning.
+        // The frame's setup: start from `view.setup`, fold `view.debug` toggles (when non-null), then
+        // OR each named hook's disabled bits and take the min of any scalar it lowers (clamped to
+        // 0..1). Two hooks writing the same scalar or remap log once. `seconds` is a monotonic clock
+        // for the mask-change warning.
         FrameSetup resolve(const FrameView& view, double seconds);
         bool       maskChangeWarned() const
         {
@@ -123,6 +149,8 @@ namespace Dark
         bool                                             m_maskChangeWarned = false;
         std::array<double, kMaxMaskChangesPerSecond + 1> m_changeTimes{};
         uint32_t                                         m_changeCount = 0; // total, the ring index
+        uint32_t                                         m_loggedTwoWriters = 0;
+        uint32_t                                         m_loggedTwoRemaps  = 0;
     };
 
 } // namespace Dark

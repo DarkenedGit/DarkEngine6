@@ -217,8 +217,9 @@ void EditorApp::renderScene3D()
     const Frustum3f cameraCull(m_camera.GetCullViewProj());
     const bool selectLocalShadows = renderer().debugState().localLights
         && renderer().debugState().lightingActive();
-    FrameComposer&   frame = m_frameComposer;
-    const FrameView  view{};
+    FrameComposer&  frame = m_frameComposer;
+    FrameView       view;
+    view.debug            = &renderer().debugState();
     const FrameSetup setup = frame.resolveSetup(view);
     m_scene.setFrameSetup(setup);
     m_shadowFeature.updateLocal(world(), m_camera, cameraCull, renderer().frameIndex(), selectLocalShadows, setup);

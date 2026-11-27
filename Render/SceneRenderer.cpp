@@ -392,6 +392,8 @@ void SceneRenderer::addGtaoPasses(FeatureBuilder& b, Renderer& renderer, const C
 
     GtaoSettings drawSettings = settings;
     drawSettings.enabled      = settings.enabled && renderer.debugState().ssaoEnabled && !m_setup.disabled.has(EnginePass::Gtao);
+    if (m_setup.aoStrength != 1.0f)
+        drawSettings.intensity *= m_setup.aoStrength < 0.0f ? 0.0f : (m_setup.aoStrength > 1.0f ? 1.0f : m_setup.aoStrength);
     const TextureHandle depth    = b.handle(R::Depth);
     const TextureHandle attrib   = b.handle(R::Attrib);
     const TextureHandle velocity = b.handle(R::Velocity);
@@ -770,7 +772,13 @@ void SceneRenderer::publishResolveLighting(const DeferredResolveInput& in, const
     if (!resolveInputOk(in))
         return;
     m_resolveLighting = *in.lighting;
-    fillSsrLightingConstants(m_resolveLighting, *in.ssr, renderer.debugState().ssrEnabled && !m_setup.disabled.has(EnginePass::Ssr), m_ssr.isValid());
+    fillSsrLightingConstants(m_resolveLighting, *in.ssr, renderer.debugState().ssrEnabled && !m_setup.disabled.has(EnginePass::Ssr), m_ssr.isValid(),
+                                 m_setup.ssrStrength);
+    if (m_setup.emissiveGain != 1.0f)
+    {
+        const float s = m_setup.emissiveGain < 0.0f ? 0.0f : (m_setup.emissiveGain > 1.0f ? 1.0f : m_setup.emissiveGain);
+        m_resolveLighting.emissiveGain *= s;
+    }
 }
 
 void SceneRenderer::addLightingPasses(FeatureBuilder& b, Renderer& renderer, const DeferredResolveInput& in)

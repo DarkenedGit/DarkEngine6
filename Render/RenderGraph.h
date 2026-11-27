@@ -566,6 +566,21 @@ namespace Dark::Rg
         {
             return m_planKey;
         }
+        // Successful compiles since construction: a hit reuses the last good plan (§3.5).
+        uint64_t planCacheHits() const
+        {
+            return m_planCacheHits;
+        }
+        uint64_t planCacheMisses() const
+        {
+            return m_planCacheMisses;
+        }
+        // 0..1, or 0 when nothing has compiled successfully yet.
+        float planCacheHitRate() const
+        {
+            const uint64_t n = m_planCacheHits + m_planCacheMisses;
+            return n ? static_cast<float>(m_planCacheHits) / static_cast<float>(n) : 0.0f;
+        }
 
         uint32_t passCount() const
         {
@@ -750,6 +765,8 @@ namespace Dark::Rg
         uint64_t                  m_planKey       = 0;
         uint64_t                  m_lastGoodKey   = 0;
         bool                      m_haveLastGood  = false;
+        uint64_t                  m_planCacheHits   = 0;
+        uint64_t                  m_planCacheMisses = 0;
 
         // compiled plan
         std::vector<CompiledPass>                  m_cPass;

@@ -1,6 +1,7 @@
 #include "Render/FrameSetup.h"
 
 #include "Core/Log.h"
+#include "Render/DebugRenderState.h"
 #include "Render/FrameView.h"
 
 #include <algorithm>
@@ -48,6 +49,42 @@ namespace Dark
         return "?";
     }
 
+
+    namespace
+    {
+        float clamp01(float v)
+        {
+            if (v < 0.0f)
+                return 0.0f;
+            if (v > 1.0f)
+                return 1.0f;
+            return v;
+        }
+    } // namespace
+
+    void applyDebugToggles(FrameSetup& setup, const DebugRenderState& debug)
+    {
+        if (!debug.shadows)
+        {
+            setup.disabled.set(EnginePass::DirectionalShadows);
+            setup.disabled.set(EnginePass::LocalShadows);
+        }
+        if (!debug.ssaoEnabled)
+            setup.disabled.set(EnginePass::Gtao);
+        if (!debug.ssrEnabled)
+            setup.disabled.set(EnginePass::Ssr);
+        if (!debug.decalsEnabled)
+            setup.disabled.set(EnginePass::Decals);
+        if (!debug.clouds)
+            setup.disabled.set(EnginePass::Clouds);
+        if (!debug.bloom)
+            setup.disabled.set(EnginePass::Bloom);
+        if (!debug.taa)
+            setup.disabled.set(EnginePass::Taa);
+        if (!debug.motionBlur)
+            setup.disabled.set(EnginePass::MotionBlur);
+    }
+
     bool FrameSetupHooks::add(IFrameSetupHook* hook)
     {
         if (!hook || std::any_of(m_hooks.begin(), m_hooks.end(), [hook](const Entry& e) { return e.hook == hook; }))
@@ -72,6 +109,39 @@ namespace Dark
     FrameSetup FrameSetupHooks::resolve(const FrameView& view, double seconds)
     {
         FrameSetup setup = view.setup;
+        if (view.debug)
+            applyDebugToggles(setup, *view.debug);
+
+        uint32_t writtenScalars = 0;
+        uint32_t writtenRemaps  = 0;
+        auto     lowerScalar    = [&](float& dst, float proposed, uint32_t bit, const char* field)
+        {
+            if (proposed == dst)
+                return;
+            if ((writtenScalars & bit) && !(m_loggedTwoWriters & bit))
+            {
+                m_loggedTwoWriters |= bit;
+                DE_LOG_WARN(LogCategory::Render, "FrameSetupHooks: two hooks wrote FrameSetup::{}; the lower value is kept (logs once)", field);
+            }
+            writtenScalars |= bit;
+            const float v = clamp01(proposed);
+            if (v < dst)
+                dst = v;
+        };
+        auto takeRemap = [&](ColorRemap& dst, const ColorRemap& proposed, uint32_t bit, const char* field)
+        {
+            if (proposed == dst)
+                return;
+            if ((writtenRemaps & bit) && !(m_loggedTwoRemaps & bit))
+            {
+                m_loggedTwoRemaps |= bit;
+                DE_LOG_WARN(LogCategory::Render, "FrameSetupHooks: two hooks wrote FrameSetup::{}; the last write is kept (logs once)", field);
+            }
+            writtenRemaps |= bit;
+            dst          = proposed;
+            dst.strength = clamp01(dst.strength);
+        };
+
         for (Entry& e : m_hooks)
         {
             const char* name = e.hook->name();
@@ -87,6 +157,14 @@ namespace Dark
             FrameSetup mine = setup;
             e.hook->setupFrame(view, mine);
             setup.disabled.bits |= mine.disabled.bits;
+            lowerScalar(setup.shadowStrength, mine.shadowStrength, 1u << 0, "shadowStrength");
+            lowerScalar(setup.aoStrength, mine.aoStrength, 1u << 1, "aoStrength");
+            lowerScalar(setup.ssrStrength, mine.ssrStrength, 1u << 2, "ssrStrength");
+            lowerScalar(setup.emissiveGain, mine.emissiveGain, 1u << 3, "emissiveGain");
+            takeRemap(setup.albedoRemap, mine.albedoRemap, 1u << 0, "albedoRemap");
+            takeRemap(setup.fogRemap, mine.fogRemap, 1u << 1, "fogRemap");
+            takeRemap(setup.waterRemap, mine.waterRemap, 1u << 2, "waterRemap");
+            takeRemap(setup.skyRemap, mine.skyRemap, 1u << 3, "skyRemap");
         }
         const uint32_t dropped = setup.disabled.bits & ~kEnginePassesHonoured;
         for (uint32_t i = 0; i < kEnginePassCount; ++i)

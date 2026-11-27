@@ -146,7 +146,7 @@ float4 PSMain(PSInput input) : SV_TARGET
     }
 
     float4 ssr  = gSsr.Load(int3(texel, 0));
-    float  conf = (ssrEnabled >= 0.5f && iblDebug < 0.5f) ? saturate(ssr.a) : 0.0f;
+    float  conf = (ssrEnabled > 0.0f && iblDebug < 0.5f) ? saturate(ssr.a) * ssrEnabled : 0.0f;
 
     float3 specIblTerm = 0.0.xxx;
     float3 diffTerm    = ambientColor * baseAlbedo * ao;

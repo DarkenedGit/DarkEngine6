@@ -46,6 +46,8 @@ public:
     Dark::ShadowFeature&              shadowFeature() { return m_shadowFeature; }
     Dark::EchoFeature&                echo() { return m_echo; }
     Dark::CamouflageFeature&          camouflage() { return m_camouflage; }
+    Dark::FrameComposer&              composer() { return m_frameComposer; }
+    const Dark::FrameComposer&        composer() const { return m_frameComposer; }
     Dark::DrawList&                   drawList() { return m_drawList; }
     Dark::SkinnedInstanceBuffer&      skinnedInstances() { return m_skinnedInstances; }
     std::unordered_map<Dark::EntityID, Dark::Math::Matrix4f>& prevWorldByEntity() { return m_prevWorldByEntity; }

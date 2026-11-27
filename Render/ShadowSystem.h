@@ -66,6 +66,9 @@ public:
     // This frame is unshadowed: enabled is false and the packed strength is 0. Call after update()
     // so the CBV slot matches this frame. The map stays allocated.
     void disableThisFrame();
+    // Multiply the packed strength (params[1]) by s in 0..1. A scale of 1 leaves the CBV unchanged.
+    // Call after update() / disableThisFrame().
+    void scaleStrength(float s);
 
     // Debug overlay / F7: when false, skip capture and pack strength 0.
     void setDebugEnabled(bool enabled) { m_debugEnabled = enabled; }

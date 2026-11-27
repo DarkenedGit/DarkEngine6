@@ -1031,6 +1031,7 @@ namespace Dark::Rg
             // Same passes, accesses, descs, size and options as the last good compile: reuse its plan (§3.5).
             m_fromCache  = true;
             m_compiledOk = true;
+            ++m_planCacheHits;
             return true;
         }
         m_haveLastGood = false;
@@ -1042,6 +1043,7 @@ namespace Dark::Rg
         m_compiledOk   = true;
         m_lastGoodKey  = m_planKey;
         m_haveLastGood = true;
+        ++m_planCacheMisses;
         if (m_options.validate)
         {
             std::string why;

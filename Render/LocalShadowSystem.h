@@ -78,6 +78,11 @@ public:
     ID3D12Resource* resource() const { return m_resource.Get(); }
     bool debugEnabled() const { return m_debugEnabled; }
     void setDebugEnabled(bool enabled) { m_debugEnabled = enabled; }
+    // Multiplier for GpuLocalShadowRecord::strength, applied in update(). 1 leaves records unchanged.
+    void setStrengthScale(float s)
+    {
+        m_strengthScale = s < 0.0f ? 0.0f : (s > 1.0f ? 1.0f : s);
+    }
 
     const LocalShadowSettings& settings() const { return m_settings; }
     int slicesPerFrame() const { return static_cast<int>(m_settings.slicesPerFrame); }
@@ -130,6 +135,7 @@ private:
     CpuSrvs                      m_cpu{};
     UINT                         m_dsvIncr = 0;
     uint8_t*                     m_recordsMap = nullptr;
+    float                        m_strengthScale = 1.0f;
 };
 
 } // namespace Dark

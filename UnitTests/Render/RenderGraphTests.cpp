@@ -782,6 +782,9 @@ TEST(RenderGraph, IdenticalFramesReuseTheCompiledPlan)
     buildStandard(g, 800, 600);
     ASSERT_TRUE(compiles(g));
     EXPECT_FALSE(g.compiledFromCache());
+    EXPECT_EQ(g.planCacheHits(), 0u);
+    EXPECT_EQ(g.planCacheMisses(), 1u);
+    EXPECT_FLOAT_EQ(g.planCacheHitRate(), 0.0f);
     const uint64_t                key      = g.planKey();
     const std::vector<BarrierRec> barriers = g.barriers();
     ASSERT_TRUE(g.execute());
@@ -789,6 +792,9 @@ TEST(RenderGraph, IdenticalFramesReuseTheCompiledPlan)
     buildStandard(g, 800, 600);
     ASSERT_TRUE(compiles(g));
     EXPECT_TRUE(g.compiledFromCache());
+    EXPECT_EQ(g.planCacheHits(), 1u);
+    EXPECT_EQ(g.planCacheMisses(), 1u);
+    EXPECT_FLOAT_EQ(g.planCacheHitRate(), 0.5f);
     EXPECT_EQ(g.planKey(), key);
     EXPECT_EQ(g.barriers().size(), barriers.size());
     Recorder rec(g);
