@@ -46,7 +46,7 @@ namespace Dark
         float iblMaxRoughnessMip;
         float iblEnabled;
         float iblDebug;
-        float thermal; // Kept at this offset until the shader-path slice removes the lighting vision branches. 0 is a no-op.
+        float thermal; // >0 infrared, <0 ultraviolet strength, 0 off. RT0.a matches the sign.
     };
 
     static_assert(sizeof(LightingConstants) == 57 * sizeof(float), "lighting root constants");

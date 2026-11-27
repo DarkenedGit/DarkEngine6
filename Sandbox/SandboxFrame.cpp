@@ -523,7 +523,7 @@ void SandboxFrame::render()
 
         const float skyExposure = 1.0f; // tonemap owns exposure
         const float fogScale    = (app().renderer().debugState().lightingActive() ? 1.0f : 0.0f) * (1.0f - underDraw);
-        // Thermal/UV stay 0 until VisionModesFeature (Phase 8 (d)) owns the full-screen path.
+        // thermal and ultraviolet stay 0 while the G-buffer vision variants are gone.
         m_sky.sky.setFrameInputs(
             { &app().m_sceneWorld.camera, &app().m_sceneWorld.env, &m_shadowFeature.shadowMaps(), skyExposure, app().m_sceneWorld.water.params().waterLevel, fogScale, thermal, ultraviolet });
         const Material* material = nullptr;
