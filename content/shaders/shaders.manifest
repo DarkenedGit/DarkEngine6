@@ -14,14 +14,10 @@ BasicMesh.hlsl PSMain ps
 
 BasicMeshGBuffer.hlsl VSMain vs
 BasicMeshGBuffer.hlsl PSMain ps
-BasicMeshGBuffer.hlsl PSMain ps DE_THERMAL=1,DE_THERMAL_HEAT=0.41
-BasicMeshGBuffer.hlsl PSMain ps DE_ULTRAVIOLET=1,DE_UV_CLASS=0.00
 BasicMeshGBuffer.hlsl PSMain ps DE_GBUFFER_SURFACE_TAG=1,DE_SURFACE_CATEGORY=0
 
 BasicMeshGBufferInstanced.hlsl VSMain vs
 BasicMeshGBufferInstanced.hlsl PSMain ps
-BasicMeshGBufferInstanced.hlsl PSMain ps DE_THERMAL=1,DE_THERMAL_HEAT=0.41
-BasicMeshGBufferInstanced.hlsl PSMain ps DE_ULTRAVIOLET=1,DE_UV_CLASS=0.00
 BasicMeshGBufferInstanced.hlsl PSMain ps DE_GBUFFER_SURFACE_TAG=1,DE_SURFACE_CATEGORY=0
 
 BasicMeshDepthInstanced.hlsl VSMain vs
@@ -58,8 +54,6 @@ FoliageDepth.hlsl PSMain ps
 
 FoliageGBuffer.hlsl VSMain vs
 FoliageGBuffer.hlsl PSMain ps
-FoliageGBuffer.hlsl PSMain ps DE_THERMAL=1,DE_THERMAL_HEAT=0.40
-FoliageGBuffer.hlsl PSMain ps DE_ULTRAVIOLET=1,DE_UV_CLASS=0.08
 FoliageGBuffer.hlsl PSMain ps DE_GBUFFER_SURFACE_TAG=1,DE_SURFACE_CATEGORY=4
 
 GrassGBuffer.hlsl VSMain vs GRASS_LOD=0
@@ -67,8 +61,6 @@ GrassGBuffer.hlsl VSMain vs GRASS_LOD=1
 GrassGBuffer.hlsl VSMain vs GRASS_LOD=2
 GrassGBuffer.hlsl VSMain vs GRASS_LOD=3
 GrassGBuffer.hlsl PSMain ps
-GrassGBuffer.hlsl PSMain ps DE_THERMAL=1,DE_THERMAL_HEAT=0.40
-GrassGBuffer.hlsl PSMain ps DE_ULTRAVIOLET=1,DE_UV_CLASS=0.08
 GrassGBuffer.hlsl PSMain ps DE_GBUFFER_SURFACE_TAG=1,DE_SURFACE_CATEGORY=3
 
 Gtao.hlsl VSMain vs
@@ -116,14 +108,10 @@ SkinnedMesh.hlsl PSMain ps
 
 SkinnedMeshGBuffer.hlsl VSMain vs
 SkinnedMeshGBuffer.hlsl PSMain ps
-SkinnedMeshGBuffer.hlsl PSMain ps DE_THERMAL=1,DE_THERMAL_HEAT=0.72
-SkinnedMeshGBuffer.hlsl PSMain ps DE_ULTRAVIOLET=1,DE_UV_CLASS=0.30
 SkinnedMeshGBuffer.hlsl PSMain ps DE_GBUFFER_SURFACE_TAG=1,DE_SURFACE_CATEGORY=1
 
 SkinnedMeshGBufferInstanced.hlsl VSMain vs
 SkinnedMeshGBufferInstanced.hlsl PSMain ps
-SkinnedMeshGBufferInstanced.hlsl PSMain ps DE_THERMAL=1,DE_THERMAL_HEAT=0.72
-SkinnedMeshGBufferInstanced.hlsl PSMain ps DE_ULTRAVIOLET=1,DE_UV_CLASS=0.30
 SkinnedMeshGBufferInstanced.hlsl PSMain ps DE_GBUFFER_SURFACE_TAG=1,DE_SURFACE_CATEGORY=1
 
 SkinnedShadowDepth.hlsl VSMain vs
@@ -150,8 +138,6 @@ TerrainErosion.hlsl CSPipe cs
 
 TerrainGBuffer.hlsl VSMain vs
 TerrainGBuffer.hlsl PSMain ps
-TerrainGBuffer.hlsl PSMain ps DE_THERMAL=1,DE_THERMAL_HEAT=0.41
-TerrainGBuffer.hlsl PSMain ps DE_ULTRAVIOLET=1,DE_UV_CLASS=0.12
 TerrainGBuffer.hlsl PSMain ps DE_GBUFFER_SURFACE_TAG=1,DE_SURFACE_CATEGORY=2
 
 Tonemap.hlsl VSMain vs

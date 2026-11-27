@@ -533,8 +533,6 @@ void EditorApp::drawPlacedWater(
             ssr,
             drawIndex,
             0.0f,
-            0.0f,
-            0.0f,
             false,
             m_scene.frameSetup().waterRemap,
             m_scene.frameSetup().fogRemap);
@@ -569,7 +567,7 @@ void EditorApp::drawPlacedWater(
         WaterParams params = m_sceneWorld.water.params();
         params.flowSpeed   = ribbon.flowSpeed;
         if (drawStreamRibbon(cmd, m_waterRendering.pipeline(), ribbon.mesh, ribbon.bounds, params, m_camera, &frustum, &renderer().debugState(), m_sceneWorld.water.time(), renderer().frameIndex(),
-                             drawIndex, tables, &m_shadowFeature.shadowMaps(), ssr, heightMap, &m_sceneWorld.env, 0.0f, 0.0f, m_scene.frameSetup().waterRemap, m_scene.frameSetup().fogRemap))
+                             drawIndex, tables, &m_shadowFeature.shadowMaps(), ssr, heightMap, &m_sceneWorld.env, m_scene.frameSetup().waterRemap, m_scene.frameSetup().fogRemap))
             ++drawIndex;
     }
 }

@@ -865,9 +865,6 @@ void SceneRenderer::addLocalVolumesPasses(FeatureBuilder& b, Renderer& renderer,
         {
             if (!resolveInputOk(*inp))
                 return;
-            // A flashlight pool is visible light. Heat is already in the emissive meshes.
-            if (self->m_resolveLighting.thermal > 1.0e-4f)
-                return;
             if (!self->m_colorRemapCb.valid())
                 return;
             const LightingViews v = rr->lightingViews();

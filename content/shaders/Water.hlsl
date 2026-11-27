@@ -93,17 +93,15 @@ cbuffer FrameConstants : register(b0)
     float    foamWidthScale;
     float    flowSpeed;
     float    detailAmount;
-    float    thermal; // 0 beauty water, 1 the cold stop
-    float    ultraviolet; // 0 beauty water. Shifts the body only; SSR stays.
     float    underAmount; // 0 above the lake. Back faces are the ceiling.
-    float    _remapPad;
+    float    _remapPad0;
+    float    _remapPad1;
+    float    _remapPad2;
     ColorRemap waterRemap;
     ColorRemap fogRemap;
 };
 
 #include "SkyEval.hlsli"
-#include "Thermal.hlsli"
-#include "Ultraviolet.hlsli"
 #include "ColorRemap.hlsli"
 
 Texture2D    gHeightMap  : register(t1);
@@ -471,11 +469,6 @@ float4 PSMain(PSInput input, bool isFront : SV_IsFrontFace) : SV_TARGET
     float3 foamColor = float3(0.85f, 0.88f, 0.86f);
     body = ApplyColorRemap(body, waterRemap);
     foamColor = ApplyColorRemap(foamColor, waterRemap);
-    if (ultraviolet > 1.0e-4f)
-    {
-        body = beeShift(body, kUvWater, ultraviolet);
-        foamColor = beeShift(foamColor, kUvWater, ultraviolet);
-    }
 
     float edge = stream ? 1.0f : saturate(input.bankUv);
     float metersIn = input.bankUv * (input.streamWidth * 0.5f);
@@ -519,14 +512,14 @@ float4 PSMain(PSInput input, bool isFront : SV_IsFrontFace) : SV_TARGET
         FogResult underResult = FogIntegrate(cameraPos, worldPos, underFog, gHeightMap, gHeightSamp, 1.0f);
         underColor = ApplyLitFog(underColor, underResult);
         alphaUnder = max(alphaUnder, foam * 0.85f * underAmount);
-        return float4(thermalMix(underColor, kThermalWater, thermal), saturate(alphaUnder));
+        return float4(underColor, saturate(alphaUnder));
     }
 
     if (specPower < 0.0f)
     {
         float3 unlit = lerp(body, foamColor, foam);
         alpha = max(alpha, foam * 0.85f);
-        return float4(thermalMix(unlit, kThermalWater, thermal), saturate(alpha));
+        return float4(unlit, saturate(alpha));
     }
 
     float3 v = normalize(cameraPos - worldPos);
@@ -584,7 +577,7 @@ float4 PSMain(PSInput input, bool isFront : SV_IsFrontFace) : SV_TARGET
     fp.lightDir             = lightDir;
     fp.lightColor           = lightColor;
     fp.ambientColor         = ambientColor;
-    fp.fogColor             = ultraviolet > 1.0e-4f ? beeShift(fogColor, kUvFog, ultraviolet) : fogColor;
+    fp.fogColor             = fogColor;
     fp.fogDensity           = fogDensity;
     fp.heightFogDensity     = heightFogDensity;
     fp.heightFogFalloff     = heightFogFalloff;
@@ -602,5 +595,5 @@ float4 PSMain(PSInput input, bool isFront : SV_IsFrontFace) : SV_TARGET
     // Fresnel boost is not multiplied by the rectangle edge. Foam stays opaque on a ribbon bank.
     alpha += fres * 0.15f * (1.0f - foam);
     alpha = max(alpha, foam * 0.85f);
-    return float4(thermalMix(color, kThermalWater, thermal), saturate(alpha));
+    return float4(color, saturate(alpha));
 }

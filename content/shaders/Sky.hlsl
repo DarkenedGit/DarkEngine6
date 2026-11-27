@@ -47,10 +47,6 @@ cbuffer FrameConstants : register(b0)
     float4 clSkyTop;
     float4 clSkyBottom;
     float4 clWind;
-    float  thermal; // 0 beauty sky, 1 cold air plus a hot sun disk
-    float  ultraviolet; // 0 beauty sky, 1 bee shift. Sun disk reflects UV fully.
-    float  _remapPad0;
-    float  _remapPad1;
     ColorRemap skyRemap;
     ColorRemap fogRemap;
 };
@@ -82,8 +78,6 @@ PSInput VSMainDeferred(uint id : SV_VertexID)
 #endif
 
 #include "SkyEval.hlsli"
-#include "Thermal.hlsli"
-#include "Ultraviolet.hlsli"
 #include "ColorRemap.hlsli"
 
 float4 PSMain(PSInput input) : SV_TARGET
@@ -95,12 +89,6 @@ float4 PSMain(PSInput input) : SV_TARGET
         + cameraUp * (input.clipXY.y * tanHalfFovY));
     float3 sky = EvaluateSky(dir);
     sky = ApplyColorRemap(sky, skyRemap);
-    if (ultraviolet > 1.0e-4f)
-    {
-        float3 sun = normalize(sunDir);
-        float disk = smoothstep(0.9995f, 0.99985f, saturate(dot(dir, sun)));
-        sky = beeShift(sky, lerp(kUvSky, 1.0f, disk), ultraviolet);
-    }
     if (fogScale > 0.0f)
     {
         FogParams fp;
@@ -108,7 +96,7 @@ float4 PSMain(PSInput input) : SV_TARGET
         fp.lightDir             = fogLightDir;
         fp.lightColor           = lightColor;
         fp.ambientColor         = ambientColor;
-        fp.fogColor             = ultraviolet > 1.0e-4f ? beeShift(fogColor, kUvFog, ultraviolet) : fogColor;
+        fp.fogColor             = fogColor;
         fp.fogDensity           = fogDensity * fogScale;
         fp.heightFogDensity     = heightFogDensity * fogScale;
         fp.heightFogFalloff     = heightFogFalloff;
@@ -123,12 +111,6 @@ float4 PSMain(PSInput input) : SV_TARGET
         float3 farPos = cameraPos + dir * 280.0f;
         FogResult fog = FogIntegrateNoHeight(cameraPos, farPos, fp, 1.0f);
         sky = ApplyLitFog(sky, fog);
-    }
-    if (thermal > 1.0e-4f)
-    {
-        float3 sun = normalize(sunDir);
-        float disk = smoothstep(0.9995f, 0.99985f, saturate(dot(dir, sun)));
-        sky = lerp(sky, thermalFalseColor(lerp(kThermalSky, 1.0f, disk)), saturate(thermal));
     }
     return float4(sky, 1.0f);
 }

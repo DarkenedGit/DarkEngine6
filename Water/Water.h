@@ -118,8 +118,6 @@ namespace Dark
             const ShadowSystem* shadows = nullptr,
             const SsrSettings* ssrSettings = nullptr,
             uint32_t drawIndex = 0,
-            float thermal = 0.0f,
-            float ultraviolet = 0.0f,
             float underAmount = 0.0f,
             bool ceilingPass = false,
             const ColorRemap& waterRemap = {},
