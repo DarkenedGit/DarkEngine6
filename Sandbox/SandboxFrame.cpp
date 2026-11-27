@@ -487,7 +487,7 @@ void SandboxFrame::render()
     m_scene.requestHistories(frame, app().renderer());
 
 
-    const bool visionPicture = app().m_vision.infrared > 0.0f || app().m_vision.ultraviolet > 0.0f || app().m_vision.echo > 0.0f;
+    const bool visionPicture = app().m_vision.echo > 0.0f;
     const float underDraw = !visionPicture ? Math::Clamp(app().m_play.runtime().underAmount, 0.0f, 1.0f) : 0.0f;
     const bool instanceColor = instanceStatic;
     Matrix4f             viewProj;
@@ -505,22 +505,6 @@ void SandboxFrame::render()
         const Matrix4f viewProjEarly = m_scene.beginCameraFrame(app().m_sceneWorld.camera, app().renderer());
         (void)viewProjEarly;
         {
-            const bool uvDraw = app().m_vision.ultraviolet > 0.0f;
-            const bool thermalDraw = !uvDraw && app().m_vision.infrared > 0.0f;
-            worldDraws.mesh.setUltraviolet(uvDraw);
-            worldDraws.skinned.setUltraviolet(uvDraw);
-            m_terrainPipeline.setUltraviolet(uvDraw);
-            app().m_frame.foliagePipeline().setUltraviolet(uvDraw);
-            app().m_frame.grassPipeline().setUltraviolet(uvDraw);
-            m_drawList.setUltraviolet(uvDraw);
-            m_skinnedInstances.setUltraviolet(uvDraw);
-            worldDraws.mesh.setThermal(thermalDraw);
-            worldDraws.skinned.setThermal(thermalDraw);
-            m_terrainPipeline.setThermal(thermalDraw);
-            app().m_frame.foliagePipeline().setThermal(thermalDraw);
-            app().m_frame.grassPipeline().setThermal(thermalDraw);
-            m_drawList.setThermal(thermalDraw);
-            m_skinnedInstances.setThermal(thermalDraw);
             const bool writeTag = m_scene.frameSetup().writeSurfaceTag;
             worldDraws.mesh.setWriteSurfaceTag(writeTag);
             worldDraws.skinned.setWriteSurfaceTag(writeTag);
@@ -539,8 +523,7 @@ void SandboxFrame::render()
 
         const float skyExposure = 1.0f; // tonemap owns exposure
         const float fogScale    = (app().renderer().debugState().lightingActive() ? 1.0f : 0.0f) * (1.0f - underDraw);
-        ultraviolet = app().m_vision.ultraviolet > 0.0f ? app().m_vision.ultraviolet : 0.0f;
-        thermal     = !(app().m_vision.ultraviolet > 0.0f) ? app().m_vision.infrared : 0.0f;
+        // Thermal/UV stay 0 until VisionModesFeature (Phase 8 (d)) owns the full-screen path.
         m_sky.sky.setFrameInputs(
             { &app().m_sceneWorld.camera, &app().m_sceneWorld.env, &m_shadowFeature.shadowMaps(), skyExposure, app().m_sceneWorld.water.params().waterLevel, fogScale, thermal, ultraviolet });
         const Material* material = nullptr;
@@ -718,20 +701,6 @@ void SandboxFrame::render()
                     app().m_frame.foliagePipeline().drawGBuffer(cmd, app().renderer(), app().assets(), app().m_frame.foliagePrototypes(), app().m_sceneWorld.terrain, app().m_sceneWorld.foliage.empty() ? nullptr : &app().m_sceneWorld.foliage, app().m_sceneWorld.foliageDensity, app().m_sceneWorld.camera, viewProj, prevViewProj, frustum);
             }
 
-            worldDraws.mesh.setUltraviolet(false);
-            worldDraws.skinned.setUltraviolet(false);
-            m_terrainPipeline.setUltraviolet(false);
-            app().m_frame.foliagePipeline().setUltraviolet(false);
-            app().m_frame.grassPipeline().setUltraviolet(false);
-            m_drawList.setUltraviolet(false);
-            m_skinnedInstances.setUltraviolet(false);
-            worldDraws.mesh.setThermal(false);
-            worldDraws.skinned.setThermal(false);
-            m_terrainPipeline.setThermal(false);
-            app().m_frame.foliagePipeline().setThermal(false);
-            app().m_frame.grassPipeline().setThermal(false);
-            m_drawList.setThermal(false);
-            m_skinnedInstances.setThermal(false);
             worldDraws.mesh.setWriteSurfaceTag(false);
             worldDraws.skinned.setWriteSurfaceTag(false);
             m_terrainPipeline.setWriteSurfaceTag(false);
@@ -770,7 +739,6 @@ void SandboxFrame::render()
             applyFogToLighting(lc, fog);
             fillIblLightingConstants(lc, app().m_sceneWorld.ibl, app().renderer().debugState().iblEnabled, app().renderer().debugState().iblDebug, iblGpuReady(app().renderer().gpuResources(), app().m_sceneWorld.iblImageId));
             lc.iblNight = 1.0f - app().m_sceneWorld.env.dayFactor();
-            lc.thermal  = app().m_vision.ultraviolet > 0.0f ? -app().m_vision.ultraviolet : app().m_vision.infrared;
             fillSsrLightingConstants(lc, app().m_sceneWorld.ssr, app().renderer().debugState().ssrEnabled, m_scene.ssrReady());
             resolve.viewProj     = &viewProj;
             resolve.prevViewProj = &prevViewProj;
@@ -1035,8 +1003,8 @@ void SandboxFrame::render()
     exposure.settings    = &app().m_frame.autoExposure();
     exposure.envExposure = app().m_sceneWorld.env.exposure();
     exposure.dt          = app().m_frameDt;
-    // Infrared, ultraviolet, echolocation, and the underwater column swing the meter. Hold the correction while any is on.
-    exposure.hold        = app().m_vision.infrared > 0.0f || app().m_vision.ultraviolet > 0.0f || app().m_vision.echo > 0.0f || app().m_play.runtime().underAmount > 0.0f;
+    // Echolocation and the underwater column swing the meter. Hold the correction while either is on.
+    exposure.hold        = app().m_vision.echo > 0.0f || app().m_play.runtime().underAmount > 0.0f;
     core.post            = &postFx;
     core.viewProj        = &viewProj;
     core.autoExposure    = &exposure;

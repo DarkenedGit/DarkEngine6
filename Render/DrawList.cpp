@@ -935,18 +935,6 @@ void DrawList::setIndirect(bool enabled)
     m_indirect = enabled;
 }
 
-void DrawList::setThermal(bool on)
-{
-    if (m_gpu)
-        m_gpu->pipeline.setThermal(on);
-}
-
-void DrawList::setUltraviolet(bool on)
-{
-    if (m_gpu)
-        m_gpu->pipeline.setUltraviolet(on);
-}
-
 void DrawList::setWriteSurfaceTag(bool on)
 {
     if (m_gpu)
