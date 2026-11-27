@@ -275,6 +275,7 @@ void SandboxFrame::render()
     FrameView      view;
     // Echolocation strobes: no TAA / GTAO / SSR history from (or into) a held frame, no motion blur.
     view.holdTemporal = app().m_vision.echo > 0.0f;
+    view.debug        = &app().renderer().debugState();
     const FrameSetup setup = frame.resolveSetup(view);
     m_scene.setFrameSetup(setup);
     m_shadowFeature.updateLocal(app().world(), app().m_sceneWorld.camera, cameraCull, app().renderer().frameIndex(), selectLocalShadows, setup);

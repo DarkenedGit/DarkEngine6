@@ -2,6 +2,7 @@
 
 #include "Core/Log.h"
 #include "Render/FrameFeatures.h"
+#include "Render/DebugRenderState.h"
 #include "Render/FrameSetup.h"
 #include "Render/FrameView.h"
 #include "Render/GBufferInputs.h"
@@ -90,8 +91,13 @@ TEST(FrameSetup, NoHookKeepsTheViewSetup)
     FrameSetupHooks hooks;
     FrameView       view;
     EXPECT_EQ(hooks.resolve(view, 0.0), FrameSetup{});
+    EXPECT_FLOAT_EQ(hooks.resolve(view, 0.0).shadowStrength, 1.0f);
+    EXPECT_FLOAT_EQ(hooks.resolve(view, 0.0).aoStrength, 1.0f);
+    EXPECT_FLOAT_EQ(hooks.resolve(view, 0.0).ssrStrength, 1.0f);
+    EXPECT_FLOAT_EQ(hooks.resolve(view, 0.0).emissiveGain, 1.0f);
     view.setup.disabled.set(EnginePass::Ssr);
     EXPECT_EQ(hooks.resolve(view, 0.1).disabled.bits, kSsr);
+    EXPECT_FLOAT_EQ(hooks.resolve(view, 0.1).shadowStrength, 1.0f);
 }
 
 TEST(FrameSetup, EmptyHookTurnsNothingOff)
@@ -102,6 +108,14 @@ TEST(FrameSetup, EmptyHookTurnsNothingOff)
     const FrameSetup s = hooks.resolve(FrameView{}, 0.0);
     EXPECT_EQ(empty.calls, 1);
     EXPECT_FALSE(s.disabled.any());
+    EXPECT_FLOAT_EQ(s.shadowStrength, 1.0f);
+    EXPECT_FLOAT_EQ(s.aoStrength, 1.0f);
+    EXPECT_FLOAT_EQ(s.ssrStrength, 1.0f);
+    EXPECT_FLOAT_EQ(s.emissiveGain, 1.0f);
+    EXPECT_EQ(s.albedoRemap, ColorRemap{});
+    EXPECT_EQ(s.fogRemap, ColorRemap{});
+    EXPECT_EQ(s.waterRemap, ColorRemap{});
+    EXPECT_EQ(s.skyRemap, ColorRemap{});
     for (uint32_t i = 0; i < kEnginePassCount; ++i)
         EXPECT_FALSE(s.disabled.has(static_cast<EnginePass>(i))) << enginePassName(static_cast<EnginePass>(i));
 }
@@ -1005,4 +1019,184 @@ TEST(FrameSetup, DisabledSsrCaptureKeepsTheEditorPlaceholderAndPublishesNoCaptur
     EXPECT_TRUE(std::get<1>(kept));
     EXPECT_TRUE(std::get<2>(kept));
     EXPECT_FALSE(std::get<3>(kept));
+}
+
+TEST(FrameSetup, DefaultDebugTogglesFoldIntoTheDisabledMask)
+{
+    DebugRenderState debug; // ssao, decals, clouds default off; bloom/taa/mb/shadows/ssr on
+    FrameSetup       setup;
+    applyDebugToggles(setup, debug);
+    EXPECT_TRUE(setup.disabled.has(EnginePass::Gtao));
+    EXPECT_TRUE(setup.disabled.has(EnginePass::Decals));
+    EXPECT_TRUE(setup.disabled.has(EnginePass::Clouds));
+    EXPECT_FALSE(setup.disabled.has(EnginePass::DirectionalShadows));
+    EXPECT_FALSE(setup.disabled.has(EnginePass::LocalShadows));
+    EXPECT_FALSE(setup.disabled.has(EnginePass::Ssr));
+    EXPECT_FALSE(setup.disabled.has(EnginePass::Bloom));
+    EXPECT_FALSE(setup.disabled.has(EnginePass::Taa));
+    EXPECT_FALSE(setup.disabled.has(EnginePass::MotionBlur));
+    EXPECT_FALSE(setup.disabled.has(EnginePass::DeferredLighting));
+    EXPECT_FALSE(setup.disabled.has(EnginePass::LocalLights));
+    debug.shadows  = false;
+    debug.bloom    = false;
+    debug.lighting = false;
+    debug.localLights = false;
+    applyDebugToggles(setup, debug);
+    EXPECT_TRUE(setup.disabled.has(EnginePass::DirectionalShadows));
+    EXPECT_TRUE(setup.disabled.has(EnginePass::LocalShadows));
+    EXPECT_TRUE(setup.disabled.has(EnginePass::Bloom));
+    EXPECT_FALSE(setup.disabled.has(EnginePass::DeferredLighting));
+    EXPECT_FALSE(setup.disabled.has(EnginePass::LocalLights));
+}
+
+TEST(FrameSetup, ResolveFoldsDebugThenHooksAndAHookCannotClearAToggle)
+{
+    DebugRenderState debug;
+    debug.ssaoEnabled = false;
+    debug.bloom       = false;
+    FrameView        view;
+    view.debug = &debug;
+    struct On : IFrameSetupHook
+    {
+        const char* name() const override { return "On"; }
+        void        setupFrame(const FrameView&, FrameSetup& setup) override
+        {
+            setup.disabled.bits = 0; // try to turn everything back on
+            setup.disabled.set(EnginePass::Ssr);
+        }
+    } on;
+    FrameSetupHooks hooks;
+    ASSERT_TRUE(hooks.add(&on));
+    const FrameSetup s = hooks.resolve(view, 0.0);
+    EXPECT_TRUE(s.disabled.has(EnginePass::Gtao));
+    EXPECT_TRUE(s.disabled.has(EnginePass::Bloom));
+    EXPECT_TRUE(s.disabled.has(EnginePass::Decals));
+    EXPECT_TRUE(s.disabled.has(EnginePass::Clouds));
+    EXPECT_TRUE(s.disabled.has(EnginePass::Ssr));
+}
+
+TEST(FrameSetup, HooksCanOnlyLowerScalarsAndARaiseIsIgnored)
+{
+    struct Set : IFrameSetupHook
+    {
+        const char* hookName = "Set";
+        float       shadow   = 1.0f;
+        float       ao       = 1.0f;
+        const char* name() const override { return hookName; }
+        void        setupFrame(const FrameView&, FrameSetup& setup) override
+        {
+            setup.shadowStrength = shadow;
+            setup.aoStrength     = ao;
+        }
+    };
+    FrameSetupHooks hooks;
+    Set             low, high;
+    low.hookName = "Low";
+    low.shadow   = 0.5f;
+    low.ao       = 0.25f;
+    high.hookName = "High";
+    high.shadow   = 0.8f; // must not raise
+    high.ao       = 1.5f; // clamp then ignore raise
+    ASSERT_TRUE(hooks.add(&low));
+    ASSERT_TRUE(hooks.add(&high));
+    const FrameSetup s = hooks.resolve(FrameView{}, 0.0);
+    EXPECT_FLOAT_EQ(s.shadowStrength, 0.5f);
+    EXPECT_FLOAT_EQ(s.aoStrength, 0.25f);
+    EXPECT_FLOAT_EQ(s.ssrStrength, 1.0f);
+    EXPECT_FLOAT_EQ(s.emissiveGain, 1.0f);
+}
+
+TEST(FrameSetup, TwoHooksWritingTheSameScalarLogOnce)
+{
+    LogCapture logs;
+    struct Set : IFrameSetupHook
+    {
+        const char* hookName = "A";
+        float       value    = 0.5f;
+        const char* name() const override { return hookName; }
+        void        setupFrame(const FrameView&, FrameSetup& setup) override { setup.shadowStrength = value; }
+    } a, b;
+    b.hookName = "B";
+    b.value    = 0.2f;
+    FrameSetupHooks hooks;
+    ASSERT_TRUE(hooks.add(&a));
+    ASSERT_TRUE(hooks.add(&b));
+    EXPECT_FLOAT_EQ(hooks.resolve(FrameView{}, 0.0).shadowStrength, 0.2f);
+    EXPECT_EQ(logsWith("two hooks wrote FrameSetup::shadowStrength"), 1u);
+    EXPECT_FLOAT_EQ(hooks.resolve(FrameView{}, 0.1).shadowStrength, 0.2f);
+    EXPECT_EQ(logsWith("two hooks wrote FrameSetup::shadowStrength"), 1u); // once
+}
+
+TEST(FrameSetup, ColorRemapDefaultsAreIdentityAndLastWriterWins)
+{
+    EXPECT_EQ(ColorRemap{}, ColorRemap{});
+    EXPECT_FLOAT_EQ(ColorRemap{}.strength, 0.0f);
+    EXPECT_FLOAT_EQ(ColorRemap{}.m[0][0], 1.0f);
+    struct Set : IFrameSetupHook
+    {
+        const char* hookName = "A";
+        float       strength = 0.4f;
+        const char* name() const override { return hookName; }
+        void        setupFrame(const FrameView&, FrameSetup& setup) override
+        {
+            setup.albedoRemap.strength = strength;
+            setup.albedoRemap.aux      = 1.0f;
+        }
+    } a, b;
+    b.hookName = "B";
+    b.strength = 0.7f;
+    LogCapture      logs;
+    FrameSetupHooks hooks;
+    ASSERT_TRUE(hooks.add(&a));
+    ASSERT_TRUE(hooks.add(&b));
+    const FrameSetup s = hooks.resolve(FrameView{}, 0.0);
+    EXPECT_FLOAT_EQ(s.albedoRemap.strength, 0.7f);
+    EXPECT_FLOAT_EQ(s.albedoRemap.aux, 1.0f);
+    EXPECT_EQ(logsWith("two hooks wrote FrameSetup::albedoRemap"), 1u);
+}
+
+TEST(FrameSetup, RandomScalarsAreClampedAndOnlyLowered)
+{
+    std::mt19937 rng(8 * 1000 + 2);
+    std::uniform_real_distribution<float> dist(-0.25f, 1.75f);
+    for (int trial = 0; trial < 100; ++trial)
+    {
+        struct Set : IFrameSetupHook
+        {
+            const char* hookName = "A";
+            float       shadow = 1.0f, ao = 1.0f, ssr = 1.0f, emis = 1.0f;
+            const char* name() const override { return hookName; }
+            void        setupFrame(const FrameView&, FrameSetup& setup) override
+            {
+                setup.shadowStrength = shadow;
+                setup.aoStrength     = ao;
+                setup.ssrStrength    = ssr;
+                setup.emissiveGain   = emis;
+            }
+        } a, b;
+        b.hookName = "B";
+        a.shadow = dist(rng);
+        a.ao     = dist(rng);
+        a.ssr    = dist(rng);
+        a.emis   = dist(rng);
+        b.shadow = dist(rng);
+        b.ao     = dist(rng);
+        b.ssr    = dist(rng);
+        b.emis   = dist(rng);
+        auto after = [](float dst, float proposed) {
+            if (proposed == dst)
+                return dst;
+            const float c = proposed < 0.0f ? 0.0f : (proposed > 1.0f ? 1.0f : proposed);
+            return c < dst ? c : dst;
+        };
+        auto expect = [&](float first, float second) { return after(after(1.0f, first), second); };
+        FrameSetupHooks hooks;
+        ASSERT_TRUE(hooks.add(&a));
+        ASSERT_TRUE(hooks.add(&b));
+        const FrameSetup s = hooks.resolve(FrameView{}, 0.0);
+        EXPECT_FLOAT_EQ(s.shadowStrength, expect(a.shadow, b.shadow)) << trial;
+        EXPECT_FLOAT_EQ(s.aoStrength, expect(a.ao, b.ao)) << trial;
+        EXPECT_FLOAT_EQ(s.ssrStrength, expect(a.ssr, b.ssr)) << trial;
+        EXPECT_FLOAT_EQ(s.emissiveGain, expect(a.emis, b.emis)) << trial;
+    }
 }

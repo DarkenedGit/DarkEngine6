@@ -214,6 +214,17 @@ void ShadowSystem::disableThisFrame()
         std::memcpy(m_cbMapped + static_cast<size_t>(m_frame) * cbBytes(), &m_cpuConstants, sizeof(m_cpuConstants));
 }
 
+void ShadowSystem::scaleStrength(float s)
+{
+    if (s >= 1.0f)
+        return;
+    if (s < 0.0f)
+        s = 0.0f;
+    m_cpuConstants.params[1] *= s;
+    if (m_cbMapped)
+        std::memcpy(m_cbMapped + static_cast<size_t>(m_frame) * cbBytes(), &m_cpuConstants, sizeof(m_cpuConstants));
+}
+
 void ShadowSystem::closeProfileCascade(ID3D12GraphicsCommandList* cmd)
 {
     if (!cmd || !m_profileCascade)

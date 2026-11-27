@@ -172,6 +172,13 @@ TEST(Ssr, FillLightingConstants_Ands)
     s.enabled = false;
     fillSsrLightingConstants(lc, s, true, true);
     EXPECT_FLOAT_EQ(lc.ssrEnabled, 0.0f);
+    s.enabled = true;
+    fillSsrLightingConstants(lc, s, true, true, 0.25f);
+    EXPECT_FLOAT_EQ(lc.ssrEnabled, 0.25f);
+    fillSsrLightingConstants(lc, s, true, true, 1.5f);
+    EXPECT_FLOAT_EQ(lc.ssrEnabled, 1.0f);
+    fillSsrLightingConstants(lc, s, true, true, -0.5f);
+    EXPECT_FLOAT_EQ(lc.ssrEnabled, 0.0f);
 }
 
 TEST(Ssr, Cbv_CaptureSlotDistinctFromTrace)

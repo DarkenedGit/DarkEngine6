@@ -1124,6 +1124,13 @@ void SandboxHud::drawProfiler()
     ImGui::TextDisabled("PIX groups. GPU time lags by a frame or two. P hides.");
     if (const uint32_t bad = hostPassSequenceFailures(); bad > 0)
         ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.3f, 1.0f), "Pass order failed on %u frames (see log)", bad);
+    {
+        const Rg::RenderGraph& graph = app().m_frame.composer().graph();
+        const uint64_t         hits  = graph.planCacheHits();
+        const uint64_t         n     = hits + graph.planCacheMisses();
+        ImGui::Text("Plan cache  %.1f%%  (%llu hits / %llu compiles)", static_cast<double>(graph.planCacheHitRate()) * 100.0, static_cast<unsigned long long>(hits),
+                    static_cast<unsigned long long>(n));
+    }
     if (ImGui::SmallButton("Log camera as capture preset"))
     {
         // Paste into content/perf/capture_cameras.json. eye/target are world positions.

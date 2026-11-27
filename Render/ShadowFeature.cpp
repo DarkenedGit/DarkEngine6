@@ -307,7 +307,10 @@ namespace Dark
     void ShadowFeature::updateLocal(World& world, const Camera3D& camera, const Frustum3f& cameraFrustum, uint32_t frameIndex, bool select, const FrameSetup& setup)
     {
         if (m_localShadows)
+        {
+            m_localShadows->setStrengthScale(setup.shadowStrength);
             m_localShadows->update(world, camera, cameraFrustum, frameIndex, select && !setup.disabled.has(EnginePass::LocalShadows));
+        }
     }
 
     void ShadowFeature::updateDirectional(const Camera3D& camera, const Math::Vector3f& lightDirToward, const Math::AABox3f& sceneBounds, float sunElevation, float cloudCoverage, uint32_t frameIndex,
@@ -318,6 +321,7 @@ namespace Dark
         m_shadows->update(camera, lightDirToward, sceneBounds, sunElevation, cloudCoverage, frameIndex);
         if (setup.disabled.has(EnginePass::DirectionalShadows))
             m_shadows->disableThisFrame();
+        m_shadows->scaleStrength(setup.shadowStrength);
     }
 
     void ShadowFeature::publishShadowMaps(Renderer& renderer)
