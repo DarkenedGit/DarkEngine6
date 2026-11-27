@@ -128,7 +128,10 @@ bool SceneRenderer::createPostPipelines(Renderer& renderer, const char* tag)
         return false;
     }
     if (!m_colorRemapCb.create(renderer.device()))
-        DE_LOG_ERROR(LogCategory::Render, "{}: ColorRemap CBV create failed — remaps stay identity", tag);
+    {
+        DE_LOG_FATAL("{}: ColorRemap CBV create failed", tag);
+        return false;
+    }
     if (!m_localLightVolumes.create(renderer.device()))
         DE_LOG_ERROR(LogCategory::Render, "{}: LocalLightVolumePipeline create failed — local lights disabled", tag);
     if (!m_localLightGpu.create(renderer.device()))
@@ -813,8 +816,11 @@ void SceneRenderer::addLightingPasses(FeatureBuilder& b, Renderer& renderer, con
             self->publishResolveLighting(*inp, *rr);
             if (!resolveInputOk(*inp))
                 return;
+            // A missing CBV is not an identity bind; do not CopyDescriptors a null handle into the table.
+            if (!self->m_colorRemapCb.valid())
+                return;
             const LightingViews v = rr->lightingViews();
-            // Register order t0..t9 then the ColorRemap CBV (SceneBuffers::kLighting*).
+            // Register order: SRVs t0..t9, then the ColorRemap CBV (SceneBuffers::kLighting*).
             const D3D12_GPU_DESCRIPTOR_HANDLE table = rgTable(c, { v.albedo, v.attrib, rgSrvCpu(c, d.depth), shadowSrv(c, v, d.shadow), v.height, rgSrvCpu(c, d.ao), v.iblIrradiance, v.iblPrefilter, v.iblBrdfLut,
                                                                    d.ssr.valid() ? rgSrvCpu(c, d.ssr) : rr->ssrDummyCpu(), self->m_colorRemapCb.cpu(rr->frameIndex()) });
             bindHdrTarget(c.cmd(), *rr, rgRtv(c, d.hdr));
@@ -847,6 +853,8 @@ void SceneRenderer::addLocalVolumesPasses(FeatureBuilder& b, Renderer& renderer,
                 return;
             // A flashlight pool is visible light. Heat is already in the emissive meshes.
             if (self->m_resolveLighting.thermal > 1.0e-4f)
+                return;
+            if (!self->m_colorRemapCb.valid())
                 return;
             const LightingViews v = rr->lightingViews();
             // LocalLightVolumePipeline::kTable* order, ColorRemap CBV last.

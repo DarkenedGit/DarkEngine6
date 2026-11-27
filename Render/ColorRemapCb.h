@@ -9,9 +9,8 @@
 namespace Dark
 {
 
-    // 256-byte CBV of albedo/sky/water + fog remaps. Lighting and local lights bind it from a
-    // descriptor-table range so the existing root-constant layouts (already at the 64-DWORD cap)
-    // stay unchanged. Upload heap is GENERIC_READ; it is not a graph resource.
+    // 256-byte lighting / local-light upload of albedoRemap then fogRemap. Bound from a
+    // descriptor-table range (lighting b2, local lights b1).
     class ColorRemapCb
     {
     public:
@@ -22,8 +21,13 @@ namespace Dark
         void destroy();
 
         void write(uint32_t frameIndex, const ColorRemap& first, const ColorRemap& fog);
-        D3D12_CPU_DESCRIPTOR_HANDLE cpu(uint32_t frameIndex) const;
-        bool                        valid() const { return m_mapped != nullptr; }
+        D3D12_CPU_DESCRIPTOR_HANDLE cpu(uint32_t frameIndex) const
+        {
+            if (!m_mapped)
+                return {};
+            return m_cpu[slotIndex(frameIndex)];
+        }
+        bool valid() const { return m_mapped != nullptr; }
 
     private:
         UINT slotIndex(uint32_t frameIndex) const { return frameIndex % kFrames; }

@@ -106,8 +106,9 @@ TEST(Gtao, Settings_Defaults)
 
 TEST(Gtao, LightingTable_AoSlot)
 {
-    // The lighting pass's ring table (render-graph plan Phase 6 part 4): AO is t5.
-    EXPECT_EQ(SceneBuffers::kLightingCount, 10u);
+    // The lighting pass's ring table (render-graph plan Phase 6 part 4): AO is t5; ColorRemap is last.
+    EXPECT_EQ(SceneBuffers::kLightingColorRemap, 10u);
+    EXPECT_EQ(SceneBuffers::kLightingCount, 11u);
     EXPECT_EQ(SceneBuffers::kLightingAo, 5u);
 }
 

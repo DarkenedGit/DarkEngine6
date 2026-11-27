@@ -96,12 +96,4 @@ namespace Dark
         p.fog = packColorRemap(fog);
         std::memcpy(m_mapped + static_cast<size_t>(i) * kSlotBytes, &p, sizeof(p));
     }
-
-    D3D12_CPU_DESCRIPTOR_HANDLE ColorRemapCb::cpu(uint32_t frameIndex) const
-    {
-        if (!m_mapped)
-            return {};
-        return m_cpu[slotIndex(frameIndex)];
-    }
-
 } // namespace Dark

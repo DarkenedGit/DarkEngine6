@@ -98,8 +98,8 @@ namespace Dark
 
         bool create(ID3D12Device* device);
         // One full-screen triangle into the bound HDR target. `table` is a descriptor-ring table of
-        // SceneBuffers::kLightingCount views in register order (t0..t9, SceneBuffers::kLighting*); the
-        // caller has bound the ring heap (render-graph plan Phase 6 part 4).
+        // SceneBuffers::kLightingCount views in register order (SRVs t0..t9, then the ColorRemap CBV,
+        // SceneBuffers::kLighting*); the caller has bound the ring heap (render-graph plan Phase 6 part 4).
         void draw(ID3D12GraphicsCommandList* cmd, D3D12_GPU_DESCRIPTOR_HANDLE table, const ShadowSystem& shadows, const LightingConstants& constants) const;
 
         bool isValid() const { return m_pso != nullptr; }

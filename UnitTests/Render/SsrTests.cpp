@@ -86,11 +86,14 @@ TEST(Ssr, Settings_Defaults)
     EXPECT_FALSE(HasMaxSteps<SsrSettings>::value);
 }
 
-TEST(Ssr, LightingTable_SsrIsLast)
+TEST(Ssr, LightingTable_SsrIsLastSrv)
 {
+    // SSR is the last SRV (t9); the ColorRemap CBV follows at slot 10.
     EXPECT_EQ(SceneBuffers::kLightingSsr, 9u);
-    EXPECT_EQ(SceneBuffers::kLightingCount, 10u);
+    EXPECT_EQ(SceneBuffers::kLightingColorRemap, 10u);
+    EXPECT_EQ(SceneBuffers::kLightingCount, 11u);
     EXPECT_EQ(SceneBuffers::kLightingIblBrdfLut + 1u, SceneBuffers::kLightingSsr);
+    EXPECT_EQ(SceneBuffers::kLightingSsr + 1u, SceneBuffers::kLightingColorRemap);
 }
 
 TEST(Ssr, LightingRs_DwordBudget)

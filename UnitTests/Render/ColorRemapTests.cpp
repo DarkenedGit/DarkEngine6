@@ -1,4 +1,6 @@
+#include "Render/ColorRemapCb.h"
 #include "Render/DeferredLightingPipeline.h"
+#include "Render/SceneBuffers.h"
 #include "Render/FrameSetup.h"
 #include "Render/LocalLightVolumePipeline.h"
 #include "Sky/SkyPipeline.h"
@@ -136,4 +138,22 @@ TEST(ColorRemap, NoHookDefaultsPackToANoOp)
     EXPECT_EQ(setup.skyRemap, ColorRemap{});
     EXPECT_FLOAT_EQ(packColorRemap(setup.albedoRemap).strength, 0.0f);
     EXPECT_FLOAT_EQ(packColorRemap(setup.fogRemap).strength, 0.0f);
+}
+
+TEST(ColorRemap, LightingTablesIncludeTheColorRemapCbv)
+{
+    EXPECT_EQ(Dark::SceneBuffers::kLightingSsr, 9u);
+    EXPECT_EQ(Dark::SceneBuffers::kLightingColorRemap, 10u);
+    EXPECT_EQ(Dark::SceneBuffers::kLightingCount, 11u);
+    EXPECT_EQ(Dark::LocalLightVolumePipeline::kTableColorRemap, 7u);
+    EXPECT_EQ(Dark::LocalLightVolumePipeline::kTableCount, 8u);
+}
+
+TEST(ColorRemap, AMissingCbvHasNoCpuHandle)
+{
+    // A CBV that was never created must not present a descriptor for rgTable to copy.
+    Dark::ColorRemapCb cb;
+    EXPECT_FALSE(cb.valid());
+    EXPECT_EQ(cb.cpu(0).ptr, 0ull);
+    EXPECT_EQ(cb.cpu(1).ptr, 0ull);
 }
