@@ -159,9 +159,8 @@ namespace Dark
     {
         if (desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER || desc.Dimension == D3D12_RESOURCE_DIMENSION_UNKNOWN)
             return false;
-        constexpr D3D12_RESOURCE_STATES kLegacyLayoutBits = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE |
-                                                            D3D12_RESOURCE_STATE_COPY_DEST | D3D12_RESOURCE_STATE_COPY_SOURCE;
-        return (initial & kLegacyLayoutBits) != 0;
+        Rg::UseState state;
+        return Rg::legacyStateEquivalent(static_cast<uint32_t>(initial), Rg::ResourceKind::Texture, state);
     }
 
     D3D12_RESOURCE_DESC1 resourceDesc1(const D3D12_RESOURCE_DESC& desc)

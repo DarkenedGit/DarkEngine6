@@ -132,13 +132,18 @@ namespace Dark
         if (!m_allocator)
             return false;
         D3D12MA::ALLOCATION_DESC alloc{};
-        alloc.HeapType              = D3D12_HEAP_TYPE_DEFAULT;
+        alloc.HeapType = D3D12_HEAP_TYPE_DEFAULT;
+        // Placed render targets and depth live in the not-zeroed default pools. The debug layer then
+        // rejects the first draw until a discard, clear, or copy (error 1422). A committed resource is
+        // zeroed, so the creation state is real contents.
+        if ((desc.Flags & (D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL)) != 0)
+            alloc.Flags = D3D12MA::ALLOCATION_FLAG_COMMITTED;
         D3D12MA::Allocation* result = nullptr;
         HRESULT              hr     = E_FAIL;
         if (createNeedsLayout(desc, initial))
         {
-            // A legacy shader-resource / copy creation state has only an internal LEGACY_* layout that
-            // enhanced barriers cannot name (Phase 6, D13): create with the public layout instead.
+            // Born in the enhanced layout. A legacy creation state makes the first Barrier() an interop
+            // (debug layer error 1350) unless the texture is in COMMON.
             const D3D12_RESOURCE_DESC1 desc1 = resourceDesc1(desc);
             hr = toAllocator(m_allocator.Get())->CreateResource3(&alloc, &desc1, initialLayout(initial), clear, 0, nullptr, &result, IID_NULL, nullptr);
         }

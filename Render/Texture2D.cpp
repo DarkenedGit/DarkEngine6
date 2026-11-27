@@ -1,5 +1,6 @@
 #include "Render/Texture2D.h"
 #include "Assets/Image.h"
+#include "Render/EnhancedBarrierEmitter.h"
 #include "Render/Renderer.h"
 #include "Core/Log.h"
 
@@ -371,7 +372,7 @@ namespace Dark
         D3D12_HEAP_PROPERTIES defaultHeap{};
         defaultHeap.Type = D3D12_HEAP_TYPE_DEFAULT;
 
-        if (FailedHr(device->CreateCommittedResource(&defaultHeap, D3D12_HEAP_FLAG_NONE, &texDesc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, IID_PPV_ARGS(&m_resource)),
+        if (FailedHr(createCommittedResource(device, defaultHeap, D3D12_HEAP_FLAG_NONE, texDesc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, IID_PPV_ARGS(&m_resource)),
                      "CreateCommittedResource UAV bake"))
             return false;
 

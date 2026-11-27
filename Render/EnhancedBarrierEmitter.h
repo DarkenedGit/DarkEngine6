@@ -51,11 +51,10 @@ namespace Dark
     // null resource, so an absent optional target never fires an assert).
     bool trackedInState(ID3D12Resource* resource, D3D12_RESOURCE_STATES state);
 
-    // Textures created in a legacy state whose layout is internal-only (PIXEL/NON_PIXEL_SHADER_RESOURCE,
-    // COPY_DEST, COPY_SOURCE, GENERIC_READ map to LEGACY_* layouts the Barrier API cannot name) are
-    // created with an explicit enhanced initial layout instead (ID3D12Device10::CreateCommittedResource3),
-    // so every later enhanced barrier names the layout the texture really has. Other states and
-    // buffers go through CreateCommittedResource unchanged.
+    // A texture is created with CreateCommittedResource3 in the enhanced layout `initial` maps to.
+    // Legacy CreateCommittedResource, even in a public state such as RENDER_TARGET, makes the first
+    // Barrier() an interop, and the debug layer rejects that unless the texture is in COMMON
+    // (error 1350). A state with no enhanced layout, and every buffer, stays on CreateCommittedResource.
     bool createNeedsLayout(const D3D12_RESOURCE_DESC& desc, D3D12_RESOURCE_STATES initial);
     D3D12_RESOURCE_DESC1 resourceDesc1(const D3D12_RESOURCE_DESC& desc);
     D3D12_BARRIER_LAYOUT  initialLayout(D3D12_RESOURCE_STATES initial); // public layout for a texture created in `initial`

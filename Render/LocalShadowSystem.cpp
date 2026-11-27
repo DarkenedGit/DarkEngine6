@@ -378,8 +378,8 @@ bool LocalShadowSystem::createArray(ID3D12Device* device)
     clear.DepthStencil.Depth = kDepthClear;
 
     if (FailedHr(
-            device->CreateCommittedResource(
-                &heap, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_DEPTH_WRITE, &clear, IID_PPV_ARGS(&m_resource)),
+            createCommittedResource(
+                device, heap, D3D12_HEAP_FLAG_NONE, desc, D3D12_RESOURCE_STATE_DEPTH_WRITE, &clear, IID_PPV_ARGS(&m_resource)),
             "CreateCommittedResource local shadow map"))
         return false;
 

@@ -348,7 +348,7 @@ TEST(EnhancedBarrierEmitter, AReadAfterADeclaredReadInTheSameLayoutStillNeedsNoB
     EXPECT_EQ(scope.tracker.current(table[0])->sync, Sync::PixelShading | Sync::ComputeShading);
 }
 
-TEST(EnhancedBarrierEmitter, CreationOnlyNeedsAnExplicitLayoutForLegacyOnlyTextureStates)
+TEST(EnhancedBarrierEmitter, TexturesAreCreatedInTheEnhancedLayoutTheirStateMapsTo)
 {
     D3D12_RESOURCE_DESC tex{};
     tex.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
@@ -358,14 +358,18 @@ TEST(EnhancedBarrierEmitter, CreationOnlyNeedsAnExplicitLayoutForLegacyOnlyTextu
     EXPECT_TRUE(createNeedsLayout(tex, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE));
     EXPECT_TRUE(createNeedsLayout(tex, D3D12_RESOURCE_STATE_COPY_DEST));
     EXPECT_TRUE(createNeedsLayout(tex, D3D12_RESOURCE_STATE_GENERIC_READ));
-    EXPECT_FALSE(createNeedsLayout(tex, D3D12_RESOURCE_STATE_RENDER_TARGET));
-    EXPECT_FALSE(createNeedsLayout(tex, D3D12_RESOURCE_STATE_DEPTH_WRITE));
-    EXPECT_FALSE(createNeedsLayout(tex, D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
-    EXPECT_FALSE(createNeedsLayout(tex, D3D12_RESOURCE_STATE_COMMON));
+    EXPECT_TRUE(createNeedsLayout(tex, D3D12_RESOURCE_STATE_RENDER_TARGET));
+    EXPECT_TRUE(createNeedsLayout(tex, D3D12_RESOURCE_STATE_DEPTH_WRITE));
+    EXPECT_TRUE(createNeedsLayout(tex, D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
+    EXPECT_TRUE(createNeedsLayout(tex, D3D12_RESOURCE_STATE_COMMON));
+    EXPECT_FALSE(createNeedsLayout(tex, D3D12_RESOURCE_STATE_STREAM_OUT));
     EXPECT_FALSE(createNeedsLayout(buf, D3D12_RESOURCE_STATE_COPY_DEST));
     EXPECT_EQ(initialLayout(D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE), D3D12_BARRIER_LAYOUT_SHADER_RESOURCE);
     EXPECT_EQ(initialLayout(D3D12_RESOURCE_STATE_COPY_DEST), D3D12_BARRIER_LAYOUT_COPY_DEST);
     EXPECT_EQ(initialLayout(D3D12_RESOURCE_STATE_GENERIC_READ), D3D12_BARRIER_LAYOUT_GENERIC_READ);
+    EXPECT_EQ(initialLayout(D3D12_RESOURCE_STATE_RENDER_TARGET), D3D12_BARRIER_LAYOUT_RENDER_TARGET);
+    EXPECT_EQ(initialLayout(D3D12_RESOURCE_STATE_DEPTH_WRITE), D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_WRITE);
+    EXPECT_EQ(initialLayout(D3D12_RESOURCE_STATE_COMMON), D3D12_BARRIER_LAYOUT_COMMON);
 }
 
 TEST(EnhancedBarrierEmitter, ShadowMapsAreCreatedInTheirFrameStartState)
