@@ -55,6 +55,8 @@ TEST(SceneBuffers, InvalidUntilCreated)
     EXPECT_EQ(v.shadow.ptr, 0u);
     EXPECT_EQ(v.localShadowRecords.ptr, 0u);
     EXPECT_FLOAT_EQ(SceneBuffers::kAoClear[0], 1.0f);
+    EXPECT_FLOAT_EQ(SceneBuffers::kSurfaceTagClear[0], 0.0f);
+    EXPECT_FLOAT_EQ(SceneBuffers::kSurfaceTagClear[1], 0.0f);
 }
 
 TEST(SceneBuffers, HostViewsAreStoredAndSurviveAFailedCreate)

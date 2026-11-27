@@ -947,6 +947,12 @@ void DrawList::setUltraviolet(bool on)
         m_gpu->pipeline.setUltraviolet(on);
 }
 
+void DrawList::setWriteSurfaceTag(bool on)
+{
+    if (m_gpu)
+        m_gpu->pipeline.setWriteSurfaceTag(on);
+}
+
 bool DrawList::indirectReady() const
 {
     return m_gpu && m_gpu->signature && m_gpu->args[0] && m_gpu->args[1] && m_gpu->argStagingBytes;

@@ -521,6 +521,14 @@ void SandboxFrame::render()
             app().m_frame.grassPipeline().setThermal(thermalDraw);
             m_drawList.setThermal(thermalDraw);
             m_skinnedInstances.setThermal(thermalDraw);
+            const bool writeTag = m_scene.frameSetup().writeSurfaceTag;
+            worldDraws.mesh.setWriteSurfaceTag(writeTag);
+            worldDraws.skinned.setWriteSurfaceTag(writeTag);
+            m_terrainPipeline.setWriteSurfaceTag(writeTag);
+            app().m_frame.foliagePipeline().setWriteSurfaceTag(writeTag);
+            app().m_frame.grassPipeline().setWriteSurfaceTag(writeTag);
+            m_drawList.setWriteSurfaceTag(writeTag);
+            m_skinnedInstances.setWriteSurfaceTag(writeTag);
         }
 
         viewProj     = app().m_sceneWorld.camera.GetViewProj();
@@ -724,6 +732,13 @@ void SandboxFrame::render()
             app().m_frame.grassPipeline().setThermal(false);
             m_drawList.setThermal(false);
             m_skinnedInstances.setThermal(false);
+            worldDraws.mesh.setWriteSurfaceTag(false);
+            worldDraws.skinned.setWriteSurfaceTag(false);
+            m_terrainPipeline.setWriteSurfaceTag(false);
+            app().m_frame.foliagePipeline().setWriteSurfaceTag(false);
+            app().m_frame.grassPipeline().setWriteSurfaceTag(false);
+            m_drawList.setWriteSurfaceTag(false);
+            m_skinnedInstances.setWriteSurfaceTag(false);
 
             copyMatrix(lc.invViewProj, viewProj.Inverse());
             lc.cameraPos[0]     = camPos.x;

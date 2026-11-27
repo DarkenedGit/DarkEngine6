@@ -677,6 +677,21 @@ namespace Dark
                 destroy();
                 return false;
             }
+            D3D12_GRAPHICS_PIPELINE_STATE_DESC tagDesc = psoDesc;
+            tagDesc.RasterizerState.CullMode = D3D12_CULL_MODE_BACK;
+            if (!createSurfaceTagPipelineState(device, tagDesc, "shaders/FoliageGBuffer.hlsl", "4", m_gbSurfaceTag,
+                                               "CreateGraphicsPipelineState (foliage surface tag)"))
+            {
+                destroy();
+                return false;
+            }
+            tagDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+            if (!createSurfaceTagPipelineState(device, tagDesc, "shaders/FoliageGBuffer.hlsl", "4", m_gbSurfaceTagTwoSided,
+                                               "CreateGraphicsPipelineState (foliage surface tag two-sided)"))
+            {
+                destroy();
+                return false;
+            }
         }
 
         D3D12_ROOT_PARAMETER depthParams[6]{};
@@ -855,8 +870,11 @@ namespace Dark
         m_gbThermalTwoSided.Reset();
         m_gbUv.Reset();
         m_gbUvTwoSided.Reset();
+        m_gbSurfaceTag.Reset();
+        m_gbSurfaceTagTwoSided.Reset();
         m_thermal = false;
         m_ultraviolet = false;
+        m_writeSurfaceTag = false;
         m_gbRoot.Reset();
         m_depthPso.Reset();
         m_depthPsoTwoSided.Reset();
@@ -1985,6 +2003,8 @@ namespace Dark
             gbPso = m_gbUv.Get();
         else if (m_thermal && m_gbThermal)
             gbPso = m_gbThermal.Get();
+        else if (m_writeSurfaceTag && m_gbSurfaceTag)
+            gbPso = m_gbSurfaceTag.Get();
         cmd->SetPipelineState(gbPso);
 
         const D3D12_GPU_VIRTUAL_ADDRESS worldVa   = m_worldGpu + static_cast<UINT64>(m_activeSlot) * kWorldStride;
@@ -2005,6 +2025,8 @@ namespace Dark
                 pso = twoSided ? m_gbUvTwoSided.Get() : m_gbUv.Get();
             else if (m_thermal)
                 pso = twoSided ? m_gbThermalTwoSided.Get() : m_gbThermal.Get();
+            else if (m_writeSurfaceTag)
+                pso = twoSided ? m_gbSurfaceTagTwoSided.Get() : m_gbSurfaceTag.Get();
             if (pso)
                 cmd->SetPipelineState(pso);
             D3D12_GPU_VIRTUAL_ADDRESS indexVa = indexBase + static_cast<UINT64>(i) * kIndexKindStride;

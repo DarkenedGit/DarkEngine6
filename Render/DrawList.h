@@ -50,6 +50,7 @@ public:
     void setIndirect(bool enabled);
     void setThermal(bool on);
     void setUltraviolet(bool on);
+    void setWriteSurfaceTag(bool on);
     bool indirectReady() const;
     void setGpuCull(bool enabled);
     bool gpuCullActive() const { return m_gpuCull; }

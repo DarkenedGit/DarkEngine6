@@ -141,8 +141,10 @@ namespace Dark
         ComPtr<ID3D12PipelineState> gbPso;
         ComPtr<ID3D12PipelineState> gbThermal;
         ComPtr<ID3D12PipelineState> gbUv;
+        ComPtr<ID3D12PipelineState> gbSurfaceTag;
         bool                        thermal = false;
         bool                        ultraviolet = false;
+        bool                        writeSurfaceTag = false;
         ComPtr<ID3D12RootSignature> depthRoot;
         ComPtr<ID3D12PipelineState> depthPso;
 
@@ -273,6 +275,9 @@ namespace Dark
             uvDesc.PS = { uvPs->GetBufferPointer(), uvPs->GetBufferSize() };
             if (FailedHr(device->CreateGraphicsPipelineState(&uvDesc, IID_PPV_ARGS(&gbUv)), "CreateGraphicsPipelineState (skinned ultraviolet)"))
                 return false;
+            if (!createSurfaceTagPipelineState(device, gbPsoDesc, "shaders/SkinnedMeshGBufferInstanced.hlsl", "1", gbSurfaceTag,
+                                               "CreateGraphicsPipelineState (skinned instanced surface tag)"))
+                return false;
         }
 
         D3D12_ROOT_PARAMETER depthParams[4]{};
@@ -350,7 +355,8 @@ namespace Dark
         if (!cmd || !gbPso)
             return;
         cmd->SetGraphicsRootSignature(gbRoot.Get());
-        cmd->SetPipelineState((ultraviolet && gbUv) ? gbUv.Get() : (thermal && gbThermal) ? gbThermal.Get() : gbPso.Get());
+        cmd->SetPipelineState((ultraviolet && gbUv) ? gbUv.Get() : (thermal && gbThermal) ? gbThermal.Get()
+            : (writeSurfaceTag && gbSurfaceTag) ? gbSurfaceTag.Get() : gbPso.Get());
     }
 
     void SkinnedInstanceBuffer::Gpu::setGBufferConstants(ID3D12GraphicsCommandList* cmd, const MeshBatchConstants& constants) const
@@ -507,6 +513,12 @@ namespace Dark
     {
         if (m_gpu)
             m_gpu->ultraviolet = on;
+    }
+
+    void SkinnedInstanceBuffer::setWriteSurfaceTag(bool on)
+    {
+        if (m_gpu)
+            m_gpu->writeSurfaceTag = on;
     }
 
     bool SkinnedInstanceBuffer::cullReady() const

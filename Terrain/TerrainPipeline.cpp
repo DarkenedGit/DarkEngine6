@@ -28,8 +28,10 @@ namespace Dark
         m_psoPoint.Reset();
         m_psoThermal.Reset();
         m_psoUv.Reset();
+        m_psoSurfaceTag.Reset();
         m_thermal = false;
         m_ultraviolet = false;
+        m_writeSurfaceTag = false;
 
         if (!device)
         {
@@ -187,6 +189,12 @@ namespace Dark
             m_rootSignature.Reset();
             return false;
         }
+        if (!createSurfaceTagPipelineState(device, psoDesc, "shaders/TerrainGBuffer.hlsl", "2", m_psoSurfaceTag,
+                                           "CreateGraphicsPipelineState (terrain surface tag)"))
+        {
+            m_rootSignature.Reset();
+            return false;
+        }
 
         DE_LOG_INFO(LogCategory::Render, "TerrainPipeline: ready (13-slot metal-rough, solid/wire/point, GBuffer)");
         return true;
@@ -197,6 +205,8 @@ namespace Dark
         ID3D12PipelineState* pso = (m_ultraviolet && fill == DebugFill::Solid && m_psoUv) ? m_psoUv.Get()
             : (m_thermal && fill == DebugFill::Solid && m_psoThermal)
             ? m_psoThermal.Get()
+            : (m_writeSurfaceTag && fill == DebugFill::Solid && m_psoSurfaceTag)
+            ? m_psoSurfaceTag.Get()
             : selectFillPso(fill, m_psoSolid.Get(), m_psoWire.Get(), m_psoPoint.Get());
         if (!cmd || !pso)
             return;

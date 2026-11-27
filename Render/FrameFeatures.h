@@ -38,6 +38,9 @@ namespace Dark
         TaaHistory,
         GtaoHistory,
         SsrHistory,
+        // R8G8_UNORM tag + aux. Imported with the other scene buffers; the G-buffer pass declares a
+        // write only when FrameSetup::writeSurfaceTag is set, so a default frame does not transition it.
+        SurfaceTag,
         Count,
     };
     inline constexpr uint32_t kRenderResourceCount = static_cast<uint32_t>(RenderResource::Count);

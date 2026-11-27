@@ -69,6 +69,12 @@ namespace Dark
         void         setEmissiveColor(float r, float g, float b);
         const float* emissiveColor() const { return m_emissiveColor; }
 
+        // Opaque per-material SurfaceTag override. clearSurfaceTag() uses the pipeline category.
+        void    setSurfaceTag(uint8_t tag) { m_hasSurfaceTag = true; m_surfaceTag = tag; }
+        void    clearSurfaceTag() { m_hasSurfaceTag = false; m_surfaceTag = 0; }
+        bool    hasSurfaceTag() const { return m_hasSurfaceTag; }
+        uint8_t surfaceTag() const { return m_surfaceTag; }
+
         bool isValid() const { return m_albedo && m_albedo->valid(); }
         uint64_t sortKey() const;
 
@@ -88,10 +94,12 @@ namespace Dark
         float             m_ao           = 1.0f;
         float             m_normalScale  = 1.0f;
         float             m_alphaCutoff  = 0.5f;
-        MaterialAlphaMode m_alphaMode    = MaterialAlphaMode::Opaque;
+        MaterialAlphaMode m_alphaMode      = MaterialAlphaMode::Opaque;
+        bool              m_hasSurfaceTag  = false;
+        uint8_t           m_surfaceTag     = 0;
     };
 
-    // "m:{albedo}:{normal}:{orm}:{emis}:{uv}:{r}:{g}:{b}:{a}:{metal}:{rough}:{emisS}:{ao}:{nScale}:{cut}:{mode}:{er}:{eg}:{eb}"
+    // "m:{albedo}:{normal}:{orm}:{emis}:{uv}:{r}:{g}:{b}:{a}:{metal}:{rough}:{emisS}:{ao}:{nScale}:{cut}:{mode}:{er}:{eg}:{eb}:{hasTag}:{tag}"
     std::string materialRecipeKey(const Material& m);
 
     // Packed ORM: R=AO, G=roughness, B=metallic, A=255. Linear, not defaulted. Both null → false.

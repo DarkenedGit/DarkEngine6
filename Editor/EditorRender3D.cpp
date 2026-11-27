@@ -423,6 +423,13 @@ void EditorApp::renderScene3D()
         ID3D12GraphicsCommandList* const cmd = pass.cmd();
         viewProj     = m_scene.beginCameraFrame(m_camera, renderer());
         prevViewProj = m_scene.havePrevViewProj() ? m_scene.prevViewProj() : viewProj;
+        const bool writeTag = m_scene.frameSetup().writeSurfaceTag;
+        worldDraws.mesh.setWriteSurfaceTag(writeTag);
+        worldDraws.skinned.setWriteSurfaceTag(writeTag);
+        m_terrainPipeline.setWriteSurfaceTag(writeTag);
+        m_foliagePipeline.setWriteSurfaceTag(writeTag);
+        m_grassPipeline.setWriteSurfaceTag(writeTag);
+        m_drawList.setWriteSurfaceTag(writeTag);
 
         auto drawMesh = [&](const Mesh& mesh, const Matrix4f& world, const Material* material, float cr, float cg, float cb, float emissive = 0.0f) {
             worldDraws.mesh.bind(cmd, fill);

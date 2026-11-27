@@ -100,4 +100,19 @@ namespace Dark
         outMacros[2].Definition = nullptr;
     }
 
+    // outMacros must have room for 3 entries. category is a literal such as "0" (SurfaceCategory) and must outlive the compile.
+    inline void makeSurfaceTagMacros(const char* category, D3D_SHADER_MACRO outMacros[3])
+    {
+        outMacros[0].Name       = "DE_GBUFFER_SURFACE_TAG";
+        outMacros[0].Definition = "1";
+        outMacros[1].Name       = "DE_SURFACE_CATEGORY";
+        outMacros[1].Definition = category;
+        outMacros[2].Name       = nullptr;
+        outMacros[2].Definition = nullptr;
+    }
+
+    // Extra G-buffer PS variant: 5th RT is R8G8_UNORM SurfaceTag. categoryLiteral is DE_SURFACE_CATEGORY.
+    bool createSurfaceTagPipelineState(ID3D12Device* device, const D3D12_GRAPHICS_PIPELINE_STATE_DESC& gbufferDesc, const char* shaderFile,
+                                       const char* categoryLiteral, ComPtr<ID3D12PipelineState>& outPso, const char* what);
+
 } // namespace Dark

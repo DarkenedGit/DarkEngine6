@@ -71,6 +71,7 @@ public:
     bool isValid() const;
     void setThermal(bool on);
     void setUltraviolet(bool on);
+    void setWriteSurfaceTag(bool on);
     bool cullReady() const;
     bool depthResourceSetReady() const;
     void ensureCompiled() const { compile(); }

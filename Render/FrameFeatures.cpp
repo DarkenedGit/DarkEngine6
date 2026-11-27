@@ -97,7 +97,8 @@ namespace Dark
 
     const char* renderResourceName(RenderResource resource)
     {
-        static const char* const kNames[] = { "Swap", "Depth", "Shadow", "LocalShadow", "Albedo", "Attrib", "Velocity", "Ao", "Hdr", "Post", "TaaHistory", "GtaoHistory", "SsrHistory" };
+        static const char* const kNames[] = { "Swap",        "Depth", "Shadow", "LocalShadow", "Albedo",      "Attrib",      "Velocity", "Ao",
+                                              "Hdr",         "Post",  "TaaHistory", "GtaoHistory", "SsrHistory", "SurfaceTag" };
         static_assert(sizeof(kNames) / sizeof(kNames[0]) == kRenderResourceCount, "one name per RenderResource");
         const auto i = static_cast<uint32_t>(resource);
         return i < kRenderResourceCount ? kNames[i] : "Unknown";

@@ -104,6 +104,11 @@ namespace Dark
         float          ssrStrength    = 1.0f; // 0..1, scales the lighting SSR blend (ssrEnabled)
         float          emissiveGain   = 1.0f; // 0..1, multiplies the host's LightingConstants::emissiveGain
         ColorRemap     albedoRemap, fogRemap, waterRemap, skyRemap;
+        bool           writeSurfaceTag = false; // G-buffer also writes the R8G8 SurfaceTag target
+        // Optional 256-entry LUT owned by the hook (not copied). The engine stores the pointer; the
+        // game full-screen pass / later lighting aux reads it. Null means no LUT.
+        const float*   surfaceTagLut     = nullptr;
+        uint32_t       surfaceTagLutSize = 0;
 
         bool operator==(const FrameSetup&) const = default;
     };
@@ -145,8 +150,8 @@ namespace Dark
 
         // The frame's setup: start from `view.setup`, fold `view.debug` toggles (when non-null), then
         // OR each named hook's disabled bits and take the min of any scalar it lowers (clamped to
-        // 0..1). Two hooks writing the same scalar or remap log once. `seconds` is a monotonic clock
-        // for the mask-change warning.
+        // 0..1). writeSurfaceTag is OR-ed. Two hooks writing the same scalar, remap or surfaceTagLut
+        // log once. `seconds` is a monotonic clock for the mask-change warning.
         FrameSetup resolve(const FrameView& view, double seconds);
         bool       maskChangeWarned() const
         {
@@ -170,6 +175,7 @@ namespace Dark
         uint32_t                                         m_changeCount = 0; // total, the ring index
         uint32_t                                         m_loggedTwoWriters = 0;
         uint32_t                                         m_loggedTwoRemaps  = 0;
+        bool                                             m_loggedTwoLuts    = false;
     };
 
 } // namespace Dark

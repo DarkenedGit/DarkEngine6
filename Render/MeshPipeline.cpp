@@ -31,8 +31,10 @@ namespace Dark
         m_psoPoint.Reset();
         m_psoThermal.Reset();
         m_psoUv.Reset();
-        m_thermal     = false;
-        m_ultraviolet = false;
+        m_psoSurfaceTag.Reset();
+        m_thermal         = false;
+        m_ultraviolet     = false;
+        m_writeSurfaceTag = false;
 
         if (!device)
         {
@@ -222,6 +224,11 @@ namespace Dark
                 m_rootSignature.Reset();
                 return false;
             }
+            if (!createSurfaceTagPipelineState(device, psoDesc, shader, "0", m_psoSurfaceTag, "CreateGraphicsPipelineState (mesh surface tag)"))
+            {
+                m_rootSignature.Reset();
+                return false;
+            }
         }
 
         const char* passName = gbuffer ? "GBuffer" : "ForwardTransparent";
@@ -234,6 +241,8 @@ namespace Dark
         ID3D12PipelineState* pso = (m_ultraviolet && fill == DebugFill::Solid && m_psoUv) ? m_psoUv.Get()
             : (m_thermal && fill == DebugFill::Solid && m_psoThermal)
             ? m_psoThermal.Get()
+            : (m_writeSurfaceTag && fill == DebugFill::Solid && m_psoSurfaceTag)
+            ? m_psoSurfaceTag.Get()
             : selectFillPso(fill, m_psoSolid.Get(), m_psoWire.Get(), m_psoPoint.Get());
         if (!cmd || !pso)
             return;

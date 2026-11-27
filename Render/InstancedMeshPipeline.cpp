@@ -40,8 +40,10 @@ namespace Dark
         m_gbPso.Reset();
         m_gbThermal.Reset();
         m_gbUv.Reset();
+        m_gbSurfaceTag.Reset();
         m_thermal = false;
         m_ultraviolet = false;
+        m_writeSurfaceTag = false;
         m_depthRoot.Reset();
         m_depthPso.Reset();
     }
@@ -186,6 +188,12 @@ namespace Dark
                 reset();
                 return false;
             }
+            if (!createSurfaceTagPipelineState(device, gbPso, "shaders/BasicMeshGBufferInstanced.hlsl", "0", m_gbSurfaceTag,
+                                               "CreateGraphicsPipelineState (instanced surface tag)"))
+            {
+                reset();
+                return false;
+            }
         }
 
         D3D12_ROOT_PARAMETER depthParams[3]{};
@@ -271,7 +279,8 @@ namespace Dark
         if (!cmd || !m_gbPso)
             return;
         cmd->SetGraphicsRootSignature(m_gbRoot.Get());
-        cmd->SetPipelineState((m_ultraviolet && m_gbUv) ? m_gbUv.Get() : (m_thermal && m_gbThermal) ? m_gbThermal.Get() : m_gbPso.Get());
+        cmd->SetPipelineState((m_ultraviolet && m_gbUv) ? m_gbUv.Get() : (m_thermal && m_gbThermal) ? m_gbThermal.Get()
+            : (m_writeSurfaceTag && m_gbSurfaceTag) ? m_gbSurfaceTag.Get() : m_gbPso.Get());
     }
 
     void InstancedMeshPipeline::setGBufferConstants(ID3D12GraphicsCommandList* cmd, const MeshBatchConstants& constants) const

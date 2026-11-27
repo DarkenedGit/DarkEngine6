@@ -3,6 +3,7 @@
 
 #include "GBuffer.hlsli"
 #include "Thermal.hlsli"
+#include "SurfaceTag.hlsli"
 #include "Ultraviolet.hlsli"
 
 cbuffer FrameConstants : register(b0)
@@ -114,6 +115,9 @@ GBufferOut PSMain(PSInput input)
         o.attrib   = float4(EncodeOct(nG), orm.g, orm.b);
         o.velocity = VelocityUv(input.currClip, input.prevClip);
         o.ao       = orm.r;
+#ifdef DE_GBUFFER_SURFACE_TAG
+        o.surfaceTag = packSurfaceTag((uint)DE_SURFACE_CATEGORY, 0.0f);
+#endif
         return o;
     }
 
@@ -221,5 +225,8 @@ GBufferOut PSMain(PSInput input)
     o.attrib   = float4(EncodeOct(nWorld), rough, metal);
     o.velocity = VelocityUv(input.currClip, input.prevClip);
     o.ao       = ao;
+#ifdef DE_GBUFFER_SURFACE_TAG
+    o.surfaceTag = packSurfaceTag((uint)DE_SURFACE_CATEGORY, 0.0f);
+#endif
     return o;
 }
