@@ -1,6 +1,8 @@
 #ifndef DE_FOG_HLSLI
 #define DE_FOG_HLSLI
 
+#include "ColorRemap.hlsli"
+
 // Lit exponential distance + height fog, plus valley volumetric density around water.
 // In-scatter is atmospheric (horizon color, sun/moon, local lights) and kept dim
 // enough that it fades with distance instead of saturating into a glowing shell.
@@ -37,6 +39,7 @@ struct FogParams
     float2 heightOrigin;
     float  heightCellSize;
     float2 heightWorldSize;
+    ColorRemap fogRemap; // strength 0 is a no-op (ApplyColorRemap early-out)
 };
 
 struct FogResult
@@ -55,7 +58,7 @@ float FogHenyeyGreenstein(float cosTheta, float g)
 // Horizon/sky color, desaturated so a packing miss (e.g. lightDir.y) cannot go lime.
 float3 FogAlbedo(FogParams p)
 {
-    float3 c   = saturate(p.fogColor);
+    float3 c   = saturate(ApplyColorRemap(p.fogColor, p.fogRemap));
     float  lum = dot(c, float3(0.2126f, 0.7152f, 0.0722f));
     float3 mist = lum * float3(0.90f, 0.94f, 1.00f);
     return saturate(lerp(mist, c, 0.50f));

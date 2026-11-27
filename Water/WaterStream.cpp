@@ -353,7 +353,9 @@ namespace Dark
         const Terrain::HeightMap* heightMap,
         const IEnvironmentProvider* env,
         float thermal,
-        float ultraviolet)
+        float ultraviolet,
+        const ColorRemap& waterRemap,
+        const ColorRemap& fogRemap)
     {
         // Caller copies the lake params and writes this ribbon's flowSpeed first.
         if (!cmd || !pipeline.isValid() || !mesh.valid())
@@ -385,6 +387,8 @@ namespace Dark
         WaterPipeline::fillSsr(cb, camera, ssrSettings, !debug || debug->ssrEnabled, hasSsr, env);
         cb.thermal = thermal > 0.0f ? thermal : 0.0f;
         cb.ultraviolet = ultraviolet > 0.0f ? ultraviolet : 0.0f;
+        cb.waterRemap = packColorRemap(waterRemap);
+        cb.fogRemap   = packColorRemap(fogRemap);
         pipeline.setConstants(cmd, cb, frameIndex, drawIndex);
         pipeline.setLights(cmd, 0);
         pipeline.bindTables(cmd, tables);

@@ -421,7 +421,9 @@ using namespace Terrain;
         float thermal,
         float ultraviolet,
         float underAmount,
-        bool ceilingPass) const
+        bool ceilingPass,
+        const ColorRemap& waterRemap,
+        const ColorRemap& fogRemap) const
     {
         m_lastDrawCalls = 0;
         m_lastTriangles = 0;
@@ -467,6 +469,8 @@ using namespace Terrain;
         else if (under > 1.0f)
             under = 1.0f;
         cb.underAmount = under;
+        cb.waterRemap  = packColorRemap(waterRemap);
+        cb.fogRemap    = packColorRemap(fogRemap);
         const float air = 1.0f - under;
         cb.fogDensity *= air;
         cb.heightFogDensity *= air;

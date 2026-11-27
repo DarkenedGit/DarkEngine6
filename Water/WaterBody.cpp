@@ -491,7 +491,9 @@ namespace Dark
         const ShadowSystem* shadows,
         const SsrSettings* ssrSettings,
         const Terrain::HeightMap* heightMap,
-        const IEnvironmentProvider* env) const
+        const IEnvironmentProvider* env,
+        const ColorRemap& waterRemap,
+        const ColorRemap& fogRemap) const
     {
         if (!cmd || !pipeline.isValid() || !gpuValid())
             return false;
@@ -518,6 +520,8 @@ namespace Dark
         cb.heightWorldSizeZ = fogMap.heightWorldSizeZ;
         const bool hasSsr = WaterPipeline::ssrReady(tables);
         WaterPipeline::fillSsr(cb, camera, ssrSettings, !debug || debug->ssrEnabled, hasSsr, env);
+        cb.waterRemap = packColorRemap(waterRemap);
+        cb.fogRemap   = packColorRemap(fogRemap);
         pipeline.setConstants(cmd, cb, frameIndex, drawIndex);
         pipeline.setLights(cmd, 0);
         pipeline.bindTables(cmd, tables);

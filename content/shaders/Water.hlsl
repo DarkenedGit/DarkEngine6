@@ -96,11 +96,15 @@ cbuffer FrameConstants : register(b0)
     float    thermal; // 0 beauty water, 1 the cold stop
     float    ultraviolet; // 0 beauty water. Shifts the body only; SSR stays.
     float    underAmount; // 0 above the lake. Back faces are the ceiling.
+    float    _remapPad;
+    ColorRemap waterRemap;
+    ColorRemap fogRemap;
 };
 
 #include "SkyEval.hlsli"
 #include "Thermal.hlsli"
 #include "Ultraviolet.hlsli"
+#include "ColorRemap.hlsli"
 
 Texture2D    gHeightMap  : register(t1);
 SamplerState gHeightSamp : register(s0);
@@ -465,6 +469,8 @@ float4 PSMain(PSInput input, bool isFront : SV_IsFrontFace) : SV_TARGET
     float3 body = lerp(deepColor, shallowColor, shallow);
     body *= lerp(1.0f, 0.2f, foam);
     float3 foamColor = float3(0.85f, 0.88f, 0.86f);
+    body = ApplyColorRemap(body, waterRemap);
+    foamColor = ApplyColorRemap(foamColor, waterRemap);
     if (ultraviolet > 1.0e-4f)
     {
         body = beeShift(body, kUvWater, ultraviolet);
@@ -485,8 +491,8 @@ float4 PSMain(PSInput input, bool isFront : SV_IsFrontFace) : SV_TARGET
         float3 view = normalize(cameraPos - worldPos);
         float facing = saturate(dot(-n, view));
         float alphaUnder = lerp(0.90f, 0.25f, facing) * underAmount;
-        float3 underBody = deepColor * 0.45f;
-        float3 underFoam = float3(0.85f, 0.88f, 0.86f);
+        float3 underBody = ApplyColorRemap(deepColor * 0.45f, waterRemap);
+        float3 underFoam = ApplyColorRemap(float3(0.85f, 0.88f, 0.86f), waterRemap);
         float3 underColor = lerp(underBody, underFoam, foam);
         if (specPower >= 0.0f)
         {
@@ -509,6 +515,7 @@ float4 PSMain(PSInput input, bool isFront : SV_IsFrontFace) : SV_TARGET
         underFog.heightOrigin         = float2(heightOriginX, heightOriginZ);
         underFog.heightCellSize       = heightCellSize;
         underFog.heightWorldSize      = float2(heightWorldSizeX, heightWorldSizeZ);
+        underFog.fogRemap             = fogRemap;
         FogResult underResult = FogIntegrate(cameraPos, worldPos, underFog, gHeightMap, gHeightSamp, 1.0f);
         underColor = ApplyLitFog(underColor, underResult);
         alphaUnder = max(alphaUnder, foam * 0.85f * underAmount);
@@ -588,6 +595,7 @@ float4 PSMain(PSInput input, bool isFront : SV_IsFrontFace) : SV_TARGET
     fp.heightOrigin         = float2(heightOriginX, heightOriginZ);
     fp.heightCellSize       = heightCellSize;
     fp.heightWorldSize      = float2(heightWorldSizeX, heightWorldSizeZ);
+    fp.fogRemap             = fogRemap;
     FogResult fogResult = FogIntegrate(cameraPos, worldPos, fp, gHeightMap, gHeightSamp, 1.0f);
     color = ApplyLitFog(color, fogResult);
 

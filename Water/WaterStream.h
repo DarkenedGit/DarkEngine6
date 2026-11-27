@@ -3,6 +3,7 @@
 #include "Assets/MeshData.h"
 #include "Math/AABox3f.h"
 #include "Math/Vector2f.h"
+#include "Render/FrameSetup.h"
 #include "Render/Mesh.h"
 #include "Water/WaterWaves.h"
 
@@ -86,6 +87,8 @@ namespace Dark
         const Terrain::HeightMap* heightMap,
         const IEnvironmentProvider* env,
         float thermal = 0.0f,
-        float ultraviolet = 0.0f);
+        float ultraviolet = 0.0f,
+        const ColorRemap& waterRemap = {},
+        const ColorRemap& fogRemap = {});
 
 } // namespace Dark

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
@@ -64,8 +65,7 @@ namespace Dark
     inline constexpr uint32_t kEnginePassesHonoured = (1u << kEnginePassCount) - 1u;
 
     // out = lerp(c, M * float4(c, aux), strength). Identity / strength 0 means unchanged
-    // (render-graph plan §3.4.2). Shader ApplyColorRemap is a later slice; these fields travel with
-    // the resolved setup so a hook can record them now.
+    // (render-graph plan §3.4.2). Shader ApplyColorRemap in ColorRemap.hlsli matches applyColorRemap.
     struct ColorRemap
     {
         float m[3][4]  = { { 1, 0, 0, 0 }, { 0, 1, 0, 0 }, { 0, 0, 1, 0 } };
@@ -74,6 +74,25 @@ namespace Dark
 
         bool operator==(const ColorRemap&) const = default;
     };
+
+    // 16-byte-aligned GPU packing of ColorRemap (64 bytes). Appended to sky/water FrameConstants
+    // and uploaded as a lighting/local-light CBV pair.
+    struct ColorRemapGpu
+    {
+        float m0[4];
+        float m1[4];
+        float m2[4];
+        float aux;
+        float strength;
+        float pad[2];
+    };
+    static_assert(sizeof(ColorRemapGpu) == 64, "ColorRemapGpu is 16-byte aligned");
+    static_assert(offsetof(ColorRemapGpu, aux) == 48, "aux follows the 3x4 matrix");
+    static_assert(offsetof(ColorRemapGpu, strength) == 52, "strength follows aux");
+
+    ColorRemapGpu packColorRemap(const ColorRemap& src);
+    // Mirrors ColorRemap.hlsli ApplyColorRemap. Strength <= 0 leaves dst == src bit-identically.
+    void applyColorRemap(float dst[3], const float src[3], const ColorRemap& remap);
 
     // One frame's setup. The default (scalars 1, remaps identity) leaves the frame as the host's
     // settings and debug state draw it. Hooks may only turn passes off and only lower a scalar.

@@ -63,6 +63,8 @@ namespace Dark
         Renderer*      m_renderer = nullptr;
         SkyPipeline    m_pipeline;
         SkyFrameInputs m_inputs;
+        ColorRemap     m_skyRemap{};
+        ColorRemap     m_fogRemap{};
     };
 
 } // namespace Dark

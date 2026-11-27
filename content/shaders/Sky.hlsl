@@ -49,6 +49,10 @@ cbuffer FrameConstants : register(b0)
     float4 clWind;
     float  thermal; // 0 beauty sky, 1 cold air plus a hot sun disk
     float  ultraviolet; // 0 beauty sky, 1 bee shift. Sun disk reflects UV fully.
+    float  _remapPad0;
+    float  _remapPad1;
+    ColorRemap skyRemap;
+    ColorRemap fogRemap;
 };
 
 struct PSInput
@@ -80,6 +84,7 @@ PSInput VSMainDeferred(uint id : SV_VertexID)
 #include "SkyEval.hlsli"
 #include "Thermal.hlsli"
 #include "Ultraviolet.hlsli"
+#include "ColorRemap.hlsli"
 
 float4 PSMain(PSInput input) : SV_TARGET
 {
@@ -89,6 +94,7 @@ float4 PSMain(PSInput input) : SV_TARGET
         + cameraRight * (input.clipXY.x * tanHalfFovX)
         + cameraUp * (input.clipXY.y * tanHalfFovY));
     float3 sky = EvaluateSky(dir);
+    sky = ApplyColorRemap(sky, skyRemap);
     if (ultraviolet > 1.0e-4f)
     {
         float3 sun = normalize(sunDir);
@@ -113,6 +119,7 @@ float4 PSMain(PSInput input) : SV_TARGET
         fp.heightOrigin         = 0.0.xx;
         fp.heightCellSize       = 0.0f;
         fp.heightWorldSize      = 1.0.xx;
+        fp.fogRemap             = fogRemap;
         float3 farPos = cameraPos + dir * 280.0f;
         FogResult fog = FogIntegrateNoHeight(cameraPos, farPos, fp, 1.0f);
         sky = ApplyLitFog(sky, fog);

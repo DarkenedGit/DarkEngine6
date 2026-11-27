@@ -21,8 +21,9 @@ namespace Dark
     class SceneBuffers
     {
     public:
-        // The deferred lighting pass's descriptor table, in register order (t0..t9). The pass copies
-        // these views into a descriptor-ring table each frame (render-graph plan Phase 6 part 4).
+        // The deferred lighting pass's descriptor table, in register order: SRVs t0..t9, then the
+        // ColorRemap CBV at slot 10 (kLightingCount views). The pass copies these views into a
+        // descriptor-ring table each frame (render-graph plan Phase 6 part 4).
         static constexpr UINT kLightingAlbedo        = 0;
         static constexpr UINT kLightingAttrib        = 1;
         static constexpr UINT kLightingDepth         = 2;
@@ -33,7 +34,8 @@ namespace Dark
         static constexpr UINT kLightingIblPrefilter  = 7;
         static constexpr UINT kLightingIblBrdfLut    = 8;
         static constexpr UINT kLightingSsr           = 9;
-        static constexpr UINT kLightingCount         = 10;
+        static constexpr UINT kLightingColorRemap    = 10;
+        static constexpr UINT kLightingCount         = 11;
 
         SceneBuffers() = default;
         ~SceneBuffers();

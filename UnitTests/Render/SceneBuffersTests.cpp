@@ -28,7 +28,8 @@ TEST(SceneBuffers, LightingCount)
     EXPECT_EQ(SceneBuffers::kLightingIblPrefilter, 7u);
     EXPECT_EQ(SceneBuffers::kLightingIblBrdfLut, 8u);
     EXPECT_EQ(SceneBuffers::kLightingSsr, 9u);
-    EXPECT_EQ(SceneBuffers::kLightingCount, 10u);
+    EXPECT_EQ(SceneBuffers::kLightingColorRemap, 10u);
+    EXPECT_EQ(SceneBuffers::kLightingCount, 11u);
 }
 
 TEST(SceneBuffers, LocalLightTableMatchesItsRootRanges)
@@ -37,7 +38,8 @@ TEST(SceneBuffers, LocalLightTableMatchesItsRootRanges)
     EXPECT_EQ(LocalLightVolumePipeline::kTableAttrib, LocalLightVolumePipeline::kTableAlbedo + 1u);
     EXPECT_EQ(LocalLightVolumePipeline::kTableDepth, LocalLightVolumePipeline::kTableAlbedo + 2u);
     EXPECT_EQ(LocalLightVolumePipeline::kTableLocalShadowRecords, LocalLightVolumePipeline::kTableLocalShadow + 1u);
-    EXPECT_EQ(LocalLightVolumePipeline::kTableCount, 7u);
+    EXPECT_EQ(LocalLightVolumePipeline::kTableColorRemap, 7u);
+    EXPECT_EQ(LocalLightVolumePipeline::kTableCount, 8u);
 }
 
 TEST(SceneBuffers, InvalidUntilCreated)

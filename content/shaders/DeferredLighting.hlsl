@@ -11,6 +11,7 @@
 #include "Fog.hlsli"
 #include "Thermal.hlsli"
 #include "Ultraviolet.hlsli"
+#include "ColorRemap.hlsli"
 
 cbuffer LightingConstants : register(b0)
 {
@@ -44,6 +45,12 @@ cbuffer LightingConstants : register(b0)
     float    iblEnabled;
     float    iblDebug;
     float    thermal; // >0 infrared, <0 ultraviolet strength, 0 off. RT0.a matches the sign.
+};
+
+cbuffer ColorRemapConstants : register(b2)
+{
+    ColorRemap albedoRemap;
+    ColorRemap fogRemap;
 };
 
 Texture2D    gAlbedo    : register(t0);
@@ -88,6 +95,7 @@ FogParams MakeFogParams()
     p.heightOrigin         = float2(heightOriginX, heightOriginZ);
     p.heightCellSize       = heightCellSize;
     p.heightWorldSize      = float2(heightWorldSizeX, heightWorldSizeZ);
+    p.fogRemap             = fogRemap;
     return p;
 }
 
@@ -97,6 +105,7 @@ float4 PSMain(PSInput input) : SV_TARGET
     float  depth  = gDepth.Load(int3(texel, 0)).r;
     float4 albedo = gAlbedo.Load(int3(texel, 0));
     float4 attrib = gAttrib.Load(int3(texel, 0));
+    albedo.rgb    = ApplyColorRemap(albedo.rgb, albedoRemap);
 
     if (IsSkyDepth(depth))
         discard;

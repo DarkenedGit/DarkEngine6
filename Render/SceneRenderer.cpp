@@ -127,6 +127,11 @@ bool SceneRenderer::createPostPipelines(Renderer& renderer, const char* tag)
         DE_LOG_FATAL("{}: DeferredLightingPipeline create failed", tag);
         return false;
     }
+    if (!m_colorRemapCb.create(renderer.device()))
+    {
+        DE_LOG_FATAL("{}: ColorRemap CBV create failed", tag);
+        return false;
+    }
     if (!m_localLightVolumes.create(renderer.device()))
         DE_LOG_ERROR(LogCategory::Render, "{}: LocalLightVolumePipeline create failed — local lights disabled", tag);
     if (!m_localLightGpu.create(renderer.device()))
@@ -255,6 +260,7 @@ void SceneRenderer::shutdown()
     m_ssrHistory               = {};
     m_autoExposureGeneration   = 0;
     m_autoExposureEnabled      = false;
+    m_colorRemapCb.destroy();
     m_initialized              = false;
 }
 
@@ -779,6 +785,7 @@ void SceneRenderer::publishResolveLighting(const DeferredResolveInput& in, const
         const float s = m_setup.emissiveGain < 0.0f ? 0.0f : (m_setup.emissiveGain > 1.0f ? 1.0f : m_setup.emissiveGain);
         m_resolveLighting.emissiveGain *= s;
     }
+    m_colorRemapCb.write(renderer.frameIndex(), m_setup.albedoRemap, m_setup.fogRemap);
 }
 
 void SceneRenderer::addLightingPasses(FeatureBuilder& b, Renderer& renderer, const DeferredResolveInput& in)
@@ -809,10 +816,13 @@ void SceneRenderer::addLightingPasses(FeatureBuilder& b, Renderer& renderer, con
             self->publishResolveLighting(*inp, *rr);
             if (!resolveInputOk(*inp))
                 return;
+            // A missing CBV is not an identity bind; do not CopyDescriptors a null handle into the table.
+            if (!self->m_colorRemapCb.valid())
+                return;
             const LightingViews v = rr->lightingViews();
-            // Register order t0..t9 (SceneBuffers::kLighting*).
+            // Register order: SRVs t0..t9, then the ColorRemap CBV (SceneBuffers::kLighting*).
             const D3D12_GPU_DESCRIPTOR_HANDLE table = rgTable(c, { v.albedo, v.attrib, rgSrvCpu(c, d.depth), shadowSrv(c, v, d.shadow), v.height, rgSrvCpu(c, d.ao), v.iblIrradiance, v.iblPrefilter, v.iblBrdfLut,
-                                                                   d.ssr.valid() ? rgSrvCpu(c, d.ssr) : rr->ssrDummyCpu() });
+                                                                   d.ssr.valid() ? rgSrvCpu(c, d.ssr) : rr->ssrDummyCpu(), self->m_colorRemapCb.cpu(rr->frameIndex()) });
             bindHdrTarget(c.cmd(), *rr, rgRtv(c, d.hdr));
             self->drawDeferredLighting(c.cmd(), table, self->m_resolveLighting);
         });
@@ -844,9 +854,12 @@ void SceneRenderer::addLocalVolumesPasses(FeatureBuilder& b, Renderer& renderer,
             // A flashlight pool is visible light. Heat is already in the emissive meshes.
             if (self->m_resolveLighting.thermal > 1.0e-4f)
                 return;
+            if (!self->m_colorRemapCb.valid())
+                return;
             const LightingViews v = rr->lightingViews();
-            // LocalLightVolumePipeline::kTable* order.
-            const D3D12_GPU_DESCRIPTOR_HANDLE table = rgTable(c, { v.albedo, v.attrib, rgSrvCpu(c, d.depth), rgSrvCpu(c, d.ao), v.height, localShadowSrv(c, v, d.localShadow), v.localShadowRecords });
+            // LocalLightVolumePipeline::kTable* order, ColorRemap CBV last.
+            const D3D12_GPU_DESCRIPTOR_HANDLE table = rgTable(c, { v.albedo, v.attrib, rgSrvCpu(c, d.depth), rgSrvCpu(c, d.ao), v.height, localShadowSrv(c, v, d.localShadow), v.localShadowRecords,
+                                                                   self->m_colorRemapCb.cpu(rr->frameIndex()) });
             bindHdrTarget(c.cmd(), *rr, rgRtv(c, d.hdr));
             self->drawLocalLights(c.cmd(), table, *rr, *w, *cam, *inp->viewProj, self->m_resolveLighting);
         });

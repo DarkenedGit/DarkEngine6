@@ -531,7 +531,13 @@ void EditorApp::drawPlacedWater(
             tables,
             &m_shadowFeature.shadowMaps(),
             ssr,
-            drawIndex);
+            drawIndex,
+            0.0f,
+            0.0f,
+            0.0f,
+            false,
+            m_scene.frameSetup().waterRemap,
+            m_scene.frameSetup().fogRemap);
         drawIndex = 1;
     }
     for (const EditorWaterSlot& slot : m_placedWater)
@@ -551,7 +557,9 @@ void EditorApp::drawPlacedWater(
                 &m_shadowFeature.shadowMaps(),
                 ssr,
                 heightMap,
-                &m_sceneWorld.env))
+                &m_sceneWorld.env,
+                m_scene.frameSetup().waterRemap,
+                m_scene.frameSetup().fogRemap))
             ++drawIndex;
     }
     for (const WaterWorld::WaterRibbon& ribbon : m_sceneWorld.water.ribbons())
@@ -561,7 +569,7 @@ void EditorApp::drawPlacedWater(
         WaterParams params = m_sceneWorld.water.params();
         params.flowSpeed   = ribbon.flowSpeed;
         if (drawStreamRibbon(cmd, m_waterRendering.pipeline(), ribbon.mesh, ribbon.bounds, params, m_camera, &frustum, &renderer().debugState(), m_sceneWorld.water.time(), renderer().frameIndex(),
-                             drawIndex, tables, &m_shadowFeature.shadowMaps(), ssr, heightMap, &m_sceneWorld.env))
+                             drawIndex, tables, &m_shadowFeature.shadowMaps(), ssr, heightMap, &m_sceneWorld.env, 0.0f, 0.0f, m_scene.frameSetup().waterRemap, m_scene.frameSetup().fogRemap))
             ++drawIndex;
     }
 }

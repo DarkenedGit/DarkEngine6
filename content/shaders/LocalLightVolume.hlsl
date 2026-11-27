@@ -5,6 +5,7 @@
 #include "PbrLighting.hlsli"
 #include "Fog.hlsli"
 #include "Ultraviolet.hlsli"
+#include "ColorRemap.hlsli"
 
 cbuffer LocalLightPassConstants : register(b0)
 {
@@ -30,6 +31,12 @@ cbuffer LocalLightPassConstants : register(b0)
     float    heightWorldSizeX;
     float    heightWorldSizeZ;
     float    localShadowDebug;
+};
+
+cbuffer ColorRemapConstants : register(b1)
+{
+    ColorRemap albedoRemap;
+    ColorRemap fogRemap;
 };
 
 Texture2D    gAlbedo     : register(t0);
@@ -110,6 +117,7 @@ FogParams MakeFogParams()
     p.heightOrigin         = float2(heightOriginX, heightOriginZ);
     p.heightCellSize       = heightCellSize;
     p.heightWorldSize      = float2(heightWorldSizeX, heightWorldSizeZ);
+    p.fogRemap             = fogRemap;
     return p;
 }
 
@@ -227,6 +235,7 @@ float4 PSMain(PSInput input) : SV_TARGET
     float3 worldPos = ReconstructWorldPos(ndcX, ndcY, depth, invViewProj);
 
     float4 albedo    = gAlbedo.Load(int3(texel, 0));
+    albedo.rgb       = ApplyColorRemap(albedo.rgb, albedoRemap);
     float4 attrib    = gAttrib.Load(int3(texel, 0));
     float3 n         = DecodeOct(attrib.rg);
     float  roughness = attrib.b;
