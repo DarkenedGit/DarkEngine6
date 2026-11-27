@@ -44,7 +44,7 @@ namespace Dark
         std::string file;  // path under its shader root (e.g. content/shaders) with '/' separators, e.g. "TerrainGBuffer.hlsl"
         std::string entry; // "PSMain"
         ShaderStage stage = ShaderStage::Vertex;
-        std::string defines; // canonical: NAME=VALUE pairs sorted by name, comma-separated, e.g. "DE_THERMAL=1,DE_THERMAL_HEAT=0.41"
+        std::string defines; // canonical: NAME=VALUE pairs sorted by name, comma-separated, e.g. "DE_GBUFFER_SURFACE_TAG=1,DE_SURFACE_CATEGORY=0"
 
         bool operator==(const ShaderKey&) const = default;
     };

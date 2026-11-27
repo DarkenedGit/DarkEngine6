@@ -7,8 +7,6 @@
 #include <filesystem>
 
 using Dark::compileShaderFromFile;
-using Dark::makeThermalMacros;
-using Dark::makeUvMacros;
 using Dark::makeSurfaceTagMacros;
 using Dark::ShaderStage;
 using Microsoft::WRL::ComPtr;
@@ -85,12 +83,6 @@ TEST(ShaderCompile, TerrainGBufferCompiles)
     ComPtr<ID3DBlob> ps;
     EXPECT_TRUE(compileShaderFromFile(hlsl, "VSMain", ShaderStage::Vertex, vs));
     EXPECT_TRUE(compileShaderFromFile(hlsl, "PSMain", ShaderStage::Pixel, ps));
-    D3D_SHADER_MACRO thermalMacros[3];
-    makeThermalMacros("0.41", thermalMacros);
-    EXPECT_TRUE(compileShaderFromFile(hlsl, "PSMain", ShaderStage::Pixel, ps, thermalMacros));
-    D3D_SHADER_MACRO uvMacros[3];
-    makeUvMacros("0.12", uvMacros);
-    EXPECT_TRUE(compileShaderFromFile(hlsl, "PSMain", ShaderStage::Pixel, ps, uvMacros));
     D3D_SHADER_MACRO tagMacros[3];
     makeSurfaceTagMacros("2", tagMacros);
     EXPECT_STREQ(tagMacros[0].Name, "DE_GBUFFER_SURFACE_TAG");
@@ -267,13 +259,6 @@ TEST(ShaderCompile, InstancedMesh)
     ComPtr<ID3DBlob> depthVs;
     EXPECT_TRUE(compileShaderFromFile(gbuffer, "VSMain", ShaderStage::Vertex, vs));
     EXPECT_TRUE(compileShaderFromFile(gbuffer, "PSMain", ShaderStage::Pixel, ps));
-    D3D_SHADER_MACRO thermalMacros[3];
-    makeThermalMacros("0.41", thermalMacros);
-    EXPECT_TRUE(compileShaderFromFile(gbuffer, "PSMain", ShaderStage::Pixel, ps, thermalMacros));
-    D3D_SHADER_MACRO uvMacros[3];
-    makeUvMacros("0.00", uvMacros);
-    // gUv is register(t0, space1). ps_5_0 rejects register spaces.
-    EXPECT_TRUE(compileShaderFromFile(gbuffer, "PSMain", ShaderStage::Pixel, ps, uvMacros));
     EXPECT_TRUE(compileShaderFromFile(depth, "VSMain", ShaderStage::Vertex, depthVs));
     EXPECT_NE(vs.Get(), nullptr);
     EXPECT_NE(ps.Get(), nullptr);

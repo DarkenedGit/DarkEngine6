@@ -1391,7 +1391,7 @@ TonemapSettings SandboxApp::playerPostFx()
     s.blur           = 1.0f - u;
     s.uniformBlur    = 1.0f - u;
     s.fade           = 0.0f;
-    s.nightSight     = (m_vision.infrared > 0.0f || m_vision.ultraviolet > 0.0f || m_vision.echo > 0.0f) ? 0.0f : m_vision.nightSight;
+    s.nightSight     = (m_vision.echo > 0.0f) ? 0.0f : m_vision.nightSight;
     return s;
 }
 

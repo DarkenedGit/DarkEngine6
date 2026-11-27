@@ -48,8 +48,6 @@ public:
     bool create(ID3D12Device* device);
     bool gpuReady() const;
     void setIndirect(bool enabled);
-    void setThermal(bool on);
-    void setUltraviolet(bool on);
     void setWriteSurfaceTag(bool on);
     bool indirectReady() const;
     void setGpuCull(bool enabled);

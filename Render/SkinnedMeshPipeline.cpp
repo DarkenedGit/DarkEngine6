@@ -25,11 +25,7 @@ namespace Dark
 		m_psoSolid.Reset();
 		m_psoWire.Reset();
 		m_psoPoint.Reset();
-		m_psoThermal.Reset();
-		m_psoUv.Reset();
 		m_psoSurfaceTag.Reset();
-		m_thermal = false;
-		m_ultraviolet = false;
 		m_writeSurfaceTag = false;
 		m_gbuffer = pass == SkinnedMeshPass::GBuffer;
 		m_shadow  = pass == SkinnedMeshPass::Shadow;
@@ -202,36 +198,6 @@ namespace Dark
 		}
 		if (m_gbuffer)
 		{
-			D3D_SHADER_MACRO thermalMacros[3];
-			makeThermalMacros("0.72", thermalMacros);
-			ComPtr<ID3DBlob> thermalPs;
-			if (!compileShaderFromContent(shader, "PSMain", ShaderStage::Pixel, thermalPs, thermalMacros))
-			{
-				m_rootSignature.Reset();
-				return false;
-			}
-			D3D12_GRAPHICS_PIPELINE_STATE_DESC thermalDesc = psoDesc;
-			thermalDesc.PS = { thermalPs->GetBufferPointer(), thermalPs->GetBufferSize() };
-			if (FailedHr(device->CreateGraphicsPipelineState(&thermalDesc, IID_PPV_ARGS(&m_psoThermal)), "CreateGraphicsPipelineState (skinned thermal)"))
-			{
-				m_rootSignature.Reset();
-				return false;
-			}
-			D3D_SHADER_MACRO uvMacros[3];
-			makeUvMacros("0.30", uvMacros);
-			ComPtr<ID3DBlob> uvPs;
-			if (!compileShaderFromContent(shader, "PSMain", ShaderStage::Pixel, uvPs, uvMacros))
-			{
-				m_rootSignature.Reset();
-				return false;
-			}
-			D3D12_GRAPHICS_PIPELINE_STATE_DESC uvDesc = psoDesc;
-			uvDesc.PS = { uvPs->GetBufferPointer(), uvPs->GetBufferSize() };
-			if (FailedHr(device->CreateGraphicsPipelineState(&uvDesc, IID_PPV_ARGS(&m_psoUv)), "CreateGraphicsPipelineState (skinned ultraviolet)"))
-			{
-				m_rootSignature.Reset();
-				return false;
-			}
 			if (!createSurfaceTagPipelineState(device, psoDesc, shader, "1", m_psoSurfaceTag, "CreateGraphicsPipelineState (skinned surface tag)"))
 			{
 				m_rootSignature.Reset();
@@ -248,8 +214,6 @@ namespace Dark
 		if (!cmd || !m_rootSignature)
 			return;
 		ID3D12PipelineState* pso = m_shadow ? m_psoSolid.Get()
-			: (m_ultraviolet && fill == DebugFill::Solid && m_psoUv) ? m_psoUv.Get()
-			: (m_thermal && fill == DebugFill::Solid && m_psoThermal) ? m_psoThermal.Get()
 			: (m_writeSurfaceTag && fill == DebugFill::Solid && m_psoSurfaceTag) ? m_psoSurfaceTag.Get()
 			: selectFillPso(fill, m_psoSolid.Get(), m_psoWire.Get(), m_psoPoint.Get());
 		if (!pso)
