@@ -31,11 +31,15 @@ namespace Dark
             return false;
         }
 
-        D3D12_DESCRIPTOR_RANGE srvRange{};
-        srvRange.RangeType                         = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-        srvRange.NumDescriptors                    = 4;
-        srvRange.BaseShaderRegister                = 0;
-        srvRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+        D3D12_DESCRIPTOR_RANGE srvRanges[2]{};
+        srvRanges[0].RangeType                         = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+        srvRanges[0].NumDescriptors                    = 4;
+        srvRanges[0].BaseShaderRegister                = 0;
+        srvRanges[0].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+        srvRanges[1].RangeType                         = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
+        srvRanges[1].NumDescriptors                    = 1;
+        srvRanges[1].BaseShaderRegister                = 2;
+        srvRanges[1].OffsetInDescriptorsFromTableStart = SceneBuffers::kLightingColorRemap;
 
         D3D12_DESCRIPTOR_RANGE heightRange{};
         heightRange.RangeType                         = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
@@ -69,8 +73,8 @@ namespace Dark
 
         params[kRootSrvTable].ParameterType                       = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
         params[kRootSrvTable].ShaderVisibility                    = D3D12_SHADER_VISIBILITY_PIXEL;
-        params[kRootSrvTable].DescriptorTable.NumDescriptorRanges = 1;
-        params[kRootSrvTable].DescriptorTable.pDescriptorRanges   = &srvRange;
+        params[kRootSrvTable].DescriptorTable.NumDescriptorRanges = 2;
+        params[kRootSrvTable].DescriptorTable.pDescriptorRanges   = srvRanges;
 
         params[kRootShadowCbv].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_CBV;
         params[kRootShadowCbv].ShaderVisibility          = D3D12_SHADER_VISIBILITY_PIXEL;

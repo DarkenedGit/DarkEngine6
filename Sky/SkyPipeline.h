@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Render/FrameSetup.h"
 #include "Sky/Environment.h"
 
 #include <cstddef>
@@ -55,11 +56,18 @@ struct SkyFrameConstants
     float clWind[4];
     float thermal; // 0 beauty sky, 1 cold air plus a hot sun disk
     float ultraviolet; // 0 beauty sky, 1 bee shift. Sun disk reflects UV fully.
+    float padRemap[2];
+    ColorRemapGpu skyRemap;
+    ColorRemapGpu fogRemap;
 };
 
-static_assert(sizeof(SkyFrameConstants) == 78 * sizeof(float), "sky CBV is 78 floats");
+static_assert(sizeof(SkyFrameConstants) == 112 * sizeof(float), "sky CBV is 112 floats (78 + pad + two remaps)");
 static_assert(offsetof(SkyFrameConstants, clLightColor) == 56 * sizeof(float), "cloud tail follows the 56-float prefix");
 static_assert(offsetof(SkyFrameConstants, clWind) == offsetof(SkyFrameConstants, clLightColor) + 16 * sizeof(float), "cloud tail is contiguous");
+static_assert(offsetof(SkyFrameConstants, thermal) == 76 * sizeof(float), "thermal follows clWind");
+static_assert(offsetof(SkyFrameConstants, ultraviolet) == 77 * sizeof(float), "ultraviolet follows thermal");
+static_assert(offsetof(SkyFrameConstants, skyRemap) == 80 * sizeof(float), "skyRemap is 16-byte aligned after pad");
+static_assert(offsetof(SkyFrameConstants, fogRemap) == 96 * sizeof(float), "fogRemap follows skyRemap");
 
 class SkyPipeline
 {
@@ -76,7 +84,8 @@ public:
 
     void bind(ID3D12GraphicsCommandList* cmd) const;
     // Writes slot frameIndex % 2. exposure < 0 uses Environment::exposure(). Hosts pass 1: tonemap owns exposure.
-    void upload(uint32_t frameIndex, const Camera3D& camera, const Sky::Environment& env, float exposure = -1.0f, float waterLevel = 0.0f, float fogScale = 1.0f, float thermal = 0.0f, float ultraviolet = 0.0f);
+    void upload(uint32_t frameIndex, const Camera3D& camera, const Sky::Environment& env, float exposure = -1.0f, float waterLevel = 0.0f, float fogScale = 1.0f, float thermal = 0.0f, float ultraviolet = 0.0f,
+                const ColorRemap& skyRemap = {}, const ColorRemap& fogRemap = {});
     // shadowTable: a one-SRV ring table with the cascade shadow array (t0).
     void draw(ID3D12GraphicsCommandList* cmd, uint32_t frameIndex, D3D12_GPU_DESCRIPTOR_HANDLE shadowTable, const ShadowSystem* shadows = nullptr) const;
 
@@ -85,7 +94,7 @@ public:
 
 private:
     static constexpr UINT kFrameCount   = 2;
-    static constexpr UINT kSkySlotBytes = 512; // 78 floats align up to a 256-byte CBV
+    static constexpr UINT kSkySlotBytes = 512; // 112 floats fit in a 512-byte CBV slot
 
     ComPtr<ID3D12RootSignature> m_rootSignature;
     ComPtr<ID3D12PipelineState> m_pso;

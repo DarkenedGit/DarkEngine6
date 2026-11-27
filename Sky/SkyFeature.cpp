@@ -34,6 +34,8 @@ namespace Dark
     {
         if (view.setup.disabled.has(EnginePass::Sky))
             return;
+        m_skyRemap = view.setup.skyRemap;
+        m_fogRemap = view.setup.fogRemap;
         Renderer* const rr = m_renderer;
         if (!rr || !addHdrDrawPass(b, "Sky", skyUses(),
                                    [this, rr](Rg::PassContext& c, const HdrDrawTargets& d)
@@ -49,7 +51,7 @@ namespace Dark
         if (!m_inputs.camera || !m_inputs.env)
             return;
         const uint32_t frameIndex = m_renderer->frameIndex();
-        m_pipeline.upload(frameIndex, *m_inputs.camera, *m_inputs.env, m_inputs.exposure, m_inputs.waterLevel, m_inputs.fogScale, m_inputs.thermal, m_inputs.ultraviolet);
+        m_pipeline.upload(frameIndex, *m_inputs.camera, *m_inputs.env, m_inputs.exposure, m_inputs.waterLevel, m_inputs.fogScale, m_inputs.thermal, m_inputs.ultraviolet, m_skyRemap, m_fogRemap);
         m_pipeline.draw(c.cmd(), frameIndex, shadowTable, m_inputs.shadows);
     }
 

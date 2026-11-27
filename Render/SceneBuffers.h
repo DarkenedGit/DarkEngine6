@@ -33,7 +33,8 @@ namespace Dark
         static constexpr UINT kLightingIblPrefilter  = 7;
         static constexpr UINT kLightingIblBrdfLut    = 8;
         static constexpr UINT kLightingSsr           = 9;
-        static constexpr UINT kLightingCount         = 10;
+        static constexpr UINT kLightingColorRemap    = 10;
+        static constexpr UINT kLightingCount         = 11;
 
         SceneBuffers() = default;
         ~SceneBuffers();

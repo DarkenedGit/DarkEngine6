@@ -73,7 +73,8 @@ namespace Dark
         static constexpr UINT kTableHeight             = 4; // t6
         static constexpr UINT kTableLocalShadow        = 5; // t7..t8: array, records
         static constexpr UINT kTableLocalShadowRecords = 6;
-        static constexpr UINT kTableCount              = 7;
+        static constexpr UINT kTableColorRemap         = 7; // b1 ColorRemap CBV
+        static constexpr UINT kTableCount              = 8;
 
         LocalLightVolumePipeline() = default;
 

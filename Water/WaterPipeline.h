@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Render/DebugRenderState.h"
+#include "Render/FrameSetup.h"
 #include "Render/LocalLightGather.h"
 #include "Render/SsrPipeline.h"
 #include "Water/WaterWaves.h"
@@ -74,6 +75,9 @@ struct WaterFrameConstants
     float    thermal; // 0 beauty water, 1 the cold stop
     float    ultraviolet; // 0 beauty water. Shifts the body only; SSR stays.
     float    underAmount; // 0 above the lake, 1 the eye is through the ease band
+    float    padRemap;
+    ColorRemapGpu waterRemap;
+    ColorRemapGpu fogRemap;
 };
 
 static_assert(offsetof(WaterFrameConstants, lightCount) == 64 * sizeof(float), "lightCount follows the old 64-float block");
@@ -89,7 +93,10 @@ static_assert(offsetof(WaterFrameConstants, detailAmount) == 183 * sizeof(float)
 static_assert(offsetof(WaterFrameConstants, thermal) == 184 * sizeof(float), "thermal follows detailAmount");
 static_assert(offsetof(WaterFrameConstants, ultraviolet) == 185 * sizeof(float), "ultraviolet follows thermal");
 static_assert(offsetof(WaterFrameConstants, underAmount) == 186 * sizeof(float), "underAmount follows ultraviolet");
-static_assert(((sizeof(WaterFrameConstants) + 255u) & ~255u) == 768u, "water CBV aligned size is 768");
+static_assert(offsetof(WaterFrameConstants, waterRemap) == 188 * sizeof(float), "waterRemap is 16-byte aligned after pad");
+static_assert(offsetof(WaterFrameConstants, fogRemap) == 204 * sizeof(float), "fogRemap follows waterRemap");
+static_assert(sizeof(WaterFrameConstants) == 220 * sizeof(float), "water CBV is 220 floats");
+static_assert(((sizeof(WaterFrameConstants) + 255u) & ~255u) == 1024u, "water CBV aligned size is 1024");
 
 // One descriptor-ring table per water pass, matching the root signature's three tables: t1 height,
 // t2 shadow, t3..t4 SSR scene color + depth. sceneColor: t3 is this frame's capture; otherwise t3..t4

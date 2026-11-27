@@ -825,7 +825,8 @@ void SandboxFrame::render()
             if (waterSheet)
             {
                 app().m_sceneWorld.water.draw(cmd, m_water.pipeline(), app().m_sceneWorld.camera, &frustum, &app().m_sceneWorld.env, &app().renderer().debugState(), waterLightsVa, waterLightCount,
-                                              waterIndex, app().renderer().frameIndex(), &tables, &m_shadowFeature.shadowMaps(), waterSsr, drawIndex, thermal, ultraviolet, underDraw);
+                                              waterIndex, app().renderer().frameIndex(), &tables, &m_shadowFeature.shadowMaps(), waterSsr, drawIndex, thermal, ultraviolet, underDraw, false,
+                                              m_scene.frameSetup().waterRemap, m_scene.frameSetup().fogRemap);
                 drawIndex = 1;
             }
             for (const WaterWorld::WaterRibbon& stream : app().m_sceneWorld.water.ribbons())
@@ -844,7 +845,7 @@ void SandboxFrame::render()
                 streamParams.flowSpeed = stream.flowSpeed;
                 if (drawStreamRibbon(cmd, m_water.pipeline(), stream.mesh, stream.bounds, streamParams, app().m_sceneWorld.camera, &frustum, &app().renderer().debugState(),
                                      app().m_sceneWorld.water.time(), app().renderer().frameIndex(), drawIndex, &tables, &m_shadowFeature.shadowMaps(), waterSsr, &app().m_sceneWorld.terrain.coarse(),
-                                     &app().m_sceneWorld.env, thermal, ultraviolet))
+                                     &app().m_sceneWorld.env, thermal, ultraviolet, m_scene.frameSetup().waterRemap, m_scene.frameSetup().fogRemap))
                     ++drawIndex;
             }
         };
@@ -1003,7 +1004,8 @@ void SandboxFrame::render()
         const auto drawCeiling = [&](Rg::PassContext& pass, const WaterTables& tables)
         {
             app().m_sceneWorld.water.draw(pass.cmd(), m_water.pipeline(), app().m_sceneWorld.camera, &frustum, &app().m_sceneWorld.env, &app().renderer().debugState(), waterLightsVa, waterLightCount,
-                                          waterIndex, app().renderer().frameIndex(), &tables, &m_shadowFeature.shadowMaps(), waterSsr, 0, thermal, ultraviolet, underDraw, true);
+                                          waterIndex, app().renderer().frameIndex(), &tables, &m_shadowFeature.shadowMaps(), waterSsr, 0, thermal, ultraviolet, underDraw, true,
+                                          m_scene.frameSetup().waterRemap, m_scene.frameSetup().fogRemap);
         };
         frame.declare(PassId::Underwater, [&, underFrame, drawCeiling](FeatureBuilder& b) { m_water.addUnderwaterPasses(b, app().renderer(), underFrame, drawCeiling, frame.view().setup); });
     }

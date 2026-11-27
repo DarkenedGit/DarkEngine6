@@ -4,6 +4,7 @@
 #include "Math/AABox3f.h"
 #include "Math/Vector2f.h"
 #include "Math/Vector3f.h"
+#include "Render/FrameSetup.h"
 #include "Render/Mesh.h"
 #include "Terrain/TerrainLod.h"
 #include "Water/WaterWaves.h"
@@ -88,7 +89,9 @@ namespace Dark
             const ShadowSystem* shadows,
             const SsrSettings* ssrSettings,
             const Terrain::HeightMap* heightMap,
-            const IEnvironmentProvider* env) const;
+            const IEnvironmentProvider* env,
+            const ColorRemap& waterRemap = {},
+            const ColorRemap& fogRemap = {}) const;
 
         int vertexCount() const;
         // LOD 0 of the single chunk. False when the body is more than one chunk.

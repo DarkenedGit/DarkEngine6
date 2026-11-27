@@ -2,6 +2,7 @@
 
 #include "Render/AutoExposure.h"
 #include "Render/BloomPipeline.h"
+#include "Render/ColorRemapCb.h"
 #include "Render/Camera3D.h"
 #include "Render/DebugOverlay.h"
 #include "Render/DebugTileInputs.h"
@@ -485,6 +486,7 @@ private:
     };
     std::vector<IGameFeature*> m_gameFeatures;
     FrameSetup                 m_setup{}; // this frame's (requestHistories)
+    ColorRemapCb               m_colorRemapCb; // lighting + local lights; appended last
 };
 
 // Adds the GBuffer, Decals, Gtao, Ssr, Lighting, LocalVolumes, SsrCapture, Translucent, Post and

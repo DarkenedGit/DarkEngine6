@@ -4,6 +4,7 @@
 #include "Math/MathDefines.h"
 #include "Math/Vector3f.h"
 #include "Render/DebugRenderState.h"
+#include "Render/FrameSetup.h"
 #include "Render/Mesh.h"
 #include "Terrain/TerrainLod.h"
 #include "Water/WaterWaves.h"
@@ -120,7 +121,9 @@ namespace Dark
             float thermal = 0.0f,
             float ultraviolet = 0.0f,
             float underAmount = 0.0f,
-            bool ceilingPass = false) const;
+            bool ceilingPass = false,
+            const ColorRemap& waterRemap = {},
+            const ColorRemap& fogRemap = {}) const;
 
         float heightAtWorld(float x, float z) const;
         bool  tryHeightAtWorld(float x, float z, float& outY) const;

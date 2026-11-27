@@ -5,6 +5,7 @@
 #include "Render/FrameView.h"
 
 #include <algorithm>
+#include <cstring>
 
 namespace Dark
 {
@@ -200,6 +201,42 @@ namespace Dark
             DE_LOG_WARN(LogCategory::Render, "FrameSetupHooks: the disabled passes changed more than {} times in a second; each change rebuilds the frame's plan (logs once)",
                         kMaxMaskChangesPerSecond);
         }
+    }
+
+    ColorRemapGpu packColorRemap(const ColorRemap& src)
+    {
+        ColorRemapGpu out{};
+        std::memcpy(out.m0, src.m[0], sizeof(out.m0));
+        std::memcpy(out.m1, src.m[1], sizeof(out.m1));
+        std::memcpy(out.m2, src.m[2], sizeof(out.m2));
+        out.aux      = src.aux;
+        const float s = src.strength;
+        out.strength  = s < 0.0f ? 0.0f : (s > 1.0f ? 1.0f : s);
+        return out;
+    }
+
+    void applyColorRemap(float dst[3], const float src[3], const ColorRemap& remap)
+    {
+        // Mirrors ColorRemap.hlsli ApplyColorRemap, including the strength <= 0 early-out.
+        if (remap.strength <= 0.0f)
+        {
+            dst[0] = src[0];
+            dst[1] = src[1];
+            dst[2] = src[2];
+            return;
+        }
+        const ColorRemapGpu g = packColorRemap(remap);
+        const float         v[4] = { src[0], src[1], src[2], g.aux };
+        float mapped[3];
+        for (int i = 0; i < 3; ++i)
+        {
+            const float* row = (i == 0) ? g.m0 : (i == 1) ? g.m1 : g.m2;
+            mapped[i]        = row[0] * v[0] + row[1] * v[1] + row[2] * v[2] + row[3] * v[3];
+        }
+        const float s = g.strength; // already clamped in packColorRemap
+        dst[0]        = src[0] + (mapped[0] - src[0]) * s;
+        dst[1]        = src[1] + (mapped[1] - src[1]) * s;
+        dst[2]        = src[2] + (mapped[2] - src[2]) * s;
     }
 
 } // namespace Dark
