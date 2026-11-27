@@ -48,7 +48,8 @@ namespace Dark
         static constexpr float kAttribClear[4]   = { 0.5f, 0.5f, 1.0f, 0.0f };
         static constexpr float kVelocityClear[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
         static constexpr float kPostClear[4]     = { 0.0f, 0.0f, 0.0f, 1.0f };
-        static constexpr float kAoClear[4]       = { 1.0f, 0.0f, 0.0f, 0.0f };
+        static constexpr float kAoClear[4]         = { 1.0f, 0.0f, 0.0f, 0.0f };
+        static constexpr float kSurfaceTagClear[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 
         // hdrClear is display-referred (same space as Renderer::setClearColor / swapchain). RGB is converted to linear for the HDR target.
         // HDR, G-buffer, velocity, post and AO at the output size of `targets`. The TAA history is a
@@ -72,12 +73,14 @@ namespace Dark
         ID3D12Resource*             velocity() const { return resource(kVelocity); }
         ID3D12Resource*             post() const { return resource(kPost); }
         ID3D12Resource*             ao() const { return resource(kAo); }
+        ID3D12Resource*             surfaceTag() const { return resource(kSurfaceTag); }
         D3D12_CPU_DESCRIPTOR_HANDLE hdrRtv() const { return rtv(kHdr); }
         D3D12_CPU_DESCRIPTOR_HANDLE albedoRtv() const { return rtv(kAlbedo); }
         D3D12_CPU_DESCRIPTOR_HANDLE attribRtv() const { return rtv(kAttrib); }
         D3D12_CPU_DESCRIPTOR_HANDLE velocityRtv() const { return rtv(kVelocity); }
         D3D12_CPU_DESCRIPTOR_HANDLE postRtv() const { return rtv(kPost); }
         D3D12_CPU_DESCRIPTOR_HANDLE aoRtv() const { return rtv(kAo); }
+        D3D12_CPU_DESCRIPTOR_HANDLE surfaceTagRtv() const { return rtv(kSurfaceTag); }
         D3D12_CPU_DESCRIPTOR_HANDLE hdrSrvCpu() const { return srv(kHdr); }
         D3D12_CPU_DESCRIPTOR_HANDLE velocitySrvCpu() const { return srv(kVelocity); }
         D3D12_CPU_DESCRIPTOR_HANDLE postSrvCpu() const { return srv(kPost); }
@@ -85,6 +88,7 @@ namespace Dark
         D3D12_CPU_DESCRIPTOR_HANDLE albedoSrvCpu() const { return srv(kAlbedo); }
         D3D12_CPU_DESCRIPTOR_HANDLE attribSrvCpu() const { return srv(kAttrib); }
         D3D12_CPU_DESCRIPTOR_HANDLE aoSrvCpu() const { return srv(kAo); }
+        D3D12_CPU_DESCRIPTOR_HANDLE surfaceTagSrvCpu() const { return srv(kSurfaceTag); }
         LightingViews               lightingViews() const;
         const float*                hdrClear() const { return m_hdrClear; }
 
@@ -94,6 +98,7 @@ namespace Dark
         void transitionVelocity(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after) { transition(cmd, kVelocity, after); }
         void transitionPost(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after) { transition(cmd, kPost, after); }
         void transitionAo(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after) { transition(cmd, kAo, after); }
+        void transitionSurfaceTag(ID3D12GraphicsCommandList* cmd, D3D12_RESOURCE_STATES after) { transition(cmd, kSurfaceTag, after); }
 
         // CPU views the lighting passes read (owned by their systems; stored, not copied). The
         // directional shadow map is not one: the passes bind the frame graph's import of it.
@@ -127,6 +132,7 @@ namespace Dark
             kVelocity,
             kPost,
             kAo,
+            kSurfaceTag,
             kSlotCount,
         };
 

@@ -1,5 +1,6 @@
 #include "Render/MaterialSurface.h"
 #include "Assets/Material.h"
+#include "Render/SurfaceTag.h"
 
 #include <cstring>
 
@@ -50,8 +51,9 @@ namespace Dark
         cb.metallic      = mat.metallic();
         cb.ao            = mat.ao();
         cb.normalScale   = mat.normalScale();
-        cb.alphaCutoff   = mat.alphaCutoff();
-        cb.alphaModeMask = alphaModeMask(mat);
+        cb.alphaCutoff      = mat.alphaCutoff();
+        cb.alphaModeMask    = alphaModeMask(mat);
+        cb.surfaceTagPacked = mat.hasSurfaceTag() ? packSurfaceTagOverride(mat.surfaceTag()) : 0u;
     }
 
 } // namespace Dark

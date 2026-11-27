@@ -50,6 +50,7 @@ namespace Dark
 
         void setThermal(bool on) { m_thermal = on; }
         void setUltraviolet(bool on) { m_ultraviolet = on; }
+        void setWriteSurfaceTag(bool on) { m_writeSurfaceTag = on; }
 
         // Call after beginFrame. Copies a LOD only when its staleMask bit for this frame slot is set.
         // Each entry in tiles is one 8 m tile's full blade span. The caller already dropped tiles outside the frustum.
@@ -67,8 +68,10 @@ namespace Dark
         ComPtr<ID3D12PipelineState> m_pso[4];
         ComPtr<ID3D12PipelineState> m_psoThermal[4];
         ComPtr<ID3D12PipelineState> m_psoUv[4];
+        ComPtr<ID3D12PipelineState> m_psoSurfaceTag[4];
         bool                        m_thermal = false;
         bool                        m_ultraviolet = false;
+        bool                        m_writeSurfaceTag = false;
         Mesh                        m_mesh[3];
 
         ComPtr<ID3D12Resource>    m_blades;

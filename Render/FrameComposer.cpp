@@ -65,6 +65,8 @@ namespace Dark
         importResource(RenderResource::Attrib, renderer.attribResource(), textureViews(renderer.attribSrvCpu(), renderer.attribRtv()));
         importResource(RenderResource::Velocity, renderer.velocityResource(), textureViews(renderer.velocitySrvCpu(), renderer.velocityRtv()));
         importResource(RenderResource::Ao, renderer.aoResource(), textureViews(renderer.aoSrvCpu(), renderer.aoRtv()));
+        if (renderer.surfaceTagResource())
+            importResource(RenderResource::SurfaceTag, renderer.surfaceTagResource(), textureViews(renderer.surfaceTagSrvCpu(), renderer.surfaceTagRtv()));
         importResource(RenderResource::Hdr, renderer.hdr(), textureViews(renderer.hdrSrvCpu(), renderer.hdrRtv()));
         importResource(RenderResource::Post, renderer.postResource(), textureViews(renderer.postHdrSrvCpu(), renderer.postRtv()));
     }

@@ -423,6 +423,14 @@ void EditorApp::renderScene3D()
         ID3D12GraphicsCommandList* const cmd = pass.cmd();
         viewProj     = m_scene.beginCameraFrame(m_camera, renderer());
         prevViewProj = m_scene.havePrevViewProj() ? m_scene.prevViewProj() : viewProj;
+        const bool writeTag = m_scene.frameSetup().writeSurfaceTag;
+        worldDraws.mesh.setWriteSurfaceTag(writeTag);
+        worldDraws.skinned.setWriteSurfaceTag(writeTag);
+        m_terrainPipeline.setWriteSurfaceTag(writeTag);
+        m_foliagePipeline.setWriteSurfaceTag(writeTag);
+        m_grassPipeline.setWriteSurfaceTag(writeTag);
+        m_drawList.setWriteSurfaceTag(writeTag);
+        m_skinnedInstances.setWriteSurfaceTag(writeTag);
 
         auto drawMesh = [&](const Mesh& mesh, const Matrix4f& world, const Material* material, float cr, float cg, float cb, float emissive = 0.0f) {
             worldDraws.mesh.bind(cmd, fill);
@@ -597,6 +605,14 @@ void EditorApp::renderScene3D()
             resolve.ssrEnv       = nullptr;
             resolve.lighting     = &lc;
         }
+
+        worldDraws.mesh.setWriteSurfaceTag(false);
+        worldDraws.skinned.setWriteSurfaceTag(false);
+        m_terrainPipeline.setWriteSurfaceTag(false);
+        m_foliagePipeline.setWriteSurfaceTag(false);
+        m_grassPipeline.setWriteSurfaceTag(false);
+        m_drawList.setWriteSurfaceTag(false);
+        m_skinnedInstances.setWriteSurfaceTag(false);
     };
     // The core features (registerCoreFeatures) read `core`, handed over before execute: settings are
     // captured at build; the camera, `resolve` (filled by the GBuffer draws) and the hooks are read

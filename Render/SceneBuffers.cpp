@@ -67,7 +67,7 @@ namespace Dark
 
     bool SceneBuffers::valid() const
     {
-        return hdr() != nullptr && albedo() != nullptr && ao() != nullptr;
+        return hdr() != nullptr && albedo() != nullptr && ao() != nullptr && surfaceTag() != nullptr;
     }
 
     uint32_t SceneBuffers::width() const
@@ -154,7 +154,8 @@ namespace Dark
         m_ids[kAttrib]   = targets.registerTexture("DE.GBuffer.Attrib", desc(DXGI_FORMAT_R8G8B8A8_TYPELESS, DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM, kAttribClear, true));
         m_ids[kVelocity] = targets.registerTexture("DE.GBuffer.Velocity", desc(DXGI_FORMAT_R16G16_FLOAT, DXGI_FORMAT_R16G16_FLOAT, DXGI_FORMAT_R16G16_FLOAT, kVelocityClear, false));
         m_ids[kPost]     = targets.registerTexture("DE.HdrPost", desc(rgba16, rgba16, rgba16, kPostClear, false));
-        m_ids[kAo]       = targets.registerTexture("DE.GBuffer.Ao", desc(DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8_UNORM, kAoClear, false));
+        m_ids[kAo]         = targets.registerTexture("DE.GBuffer.Ao", desc(DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8_UNORM, kAoClear, false));
+        m_ids[kSurfaceTag] = targets.registerTexture("DE.GBuffer.SurfaceTag", desc(DXGI_FORMAT_R8G8_UNORM, DXGI_FORMAT_R8G8_UNORM, DXGI_FORMAT_R8G8_UNORM, kSurfaceTagClear, false));
         for (const Rg::TargetId& id : m_ids)
         {
             if (!id.valid())
@@ -168,7 +169,7 @@ namespace Dark
             reset();
             return false;
         }
-        DE_LOG_INFO(LogCategory::Render, "SceneBuffers: HDR {}x{} + G-buffer + velocity + post (graph targets)", width(), height());
+        DE_LOG_INFO(LogCategory::Render, "SceneBuffers: HDR {}x{} + G-buffer + velocity + post + SurfaceTag (graph targets)", width(), height());
         return true;
     }
 

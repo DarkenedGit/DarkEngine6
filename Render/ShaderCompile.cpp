@@ -654,4 +654,31 @@ namespace Dark
         return compileShaderFromFile(resolved, entry, stage, outBytecode, defines, forceOptimize);
     }
 
+    bool createSurfaceTagPipelineState(ID3D12Device* device, const D3D12_GRAPHICS_PIPELINE_STATE_DESC& gbufferDesc, const char* shaderFile,
+                                       const char* categoryLiteral, ComPtr<ID3D12PipelineState>& outPso, const char* what)
+    {
+        outPso.Reset();
+        if (!device || !shaderFile || !categoryLiteral)
+            return false;
+        D3D_SHADER_MACRO macros[3];
+        makeSurfaceTagMacros(categoryLiteral, macros);
+        ComPtr<ID3DBlob> ps;
+        if (!compileShaderFromContent(shaderFile, "PSMain", ShaderStage::Pixel, ps, macros))
+            return false;
+        D3D12_GRAPHICS_PIPELINE_STATE_DESC desc = gbufferDesc;
+        desc.NumRenderTargets                                    = 5;
+        desc.RTVFormats[4]                                       = DXGI_FORMAT_R8G8_UNORM;
+        desc.BlendState.RenderTarget[4].RenderTargetWriteMask    = D3D12_COLOR_WRITE_ENABLE_ALL;
+        desc.PS                                                  = { ps->GetBufferPointer(), ps->GetBufferSize() };
+        const HRESULT hr = device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(&outPso));
+        if (FAILED(hr))
+        {
+            DE_LOG_ERROR(LogCategory::Render, "{} failed (HRESULT 0x{:08X})", what ? what : "CreateGraphicsPipelineState (surface tag)",
+                         static_cast<unsigned>(hr));
+            outPso.Reset();
+            return false;
+        }
+        return true;
+    }
+
 } // namespace Dark

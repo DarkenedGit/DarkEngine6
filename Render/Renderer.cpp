@@ -1343,6 +1343,11 @@ namespace Dark
         return (m_sceneBuffers && m_sceneBuffers->valid()) ? m_sceneBuffers->ao() : nullptr;
     }
 
+    ID3D12Resource* Renderer::surfaceTagResource() const
+    {
+        return (m_sceneBuffers && m_sceneBuffers->valid()) ? m_sceneBuffers->surfaceTag() : nullptr;
+    }
+
     ID3D12Resource* Renderer::postResource() const
     {
         return (m_sceneBuffers && m_sceneBuffers->valid()) ? m_sceneBuffers->post() : nullptr;
@@ -1396,6 +1401,11 @@ namespace Dark
         return m_sceneBuffers ? m_sceneBuffers->aoRtv() : D3D12_CPU_DESCRIPTOR_HANDLE{};
     }
 
+    D3D12_CPU_DESCRIPTOR_HANDLE Renderer::surfaceTagRtv() const
+    {
+        return m_sceneBuffers ? m_sceneBuffers->surfaceTagRtv() : D3D12_CPU_DESCRIPTOR_HANDLE{};
+    }
+
     D3D12_CPU_DESCRIPTOR_HANDLE Renderer::hdrRtv() const
     {
         return m_sceneBuffers ? m_sceneBuffers->hdrRtv() : D3D12_CPU_DESCRIPTOR_HANDLE{};
@@ -1431,6 +1441,11 @@ namespace Dark
     D3D12_CPU_DESCRIPTOR_HANDLE Renderer::aoSrvCpu() const
     {
         return m_sceneBuffers ? m_sceneBuffers->aoSrvCpu() : D3D12_CPU_DESCRIPTOR_HANDLE{};
+    }
+
+    D3D12_CPU_DESCRIPTOR_HANDLE Renderer::surfaceTagSrvCpu() const
+    {
+        return m_sceneBuffers ? m_sceneBuffers->surfaceTagSrvCpu() : D3D12_CPU_DESCRIPTOR_HANDLE{};
     }
 
     LightingViews Renderer::lightingViews() const

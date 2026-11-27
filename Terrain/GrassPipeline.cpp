@@ -202,6 +202,9 @@ namespace Dark
             uvDesc.PS = { uvPs->GetBufferPointer(), uvPs->GetBufferSize() };
             if (FailedHr(device->CreateGraphicsPipelineState(&uvDesc, IID_PPV_ARGS(&m_psoUv[lod])), "CreateGraphicsPipelineState (grass ultraviolet)"))
                 return fail("ultraviolet graphics PSO");
+            if (!createSurfaceTagPipelineState(device, psoDesc, "shaders/GrassGBuffer.hlsl", "3", m_psoSurfaceTag[lod],
+                                               "CreateGraphicsPipelineState (grass surface tag)"))
+                return fail("surface tag graphics PSO");
         }
 
         const Terrain::GrassRegionBudget budget = Terrain::grassRegionBudget();
@@ -295,6 +298,7 @@ namespace Dark
                 m_renderer->deferRelease(m_pso[i].Get());
                 m_renderer->deferRelease(m_psoThermal[i].Get());
                 m_renderer->deferRelease(m_psoUv[i].Get());
+                m_renderer->deferRelease(m_psoSurfaceTag[i].Get());
             }
             m_renderer->deferRelease(m_blades.Get());
             m_renderer->deferRelease(m_wind.Get());
@@ -313,9 +317,11 @@ namespace Dark
             m_pso[i].Reset();
             m_psoThermal[i].Reset();
             m_psoUv[i].Reset();
+            m_psoSurfaceTag[i].Reset();
         }
         m_thermal = false;
         m_ultraviolet = false;
+        m_writeSurfaceTag = false;
         m_blades.Reset();
         m_wind.Reset();
         m_cb.Reset();
@@ -410,6 +416,7 @@ namespace Dark
                 {
                     cmd->SetPipelineState((m_ultraviolet && m_psoUv[lod]) ? m_psoUv[lod].Get()
                         : (m_thermal && m_psoThermal[lod]) ? m_psoThermal[lod].Get()
+                        : (m_writeSurfaceTag && m_psoSurfaceTag[lod]) ? m_psoSurfaceTag[lod].Get()
                         : m_pso[lod].Get());
                     cmd->SetGraphicsRootShaderResourceView(kRootBlades, bladeVa[lod]);
                     bound = true;

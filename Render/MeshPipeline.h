@@ -36,6 +36,7 @@ namespace Dark
         void bind(ID3D12GraphicsCommandList* cmd, DebugFill fill = DebugFill::Solid) const;
         void setThermal(bool on) { m_thermal = on; }
         void setUltraviolet(bool on) { m_ultraviolet = on; }
+        void setWriteSurfaceTag(bool on) { m_writeSurfaceTag = on; }
         void setConstants(ID3D12GraphicsCommandList* cmd, const MeshFrameConstants& constants) const;
         void setGBufferConstants(ID3D12GraphicsCommandList* cmd, const MeshGBufferConstants& constants) const;
 
@@ -51,8 +52,10 @@ namespace Dark
         ComPtr<ID3D12PipelineState> m_psoPoint;
         ComPtr<ID3D12PipelineState> m_psoThermal;
         ComPtr<ID3D12PipelineState> m_psoUv;
-        bool                        m_thermal     = false;
-        bool                        m_ultraviolet = false;
+        ComPtr<ID3D12PipelineState> m_psoSurfaceTag;
+        bool                        m_thermal         = false;
+        bool                        m_ultraviolet     = false;
+        bool                        m_writeSurfaceTag = false;
     };
 
 } // namespace Dark

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+
 namespace Dark
 {
 
@@ -16,13 +18,14 @@ namespace Dark
         float metallic;
         float ao;
         float normalScale;
-        float alphaCutoff;
-        float alphaModeMask;
+        float    alphaCutoff;
+        float    alphaModeMask;
+        uint32_t surfaceTagPacked = 0; // bit 8 = override, bits 0–7 = tag (Render/SurfaceTag.h). Last free DWORD on skinned G-buffer.
     };
 
-    static_assert(sizeof(MeshGBufferConstants) == 58 * sizeof(float), "gbuffer mesh CB");
-    // Skinned G-buffer RS: 58 constants + 1 table + 2 shadow CBV + 2 bone CBV = 63 (<= 64).
-    static_assert(58 + 1 + 2 + 2 <= 64, "skinned G-buffer root signature DWORD budget");
+    static_assert(sizeof(MeshGBufferConstants) == 59 * sizeof(float), "gbuffer mesh CB");
+    // Skinned G-buffer RS: 59 constants + 1 table + 2 shadow CBV + 2 bone CBV = 64.
+    static_assert(59 + 1 + 2 + 2 <= 64, "skinned G-buffer root signature DWORD budget");
 
     struct MeshFrameConstants
     {

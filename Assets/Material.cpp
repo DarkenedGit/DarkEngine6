@@ -110,6 +110,8 @@ namespace Dark
         m_normalScale     = src.m_normalScale;
         m_alphaCutoff     = src.m_alphaCutoff;
         m_alphaMode       = src.m_alphaMode;
+        m_hasSurfaceTag   = src.m_hasSurfaceTag;
+        m_surfaceTag      = src.m_surfaceTag;
         return true;
     }
 
@@ -191,7 +193,7 @@ namespace Dark
         char buf[512];
         const float* c  = m.baseColor();
         const float* e  = m.emissiveColor();
-        std::snprintf(buf, sizeof(buf), "m:%llu:%llu:%llu:%llu:%llu:%.9g:%.9g:%.9g:%.9g:%.9g:%.9g:%.9g:%.9g:%.9g:%.9g:%u:%.9g:%.9g:%.9g",
+        std::snprintf(buf, sizeof(buf), "m:%llu:%llu:%llu:%llu:%llu:%.9g:%.9g:%.9g:%.9g:%.9g:%.9g:%.9g:%.9g:%.9g:%.9g:%u:%.9g:%.9g:%.9g:%u:%u",
                       static_cast<unsigned long long>(recipeImageId(m.albedo())),
                       static_cast<unsigned long long>(recipeImageId(m.normalImage())),
                       static_cast<unsigned long long>(recipeImageId(m.ormImage())),
@@ -210,7 +212,9 @@ namespace Dark
                       static_cast<unsigned>(m.alphaMode()),
                       static_cast<double>(e[0]),
                       static_cast<double>(e[1]),
-                      static_cast<double>(e[2]));
+                      static_cast<double>(e[2]),
+                      m.hasSurfaceTag() ? 1u : 0u,
+                      static_cast<unsigned>(m.surfaceTag()));
         return buf;
     }
 

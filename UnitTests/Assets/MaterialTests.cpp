@@ -82,6 +82,14 @@ TEST(Material, CopyFromDuplicatesSurface)
     EXPECT_FLOAT_EQ(dst.roughness(), 0.7f);
     EXPECT_FLOAT_EQ(dst.emissive(), 2.0f);
     EXPECT_EQ(dst.alphaMode(), MaterialAlphaMode::Mask);
+    EXPECT_FALSE(dst.hasSurfaceTag());
+    src.setSurfaceTag(4);
+    ASSERT_TRUE(dst.copyFrom(src));
+    EXPECT_TRUE(dst.hasSurfaceTag());
+    EXPECT_EQ(dst.surfaceTag(), 4u);
+    src.clearSurfaceTag();
+    ASSERT_TRUE(dst.copyFrom(src));
+    EXPECT_FALSE(dst.hasSurfaceTag());
 }
 
 TEST(Material, InternAssignsId)
@@ -303,4 +311,22 @@ TEST(Material, RecipeKeyDiffersForAoScaleAndCutoff)
     EXPECT_NE(materialRecipeKey(aoOnly), materialRecipeKey(scaleOnly));
     EXPECT_NE(materialRecipeKey(aoOnly), materialRecipeKey(cutoffOnly));
     EXPECT_NE(materialRecipeKey(scaleOnly), materialRecipeKey(cutoffOnly));
+}
+
+TEST(Material, RecipeKeyDiffersForASurfaceTagOverride)
+{
+    AssetManager assets;
+    Material     a;
+    Material     b;
+    ASSERT_TRUE(a.createSolid(assets, 1, 2, 3, 255));
+    ASSERT_TRUE(b.copyFrom(a));
+    EXPECT_EQ(materialRecipeKey(a), materialRecipeKey(b));
+    a.setSurfaceTag(0); // 0 is a valid StaticMesh override, not "no tag"
+    EXPECT_TRUE(a.hasSurfaceTag());
+    EXPECT_NE(materialRecipeKey(a), materialRecipeKey(b));
+    b.setSurfaceTag(1);
+    EXPECT_NE(materialRecipeKey(a), materialRecipeKey(b));
+    a.clearSurfaceTag();
+    b.clearSurfaceTag();
+    EXPECT_EQ(materialRecipeKey(a), materialRecipeKey(b));
 }

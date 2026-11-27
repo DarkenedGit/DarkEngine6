@@ -30,6 +30,8 @@ SamplerState gSamp     : register(s0);
 
 #include "UvMap.hlsli"
 #include "NormalMap.hlsli"
+#include "SurfaceTag.hlsli"
+#include "MaterialAuxMask.hlsli"
 
 struct VSInput
 {
@@ -93,5 +95,8 @@ GBufferOut PSMain(PSInput input)
     o.attrib   = float4(EncodeOct(n), rough, metal);
     o.velocity = VelocityUv(input.currClip, input.prevClip);
     o.ao       = aoOut;
+#ifdef DE_GBUFFER_SURFACE_TAG
+    o.surfaceTag = packSurfaceTag((uint)DE_SURFACE_CATEGORY, materialAuxAt(input.uv));
+#endif
     return o;
 }

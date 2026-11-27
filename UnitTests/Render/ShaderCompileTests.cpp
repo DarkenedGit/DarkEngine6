@@ -9,6 +9,7 @@
 using Dark::compileShaderFromFile;
 using Dark::makeThermalMacros;
 using Dark::makeUvMacros;
+using Dark::makeSurfaceTagMacros;
 using Dark::ShaderStage;
 using Microsoft::WRL::ComPtr;
 
@@ -90,6 +91,11 @@ TEST(ShaderCompile, TerrainGBufferCompiles)
     D3D_SHADER_MACRO uvMacros[3];
     makeUvMacros("0.12", uvMacros);
     EXPECT_TRUE(compileShaderFromFile(hlsl, "PSMain", ShaderStage::Pixel, ps, uvMacros));
+    D3D_SHADER_MACRO tagMacros[3];
+    makeSurfaceTagMacros("2", tagMacros);
+    EXPECT_STREQ(tagMacros[0].Name, "DE_GBUFFER_SURFACE_TAG");
+    EXPECT_STREQ(tagMacros[1].Definition, "2");
+    EXPECT_TRUE(compileShaderFromFile(hlsl, "PSMain", ShaderStage::Pixel, ps, tagMacros));
 }
 
 TEST(ShaderCompile, IblBakeCompiles)

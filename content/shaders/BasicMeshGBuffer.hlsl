@@ -16,6 +16,9 @@ cbuffer FrameConstants : register(b0)
     float    normalScale;
     float    alphaCutoff;
     float    alphaModeMask;
+#ifdef DE_GBUFFER_SURFACE_TAG
+    uint     surfaceTagPacked; // bit 8 = override, bits 0–7 = tag (SurfaceTag.h)
+#endif
 };
 
 Texture2D    gAlbedo   : register(t0);
@@ -26,6 +29,8 @@ SamplerState gSamp     : register(s0);
 
 #include "UvMap.hlsli"
 #include "NormalMap.hlsli"
+#include "SurfaceTag.hlsli"
+#include "MaterialAuxMask.hlsli"
 
 struct VSInput
 {
@@ -83,5 +88,8 @@ GBufferOut PSMain(PSInput input)
     o.attrib   = float4(EncodeOct(n), rough, metal);
     o.velocity = VelocityUv(input.currClip, input.prevClip);
     o.ao       = aoOut;
+#ifdef DE_GBUFFER_SURFACE_TAG
+    o.surfaceTag = packSurfaceTag(resolveSurfaceTag(surfaceTagPacked), materialAuxAt(input.uv));
+#endif
     return o;
 }
