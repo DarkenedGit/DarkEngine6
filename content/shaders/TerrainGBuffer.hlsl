@@ -105,7 +105,7 @@ GBufferOut PSMain(PSInput input)
         float4 orm = gOrm0.Sample(gSplatSamp, input.uv);
         float3 nG  = normalize(input.normalWS);
         GBufferOut o;
-o.albedo   = float4(alb, 0.0f);
+        o.albedo   = float4(alb, 0.0f);
         o.attrib   = float4(EncodeOct(nG), orm.g, orm.b);
         o.velocity = VelocityUv(input.currClip, input.prevClip);
         o.ao       = orm.r;
@@ -211,7 +211,7 @@ o.albedo   = float4(alb, 0.0f);
     float3 nWorld = normalize(nT.x * tW + nT.y * bW + nT.z * nG);
 
     GBufferOut o;
-o.albedo   = float4(alb, 0.0f);
+    o.albedo   = float4(alb, 0.0f);
     o.attrib   = float4(EncodeOct(nWorld), rough, metal);
     o.velocity = VelocityUv(input.currClip, input.prevClip);
     o.ao       = ao;

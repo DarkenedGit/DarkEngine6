@@ -54,7 +54,7 @@ namespace Dark
     static_assert(offsetof(LightingConstants, iblIntensity) == 51 * sizeof(float), "iblIntensity shares register 12.w");
     static_assert(offsetof(LightingConstants, iblDebug) == 55 * sizeof(float), "iblDebug is the last lighting float");
     static_assert(sizeof(LightingConstants) / sizeof(float) + 1 + 2 + 1 + 1 + 1 + 1 <= 64, "deferred lighting RS DWORD budget");
-    static_assert(sizeof(LightingConstants) / sizeof(float) + 1 + 2 + 1 + 1 + 1 + 1 == 63, "thermal removal frees one root DWORD");
+    static_assert(sizeof(LightingConstants) / sizeof(float) + 1 + 2 + 1 + 1 + 1 + 1 == 63, "deferred lighting root signature is 63 DWORDs");
 
     inline constexpr char kDefaultIblVirtualPath[] = "env/studio_gradient.hdr";
 

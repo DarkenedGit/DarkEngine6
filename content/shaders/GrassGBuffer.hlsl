@@ -238,7 +238,7 @@ GBufferOut PSMain(PSInput input, bool isFront : SV_IsFrontFace)
         n = -n;
 
     GBufferOut o;
-o.albedo = float4(albedo, 0.0f);
+    o.albedo = float4(albedo, 0.0f);
     o.attrib = float4(EncodeOct(n), 0.82f, 0.0f);
     o.velocity = VelocityUv(input.currClip, input.prevClip);
     o.ao = lerp(0.70f, 1.0f, t);

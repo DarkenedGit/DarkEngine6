@@ -78,7 +78,7 @@ GBufferOut PSMain(PSInput input)
     float emis = dot(gEmissive.Sample(gSamp, input.uv).rgb, float3(0.2126f, 0.7152f, 0.0722f)) * color.a;
 
     GBufferOut o;
-o.albedo   = float4(albedo, emis);
+    o.albedo   = float4(albedo, emis);
     o.attrib   = float4(EncodeOct(n), rough, metal);
     o.velocity = VelocityUv(input.currClip, input.prevClip);
     o.ao       = aoOut;

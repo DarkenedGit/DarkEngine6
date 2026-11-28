@@ -217,7 +217,6 @@ float3 LocalLightFogScatter(float3 cam, float3 worldPos, GpuLocalLight light, Fo
 
 float4 PSMain(PSInput input) : SV_TARGET
 {
-    // lighting <= 0.5 discards (unlit). Positive is lit.
     if (!(lighting > 0.5f))
         discard;
 
