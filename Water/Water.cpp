@@ -418,8 +418,6 @@ using namespace Terrain;
         const ShadowSystem* shadows,
         const SsrSettings* ssrSettings,
         uint32_t drawIndex,
-        float thermal,
-        float ultraviolet,
         float underAmount,
         bool ceilingPass,
         const ColorRemap& waterRemap,
@@ -461,8 +459,6 @@ using namespace Terrain;
         cb.heightWorldSizeZ = fogMap.heightWorldSizeZ;
         const bool hasSsr = WaterPipeline::ssrReady(tables);
         WaterPipeline::fillSsr(cb, camera, ssrSettings, !debug || debug->ssrEnabled, hasSsr, env);
-        cb.thermal = thermal > 0.0f ? thermal : 0.0f;
-        cb.ultraviolet = ultraviolet > 0.0f ? ultraviolet : 0.0f;
         float under = underAmount;
         if (!(under > 0.0f))
             under = 0.0f;

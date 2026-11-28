@@ -9,8 +9,6 @@
 #include "Shadow.hlsli"
 #define FOG_SAMPLE_CSM 1
 #include "Fog.hlsli"
-#include "Thermal.hlsli"
-#include "Ultraviolet.hlsli"
 #include "ColorRemap.hlsli"
 
 cbuffer LightingConstants : register(b0)
@@ -44,7 +42,6 @@ cbuffer LightingConstants : register(b0)
     float    iblMaxRoughnessMip;
     float    iblEnabled;
     float    iblDebug;
-    float    thermal; // >0 infrared, <0 ultraviolet strength, 0 off. RT0.a matches the sign.
 };
 
 cbuffer ColorRemapConstants : register(b2)
@@ -110,18 +107,10 @@ float4 PSMain(PSInput input) : SV_TARGET
     if (IsSkyDepth(depth))
         discard;
 
-    const float uvStrength = saturate(-thermal);
-    const float irStrength = saturate(thermal);
     if (lighting < 0.5f)
-    {
-        if (irStrength > 1.0e-4f)
-            return float4(lerp(albedo.rgb, thermalFalseColor(saturate(albedo.a)), irStrength), 1);
-        if (uvStrength > 1.0e-4f)
-            return float4(beeShift(albedo.rgb, albedo.a, uvStrength), 1);
         return float4(albedo.rgb, 1);
-    }
 
-    float3 baseAlbedo = beeShift(albedo.rgb, albedo.a, uvStrength);
+    float3 baseAlbedo = albedo.rgb;
 
     uint w, h;
     gDepth.GetDimensions(w, h);
@@ -187,19 +176,9 @@ float4 PSMain(PSInput input) : SV_TARGET
     if (iblDebug >= 2.5f)
         return float4(dfg.x, dfg.y, 0, 1);
 
-    if (irStrength > 1.0e-4f)
-    {
-        float3 heatCol = thermalFalseColor(saturate(emissive));
-        return float4(lerp(lit, heatCol, irStrength), 1);
-    }
-
-    // Alpha is heat or UV reflectance while a vision mode is bound, so it is not emissive.
-    if (!(abs(thermal) > 1.0e-4f))
-        lit += baseAlbedo * emissive * emissiveGain;
+    lit += baseAlbedo * emissive * emissiveGain;
 
     FogParams fogParams = MakeFogParams();
-    if (uvStrength > 1.0e-4f)
-        fogParams.fogColor = beeShift(fogParams.fogColor, kUvFog, uvStrength);
     FogResult fog = FogIntegrate(cameraPos, worldPos, fogParams, gHeightMap, gHeightSamp, shadow);
     return float4(ApplyLitFog(lit, fog), 1);
 }

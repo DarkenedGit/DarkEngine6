@@ -128,17 +128,6 @@ namespace Dark
         ComPtr<ID3DBlob> ps;
         if (!compileShaderFromContent("shaders/GrassGBuffer.hlsl", "PSMain", ShaderStage::Pixel, ps))
             return fail("pixel shader");
-        D3D_SHADER_MACRO thermalMacros[3];
-        makeThermalMacros("0.40", thermalMacros);
-        ComPtr<ID3DBlob> thermalPs;
-        if (!compileShaderFromContent("shaders/GrassGBuffer.hlsl", "PSMain", ShaderStage::Pixel, thermalPs, thermalMacros))
-            return fail("thermal pixel shader");
-        D3D_SHADER_MACRO uvMacros[3];
-        makeUvMacros("0.08", uvMacros);
-        ComPtr<ID3DBlob> uvPs;
-        if (!compileShaderFromContent("shaders/GrassGBuffer.hlsl", "PSMain", ShaderStage::Pixel, uvPs, uvMacros))
-            return fail("ultraviolet pixel shader");
-
         D3D12_INPUT_ELEMENT_DESC inputLayout[] = {
             { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
             { "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
@@ -194,14 +183,9 @@ namespace Dark
             if (FailedHr(device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_pso[lod])), "CreateGraphicsPipelineState (grass)"))
                 return fail("graphics PSO");
             m_pso[lod]->SetName(psoNames[lod]);
-            D3D12_GRAPHICS_PIPELINE_STATE_DESC thermalDesc = psoDesc;
-            thermalDesc.PS = { thermalPs->GetBufferPointer(), thermalPs->GetBufferSize() };
-            if (FailedHr(device->CreateGraphicsPipelineState(&thermalDesc, IID_PPV_ARGS(&m_psoThermal[lod])), "CreateGraphicsPipelineState (grass thermal)"))
-                return fail("thermal graphics PSO");
-            D3D12_GRAPHICS_PIPELINE_STATE_DESC uvDesc = psoDesc;
-            uvDesc.PS = { uvPs->GetBufferPointer(), uvPs->GetBufferSize() };
-            if (FailedHr(device->CreateGraphicsPipelineState(&uvDesc, IID_PPV_ARGS(&m_psoUv[lod])), "CreateGraphicsPipelineState (grass ultraviolet)"))
-                return fail("ultraviolet graphics PSO");
+            if (!createSurfaceTagPipelineState(device, psoDesc, "shaders/GrassGBuffer.hlsl", "3", m_psoSurfaceTag[lod],
+                                               "CreateGraphicsPipelineState (grass surface tag)"))
+                return fail("surface tag graphics PSO");
         }
 
         const Terrain::GrassRegionBudget budget = Terrain::grassRegionBudget();
@@ -293,8 +277,7 @@ namespace Dark
             for (int i = 0; i < 4; ++i)
             {
                 m_renderer->deferRelease(m_pso[i].Get());
-                m_renderer->deferRelease(m_psoThermal[i].Get());
-                m_renderer->deferRelease(m_psoUv[i].Get());
+                m_renderer->deferRelease(m_psoSurfaceTag[i].Get());
             }
             m_renderer->deferRelease(m_blades.Get());
             m_renderer->deferRelease(m_wind.Get());
@@ -311,11 +294,9 @@ namespace Dark
         for (int i = 0; i < 4; ++i)
         {
             m_pso[i].Reset();
-            m_psoThermal[i].Reset();
-            m_psoUv[i].Reset();
+            m_psoSurfaceTag[i].Reset();
         }
-        m_thermal = false;
-        m_ultraviolet = false;
+        m_writeSurfaceTag = false;
         m_blades.Reset();
         m_wind.Reset();
         m_cb.Reset();
@@ -408,8 +389,7 @@ namespace Dark
                     continue;
                 if (!bound)
                 {
-                    cmd->SetPipelineState((m_ultraviolet && m_psoUv[lod]) ? m_psoUv[lod].Get()
-                        : (m_thermal && m_psoThermal[lod]) ? m_psoThermal[lod].Get()
+                    cmd->SetPipelineState((m_writeSurfaceTag && m_psoSurfaceTag[lod]) ? m_psoSurfaceTag[lod].Get()
                         : m_pso[lod].Get());
                     cmd->SetGraphicsRootShaderResourceView(kRootBlades, bladeVa[lod]);
                     bound = true;

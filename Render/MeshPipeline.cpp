@@ -29,10 +29,8 @@ namespace Dark
         m_psoSolid.Reset();
         m_psoWire.Reset();
         m_psoPoint.Reset();
-        m_psoThermal.Reset();
-        m_psoUv.Reset();
-        m_thermal     = false;
-        m_ultraviolet = false;
+        m_psoSurfaceTag.Reset();
+        m_writeSurfaceTag = false;
 
         if (!device)
         {
@@ -192,32 +190,7 @@ namespace Dark
 
         if (gbuffer)
         {
-            D3D_SHADER_MACRO thermalMacros[3];
-            makeThermalMacros("0.41", thermalMacros);
-            ComPtr<ID3DBlob> thermalPs;
-            if (!compileShaderFromContent(shader, "PSMain", ShaderStage::Pixel, thermalPs, thermalMacros))
-            {
-                m_rootSignature.Reset();
-                return false;
-            }
-            D3D12_GRAPHICS_PIPELINE_STATE_DESC thermalDesc = psoDesc;
-            thermalDesc.PS = { thermalPs->GetBufferPointer(), thermalPs->GetBufferSize() };
-            if (FailedHr(device->CreateGraphicsPipelineState(&thermalDesc, IID_PPV_ARGS(&m_psoThermal)), "CreateGraphicsPipelineState (mesh thermal)"))
-            {
-                m_rootSignature.Reset();
-                return false;
-            }
-            D3D_SHADER_MACRO uvMacros[3];
-            makeUvMacros("0.00", uvMacros);
-            ComPtr<ID3DBlob> uvPs;
-            if (!compileShaderFromContent(shader, "PSMain", ShaderStage::Pixel, uvPs, uvMacros))
-            {
-                m_rootSignature.Reset();
-                return false;
-            }
-            D3D12_GRAPHICS_PIPELINE_STATE_DESC uvDesc = psoDesc;
-            uvDesc.PS = { uvPs->GetBufferPointer(), uvPs->GetBufferSize() };
-            if (FailedHr(device->CreateGraphicsPipelineState(&uvDesc, IID_PPV_ARGS(&m_psoUv)), "CreateGraphicsPipelineState (mesh ultraviolet)"))
+            if (!createSurfaceTagPipelineState(device, psoDesc, shader, "0", m_psoSurfaceTag, "CreateGraphicsPipelineState (mesh surface tag)"))
             {
                 m_rootSignature.Reset();
                 return false;
@@ -231,9 +204,8 @@ namespace Dark
 
     void MeshPipeline::bind(ID3D12GraphicsCommandList* cmd, DebugFill fill) const
     {
-        ID3D12PipelineState* pso = (m_ultraviolet && fill == DebugFill::Solid && m_psoUv) ? m_psoUv.Get()
-            : (m_thermal && fill == DebugFill::Solid && m_psoThermal)
-            ? m_psoThermal.Get()
+        ID3D12PipelineState* pso = (m_writeSurfaceTag && fill == DebugFill::Solid && m_psoSurfaceTag)
+            ? m_psoSurfaceTag.Get()
             : selectFillPso(fill, m_psoSolid.Get(), m_psoWire.Get(), m_psoPoint.Get());
         if (!cmd || !pso)
             return;

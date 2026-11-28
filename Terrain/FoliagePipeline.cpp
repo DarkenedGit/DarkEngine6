@@ -633,46 +633,17 @@ namespace Dark
             return false;
         }
         {
-            D3D_SHADER_MACRO thermalMacros[3];
-            makeThermalMacros("0.40", thermalMacros);
-            ComPtr<ID3DBlob> thermalPs;
-            if (!compileShaderFromContent("shaders/FoliageGBuffer.hlsl", "PSMain", ShaderStage::Pixel, thermalPs, thermalMacros))
+            D3D12_GRAPHICS_PIPELINE_STATE_DESC tagDesc = psoDesc;
+            tagDesc.RasterizerState.CullMode = D3D12_CULL_MODE_BACK;
+            if (!createSurfaceTagPipelineState(device, tagDesc, "shaders/FoliageGBuffer.hlsl", "4", m_gbSurfaceTag,
+                                               "CreateGraphicsPipelineState (foliage surface tag)"))
             {
                 destroy();
                 return false;
             }
-            D3D12_GRAPHICS_PIPELINE_STATE_DESC thermalDesc = psoDesc;
-            thermalDesc.PS = { thermalPs->GetBufferPointer(), thermalPs->GetBufferSize() };
-            thermalDesc.RasterizerState.CullMode = D3D12_CULL_MODE_BACK;
-            if (FailedHr(device->CreateGraphicsPipelineState(&thermalDesc, IID_PPV_ARGS(&m_gbThermal)), "CreateGraphicsPipelineState (foliage thermal)"))
-            {
-                destroy();
-                return false;
-            }
-            thermalDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
-            if (FailedHr(device->CreateGraphicsPipelineState(&thermalDesc, IID_PPV_ARGS(&m_gbThermalTwoSided)), "CreateGraphicsPipelineState (foliage thermal two-sided)"))
-            {
-                destroy();
-                return false;
-            }
-            D3D_SHADER_MACRO uvMacros[3];
-            makeUvMacros("0.08", uvMacros);
-            ComPtr<ID3DBlob> uvPs;
-            if (!compileShaderFromContent("shaders/FoliageGBuffer.hlsl", "PSMain", ShaderStage::Pixel, uvPs, uvMacros))
-            {
-                destroy();
-                return false;
-            }
-            D3D12_GRAPHICS_PIPELINE_STATE_DESC uvDesc = psoDesc;
-            uvDesc.PS = { uvPs->GetBufferPointer(), uvPs->GetBufferSize() };
-            uvDesc.RasterizerState.CullMode = D3D12_CULL_MODE_BACK;
-            if (FailedHr(device->CreateGraphicsPipelineState(&uvDesc, IID_PPV_ARGS(&m_gbUv)), "CreateGraphicsPipelineState (foliage ultraviolet)"))
-            {
-                destroy();
-                return false;
-            }
-            uvDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
-            if (FailedHr(device->CreateGraphicsPipelineState(&uvDesc, IID_PPV_ARGS(&m_gbUvTwoSided)), "CreateGraphicsPipelineState (foliage ultraviolet two-sided)"))
+            tagDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+            if (!createSurfaceTagPipelineState(device, tagDesc, "shaders/FoliageGBuffer.hlsl", "4", m_gbSurfaceTagTwoSided,
+                                               "CreateGraphicsPipelineState (foliage surface tag two-sided)"))
             {
                 destroy();
                 return false;
@@ -851,12 +822,9 @@ namespace Dark
         m_cpuPrefix.Reset();
         m_gbPso.Reset();
         m_gbPsoTwoSided.Reset();
-        m_gbThermal.Reset();
-        m_gbThermalTwoSided.Reset();
-        m_gbUv.Reset();
-        m_gbUvTwoSided.Reset();
-        m_thermal = false;
-        m_ultraviolet = false;
+        m_gbSurfaceTag.Reset();
+        m_gbSurfaceTagTwoSided.Reset();
+        m_writeSurfaceTag = false;
         m_gbRoot.Reset();
         m_depthPso.Reset();
         m_depthPsoTwoSided.Reset();
@@ -1981,10 +1949,8 @@ namespace Dark
         cmd->SetGraphicsRootSignature(m_gbRoot.Get());
         cmd->SetGraphicsRootConstantBufferView(kGbView, viewConstantAddress());
         ID3D12PipelineState* gbPso = m_gbPso.Get();
-        if (m_ultraviolet && m_gbUv)
-            gbPso = m_gbUv.Get();
-        else if (m_thermal && m_gbThermal)
-            gbPso = m_gbThermal.Get();
+        if (m_writeSurfaceTag && m_gbSurfaceTag)
+            gbPso = m_gbSurfaceTag.Get();
         cmd->SetPipelineState(gbPso);
 
         const D3D12_GPU_VIRTUAL_ADDRESS worldVa   = m_worldGpu + static_cast<UINT64>(m_activeSlot) * kWorldStride;
@@ -2001,10 +1967,8 @@ namespace Dark
             const Terrain::FoliageKind kind = kKindOrder[i];
             const bool twoSided = kind == Terrain::FoliageKind::Grass || kind == Terrain::FoliageKind::Tree || kind == Terrain::FoliageKind::Flower;
             ID3D12PipelineState* pso = twoSided ? m_gbPsoTwoSided.Get() : m_gbPso.Get();
-            if (m_ultraviolet)
-                pso = twoSided ? m_gbUvTwoSided.Get() : m_gbUv.Get();
-            else if (m_thermal)
-                pso = twoSided ? m_gbThermalTwoSided.Get() : m_gbThermal.Get();
+            if (m_writeSurfaceTag)
+                pso = twoSided ? m_gbSurfaceTagTwoSided.Get() : m_gbSurfaceTag.Get();
             if (pso)
                 cmd->SetPipelineState(pso);
             D3D12_GPU_VIRTUAL_ADDRESS indexVa = indexBase + static_cast<UINT64>(i) * kIndexKindStride;

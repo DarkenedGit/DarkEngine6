@@ -1399,7 +1399,7 @@ TonemapSettings SandboxApp::playerPostFx()
     s.blur           = 1.0f - u;
     s.uniformBlur    = 1.0f - u;
     s.fade           = 0.0f;
-    s.nightSight     = (m_vision.infrared > 0.0f || m_vision.ultraviolet > 0.0f || m_vision.echo > 0.0f) ? 0.0f : m_vision.nightSight;
+    s.nightSight     = (m_vision.echo > 0.0f) ? 0.0f : m_vision.nightSight;
     return s;
 }
 
@@ -1820,6 +1820,10 @@ void SandboxApp::onInit()
             return;
         }
         m_frame.echo().create(renderer(), "SandboxApp");
+        // Vision first in the game slot, so the camouflaged body draws over the heat picture.
+        m_frame.visionModes().create(renderer(), "SandboxApp");
+        m_frame.scene().addGameFeature(&m_frame.visionModes());
+        m_frame.composer().setupHooks().add(&m_frame.visionModes());
         m_frame.camouflage().create(renderer(), "SandboxApp");
         m_frame.scene().addGameFeature(&m_frame.camouflage());
         if (!m_frame.water().create(renderer(), "SandboxApp", true))
@@ -2232,6 +2236,9 @@ void SandboxApp::onShutdown()
     m_frame.water().release();
     m_frame.echo().release();
     m_frame.camouflage().release();
+    m_frame.composer().setupHooks().remove(&m_frame.visionModes());
+    m_frame.scene().removeGameFeature(&m_frame.visionModes());
+    m_frame.visionModes().release();
     m_frame.scene().shutdown();
     m_hud.m_rml.shutdown(renderer());
     m_hud.m_imgui.shutdown(renderer());

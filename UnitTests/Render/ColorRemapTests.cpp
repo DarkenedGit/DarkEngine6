@@ -98,17 +98,15 @@ TEST(ColorRemap, StrengthOneAppliesTheMatrixAndAux)
     EXPECT_FLOAT_EQ(dst[2], 0.4f + (0.3f - 0.4f) * 0.5f);
 }
 
-TEST(ColorRemap, ExistingConstantLayoutsAreUnchangedAndRemapsAppend)
+TEST(ColorRemap, ConstantLayoutsAfterVisionFieldRemoval)
 {
-    EXPECT_EQ(sizeof(Dark::LightingConstants), 57u * sizeof(float));
+    EXPECT_EQ(sizeof(Dark::LightingConstants), 56u * sizeof(float));
     EXPECT_EQ(sizeof(Dark::LocalLightPassConstants), 56u * sizeof(float));
-    EXPECT_EQ(offsetof(Dark::SkyFrameConstants, thermal), 76u * sizeof(float));
-    EXPECT_EQ(offsetof(Dark::SkyFrameConstants, ultraviolet), 77u * sizeof(float));
-    EXPECT_EQ(offsetof(Dark::SkyFrameConstants, skyRemap), 80u * sizeof(float));
-    EXPECT_EQ(offsetof(Dark::SkyFrameConstants, fogRemap), 96u * sizeof(float));
-    EXPECT_EQ(sizeof(Dark::SkyFrameConstants), 112u * sizeof(float));
+    EXPECT_EQ(offsetof(Dark::SkyFrameConstants, skyRemap), 76u * sizeof(float));
+    EXPECT_EQ(offsetof(Dark::SkyFrameConstants, fogRemap), 92u * sizeof(float));
+    EXPECT_EQ(sizeof(Dark::SkyFrameConstants), 108u * sizeof(float));
     EXPECT_LE(sizeof(Dark::SkyFrameConstants), 512u);
-    EXPECT_EQ(offsetof(Dark::WaterFrameConstants, underAmount), 186u * sizeof(float));
+    EXPECT_EQ(offsetof(Dark::WaterFrameConstants, underAmount), 184u * sizeof(float));
     EXPECT_EQ(offsetof(Dark::WaterFrameConstants, waterRemap), 188u * sizeof(float));
     EXPECT_EQ(offsetof(Dark::WaterFrameConstants, fogRemap), 204u * sizeof(float));
     EXPECT_EQ(sizeof(Dark::WaterFrameConstants), 220u * sizeof(float));
@@ -119,8 +117,8 @@ TEST(ColorRemap, ExistingConstantLayoutsAreUnchangedAndRemapsAppend)
 TEST(ColorRemap, PackedIdentityLeavesTheSkyPrefixUnchanged)
 {
     Dark::SkyFrameConstants cb{};
-    const auto              prefix = 78u * sizeof(float);
-    unsigned char           before[78 * sizeof(float)];
+    const auto              prefix = 76u * sizeof(float);
+    unsigned char           before[76 * sizeof(float)];
     std::memcpy(before, &cb, prefix);
     cb.skyRemap = packColorRemap(ColorRemap{});
     cb.fogRemap = packColorRemap(ColorRemap{});

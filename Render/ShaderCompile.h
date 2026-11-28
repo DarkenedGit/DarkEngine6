@@ -77,27 +77,19 @@ namespace Dark
     // Wraps bytes in an ID3DBlob (no compiler DLL needed).
     bool makeShaderBlob(const void* data, size_t size, ComPtr<ID3DBlob>& out);
 
-    // outMacros must have room for 3 entries. classHeat is a literal such as "0.72" and must outlive the compile.
-    inline void makeThermalMacros(const char* classHeat, D3D_SHADER_MACRO outMacros[3])
+    // outMacros must have room for 3 entries. category is a literal such as "0" (SurfaceCategory) and must outlive the compile.
+    inline void makeSurfaceTagMacros(const char* category, D3D_SHADER_MACRO outMacros[3])
     {
-        outMacros[0].Name       = "DE_THERMAL";
+        outMacros[0].Name       = "DE_GBUFFER_SURFACE_TAG";
         outMacros[0].Definition = "1";
-        outMacros[1].Name       = "DE_THERMAL_HEAT";
-        outMacros[1].Definition = classHeat;
+        outMacros[1].Name       = "DE_SURFACE_CATEGORY";
+        outMacros[1].Definition = category;
         outMacros[2].Name       = nullptr;
         outMacros[2].Definition = nullptr;
     }
 
-    // outMacros must have room for 3 entries. classReflect is a literal such as "0.30" and must outlive the compile.
-    // gUv lives in register space 1: fine for DXC (SM 6.x) and for the 5_1 FXC fallback.
-    inline void makeUvMacros(const char* classReflect, D3D_SHADER_MACRO outMacros[3])
-    {
-        outMacros[0].Name       = "DE_ULTRAVIOLET";
-        outMacros[0].Definition = "1";
-        outMacros[1].Name       = "DE_UV_CLASS";
-        outMacros[1].Definition = classReflect;
-        outMacros[2].Name       = nullptr;
-        outMacros[2].Definition = nullptr;
-    }
+    // Extra G-buffer PS variant: 5th RT is R8G8_UNORM SurfaceTag. categoryLiteral is DE_SURFACE_CATEGORY.
+    bool createSurfaceTagPipelineState(ID3D12Device* device, const D3D12_GRAPHICS_PIPELINE_STATE_DESC& gbufferDesc, const char* shaderFile,
+                                       const char* categoryLiteral, ComPtr<ID3D12PipelineState>& outPso, const char* what);
 
 } // namespace Dark

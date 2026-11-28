@@ -9,10 +9,12 @@
 namespace Dark
 {
 
-    // The G-buffer pass's targets: four MRTs it clears and draws, and scene depth.
+    // The G-buffer pass's targets: four MRTs it clears and draws, scene depth, and the optional
+    // SurfaceTag MRT (invalid when writeSurfaceTag is off).
     struct GBufferTargets
     {
         Rg::TextureHandle albedo, attrib, velocity, ao, depth;
+        Rg::TextureHandle surfaceTag; // valid only when the pass writes it
 
         bool valid() const
         {
@@ -52,11 +54,12 @@ namespace Dark
     // are dead); depth was cleared when the frame began (Renderer::beginFrame), so it is read and
     // written. `exec(PassContext&, const GBufferTargets&)` gets the versions it uses. Returns false
     // (and adds nothing) when a target is missing.
-    template <class Exec> bool addGBufferPass(FeatureBuilder& b, Exec&& exec)
+    template <class Exec> bool addGBufferPass(FeatureBuilder& b, Exec&& exec, bool writeSurfaceTag = false)
     {
         const GBufferTargets in = gbufferTargets(b);
         if (!in.valid())
             return false;
+        const Rg::TextureHandle surfaceIn = writeSurfaceTag ? b.handle(RenderResource::SurfaceTag) : Rg::TextureHandle{};
         GBufferTargets out;
         b.addPass<GBufferTargets>(
             "GBuffer",
@@ -67,6 +70,8 @@ namespace Dark
                 d.velocity = pb.write(in.velocity, Rg::Use::RenderTarget);
                 d.ao       = pb.write(in.ao, Rg::Use::RenderTarget);
                 d.depth    = pb.readWrite(in.depth, Rg::Use::DepthWrite);
+                if (surfaceIn.valid())
+                    d.surfaceTag = pb.write(surfaceIn, Rg::Use::RenderTarget);
                 out        = d;
             },
             std::forward<Exec>(exec));
@@ -75,6 +80,8 @@ namespace Dark
         b.set(RenderResource::Velocity, out.velocity);
         b.set(RenderResource::Ao, out.ao);
         b.set(RenderResource::Depth, out.depth);
+        if (out.surfaceTag.valid())
+            b.set(RenderResource::SurfaceTag, out.surfaceTag);
         return true;
     }
 

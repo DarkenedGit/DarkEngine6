@@ -116,6 +116,9 @@ TEST(FrameSetup, EmptyHookTurnsNothingOff)
     EXPECT_EQ(s.fogRemap, ColorRemap{});
     EXPECT_EQ(s.waterRemap, ColorRemap{});
     EXPECT_EQ(s.skyRemap, ColorRemap{});
+    EXPECT_FALSE(s.writeSurfaceTag);
+    EXPECT_EQ(s.surfaceTagLut, nullptr);
+    EXPECT_EQ(s.surfaceTagLutSize, 0u);
     for (uint32_t i = 0; i < kEnginePassCount; ++i)
         EXPECT_FALSE(s.disabled.has(static_cast<EnginePass>(i))) << enginePassName(static_cast<EnginePass>(i));
 }
@@ -1199,4 +1202,43 @@ TEST(FrameSetup, RandomScalarsAreClampedAndOnlyLowered)
         EXPECT_FLOAT_EQ(s.ssrStrength, expect(a.ssr, b.ssr)) << trial;
         EXPECT_FLOAT_EQ(s.emissiveGain, expect(a.emis, b.emis)) << trial;
     }
+}
+
+TEST(FrameSetup, WriteSurfaceTagIsOrAndLutTakesTheLastWriter)
+{
+    LogCapture logs;
+    struct TagHook : Hook
+    {
+        bool         write = false;
+        const float* lut   = nullptr;
+        uint32_t     lutN  = 0;
+        void setupFrame(const FrameView& view, FrameSetup& setup) override
+        {
+            Hook::setupFrame(view, setup);
+            setup.writeSurfaceTag = write;
+            setup.surfaceTagLut     = lut;
+            setup.surfaceTagLutSize = lutN;
+        }
+    };
+    float lutA[256]{};
+    float lutB[256]{};
+    lutA[0] = 1.0f;
+    lutB[0] = 2.0f;
+    FrameSetupHooks hooks;
+    TagHook         a, b;
+    a.hookName = "A";
+    b.hookName = "B";
+    a.write    = true;
+    a.lut      = lutA;
+    a.lutN     = 256;
+    b.write    = false;
+    b.lut      = lutB;
+    b.lutN     = 256;
+    ASSERT_TRUE(hooks.add(&a));
+    ASSERT_TRUE(hooks.add(&b));
+    const FrameSetup s = hooks.resolve(FrameView{}, 0.0);
+    EXPECT_TRUE(s.writeSurfaceTag);
+    EXPECT_EQ(s.surfaceTagLut, lutB);
+    EXPECT_EQ(s.surfaceTagLutSize, 256u);
+    EXPECT_EQ(logsWith("two hooks wrote FrameSetup::surfaceTagLut"), 1u);
 }

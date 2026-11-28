@@ -139,10 +139,8 @@ namespace Dark
 
         ComPtr<ID3D12RootSignature> gbRoot;
         ComPtr<ID3D12PipelineState> gbPso;
-        ComPtr<ID3D12PipelineState> gbThermal;
-        ComPtr<ID3D12PipelineState> gbUv;
-        bool                        thermal = false;
-        bool                        ultraviolet = false;
+        ComPtr<ID3D12PipelineState> gbSurfaceTag;
+        bool                        writeSurfaceTag = false;
         ComPtr<ID3D12RootSignature> depthRoot;
         ComPtr<ID3D12PipelineState> depthPso;
 
@@ -255,23 +253,8 @@ namespace Dark
         if (FailedHr(device->CreateGraphicsPipelineState(&gbPsoDesc, IID_PPV_ARGS(&gbPso)), "CreateGraphicsPipelineState (skinned gbuffer)"))
             return false;
         {
-            D3D_SHADER_MACRO thermalMacros[3];
-            makeThermalMacros("0.72", thermalMacros);
-            ComPtr<ID3DBlob> thermalPs;
-            if (!compileShaderFromContent("shaders/SkinnedMeshGBufferInstanced.hlsl", "PSMain", ShaderStage::Pixel, thermalPs, thermalMacros))
-                return false;
-            D3D12_GRAPHICS_PIPELINE_STATE_DESC thermalDesc = gbPsoDesc;
-            thermalDesc.PS = { thermalPs->GetBufferPointer(), thermalPs->GetBufferSize() };
-            if (FailedHr(device->CreateGraphicsPipelineState(&thermalDesc, IID_PPV_ARGS(&gbThermal)), "CreateGraphicsPipelineState (skinned thermal)"))
-                return false;
-            D3D_SHADER_MACRO uvMacros[3];
-            makeUvMacros("0.30", uvMacros);
-            ComPtr<ID3DBlob> uvPs;
-            if (!compileShaderFromContent("shaders/SkinnedMeshGBufferInstanced.hlsl", "PSMain", ShaderStage::Pixel, uvPs, uvMacros))
-                return false;
-            D3D12_GRAPHICS_PIPELINE_STATE_DESC uvDesc = gbPsoDesc;
-            uvDesc.PS = { uvPs->GetBufferPointer(), uvPs->GetBufferSize() };
-            if (FailedHr(device->CreateGraphicsPipelineState(&uvDesc, IID_PPV_ARGS(&gbUv)), "CreateGraphicsPipelineState (skinned ultraviolet)"))
+            if (!createSurfaceTagPipelineState(device, gbPsoDesc, "shaders/SkinnedMeshGBufferInstanced.hlsl", "1", gbSurfaceTag,
+                                               "CreateGraphicsPipelineState (skinned instanced surface tag)"))
                 return false;
         }
 
@@ -350,7 +333,7 @@ namespace Dark
         if (!cmd || !gbPso)
             return;
         cmd->SetGraphicsRootSignature(gbRoot.Get());
-        cmd->SetPipelineState((ultraviolet && gbUv) ? gbUv.Get() : (thermal && gbThermal) ? gbThermal.Get() : gbPso.Get());
+        cmd->SetPipelineState((writeSurfaceTag && gbSurfaceTag) ? gbSurfaceTag.Get() : gbPso.Get());
     }
 
     void SkinnedInstanceBuffer::Gpu::setGBufferConstants(ID3D12GraphicsCommandList* cmd, const MeshBatchConstants& constants) const
@@ -497,16 +480,10 @@ namespace Dark
         return m_gpu && m_gpu->gbPso && m_gpu->depthPso && m_gpu->instancesMapped && m_gpu->palettesMapped && m_gpu->indicesMapped;
     }
 
-    void SkinnedInstanceBuffer::setThermal(bool on)
+    void SkinnedInstanceBuffer::setWriteSurfaceTag(bool on)
     {
         if (m_gpu)
-            m_gpu->thermal = on;
-    }
-
-    void SkinnedInstanceBuffer::setUltraviolet(bool on)
-    {
-        if (m_gpu)
-            m_gpu->ultraviolet = on;
+            m_gpu->writeSurfaceTag = on;
     }
 
     bool SkinnedInstanceBuffer::cullReady() const

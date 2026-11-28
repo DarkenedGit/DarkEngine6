@@ -30,8 +30,7 @@ namespace Dark
         bool isValid() const { return m_gbPso != nullptr && m_depthPso != nullptr; }
 
         void bindGBuffer(ID3D12GraphicsCommandList* cmd) const;
-        void setThermal(bool on) { m_thermal = on; }
-        void setUltraviolet(bool on) { m_ultraviolet = on; }
+        void setWriteSurfaceTag(bool on) { m_writeSurfaceTag = on; }
         void setGBufferConstants(ID3D12GraphicsCommandList* cmd, const MeshBatchConstants& constants) const;
         void setGBufferBuffers(ID3D12GraphicsCommandList* cmd, D3D12_GPU_VIRTUAL_ADDRESS instances, D3D12_GPU_VIRTUAL_ADDRESS indices) const;
 
@@ -44,10 +43,8 @@ namespace Dark
 
         ComPtr<ID3D12RootSignature> m_gbRoot;
         ComPtr<ID3D12PipelineState> m_gbPso;
-        ComPtr<ID3D12PipelineState> m_gbThermal;
-        ComPtr<ID3D12PipelineState> m_gbUv;
-        bool                        m_thermal = false;
-        bool                        m_ultraviolet = false;
+        ComPtr<ID3D12PipelineState> m_gbSurfaceTag;
+        bool                        m_writeSurfaceTag = false;
         ComPtr<ID3D12RootSignature> m_depthRoot;
         ComPtr<ID3D12PipelineState> m_depthPso;
     };

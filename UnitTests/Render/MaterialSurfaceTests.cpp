@@ -2,6 +2,7 @@
 
 #include "Assets/Material.h"
 #include "Render/MaterialSurface.h"
+#include "Render/SurfaceTag.h"
 #include "Render/MeshConstants.h"
 
 using Dark::applyMaterialSurface;
@@ -11,7 +12,7 @@ using Dark::MeshGBufferConstants;
 
 TEST(MaterialSurface, ConstantLayouts)
 {
-    EXPECT_EQ(sizeof(MeshGBufferConstants), 58u * sizeof(float));
+    EXPECT_EQ(sizeof(MeshGBufferConstants), 59u * sizeof(float));
     EXPECT_EQ(sizeof(MeshFrameConstants), 53u * sizeof(float));
 }
 
@@ -109,4 +110,19 @@ TEST(MaterialSurface, ForwardAppendsMapScalars)
     EXPECT_FLOAT_EQ(cb.alphaCutoff, 0.4f);
     EXPECT_FLOAT_EQ(cb.alphaModeMask, 0.0f);
     EXPECT_FLOAT_EQ(cb.emissive, 2.0f * (0.2126f * 0.0f + 0.7152f * 1.0f + 0.0722f * 0.0f));
+}
+
+TEST(MaterialSurface, PacksASurfaceTagOverrideAndLeavesTheDefaultZero)
+{
+    Material mat;
+    MeshGBufferConstants cb{};
+    applyMaterialSurface(mat, cb);
+    EXPECT_EQ(cb.surfaceTagPacked, 0u);
+    mat.setSurfaceTag(7);
+    applyMaterialSurface(mat, cb);
+    EXPECT_TRUE(Dark::surfaceTagOverridePacked(cb.surfaceTagPacked));
+    EXPECT_EQ(Dark::surfaceTagPackedValue(cb.surfaceTagPacked), 7u);
+    mat.clearSurfaceTag();
+    applyMaterialSurface(mat, cb);
+    EXPECT_EQ(cb.surfaceTagPacked, 0u);
 }

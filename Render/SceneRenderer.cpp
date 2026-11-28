@@ -698,15 +698,29 @@ FrameShadows SceneRenderer::frameShadows() const
 
 void SceneRenderer::beginGBufferPass(Rg::PassContext& c, const Renderer& renderer, const GBufferTargets& d)
 {
-    ID3D12GraphicsCommandList* const  cmd     = c.cmd();
-    const D3D12_CPU_DESCRIPTOR_HANDLE rtvs[4] = { rgRtv(c, d.albedo), rgRtv(c, d.attrib), rgRtv(c, d.velocity), rgRtv(c, d.ao) };
-    const D3D12_CPU_DESCRIPTOR_HANDLE dsv     = cpuHandle(c.dsv(d.depth));
+    ID3D12GraphicsCommandList* const cmd = c.cmd();
+    const D3D12_CPU_DESCRIPTOR_HANDLE dsv = cpuHandle(c.dsv(d.depth));
     // Clear values match the targets' optimized clears (SceneBuffers::create).
-    cmd->ClearRenderTargetView(rtvs[0], SceneBuffers::kAlbedoClear, 0, nullptr);
-    cmd->ClearRenderTargetView(rtvs[1], SceneBuffers::kAttribClear, 0, nullptr);
-    cmd->ClearRenderTargetView(rtvs[2], SceneBuffers::kVelocityClear, 0, nullptr);
-    cmd->ClearRenderTargetView(rtvs[3], SceneBuffers::kAoClear, 0, nullptr);
-    cmd->OMSetRenderTargets(4, rtvs, FALSE, &dsv);
+    if (d.surfaceTag.valid())
+    {
+        const D3D12_CPU_DESCRIPTOR_HANDLE rtvs[5] = { rgRtv(c, d.albedo), rgRtv(c, d.attrib), rgRtv(c, d.velocity), rgRtv(c, d.ao),
+                                                      rgRtv(c, d.surfaceTag) };
+        cmd->ClearRenderTargetView(rtvs[0], SceneBuffers::kAlbedoClear, 0, nullptr);
+        cmd->ClearRenderTargetView(rtvs[1], SceneBuffers::kAttribClear, 0, nullptr);
+        cmd->ClearRenderTargetView(rtvs[2], SceneBuffers::kVelocityClear, 0, nullptr);
+        cmd->ClearRenderTargetView(rtvs[3], SceneBuffers::kAoClear, 0, nullptr);
+        cmd->ClearRenderTargetView(rtvs[4], SceneBuffers::kSurfaceTagClear, 0, nullptr);
+        cmd->OMSetRenderTargets(5, rtvs, FALSE, &dsv);
+    }
+    else
+    {
+        const D3D12_CPU_DESCRIPTOR_HANDLE rtvs[4] = { rgRtv(c, d.albedo), rgRtv(c, d.attrib), rgRtv(c, d.velocity), rgRtv(c, d.ao) };
+        cmd->ClearRenderTargetView(rtvs[0], SceneBuffers::kAlbedoClear, 0, nullptr);
+        cmd->ClearRenderTargetView(rtvs[1], SceneBuffers::kAttribClear, 0, nullptr);
+        cmd->ClearRenderTargetView(rtvs[2], SceneBuffers::kVelocityClear, 0, nullptr);
+        cmd->ClearRenderTargetView(rtvs[3], SceneBuffers::kAoClear, 0, nullptr);
+        cmd->OMSetRenderTargets(4, rtvs, FALSE, &dsv);
+    }
     cmd->RSSetViewports(1, &renderer.viewport());
     cmd->RSSetScissorRects(1, &renderer.scissor());
 }
@@ -850,9 +864,6 @@ void SceneRenderer::addLocalVolumesPasses(FeatureBuilder& b, Renderer& renderer,
         [self, rr, w, cam, inp](PassContext& c, const LightingReads& d)
         {
             if (!resolveInputOk(*inp))
-                return;
-            // A flashlight pool is visible light. Heat is already in the emissive meshes.
-            if (self->m_resolveLighting.thermal > 1.0e-4f)
                 return;
             if (!self->m_colorRemapCb.valid())
                 return;

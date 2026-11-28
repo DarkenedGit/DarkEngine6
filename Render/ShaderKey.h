@@ -23,8 +23,8 @@ namespace Dark
     // runtime compiler cannot disagree. Plan §3.15 step 3 bumps it to "6_6" after the FXC A/B.
     inline constexpr const char* kShaderModelDxc = "6_0";
 
-    // FXC fallback (DE_SHADER_FXC=1) compiles every stage at 5.1, which also accepts the register-space
-    // bindings the ultraviolet permutations use.
+    // FXC fallback (DE_SHADER_FXC=1) compiles every stage at 5.1, which also accepts register-space
+    // bindings (instance buffers and the material aux mask).
     inline constexpr const char* kShaderModelFxc = "5_1";
 
     const char* shaderStageId(ShaderStage stage); // "vs", "ps", "cs"
@@ -44,7 +44,7 @@ namespace Dark
         std::string file;  // path under its shader root (e.g. content/shaders) with '/' separators, e.g. "TerrainGBuffer.hlsl"
         std::string entry; // "PSMain"
         ShaderStage stage = ShaderStage::Vertex;
-        std::string defines; // canonical: NAME=VALUE pairs sorted by name, comma-separated, e.g. "DE_THERMAL=1,DE_THERMAL_HEAT=0.41"
+        std::string defines; // canonical: NAME=VALUE pairs sorted by name, comma-separated, e.g. "DE_GBUFFER_SURFACE_TAG=1,DE_SURFACE_CATEGORY=0"
 
         bool operator==(const ShaderKey&) const = default;
     };

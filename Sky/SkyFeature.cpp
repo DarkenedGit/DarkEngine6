@@ -51,7 +51,7 @@ namespace Dark
         if (!m_inputs.camera || !m_inputs.env)
             return;
         const uint32_t frameIndex = m_renderer->frameIndex();
-        m_pipeline.upload(frameIndex, *m_inputs.camera, *m_inputs.env, m_inputs.exposure, m_inputs.waterLevel, m_inputs.fogScale, m_inputs.thermal, m_inputs.ultraviolet, m_skyRemap, m_fogRemap);
+        m_pipeline.upload(frameIndex, *m_inputs.camera, *m_inputs.env, m_inputs.exposure, m_inputs.waterLevel, m_inputs.fogScale, m_skyRemap, m_fogRemap);
         m_pipeline.draw(c.cmd(), frameIndex, shadowTable, m_inputs.shadows);
     }
 

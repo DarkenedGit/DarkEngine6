@@ -115,6 +115,7 @@ namespace Dark
 
         uint32_t writtenScalars = 0;
         uint32_t writtenRemaps  = 0;
+        bool     lutWritten     = false;
         auto     lowerScalar    = [&](float& dst, float proposed, uint32_t bit, const char* field)
         {
             if (proposed == dst)
@@ -166,6 +167,19 @@ namespace Dark
             takeRemap(setup.fogRemap, mine.fogRemap, 1u << 1, "fogRemap");
             takeRemap(setup.waterRemap, mine.waterRemap, 1u << 2, "waterRemap");
             takeRemap(setup.skyRemap, mine.skyRemap, 1u << 3, "skyRemap");
+            if (mine.writeSurfaceTag)
+                setup.writeSurfaceTag = true;
+            if (mine.surfaceTagLut != setup.surfaceTagLut || mine.surfaceTagLutSize != setup.surfaceTagLutSize)
+            {
+                if (lutWritten && !m_loggedTwoLuts)
+                {
+                    m_loggedTwoLuts = true;
+                    DE_LOG_WARN(LogCategory::Render, "FrameSetupHooks: two hooks wrote FrameSetup::surfaceTagLut; the last write is kept (logs once)");
+                }
+                lutWritten              = true;
+                setup.surfaceTagLut     = mine.surfaceTagLut;
+                setup.surfaceTagLutSize = mine.surfaceTagLutSize;
+            }
         }
         const uint32_t dropped = setup.disabled.bits & ~kEnginePassesHonoured;
         for (uint32_t i = 0; i < kEnginePassCount; ++i)

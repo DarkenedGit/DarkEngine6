@@ -23,8 +23,8 @@ TEST(ShaderKey, ProfilesFollowTheModelConstants)
 
 TEST(ShaderKey, DefinesAreSortedByName)
 {
-    const ShaderDefine defines[] = { { "DE_THERMAL_HEAT", "0.41" }, { "DE_THERMAL", "1" } };
-    EXPECT_EQ(canonicalShaderDefines(defines), "DE_THERMAL=1,DE_THERMAL_HEAT=0.41");
+    const ShaderDefine defines[] = { { "DE_SURFACE_CATEGORY", "0" }, { "DE_GBUFFER_SURFACE_TAG", "1" } };
+    EXPECT_EQ(canonicalShaderDefines(defines), "DE_GBUFFER_SURFACE_TAG=1,DE_SURFACE_CATEGORY=0");
     EXPECT_EQ(canonicalShaderDefines({}), "");
 
     std::vector<ShaderDefine> split;
@@ -50,7 +50,7 @@ TEST(ShaderKey, FileFromContentPath)
 TEST(ShaderKey, BakedNamesMatchTheCMakeRule)
 {
     EXPECT_EQ(bakedShaderFileName({ "Bloom.hlsl", "PSExtract", ShaderStage::Pixel, "" }), "Bloom.PSExtract.ps.dxil");
-    EXPECT_EQ(bakedShaderFileName({ "TerrainGBuffer.hlsl", "PSMain", ShaderStage::Pixel, "DE_THERMAL=1,DE_THERMAL_HEAT=0.41" }), "TerrainGBuffer.PSMain.ps.DE_THERMAL-1_DE_THERMAL_HEAT-0.41.dxil");
+    EXPECT_EQ(bakedShaderFileName({ "TerrainGBuffer.hlsl", "PSMain", ShaderStage::Pixel, "DE_GBUFFER_SURFACE_TAG=1,DE_SURFACE_CATEGORY=0" }), "TerrainGBuffer.PSMain.ps.DE_GBUFFER_SURFACE_TAG-1_DE_SURFACE_CATEGORY-0.dxil");
     EXPECT_EQ(bakedShaderFileName({ "sub/Odd Name.hlsl", "CSMain", ShaderStage::Compute, "X=a b" }), "sub_Odd_Name.CSMain.cs.X-a_b.dxil");
 }
 

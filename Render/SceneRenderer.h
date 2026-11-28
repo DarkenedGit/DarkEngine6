@@ -382,7 +382,8 @@ private:
                             {
                                 beginGBufferPass(c, *rr, d);
                                 draw(c);
-                            }))
+                            },
+                            m_setup.writeSurfaceTag && b.handle(RenderResource::SurfaceTag).valid()))
             b.opaque("GBuffer", {}, {}, [](Rg::PassContext&) { logMissingSceneTargets("GBuffer"); });
     }
 

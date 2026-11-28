@@ -2,8 +2,7 @@
 #pragma pack_matrix(row_major)
 
 #include "GBuffer.hlsli"
-#include "Thermal.hlsli"
-#include "Ultraviolet.hlsli"
+#include "SurfaceTag.hlsli"
 
 cbuffer FrameConstants : register(b0)
 {
@@ -106,14 +105,13 @@ GBufferOut PSMain(PSInput input)
         float4 orm = gOrm0.Sample(gSplatSamp, input.uv);
         float3 nG  = normalize(input.normalWS);
         GBufferOut o;
-#ifdef DE_ULTRAVIOLET
-        o.albedo   = float4(alb, saturate(DE_UV_CLASS));
-#else
-        o.albedo   = float4(alb, thermalScalar(0.0f, 0.0f));
-#endif
+        o.albedo   = float4(alb, 0.0f);
         o.attrib   = float4(EncodeOct(nG), orm.g, orm.b);
         o.velocity = VelocityUv(input.currClip, input.prevClip);
         o.ao       = orm.r;
+#ifdef DE_GBUFFER_SURFACE_TAG
+        o.surfaceTag = packSurfaceTag((uint)DE_SURFACE_CATEGORY, 0.0f);
+#endif
         return o;
     }
 
@@ -213,13 +211,12 @@ GBufferOut PSMain(PSInput input)
     float3 nWorld = normalize(nT.x * tW + nT.y * bW + nT.z * nG);
 
     GBufferOut o;
-#ifdef DE_ULTRAVIOLET
-    o.albedo   = float4(alb, saturate(DE_UV_CLASS));
-#else
-    o.albedo   = float4(alb, thermalScalar(0.0f, 0.0f));
-#endif
+    o.albedo   = float4(alb, 0.0f);
     o.attrib   = float4(EncodeOct(nWorld), rough, metal);
     o.velocity = VelocityUv(input.currClip, input.prevClip);
     o.ao       = ao;
+#ifdef DE_GBUFFER_SURFACE_TAG
+    o.surfaceTag = packSurfaceTag((uint)DE_SURFACE_CATEGORY, 0.0f);
+#endif
     return o;
 }

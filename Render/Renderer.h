@@ -214,6 +214,7 @@ namespace Dark
         D3D12_CPU_DESCRIPTOR_HANDLE backBufferRtv() const; // this frame's back buffer
         ID3D12Resource*             velocityResource() const;
         ID3D12Resource*             aoResource() const;
+        ID3D12Resource*             surfaceTagResource() const;
         ID3D12Resource*             postResource() const;
         float                       depthClearValue() const { return kDepthClear; }
         const D3D12_VIEWPORT& viewport() const { return m_viewport; }
@@ -249,6 +250,7 @@ namespace Dark
         D3D12_CPU_DESCRIPTOR_HANDLE attribRtv() const;
         D3D12_CPU_DESCRIPTOR_HANDLE velocityRtv() const;
         D3D12_CPU_DESCRIPTOR_HANDLE aoRtv() const;
+        D3D12_CPU_DESCRIPTOR_HANDLE surfaceTagRtv() const;
         D3D12_CPU_DESCRIPTOR_HANDLE hdrSrvCpu() const;
         D3D12_CPU_DESCRIPTOR_HANDLE postHdrSrvCpu() const;
         D3D12_CPU_DESCRIPTOR_HANDLE postRtv() const;
@@ -256,6 +258,7 @@ namespace Dark
         D3D12_CPU_DESCRIPTOR_HANDLE albedoSrvCpu() const;
         D3D12_CPU_DESCRIPTOR_HANDLE attribSrvCpu() const;
         D3D12_CPU_DESCRIPTOR_HANDLE aoSrvCpu() const;
+        D3D12_CPU_DESCRIPTOR_HANDLE surfaceTagSrvCpu() const;
         // CPU views the declared lighting passes copy into ring tables (render-graph plan Phase 6
         // part 4). Unset views are null SRVs; empty without scene buffers.
         LightingViews lightingViews() const;
