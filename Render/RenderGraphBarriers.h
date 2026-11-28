@@ -50,7 +50,7 @@ namespace Dark::Rg
     // Bytes per pixel of a DXGI_FORMAT value (0 = unknown or block-compressed).
     uint32_t formatBytesPerPixel(uint32_t dxgiFormat);
     // Estimated size of a resolved texture (all mips and slices); 0 when the format is unknown.
-    // The alias plan uses it; Phase 9 replaces it with GetResourceAllocationInfo.
+    // The alias plan uses it when the graph has no transient sizer (setTransientSizer).
     uint64_t estimateTextureBytes(uint32_t width, uint32_t height, const TextureDesc& desc);
 
 } // namespace Dark::Rg

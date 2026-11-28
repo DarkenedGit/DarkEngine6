@@ -88,7 +88,8 @@ namespace Dark::Rg
         uint64_t             generation = 0; // changes on actual recreation, not merely an output-size change
     };
 
-    // Persistent render-graph registry. Stable IDs; names are unique; no aliasing (Phase 9).
+    // Persistent render-graph registry. Stable IDs; names are unique; never aliased (transients are
+    // placed by Render/TransientHeap).
     // The backend must outlive this pool. Neither is thread safe; registration and resize happen
     // on the render thread, before any recording that uses the affected targets.
     class RenderTargetPool

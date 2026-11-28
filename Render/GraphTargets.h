@@ -4,6 +4,7 @@
 #include "Render/GpuAllocator.h"
 #include "Render/RenderTargetPool.h"
 #include "Render/TemporalHistory.h"
+#include "Render/TransientHeap.h"
 
 #include <cstdint>
 #include <d3d12.h>
@@ -77,16 +78,23 @@ namespace Dark
         {
             return m_backend;
         }
+        // The graph's placed transients (Render/TransientHeap.h); retired with the targets.
+        TransientHeap& transients()
+        {
+            return m_transients;
+        }
 
         // Retired targets are released once `fence` (the fence value that will cover work recorded
         // from now on) has completed; collect() frees what `completed` covers.
         void retireAfter(uint64_t fence)
         {
             m_backend.retireAfter(fence);
+            m_transients.retireAfter(fence);
         }
         void collect(uint64_t completed)
         {
             m_backend.collect(completed);
+            m_transients.collect(completed);
         }
 
         // Called by Renderer::resize after its waitForGpu (and by tests). Transactional.
@@ -116,6 +124,7 @@ namespace Dark
         GpuAllocator         m_allocator;
         D3D12TargetBackend   m_backend;
         Rg::RenderTargetPool m_pool;
+        TransientHeap        m_transients; // after the pool: destroyed first
     };
 
     // Plain color render target registered by the opaque owners (SRV + RTV, optimized clear).

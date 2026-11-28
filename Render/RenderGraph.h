@@ -166,6 +166,30 @@ namespace Dark::Rg
         bool     prevValid = false;
     };
 
+    // What a transient texture is used as this frame (bits), so the backend can pick its resource
+    // flags and views: render target, depth-stencil, UAV, shader resource.
+    enum TransientUsage : uint8_t
+    {
+        kUsageRenderTarget   = 1,
+        kUsageDepthStencil   = 2,
+        kUsageUnordered      = 4,
+        kUsageShaderResource = 8,
+    };
+
+    // The placed size and alignment of one transient (D3D12: GetResourceAllocationInfo). bytes 0 means
+    // the texture cannot be placed.
+    struct TransientSize
+    {
+        uint64_t bytes     = 0;
+        uint64_t alignment = 0;
+    };
+    // Sizes a transient texture from its resolved extent, desc and usage bits. Must be deterministic
+    // for the same inputs: the plan cache reuses the placement.
+    using TransientSizeFn = TransientSize (*)(void* user, uint32_t width, uint32_t height, const TextureDesc& desc, uint8_t usage);
+    // D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT: the placement unit without a sizer.
+    inline constexpr uint64_t kPlacementAlignment = 65536;
+    inline constexpr uint64_t kNoHeapOffset       = ~uint64_t{ 0 };
+
     struct CompileOptions
     {
         bool asyncCompute = false; // rg.asyncCompute: off = every pass forced onto Graphics (default until Phase 10)
@@ -440,24 +464,31 @@ namespace Dark::Rg
     // Compiled facts about one resource.
     struct ResourceInfo
     {
-        const char*  name      = "";
-        ResourceKind kind      = ResourceKind::Texture;
-        Lifetime     lifetime  = Lifetime::Transient;
-        uint32_t     width     = 0; // resolved (textures)
-        uint32_t     height    = 0;
-        uint64_t     bytes     = 0;       // estimate for textures, BufferDesc::size for buffers
-        bool         used      = false;   // touched by a live pass
-        uint32_t     firstPass = kNoPass; // live passes, by global order
-        uint32_t     lastPass  = kNoPass;
-        uint8_t      queueMask = 0;       // bit per Queue that touches it
-        uint32_t     aliasSlot = kNoPass; // transients only
-        uint16_t     versions  = 0;
-        uint32_t     historyId = kNoPass; // persistent slot id (history textures)
+        const char*  name       = "";
+        ResourceKind kind       = ResourceKind::Texture;
+        Lifetime     lifetime   = Lifetime::Transient;
+        uint32_t     width      = 0; // resolved (textures)
+        uint32_t     height     = 0;
+        uint64_t     bytes      = 0;       // transients: placed size (sizer, else estimate) rounded to the alignment; imports: estimate or BufferDesc::size
+        bool         used       = false;   // touched by a live pass
+        uint32_t     firstPass  = kNoPass; // live passes, by global order
+        uint32_t     lastPass   = kNoPass;
+        uint8_t      queueMask  = 0;             // bit per Queue that touches it
+        uint32_t     aliasSlot  = kNoPass;       // transients only
+        uint64_t     heapOffset = kNoHeapOffset; // transients: byte offset in the transient heap
+        uint64_t     alignment  = 0;             // transients: placement alignment
+        uint8_t      usage      = 0;             // TransientUsage bits from the live accesses
+        uint16_t     versions   = 0;
+        uint32_t     historyId  = kNoPass; // persistent slot id (history textures)
     };
 
+    // One region of the transient heap. Its occupants are disjoint in time; regions are disjoint in
+    // memory, at aligned offsets in order.
     struct AliasSlot
     {
-        uint64_t              bytes = 0;
+        uint64_t              bytes     = 0; // largest occupant, rounded to its alignment
+        uint64_t              offset    = 0;
+        uint64_t              alignment = kPlacementAlignment;
         std::vector<uint16_t> resources; // in order of use
     };
 
@@ -618,12 +649,13 @@ namespace Dark::Rg
             return static_cast<uint32_t>(m_resources.size());
         }
         uint16_t                      findResource(const char* name) const; // kInvalidIndex if missing
-        // The native resource an import (or, from Phase 9, a placed transient) was given; null otherwise.
+        // The native resource an import or a placed transient (placeTransient) was given; null otherwise.
         ID3D12Resource* nativeResource(uint16_t resource) const
         {
             return resource < m_resources.size() ? m_resources[resource].native : nullptr;
         }
         ResourceInfo                  resourceInfo(uint16_t resource) const;
+        TextureDesc                   textureDesc(uint16_t resource) const; // as declared (default for buffers)
         const std::vector<AliasSlot>& aliasSlots() const
         {
             return m_aliasSlots;
@@ -636,6 +668,25 @@ namespace Dark::Rg
         {
             return m_transientBytesAliased;
         }
+        // The heap the placement needs: the end of the last region, and the largest alignment.
+        uint64_t transientHeapBytes() const
+        {
+            return m_transientHeapBytes;
+        }
+        uint64_t transientHeapAlignment() const
+        {
+            return m_transientHeapAlignment;
+        }
+        // Sizes transients with real allocation info instead of the format estimate. Kept across
+        // frames; part of the plan key.
+        void setTransientSizer(TransientSizeFn fn, void* user)
+        {
+            m_sizer     = fn;
+            m_sizerUser = user;
+        }
+        // Gives a live transient texture of the compiled plan its placed resource and views for this
+        // frame (after compile, before execute). False for anything else.
+        bool placeTransient(uint16_t resource, ID3D12Resource* native, const TextureViews& views);
 
         // Pass a's work is complete before pass b starts (same-queue order or a sync point chain).
         // kPrologue / kEpilogue name the graphics prologue/epilogue.
@@ -718,6 +769,8 @@ namespace Dark::Rg
             uint32_t lastPass             = kNoPass;
             uint8_t  queueMask            = 0;
             uint32_t aliasSlot            = kNoPass;
+            uint64_t alignment            = 0;
+            uint8_t  usage                = 0;
             uint32_t firstOn[kQueueCount] = { kNoPass, kNoPass }; // first / last pass per queue
             uint32_t lastOn[kQueueCount]  = { kNoPass, kNoPass };
         };
@@ -780,6 +833,10 @@ namespace Dark::Rg
         std::vector<std::pair<uint32_t, uint32_t>> m_edges; // live dependency edges (from, to), incl. barrier edges
         uint64_t                                   m_transientBytesUnaliased = 0;
         uint64_t                                   m_transientBytesAliased   = 0;
+        uint64_t                                   m_transientHeapBytes      = 0;
+        uint64_t                                   m_transientHeapAlignment  = 0;
+        TransientSizeFn                            m_sizer                   = nullptr;
+        void*                                      m_sizerUser               = nullptr;
         std::vector<const char*>                   m_disabledOutputs; // this frame's, by tag slot (frame arena)
     };
 

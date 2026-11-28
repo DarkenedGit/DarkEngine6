@@ -48,8 +48,9 @@ namespace Dark
 
     private:
         friend class GpuAllocator;
-        // Released in reverse order: resource, allocation, then the allocator reference.
+        // Released in reverse order: resource, allocation, its custom pool, then the allocator reference.
         Microsoft::WRL::ComPtr<IUnknown>       m_allocator;
+        Microsoft::WRL::ComPtr<IUnknown>       m_pool; // D3D12MA::Pool of placement memory, or nullptr
         Microsoft::WRL::ComPtr<IUnknown>       m_allocation;
         Microsoft::WRL::ComPtr<ID3D12Resource> m_resource;
         uint64_t                               m_bytes = 0;
@@ -90,6 +91,18 @@ namespace Dark
         bool createTexture(const D3D12_RESOURCE_DESC& desc, D3D12_RESOURCE_STATES initial, const D3D12_CLEAR_VALUE* clear, const wchar_t* name, GpuResource& out);
         // Buffer on the given heap type (DEFAULT, UPLOAD or READBACK).
         bool createBuffer(uint64_t bytes, D3D12_HEAP_TYPE heap, D3D12_RESOURCE_STATES initial, D3D12_RESOURCE_FLAGS flags, const wchar_t* name, GpuResource& out);
+
+        // Memory for placed (aliasing) resources and no resource of its own: one block of exactly
+        // `bytes` in its own D3D12MA custom pool on a DEFAULT heap that holds buffers and textures
+        // together (Resource Heap Tier 2). The memory keeps its pool alive. Not zeroed: every placed
+        // texture's first use must be a discard or a clear.
+        bool allocatePlacementMemory(uint64_t bytes, const wchar_t* name, GpuResource& out);
+        // A texture at `offset` in `memory` (from allocatePlacementMemory), born in LAYOUT_UNDEFINED.
+        // It keeps the memory alive; it must be released (deferred) before the memory is reused for
+        // a different placement that the GPU could still be reading.
+        bool createPlacedTexture(const GpuResource& memory, uint64_t offset, const D3D12_RESOURCE_DESC& desc, const D3D12_CLEAR_VALUE* clear, const wchar_t* name, GpuResource& out);
+        // GetResourceAllocationInfo for one resource. False when the device rejects the desc.
+        bool allocationInfo(const D3D12_RESOURCE_DESC& desc, uint64_t& bytes, uint64_t& alignment) const;
 
         GpuMemoryStats stats() const;
         void           logStats(const char* when) const;
