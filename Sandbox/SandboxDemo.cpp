@@ -201,7 +201,7 @@ void SandboxDemo::updateWiggleAnim()
         return;
 
     float speed = 0.0f;
-    const bool uiKeys = app().uiOpen() && app().m_hud.m_imgui.isReady() && app().m_hud.m_imgui.wantCaptureKeyboard();
+    const bool uiKeys = (app().uiOpen() && app().m_hud.m_imgui.isReady() && app().m_hud.m_imgui.wantCaptureKeyboard()) || app().m_hud.m_rml.capturesInput();
     if (!uiKeys && app().input().actionDown("anim_walk"))
         speed = 1.0f;
     else

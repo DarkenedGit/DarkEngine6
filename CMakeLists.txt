@@ -278,9 +278,86 @@ if(DE_ENABLE_FREETYPE)
     target_link_libraries(imgui_editor PUBLIC freetype)
 endif()
 
+# RmlUi is the player UI. Dear ImGui stays the editor and debug layer.
+# Same exception mode as the engine: do not pass /EHs- and do not turn exceptions on.
+# The sample DX12 backend creates its own device, so the host implements RenderInterface.
+if(NOT TARGET freetype)
+    set(FT_DISABLE_ZLIB ON CACHE BOOL "" FORCE)
+    set(FT_DISABLE_BZIP2 ON CACHE BOOL "" FORCE)
+    set(FT_DISABLE_PNG ON CACHE BOOL "" FORCE)
+    set(FT_DISABLE_HARFBUZZ ON CACHE BOOL "" FORCE)
+    set(FT_DISABLE_BROTLI ON CACHE BOOL "" FORCE)
+    set(SKIP_INSTALL_ALL ON CACHE BOOL "" FORCE)
+    FetchContent_Declare(
+        freetype
+        GIT_REPOSITORY https://github.com/freetype/freetype.git
+        GIT_TAG        VER-2-13-3
+        GIT_SHALLOW    TRUE
+    )
+    FetchContent_MakeAvailable(freetype)
+endif()
+if(TARGET freetype AND NOT TARGET Freetype::Freetype)
+    add_library(Freetype::Freetype ALIAS freetype)
+endif()
+
+set(RMLUI_SAMPLES OFF CACHE BOOL "" FORCE)
+set(RMLUI_FONT_ENGINE "freetype" CACHE STRING "" FORCE)
+set(RMLUI_LUA_BINDINGS OFF CACHE BOOL "" FORCE)
+set(RMLUI_LOTTIE_PLUGIN OFF CACHE BOOL "" FORCE)
+set(RMLUI_SVG_PLUGIN OFF CACHE BOOL "" FORCE)
+set(RMLUI_HARFBUZZ_SAMPLE OFF CACHE BOOL "" FORCE)
+set(RMLUI_TRACY_PROFILING OFF CACHE BOOL "" FORCE)
+set(RMLUI_MATRIX_ROW_MAJOR OFF CACHE BOOL "" FORCE)
+set(RMLUI_THIRDPARTY_CONTAINERS ON CACHE BOOL "" FORCE)
+set(RMLUI_PRECOMPILED_HEADERS OFF CACHE BOOL "" FORCE)
+
+set(_de_rml_shared_defined FALSE)
+if(DEFINED CACHE{BUILD_SHARED_LIBS} OR DEFINED BUILD_SHARED_LIBS)
+    set(_de_rml_shared_before "${BUILD_SHARED_LIBS}")
+    set(_de_rml_shared_defined TRUE)
+endif()
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(_de_disable_freetype_find "${CMAKE_DISABLE_FIND_PACKAGE_Freetype}")
+set(CMAKE_DISABLE_FIND_PACKAGE_Freetype TRUE)
+
+set(_de_save_runtime_outdir "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+set(_de_save_library_outdir "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}")
+set(_de_save_archive_outdir "${CMAKE_ARCHIVE_OUTPUT_DIRECTORY}")
+
+FetchContent_Declare(
+    rmlui
+    GIT_REPOSITORY https://github.com/mikke89/RmlUi.git
+    GIT_TAG        6.3
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(rmlui)
+
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${_de_save_runtime_outdir}")
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${_de_save_library_outdir}")
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${_de_save_archive_outdir}")
+unset(_de_save_runtime_outdir)
+unset(_de_save_library_outdir)
+unset(_de_save_archive_outdir)
+set(CMAKE_DISABLE_FIND_PACKAGE_Freetype "${_de_disable_freetype_find}")
+unset(_de_disable_freetype_find)
+if(_de_rml_shared_defined)
+    set(BUILD_SHARED_LIBS "${_de_rml_shared_before}" CACHE BOOL "" FORCE)
+else()
+    unset(BUILD_SHARED_LIBS CACHE)
+endif()
+unset(_de_rml_shared_defined)
+unset(_de_rml_shared_before)
+
+foreach(_de_rml_target rmlui_core rmlui_debugger rmlui)
+    if(TARGET ${_de_rml_target})
+        set_target_properties(${_de_rml_target} PROPERTIES FOLDER "ThirdParty")
+    endif()
+endforeach()
+unset(_de_rml_target)
+
 # Sandbox Dev Tools uses the same ImGui + Ui bootstrap as Editor.
 target_sources(Sandbox PRIVATE ${DE_UI_SOURCES})
-target_link_libraries(Sandbox PRIVATE imgui_editor)
+target_link_libraries(Sandbox PRIVATE imgui_editor RmlUi::Core)
 target_include_directories(Sandbox PRIVATE
     ${imgui_SOURCE_DIR}
     ${imgui_SOURCE_DIR}/backends
@@ -291,7 +368,7 @@ add_executable(Editor WIN32 ${DE_EDITOR_SOURCES})
 
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${DE_EDITOR_SOURCES})
 
-target_link_libraries(Editor PRIVATE DarkEngine imgui_editor comdlg32)
+target_link_libraries(Editor PRIVATE DarkEngine imgui_editor RmlUi::Core comdlg32)
 
 target_include_directories(Editor PRIVATE
     "${CMAKE_SOURCE_DIR}/third_party"
@@ -315,7 +392,7 @@ add_executable(VisualDebugger WIN32 ${DE_VISUALDEBUGGER_SOURCES})
 
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${DE_VISUALDEBUGGER_SOURCES})
 
-target_link_libraries(VisualDebugger PRIVATE DarkEngine imgui_editor)
+target_link_libraries(VisualDebugger PRIVATE DarkEngine imgui_editor RmlUi::Core)
 
 target_include_directories(VisualDebugger PRIVATE
     "${CMAKE_SOURCE_DIR}/third_party"

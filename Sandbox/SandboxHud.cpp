@@ -150,6 +150,10 @@ void SandboxHud::loadMenuBackground()
 
 void SandboxHud::drawMainMenu()
 {
+    if (m_menuPage == Dark::MainMenuPage::Front && m_rml.frontActive())
+        return;
+    if (m_menuPage == Dark::MainMenuPage::Settings && m_rml.settingsActive())
+        return;
     float volume = app().audio().masterVolume();
     Dark::MainMenuChrome chrome;
     chrome.background   = m_menuBackgroundId;
@@ -741,6 +745,50 @@ void SandboxHud::drawPickupLabels()
     });
 }
 
+void SandboxHud::fillStealthHud(RmlStealthHud& hud)
+{
+    hud.suspicion    = 0.0f;
+    hud.nearbyAlerts = 0;
+    hud.hidden       = false;
+    hud.prompt.clear();
+
+    const Entity              body = app().possessedBody();
+    const TransformComponent* pxf  = body.valid() ? app().world().get<TransformComponent>(body) : nullptr;
+    if (const PlayerStealthComponent* stealth = app().localStealth())
+        hud.hidden = stealth->hidden;
+
+    float suspicion = 0.0f;
+    int   alerts    = 0;
+    bool  seen      = false;
+    app().world().each<AiAgentComponent>([&](Entity e, AiAgentComponent& ai) {
+        const HealthComponent*    hp = app().world().get<HealthComponent>(e);
+        const TransformComponent* xf = app().world().get<TransformComponent>(e);
+        if (!xf || !hp || !hp->health.alive() || !isInteractGuard(app().world(), e))
+            return;
+        const AI::AwarenessState& aw = ai.aware;
+        float                     meter = aw.meter;
+        if (meter < 0.0f)
+            meter = 0.0f;
+        if (meter > 1.0f)
+            meter = 1.0f;
+        if (aw.alertness == AI::Alertness::Alert)
+            meter = 1.0f;
+        if (meter > suspicion)
+            suspicion = meter;
+        if (aw.seesNow)
+            seen = true;
+        if (aw.alertness == AI::Alertness::Calm && meter < 0.02f)
+            return;
+        if (pxf && (xf->position - pxf->position).MagnitudeSqrd() > 45.0f * 45.0f)
+            return;
+        ++alerts;
+    });
+    hud.suspicion    = suspicion;
+    hud.nearbyAlerts = alerts;
+    if (seen)
+        hud.prompt = "DETECTED";
+}
+
 void SandboxHud::drawGuardAwareness()
 {
     ImDrawList* dl = ImGui::GetBackgroundDrawList(ImGui::GetMainViewport());
@@ -1191,6 +1239,8 @@ void SandboxHud::drawProfiler()
 
 void SandboxHud::drawPauseOverlay()
 {
+    if (m_rml.pauseActive())
+        return;
     const ImGuiViewport* vp = ImGui::GetMainViewport();
     if (!vp)
         return;

@@ -1,0 +1,258 @@
+<rml>
+<head>
+<title>SETTINGS</title>
+<style>
+body {
+	width: 100%;
+	height: 100%;
+	margin: 0px;
+	padding: 0px;
+	font-family: Roboto;
+	font-weight: normal;
+	color: #f4f6f8;
+	background-color: #060a10;
+}
+#bg {
+	position: absolute;
+	left: 0px;
+	top: 0px;
+	width: 100%;
+	height: 100%;
+	background-color: #060a10;
+	decorator: image("../menu/crisper_bg.jpg" cover);
+	pointer-events: none;
+}
+#scrim {
+	position: absolute;
+	left: 0px;
+	top: 0px;
+	width: 46%;
+	height: 100%;
+	background-color: #04070c;
+	opacity: 0.72;
+	pointer-events: none;
+}
+#stage {
+	position: absolute;
+	left: 0px;
+	top: 0px;
+	width: 100%;
+	height: 100%;
+	opacity: 0;
+	transform: translateY(-24dp);
+	transition: opacity transform 0.2s cubic-out;
+	pointer-events: none;
+}
+#stage.open {
+	opacity: 1;
+	transform: translateY(0dp);
+}
+#panel {
+	position: absolute;
+	left: 5.5%;
+	top: 12%;
+	width: 42%;
+	pointer-events: auto;
+}
+#engine {
+	position: absolute;
+	right: 4%;
+	top: 14%;
+	width: 30%;
+	pointer-events: auto;
+}
+h1 {
+	margin: 0px;
+	font-size: 72dp;
+	letter-spacing: 6dp;
+	font-weight: normal;
+	color: #f4f6f8;
+}
+h2 {
+	margin: 0px;
+	margin-top: 16dp;
+	font-size: 28dp;
+	letter-spacing: 3dp;
+	font-weight: normal;
+	color: #f4f6f8;
+}
+.kicker {
+	margin-top: 22dp;
+	font-size: 13dp;
+	letter-spacing: 2dp;
+	color: #a8b2bc;
+}
+.head {
+	margin-top: 8dp;
+	margin-bottom: 10dp;
+	font-size: 16dp;
+	letter-spacing: 2dp;
+	color: #bac6d0;
+}
+#volume-row {
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	margin-top: 10dp;
+	pointer-events: auto;
+}
+input#volume {
+	display: block;
+	width: 70%;
+	height: 18dp;
+	margin: 0px;
+	background-color: transparent;
+	border-width: 0px;
+	tab-index: auto;
+	nav: none;
+	pointer-events: auto;
+}
+input#volume slidertrack {
+	height: 4dp;
+	margin-top: 7dp;
+	background-color: #243038;
+}
+input#volume sliderprogress {
+	height: 4dp;
+	background-color: #7adcd4;
+}
+input#volume sliderbar {
+	width: 10dp;
+	height: 18dp;
+	background-color: #d7fff8;
+}
+input#volume:hover sliderbar,
+input#volume:focus-visible sliderbar {
+	background-color: #ffffff;
+}
+input#volume sliderarrowdec,
+input#volume sliderarrowinc {
+	width: 0px;
+	height: 0px;
+	background-color: transparent;
+}
+#volume-value {
+	margin-left: 16dp;
+	width: 72dp;
+	font-size: 18dp;
+	letter-spacing: 1dp;
+	color: #9ceee8;
+	pointer-events: none;
+}
+#game-list {
+	max-height: 46vh;
+	overflow-y: auto;
+	pointer-events: auto;
+}
+#engine-list {
+	max-height: 68vh;
+	overflow-y: auto;
+	pointer-events: auto;
+}
+#game-list scrollbarvertical,
+#engine-list scrollbarvertical {
+	width: 8dp;
+}
+#game-list scrollbarvertical slidertrack,
+#engine-list scrollbarvertical slidertrack {
+	background-color: #12181e;
+}
+#game-list scrollbarvertical sliderbar,
+#engine-list scrollbarvertical sliderbar {
+	background-color: #8ce6e0;
+	opacity: 0.45;
+}
+.control {
+	display: flex;
+	flex-direction: row;
+	align-items: flex-start;
+	margin-bottom: 8dp;
+	/* The list is the scroll target. These rows are not buttons. */
+	pointer-events: none;
+}
+.keys {
+	width: 46%;
+	margin-right: 8dp;
+	font-size: 15dp;
+	color: #9ee6e0;
+	white-space: normal;
+}
+.what {
+	width: 52%;
+	font-size: 15dp;
+	color: #e6eaee;
+	white-space: normal;
+}
+#controls-note {
+	display: none;
+	margin-top: 12dp;
+	font-size: 15dp;
+	letter-spacing: 1dp;
+	color: #a8b2bc;
+	pointer-events: none;
+}
+body.no-controls #engine,
+body.no-controls #game-block {
+	display: none;
+}
+body.no-controls #controls-note {
+	display: block;
+}
+button.row {
+	display: block;
+	width: auto;
+	margin: 0px;
+	margin-top: 18dp;
+	padding: 4dp 12dp;
+	background-color: transparent;
+	color: #f4f6f8;
+	border-width: 0px;
+	font-size: 28dp;
+	font-weight: normal;
+	letter-spacing: 3dp;
+	text-align: left;
+	white-space: nowrap;
+	tab-index: auto;
+	nav: none;
+	pointer-events: auto;
+	transition: background-color color 0.15s cubic-out;
+}
+button.row:hover,
+button.row:focus-visible {
+	color: #9ceee8;
+	background-color: #12363a;
+}
+body.loading button.row {
+	color: #7f8a94;
+}
+body.loading button.row:focus-visible {
+	color: #9ceee8;
+}
+</style>
+</head>
+<body>
+<div id="bg"></div>
+<div id="scrim"></div>
+<div id="stage">
+	<div id="panel">
+		<h1 id="title">CRISPER</h1>
+		<h2>SETTINGS</h2>
+		<div class="kicker">MASTER VOLUME</div>
+		<div id="volume-row">
+			<input type="range" id="volume" min="0" max="100" step="1" value="100"/>
+			<div id="volume-value">100%</div>
+		</div>
+		<div id="controls-note">CONTROLS COULD NOT BE LOADED</div>
+		<div id="game-block">
+			<div class="head">GAME</div>
+			<div id="game-list"></div>
+		</div>
+		<button id="back" class="row" data-id="back">BACK</button>
+	</div>
+	<div id="engine">
+		<div class="head">ENGINE</div>
+		<div id="engine-list"></div>
+	</div>
+</div>
+</body>
+</rml>

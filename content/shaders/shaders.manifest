@@ -105,6 +105,9 @@ ParticleSimulate.hlsl CSSimulate cs
 ParticleSimulate.hlsl CSInPlace cs
 ParticleSimulate.hlsl CSConsume cs
 
+RmlUi.hlsl VSMain vs
+RmlUi.hlsl PSMain ps
+
 ShadowDepth.hlsl VSMain vs
 
 SkinnedMesh.hlsl VSMain vs

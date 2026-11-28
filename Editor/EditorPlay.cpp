@@ -472,11 +472,12 @@ void EditorApp::fillPlayHost(void* user, PlayHost& host)
     host.camouflage   = false;
 
     const bool playUi      = app->m_lootTarget.valid() || app->m_showUpgrades;
-    const bool pointerFree = !playUi && (app->window().cursorCaptured() || !(app->m_imgui.isReady() && app->m_imgui.wantCaptureMouse()));
+    const bool rml         = app->m_rml.capturesInput();
+    const bool pointerFree = !playUi && !rml && (app->window().cursorCaptured() || !(app->m_imgui.isReady() && app->m_imgui.wantCaptureMouse()));
     host.applyMouseLook    = pointerFree;
     host.allowMouseButtons = pointerFree;
     host.uiMouse           = !pointerFree;
-    host.uiKeys            = app->m_imgui.isReady() && app->m_imgui.wantCaptureKeyboard();
+    host.uiKeys            = (app->m_imgui.isReady() && app->m_imgui.wantCaptureKeyboard()) || rml || app->m_rml.ateCancel();
     host.chaseReady        = app->m_playMode;
 
     host.cubes            = app->m_playCubes.empty() ? nullptr : app->m_playCubes.data();

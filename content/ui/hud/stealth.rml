@@ -1,0 +1,77 @@
+<rml>
+<head>
+<title>STEALTH</title>
+<style>
+body {
+	width: 100%;
+	height: 100%;
+	margin: 0px;
+	padding: 0px;
+	font-family: Roboto;
+	font-weight: normal;
+	color: #f4f6f8;
+	background-color: transparent;
+	pointer-events: none;
+}
+#hud {
+	position: absolute;
+	left: 28dp;
+	top: 24dp;
+	width: 260dp;
+	opacity: 0;
+	transition: opacity 0.2s cubic-out;
+	pointer-events: none;
+}
+#hud.open {
+	opacity: 1;
+}
+.kicker {
+	font-size: 12dp;
+	letter-spacing: 2dp;
+	color: #8c9ca8;
+	pointer-events: none;
+}
+.meter {
+	width: 100%;
+	height: 8dp;
+	margin-top: 8dp;
+	background-color: #12181e;
+	pointer-events: none;
+}
+.meter-fill {
+	display: block;
+	height: 8dp;
+	width: 0%;
+	background-color: #7adcd4;
+	pointer-events: none;
+}
+.meter.hot .meter-fill {
+	background-color: #e07060;
+}
+.line {
+	margin-top: 6dp;
+	font-size: 14dp;
+	letter-spacing: 2dp;
+	color: #bac6d0;
+	pointer-events: none;
+}
+.line.hide {
+	color: #9ceee8;
+}
+.line.alert {
+	color: #e07060;
+}
+</style>
+</head>
+<body>
+<div id="hud" data-model="hud">
+	<div class="kicker">STEALTH</div>
+	<div class="meter" data-class-hot="suspicion > 0.7">
+		<div class="meter-fill" data-style-width="suspicion | percent"></div>
+	</div>
+	<div class="line hide" data-if="hidden">HIDDEN</div>
+	<div class="line" data-if="nearby_alerts > 0">{{nearby_alerts}} NEARBY</div>
+	<div class="line alert" data-if="prompt != ''">{{prompt}}</div>
+</div>
+</body>
+</rml>

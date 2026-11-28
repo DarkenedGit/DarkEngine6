@@ -67,6 +67,9 @@ void EditorApp::onRender()
     else
         renderScene3D();
 
+    if (!frameCaptureActive())
+        m_rml.render(renderer());
+
     if (m_imgui.isReady())
     {
         // Frame capture: the baseline PNG is the full-window 3D view without panels.

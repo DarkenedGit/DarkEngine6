@@ -29,6 +29,7 @@
 #include "Core/EntityPins.h"
 #include "Core/Log.h"
 #include "Input/InputCodes.h"
+#include "Scene/ControlGuide.h"
 #include "Scene/EntityInput.h"
 #include "Math/MathHelper.h"
 #include "Math/Matrix4f.h"
@@ -384,10 +385,13 @@ void SandboxApp::fillPlayHost(void* user, PlayHost& host)
     const bool ui    = app->uiOpen();
     const bool imgui = app->m_hud.m_imgui.isReady();
     const bool dialogueUi = app->m_dialogue.choiceOpen() || app->m_dialogue.locksWorld();
-    host.uiKeys            = (ui && imgui && app->m_hud.m_imgui.wantCaptureKeyboard()) || dialogueUi;
-    host.applyMouseLook    = !ui && !dialogueUi;
-    host.allowMouseButtons = !ui && !dialogueUi;
-    host.uiMouse           = ui && imgui && app->m_hud.m_imgui.wantCaptureMouse();
+    const bool rml        = app->m_hud.m_rml.capturesInput();
+    const bool rmlCancel  = app->m_hud.m_rml.ateCancel();
+    const bool rmlAction  = app->m_hud.m_rml.ateAction();
+    host.uiKeys            = (ui && imgui && app->m_hud.m_imgui.wantCaptureKeyboard()) || dialogueUi || rml || rmlCancel || rmlAction;
+    host.applyMouseLook    = !ui && !dialogueUi && !rml;
+    host.allowMouseButtons = !ui && !dialogueUi && !rml;
+    host.uiMouse           = (ui && imgui && app->m_hud.m_imgui.wantCaptureMouse()) || rml;
     host.chaseReady        = app->m_chaseOk;
 
     const std::vector<AABox3f>& cubes = app->m_chase.cubes();
@@ -614,8 +618,10 @@ void SandboxApp::handleRuntimeCommands(float wallDt, bool allowScale)
     if (m_hud.m_menu.visible())
     {
         window().setCursorCaptured(false);
-        if (!m_hud.m_imgui.isReady())
+        if (!m_hud.m_imgui.isReady() && !m_hud.m_rml.frontActive() && !m_hud.m_rml.settingsActive())
             m_hud.m_menu.update(input(), renderer().width(), renderer().height());
+        applyRmlFrontInput();
+        applyRmlSettingsInput();
         switch (m_hud.m_menu.pollResult())
         {
         case MainMenuResult::Confirm:
@@ -693,11 +699,11 @@ void SandboxApp::handleRuntimeCommands(float wallDt, bool allowScale)
     handleNetHotkeys();
     applyNetRole();
 
-    const bool uiKeys = uiOpen() && m_hud.m_imgui.isReady() && m_hud.m_imgui.wantCaptureKeyboard();
+    const bool uiKeys = (uiOpen() && m_hud.m_imgui.isReady() && m_hud.m_imgui.wantCaptureKeyboard()) || m_hud.m_rml.capturesInput() || m_hud.m_rml.ateCancel() || m_hud.m_rml.ateAction();
     // Dev tools and inventory become the keyboard-nav target, so WantCaptureKeyboard
     // is set and would swallow the same key that should close them. A text field still owns the key.
     const bool typing = m_hud.m_imgui.isReady() && m_hud.m_imgui.wantTextInput();
-    if (input().actionPressed("pause") && !m_movie.blocksWorld())
+    if (input().actionPressed("pause") && !m_movie.blocksWorld() && !m_hud.m_rml.ateCancel())
     {
         const bool dialogueWasOpen = m_dialogue.active();
         if (!uiKeys || dialogueWasOpen)
@@ -715,6 +721,8 @@ void SandboxApp::handleRuntimeCommands(float wallDt, bool allowScale)
     }
     if (!typing && m_play.simPaused() && input().actionPressed("step") && (!uiKeys || !m_showDevTools))
         m_play.requestSimStep();
+
+    applyRmlPauseInput();
 
     const bool talkHold = m_dialogue.locksWorld() || m_movie.blocksWorld();
     const bool stepThrough = allowScale && m_play.simStepPending() && !talkHold;
@@ -875,7 +883,7 @@ void SandboxApp::handleRuntimeCommands(float wallDt, bool allowScale)
         DE_LOG_INFO("Sandbox: lighting = {}", dbg.lighting);
     }
 
-    if (input().actionPressed("quit"))
+    if (input().actionPressed("quit") && !m_hud.m_rml.ateCancel())
     {
         if (m_movie.blocksWorld())
         {
@@ -969,7 +977,7 @@ void SandboxApp::handleRuntimeCommands(float wallDt, bool allowScale)
         else if (!uiKeys)
             m_dialogue.tryBegin();
     }
-    if (m_dialogue.choiceOpen())
+    if (m_dialogue.choiceOpen() && !m_hud.m_rml.capturesInput())
     {
         if (input().keyPressed(Key::Up))
             m_dialogue.moveChoice(-1);
@@ -979,7 +987,7 @@ void SandboxApp::handleRuntimeCommands(float wallDt, bool allowScale)
             m_dialogue.commitChoice();
     }
 
-    window().setCursorCaptured(window().isFocused() && !uiOpen() && !m_hud.m_menu.visible());
+    window().setCursorCaptured(window().isFocused() && !uiOpen() && !m_hud.m_menu.visible() && !m_hud.m_rml.capturesInput());
     const bool talkNow = m_dialogue.locksWorld() || m_movie.blocksWorld();
     if (!talkNow)
     {
@@ -1010,8 +1018,8 @@ void SandboxApp::handleRuntimeCommands(float wallDt, bool allowScale)
 
 void SandboxApp::updateFlyCamera(float dt)
 {
-    const bool uiKeys  = uiOpen() && m_hud.m_imgui.isReady() && m_hud.m_imgui.wantCaptureKeyboard();
-    const bool uiMouse = uiOpen() && m_hud.m_imgui.isReady() && m_hud.m_imgui.wantCaptureMouse();
+    const bool uiKeys  = (uiOpen() && m_hud.m_imgui.isReady() && m_hud.m_imgui.wantCaptureKeyboard()) || m_hud.m_rml.capturesInput();
+    const bool uiMouse = (uiOpen() && m_hud.m_imgui.isReady() && m_hud.m_imgui.wantCaptureMouse()) || m_hud.m_rml.capturesInput();
     const bool typing  = m_hud.m_imgui.isReady() && m_hud.m_imgui.wantTextInput();
     const bool pauseCard = m_play.simPaused() && !m_showDevTools && !m_showInventory && !m_showProfiler && !m_hud.m_showJournal && !m_hud.m_showUpgrades
         && !m_hud.m_lootTarget.valid() && !typing;
@@ -1879,6 +1887,8 @@ void SandboxApp::onInit()
         DE_LOG_WARN("SandboxApp: ImGui init failed — Dev Tools (M) disabled");
     else
         m_hud.loadMenuBackground();
+    if (!m_hud.m_rml.init(renderer()))
+        DE_LOG_WARN("SandboxApp: RmlUi init failed");
     if (!pumpBootFrame())
         return;
 
@@ -1914,8 +1924,189 @@ void SandboxApp::tickLeaves(float dt)
     stepFallingLeaves(tick, dt);
 }
 
+namespace
+{
+    void fillRmlSettings(RmlSettingsMenu& menu);
+}
+
+void SandboxApp::syncRmlFront()
+{
+    RmlFrontMenu menu;
+    menu.show          = m_hud.m_menu.visible() && m_hud.m_menuPage == MainMenuPage::Front;
+    menu.loading       = m_hud.m_menu.loading();
+    menu.loadingLabel  = m_hud.m_menu.loadingLabel();
+    menu.title         = m_hud.m_menu.title();
+    const float dpi    = window().dpiScale();
+    menu.dpi           = dpi > 0.1f ? dpi : 1.0f;
+    if (const MainMenuEntry* selected = m_hud.m_menu.selected())
+        menu.selectedId = selected->id;
+    if (menu.show)
+    {
+        const std::vector<MainMenuEntry>& entries = m_hud.m_menu.entries();
+        menu.rows.reserve(entries.size());
+        for (const MainMenuEntry& entry : entries)
+        {
+            RmlFrontRow row;
+            row.id    = entry.id;
+            row.level = entry.role == MainMenuRole::Level;
+            if (row.level)
+            {
+                row.title = entry.title.empty() ? entry.id : entry.title;
+                for (char& c : row.title)
+                {
+                    if (c >= 'a' && c <= 'z')
+                        c = static_cast<char>(c - 'a' + 'A');
+                }
+            }
+            else
+            {
+                row.title    = entry.title;
+                row.subtitle = entry.subtitle;
+            }
+            menu.rows.push_back(std::move(row));
+        }
+    }
+    m_hud.m_rml.presentFront(menu);
+
+    RmlSettingsMenu settings;
+    settings.show         = m_hud.m_menu.visible() && m_hud.m_menuPage == MainMenuPage::Settings;
+    settings.loading      = m_hud.m_menu.loading();
+    settings.dpi          = menu.dpi;
+    settings.title        = m_hud.m_menu.title();
+    settings.masterVolume = audio().masterVolume();
+    if (settings.show)
+        fillRmlSettings(settings);
+    m_hud.m_rml.presentSettings(settings);
+
+    RmlPauseMenu pause;
+    pause.show = m_sceneStarted && m_play.simPaused() && !m_hud.m_menu.visible() && !m_movie.blocksWorld();
+    pause.dpi  = menu.dpi;
+    m_hud.m_rml.presentPause(pause);
+
+    RmlStealthHud stealth;
+    stealth.show = m_sceneStarted && !m_hud.m_menu.visible() && !m_movie.blocksWorld();
+    stealth.dpi  = menu.dpi;
+    if (stealth.show)
+        m_hud.fillStealthHud(stealth);
+    m_hud.m_rml.presentStealth(stealth);
+}
+
+namespace
+{
+
+    void fillRmlSettings(RmlSettingsMenu& menu)
+    {
+        static Dark::ControlGuide guide;
+        static bool               ready  = false;
+        static bool               logged = false;
+        if (!ready)
+        {
+            Dark::ControlGuide next;
+            if (Dark::loadSandboxControlGuide(next))
+            {
+                guide = std::move(next);
+                ready = true;
+            }
+            else if (!logged)
+            {
+                logged = true;
+                DE_LOG_ERROR(Dark::LogCategory::Input, "Settings: could not load the control lists");
+            }
+        }
+        menu.controlsLoaded = ready;
+        if (!ready)
+            return;
+        menu.game.reserve(guide.game.size());
+        menu.engine.reserve(guide.engine.size());
+        for (const Dark::ControlRow& row : guide.game)
+            menu.game.push_back(RmlControlRow{ row.keys, row.what });
+        for (const Dark::ControlRow& row : guide.engine)
+            menu.engine.push_back(RmlControlRow{ row.keys, row.what });
+    }
+
+} // namespace
+
+void SandboxApp::applyRmlFrontInput()
+{
+    if (!m_hud.m_rml.frontActive())
+        return;
+    const RmlFrontEvent event = m_hud.m_rml.pollFront();
+    if (m_hud.m_menu.loading())
+        return;
+    const std::string& id = !event.activateId.empty() ? event.activateId : event.focusId;
+    if (!id.empty())
+    {
+        const std::vector<MainMenuEntry>& entries = m_hud.m_menu.entries();
+        for (size_t i = 0; i < entries.size(); ++i)
+        {
+            if (entries[i].id == id)
+            {
+                m_hud.m_menu.moveTo(i);
+                break;
+            }
+        }
+    }
+    if (event.activate)
+        m_hud.m_menu.confirm();
+    else if (event.cancel)
+    {
+        if (m_sceneStarted)
+            m_hud.m_menu.hide();
+        else
+            m_hud.m_menu.quit();
+    }
+}
+
+void SandboxApp::applyRmlSettingsInput()
+{
+    if (!m_hud.m_rml.settingsActive())
+        return;
+    const RmlSettingsEvent event = m_hud.m_rml.pollSettings();
+    if (m_hud.m_menu.loading())
+        return;
+    if (event.volumeChanged)
+        audio().setMasterVolume(event.masterVolume);
+
+    static float savedVolume = -1.0f;
+    if (savedVolume < 0.0f)
+        savedVolume = audio().masterVolume();
+    const float delta = audio().masterVolume() - savedVolume;
+    const float gap   = delta < 0.0f ? -delta : delta;
+    if (!input().mouseDown(Dark::MouseButton::Left) && gap > 0.0001f)
+    {
+        if (Dark::saveMasterVolume(audio().masterVolume()))
+            savedVolume = audio().masterVolume();
+    }
+    if (event.back || event.cancel)
+        m_hud.m_menuPage = MainMenuPage::Front;
+}
+
+void SandboxApp::applyRmlPauseInput()
+{
+    if (!m_hud.m_rml.pauseActive())
+        return;
+    const RmlPauseEvent event = m_hud.m_rml.pollPause();
+    if (event.resume)
+    {
+        m_play.setSimPaused(false);
+        playSoundCue(world(), audio(), assets(), m_play.cameraEntity(), "click", true);
+        RmlPauseMenu hidden;
+        hidden.dpi = window().dpiScale();
+        m_hud.m_rml.presentPause(hidden);
+        DE_LOG_INFO("Sandbox: gameplay paused = {}", m_play.simPaused());
+    }
+    else if (event.step)
+    {
+        m_play.requestSimStep();
+        playSoundCue(world(), audio(), assets(), m_play.cameraEntity(), "click", true);
+    }
+}
+
 void SandboxApp::onUpdate(float dt)
 {
+    syncRmlFront();
+    m_hud.m_rml.update(renderer(), input(), m_hud.m_imgui.isReady() && m_hud.m_imgui.wantCaptureMouse(),
+        m_hud.m_imgui.isReady() && m_hud.m_imgui.wantCaptureKeyboard(), dt);
     m_movie.tick(dt);
     tickMovieCues(world(), m_movie, possessedBody());
     if (m_movie.takeBeganBlocking())
@@ -2021,6 +2212,7 @@ void SandboxApp::onUpdate(float dt)
 
 void SandboxApp::onRender()
 {
+    syncRmlFront();
     m_frame.render();
 }
 
@@ -2041,6 +2233,7 @@ void SandboxApp::onShutdown()
     m_frame.echo().release();
     m_frame.camouflage().release();
     m_frame.scene().shutdown();
+    m_hud.m_rml.shutdown(renderer());
     m_hud.m_imgui.shutdown(renderer());
     m_hud.m_menuBackground   = Dark::Texture2D{};
     m_hud.m_menuBackgroundId = 0;

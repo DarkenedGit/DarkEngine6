@@ -34,6 +34,7 @@
 #include "Editor/EditorObject.h"
 #include "Math/AABox2f.h"
 #include "Editor/EditorImGui.h"
+#include "Ui/RmlUiHost.h"
 #include "Editor/TranslateGizmo.h"
 #include "Editor/ParticleEditorPanel.h"
 #include "Editor/AnimEditorPanel.h"
@@ -441,6 +442,7 @@ private:
     Entity                                     m_selected{};
 
     EditorImGui          m_imgui;
+    RmlUiHost            m_rml;
     ParticleEditorPanel  m_particlePanel;
     AnimEditorPanel      m_animPanel;
     HsmEditorPanel       m_hsmPanel;

@@ -561,8 +561,8 @@ void EditorApp::handleEditorCommands(float dt)
             flushQueuedAssetPlace();
     }
 
-    const bool uiKey = m_imgui.wantCaptureKeyboard();
-    const bool uiMouse = m_imgui.wantCaptureMouse();
+    const bool uiKey = m_imgui.wantCaptureKeyboard() || m_rml.capturesInput() || m_rml.ateCancel();
+    const bool uiMouse = m_imgui.wantCaptureMouse() || m_rml.capturesInput();
     const bool typing = m_imgui.isReady() && m_imgui.wantTextInput();
     if (m_playMode && input().actionPressed("upgrades") && !typing && (!uiKey || m_showUpgrades))
         m_showUpgrades = !m_showUpgrades;
@@ -583,7 +583,7 @@ void EditorApp::handleEditorCommands(float dt)
             m_dialogue.commitChoice();
     }
 
-    if (m_playMode && m_movie.blocksWorld() && input().actionPressed("quit"))
+    if (m_playMode && m_movie.blocksWorld() && input().actionPressed("quit") && !m_rml.ateCancel())
     {
         m_movie.stop();
         return;

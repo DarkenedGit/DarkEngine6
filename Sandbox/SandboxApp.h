@@ -51,6 +51,10 @@ public:
 private:
     void registerDefaultActions();
     void populateMainMenu();
+    void syncRmlFront();
+    void applyRmlFrontInput();
+    void applyRmlSettingsInput();
+    void applyRmlPauseInput();
     // Terrain, pawns, and the save baseline. From onInit when the menu is skipped,
     // or from a menu confirm. After the splash, confirm returns and onUpdate
     // advances one slice per frame so Present runs between them.

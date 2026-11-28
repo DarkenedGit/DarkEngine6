@@ -5,6 +5,7 @@
 #include "Render/Texture2D.h"
 #include "Ui/ImGuiHost.h"
 #include "Ui/MainMenu.h"
+#include "Ui/RmlUiHost.h"
 #include "Ui/NpcInfoOverlay.h"
 
 #include <cstdint>
@@ -28,6 +29,7 @@ public:
     void drawDefenseText();
     void drawTargetMarker();
     void drawGuardAwareness();
+    void fillStealthHud(RmlStealthHud& hud);
     void drawGuardSpeech();
     void drawDialogue();
     void drawStaminaBar();
@@ -57,6 +59,7 @@ public:
     // Target the loot card already drew. The pickup key takes all only after that first draw.
     Dark::Entity                   m_lootShown{};
     ImGuiHost                      m_imgui;
+    RmlUiHost                      m_rml;
     Dark::MainMenu                 m_menu;
     Dark::MainMenuPage             m_menuPage = Dark::MainMenuPage::Front;
     Dark::Texture2D                m_menuBackground;

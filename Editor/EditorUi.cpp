@@ -1206,6 +1206,8 @@ void EditorApp::drawInspector3D()
 
 void EditorApp::onUpdate(float dt)
 {
+    m_rml.update(renderer(), input(), m_imgui.isReady() && m_imgui.wantCaptureMouse(),
+        m_imgui.isReady() && m_imgui.wantCaptureKeyboard(), dt);
     pollSceneOpen();
     m_movie.tick(dt);
     if (m_playMode)

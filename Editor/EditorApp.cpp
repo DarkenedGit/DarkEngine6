@@ -278,8 +278,8 @@ void EditorApp::updateCamera2D(float dt)
 {
     m_camera2D.SetViewportSize(static_cast<float>(renderer().width()), static_cast<float>(renderer().height()));
 
-    const bool uiMouse = m_imgui.wantCaptureMouse();
-    const bool uiKey   = m_imgui.wantCaptureKeyboard();
+    const bool uiMouse = m_imgui.wantCaptureMouse() || m_rml.capturesInput();
+    const bool uiKey   = m_imgui.wantCaptureKeyboard() || m_rml.capturesInput() || m_rml.ateCancel();
 
     if (!uiMouse && (input().mouseDown(MouseButton::Middle) || input().mouseDown(MouseButton::Right)))
     {

@@ -173,6 +173,8 @@ void EditorApp::onInit()
     {
         DE_LOG_WARN("EditorApp: ImGui init failed — particle UI disabled");
     }
+    if (!m_rml.init(renderer()))
+        DE_LOG_WARN("EditorApp: RmlUi init failed");
     loadTypeIcons();
 
     {
@@ -330,7 +332,9 @@ void EditorApp::updateCamera(float dt)
         return;
     }
 
-    if (m_imgui.wantCaptureMouse() && !input().mouseDown(MouseButton::Right))
+    const bool uiMouse = m_imgui.wantCaptureMouse() || m_rml.capturesInput();
+    const bool uiKey   = m_imgui.wantCaptureKeyboard() || m_rml.capturesInput() || m_rml.ateCancel();
+    if (uiMouse && !input().mouseDown(MouseButton::Right))
     {
         // Still allow pad look
     }
@@ -340,7 +344,7 @@ void EditorApp::updateCamera(float dt)
         m_camera.Pitch(-static_cast<float>(input().mouseDeltaY()) * m_lookSpeed);
     }
 
-    if (!m_imgui.wantCaptureKeyboard())
+    if (!uiKey)
     {
         constexpr float kPadLook = 1.6f;
         if (!input().mouseDown(MouseButton::Right))
@@ -356,7 +360,7 @@ void EditorApp::updateCamera(float dt)
         m_camera.Walk(input().actionAxis("move_z") * speed * dt);
         m_camera.Climb(input().actionAxis("move_y") * speed * dt);
     }
-    else
+    else if (!m_rml.capturesInput() && !m_rml.ateCancel())
     {
         // Gamepad still moves while typing in ImGui
         constexpr float kPadLook = 1.6f;
@@ -367,7 +371,7 @@ void EditorApp::updateCamera(float dt)
         m_camera.Climb(input().actionAxis("move_y") * m_moveSpeed * dt);
     }
 
-    if (!m_imgui.wantCaptureMouse() && input().mouseWheel() != 0.0f)
+    if (!uiMouse && input().mouseWheel() != 0.0f)
         m_camera.Walk(input().mouseWheel() * (0.2f * m_moveSpeed));
 }
 
@@ -426,6 +430,7 @@ void EditorApp::onShutdown()
     m_sceneWorld.physics.destroy();
     m_sceneWorld.physicsGround = Physics::kNullPhysicsBody;
     network().shutdown();
+    m_rml.shutdown(renderer());
     m_imgui.shutdown(renderer());
     m_gpuParticles.destroy(renderer());
     m_play.feedback().splats.destroy(renderer());

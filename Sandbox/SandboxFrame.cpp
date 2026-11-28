@@ -244,8 +244,9 @@ void SandboxFrame::render()
             app().m_hud.m_imgui.beginFrame();
         if (app().m_hud.m_imgui.isReady())
             app().m_hud.drawMainMenu();
-        else
+        else if (!app().m_hud.m_rml.frontActive() && !app().m_hud.m_rml.settingsActive())
             app().m_hud.m_menu.draw(app().renderer());
+        app().m_hud.m_rml.render(app().renderer());
         if (app().m_hud.m_imgui.isReady())
             app().m_hud.m_imgui.render(app().renderer());
         frameJoinRender(app().jobs(), app().renderer().frameIndex());
@@ -1100,6 +1101,8 @@ void SandboxFrame::render()
         app().m_sceneWorld.terrain.lastTriangles() + app().m_sceneWorld.water.lastTriangles() + meshDraws * (app().m_demo.cubeMesh().indexCount() / 3);
 
     app().m_movie.draw(app().renderer());
+    if (!app().frameCaptureActive())
+        app().m_hud.m_rml.render(app().renderer());
     if (app().m_hud.m_imgui.isReady() && app().m_hud.m_menu.visible())
     {
         app().m_hud.drawMainMenu();
