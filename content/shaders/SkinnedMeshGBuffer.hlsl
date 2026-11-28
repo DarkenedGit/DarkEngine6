@@ -2,7 +2,6 @@
 #pragma pack_matrix(row_major)
 
 #include "GBuffer.hlsli"
-#include "Thermal.hlsli"
 
 cbuffer FrameConstants : register(b0)
 {
@@ -33,7 +32,6 @@ Texture2D    gOrm      : register(t2);
 Texture2D    gEmissive : register(t3);
 SamplerState gSamp     : register(s0);
 
-#include "UvMap.hlsli"
 #include "NormalMap.hlsli"
 #include "SurfaceTag.hlsli"
 #include "MaterialAuxMask.hlsli"
@@ -114,11 +112,7 @@ GBufferOut PSMain(PSInput input)
     float emis = dot(gEmissive.Sample(gSamp, input.uv).rgb, float3(0.2126f, 0.7152f, 0.0722f)) * color.a;
 
     GBufferOut o;
-#ifdef DE_ULTRAVIOLET
-    o.albedo   = float4(albedo, uvReflectanceAt(input.uv, metal));
-#else
-    o.albedo   = float4(albedo, thermalScalar(emis, metal));
-#endif
+    o.albedo   = float4(albedo, emis);
     o.attrib   = float4(EncodeOct(n), rough, metal);
     o.velocity = VelocityUv(input.currClip, input.prevClip);
     o.ao       = aoOut;

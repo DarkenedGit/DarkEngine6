@@ -21,8 +21,6 @@ namespace Dark
         float                   exposure    = 1.0f; // tonemap owns exposure
         float                   waterLevel  = 0.0f;
         float                   fogScale    = 1.0f;
-        float                   thermal     = 0.0f;
-        float                   ultraviolet = 0.0f;
     };
 
     // The sky dome: one HDR draw with read-only depth after the lighting passes (PassId::Sky).

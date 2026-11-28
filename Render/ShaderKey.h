@@ -23,8 +23,8 @@ namespace Dark
     // runtime compiler cannot disagree. Plan §3.15 step 3 bumps it to "6_6" after the FXC A/B.
     inline constexpr const char* kShaderModelDxc = "6_0";
 
-    // FXC fallback (DE_SHADER_FXC=1) compiles every stage at 5.1, which also accepts the register-space
-    // bindings the ultraviolet permutations use.
+    // FXC fallback (DE_SHADER_FXC=1) compiles every stage at 5.1, which also accepts register-space
+    // bindings (instance buffers and the material aux mask).
     inline constexpr const char* kShaderModelFxc = "5_1";
 
     const char* shaderStageId(ShaderStage stage); // "vs", "ps", "cs"

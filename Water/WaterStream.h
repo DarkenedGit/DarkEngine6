@@ -86,8 +86,6 @@ namespace Dark
         const SsrSettings* ssrSettings,
         const Terrain::HeightMap* heightMap,
         const IEnvironmentProvider* env,
-        float thermal = 0.0f,
-        float ultraviolet = 0.0f,
         const ColorRemap& waterRemap = {},
         const ColorRemap& fogRemap = {});
 

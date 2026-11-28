@@ -207,7 +207,7 @@ void SkyPipeline::bind(ID3D12GraphicsCommandList* cmd) const
     cmd->SetPipelineState(m_psoCloud ? m_psoCloud.Get() : m_pso.Get());
 }
 
-void SkyPipeline::upload(uint32_t frameIndex, const Camera3D& camera, const Sky::Environment& env, float exposure, float waterLevel, float fogScale, float thermal, float ultraviolet,
+void SkyPipeline::upload(uint32_t frameIndex, const Camera3D& camera, const Sky::Environment& env, float exposure, float waterLevel, float fogScale,
                          const ColorRemap& skyRemap, const ColorRemap& fogRemap)
 {
     if (!m_skyMapped)
@@ -282,8 +282,6 @@ void SkyPipeline::upload(uint32_t frameIndex, const Camera3D& camera, const Sky:
     Sky::CloudLayerGpu layer{};
     Sky::writeCloudLayer(layer, env);
     std::memcpy(reinterpret_cast<uint8_t*>(&cb) + offsetof(SkyFrameConstants, clLightColor), &layer, sizeof(layer));
-    cb.thermal = thermal > 0.0f ? thermal : 0.0f;
-    cb.ultraviolet = ultraviolet > 0.0f ? ultraviolet : 0.0f;
     cb.skyRemap = packColorRemap(skyRemap);
     cb.fogRemap = packColorRemap(fogRemap);
 
