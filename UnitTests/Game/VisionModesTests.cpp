@@ -171,6 +171,19 @@ TEST(VisionModes, BeeShiftRemapIsTheChannelShift)
     EXPECT_FLOAT_EQ(dst[2], 0.5f * 0.2f + 0.5f * 0.75f);
 }
 
+TEST(VisionModes, HostPictureFollowsTheDecisionNotTheRawStrength)
+{
+    // Infrared asked for but declined (heat pass not ready): the frame is the default one.
+    EXPECT_FALSE(visionPictureActive(decideVision({ 1.0f, 0.0f }, false), 0.0f));
+    EXPECT_TRUE(visionPictureActive(decideVision({ 1.0f, 0.0f }, true), 0.0f));
+    // Ultraviolet needs no pass, so it is a picture either way.
+    EXPECT_TRUE(visionPictureActive(decideVision({ 0.0f, 0.5f }, false), 0.0f));
+    EXPECT_FALSE(visionPictureActive(decideVision({}, true), 0.0f));
+    // Echo is the host's own effect and counts regardless of the decision.
+    EXPECT_TRUE(visionPictureActive(decideVision({ 1.0f, 0.0f }, false), 0.3f));
+    EXPECT_TRUE(visionPictureActive({}, 0.3f));
+}
+
 TEST(VisionModes, UltravioletWinsOverInfrared)
 {
     const VisionDecision d = decideVision({ 1.0f, 0.3f }, true);

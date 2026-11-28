@@ -77,6 +77,18 @@ TEST(VisionModesFeature, UncreatedHeatTurnsNoPassOffAndAddsNoPass)
         EXPECT_EQ(std::string(graph.passName(p)).find("VisionModes"), std::string::npos) << graph.passName(p);
 }
 
+TEST(VisionModesFeature, DeclinedInfraredIsNotAHostPicture)
+{
+    VisionModesFeature feature;
+    Camera3D           camera;
+    feature.setFrame({ { 1.0f, 0.0f }, &camera, {} });
+    FrameView  view;
+    FrameSetup setup;
+    feature.setupFrame(view, setup);
+    EXPECT_FALSE(visionPictureActive(feature.decision(), 0.0f));
+    EXPECT_TRUE(visionPictureActive(feature.decision(), 1.0f));
+}
+
 TEST(VisionModesFeature, UltravioletNeedsNoPipeline)
 {
     VisionModesFeature feature;

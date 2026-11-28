@@ -45,6 +45,11 @@ namespace Dark
         return {};
     }
 
+    bool visionPictureActive(const VisionDecision& decision, float echo)
+    {
+        return decision.picture != VisionPicture::Off || echo > 0.0f;
+    }
+
     void applyVisionModes(const VisionDecision& decision, const VisionLut& heatLut, FrameSetup& setup)
     {
         if (decision.picture == VisionPicture::Off || !(decision.strength > 0.0f))

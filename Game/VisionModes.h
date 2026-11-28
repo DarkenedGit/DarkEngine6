@@ -73,6 +73,12 @@ namespace Dark
     // emissiveGain, and writes remaps, writeSurfaceTag and the LUT; `heatLut` must outlive the frame.
     void applyVisionModes(const VisionDecision& decision, const VisionLut& heatLut, FrameSetup& setup);
 
+    // True when a vision picture replaces the lit frame, so the host drops the underwater column and
+    // holds exposure. Driven by what the feature decided, not by the raw infrared strength: a heat
+    // request the feature declined (no pipeline, no camera) leaves the default frame, and the host
+    // must not treat it as a picture. `echo` is the host's own pulse effect.
+    bool visionPictureActive(const VisionDecision& decision, float echo);
+
     // The heat pass's graph uses in the game slot: the G-buffer, depth and SurfaceTag as pixel SRVs,
     // HDR as a render target (read-write, so a fade blends over it). The G-buffer pass must have
     // written SurfaceTag this frame. `exec(PassContext&, const VisionHeatUses&)`. False (no pass)
