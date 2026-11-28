@@ -9,3 +9,6 @@ Camouflage.hlsl PSMain ps
 Echo.hlsl VSMain vs
 Echo.hlsl PSSnapshot ps ECHO_SNAPSHOT=1
 Echo.hlsl PSComposite ps
+
+VisionModes.hlsl VSMain vs
+VisionModes.hlsl PSMain ps

@@ -276,6 +276,7 @@ void SandboxFrame::render()
     // Echolocation strobes: no TAA / GTAO / SSR history from (or into) a held frame, no motion blur.
     view.holdTemporal = app().m_vision.echo > 0.0f;
     view.debug        = &app().renderer().debugState();
+    m_visionModes.setFrame({ { app().m_vision.infrared, app().m_vision.ultraviolet }, &app().m_sceneWorld.camera, app().m_sceneWorld.env.sunDir() });
     const FrameSetup setup = frame.resolveSetup(view);
     m_scene.setFrameSetup(setup);
     m_shadowFeature.updateLocal(app().world(), app().m_sceneWorld.camera, cameraCull, app().renderer().frameIndex(), selectLocalShadows, setup);
@@ -487,7 +488,7 @@ void SandboxFrame::render()
     m_scene.requestHistories(frame, app().renderer());
 
 
-    const bool visionPicture = app().m_vision.echo > 0.0f;
+    const bool visionPicture = visionPictureActive(m_visionModes.decision(), app().m_vision.echo);
     const float underDraw = !visionPicture ? Math::Clamp(app().m_play.runtime().underAmount, 0.0f, 1.0f) : 0.0f;
     const bool instanceColor = instanceStatic;
     Matrix4f             viewProj;
@@ -1000,8 +1001,8 @@ void SandboxFrame::render()
     exposure.settings    = &app().m_frame.autoExposure();
     exposure.envExposure = app().m_sceneWorld.env.exposure();
     exposure.dt          = app().m_frameDt;
-    // Echolocation and the underwater column swing the meter. Hold the correction while either is on.
-    exposure.hold        = app().m_vision.echo > 0.0f || app().m_play.runtime().underAmount > 0.0f;
+    // A vision picture, echolocation, and the underwater column swing the meter. Hold the correction while any is on.
+    exposure.hold        = visionPictureActive(m_visionModes.decision(), app().m_vision.echo) || app().m_play.runtime().underAmount > 0.0f;
     core.post            = &postFx;
     core.viewProj        = &viewProj;
     core.autoExposure    = &exposure;

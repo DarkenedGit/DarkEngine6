@@ -1,14 +1,8 @@
 // False-color heat. 0 is cold, about 0.5 is ambient, 1 blooms.
-// G-buffer writers compile twice. DE_THERMAL stores heat in RT0.a.
-// The other compile keeps emissive there, so the off mode stays the current picture.
 // The palette is linear HDR. Only the hot stop is above the bloom threshold.
-
-#ifndef DE_THERMAL_HEAT
-#define DE_THERMAL_HEAT 0.41
-#endif
+// kThermal* must match the kVisionHeat* constants in Game/VisionModes.h.
 
 static const float kThermalSky   = 0.15f;
-static const float kThermalWater = 0.30f;
 static const float kThermalMetal = 0.28f;
 
 float3 thermalFalseColor(float h)
@@ -25,21 +19,11 @@ float3 thermalFalseColor(float h)
     return lerp(body, fire, saturate((h - 0.72f) / 0.28f));
 }
 
-float thermalScalar(float emis, float metallic)
+// classHeat is the surface's class (the SurfaceTag LUT). Emissive is at least as hot as its glow;
+// metal reads toward kThermalMetal.
+float thermalScalar(float classHeat, float emis, float metallic)
 {
-#ifdef DE_THERMAL
-    float heat = max(DE_THERMAL_HEAT, emis);
+    float heat = max(classHeat, emis);
     heat = max(emis, lerp(heat, kThermalMetal, saturate(metallic)));
     return saturate(heat);
-#else
-    // metallic * 0 keeps the off compile using both arguments. Finite emis is unchanged.
-    return emis + metallic * 0.0f;
-#endif
-}
-
-float3 thermalMix(float3 beauty, float heat, float strength)
-{
-    if (strength <= 1.0e-4f)
-        return beauty;
-    return lerp(beauty, thermalFalseColor(heat), saturate(strength));
 }
