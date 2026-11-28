@@ -984,8 +984,29 @@ namespace Dark::Rg
             info.lastPass             = c.lastPass;
             info.queueMask            = c.queueMask;
             info.aliasSlot            = c.aliasSlot;
+            info.alignment            = c.alignment;
+            info.usage                = c.usage;
+            if (c.aliasSlot < m_aliasSlots.size())
+                info.heapOffset = m_aliasSlots[c.aliasSlot].offset;
         }
         return info;
+    }
+
+    TextureDesc RenderGraph::textureDesc(uint16_t resource) const
+    {
+        return resource < m_resources.size() && m_resources[resource].kind == ResourceKind::Texture ? m_resources[resource].tex : TextureDesc{};
+    }
+
+    bool RenderGraph::placeTransient(uint16_t resource, ID3D12Resource* native, const TextureViews& views)
+    {
+        if (!m_compiledOk || resource >= m_resources.size() || resource >= m_cRes.size())
+            return false;
+        ResourceNode& r = m_resources[resource];
+        if (r.kind != ResourceKind::Texture || r.lifetime != Lifetime::Transient || !m_cRes[resource].used || !native)
+            return false;
+        r.native = native;
+        r.views  = views;
+        return true;
     }
 
 } // namespace Dark::Rg

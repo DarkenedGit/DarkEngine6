@@ -23,6 +23,9 @@ namespace Dark
         shutdown();
         if (!m_allocator.init(device))
             return false;
+        // Placement fails later, per frame, for a plan that has transients; frames without them run.
+        if (!m_transients.init(m_allocator))
+            DE_LOG_ERROR(LogCategory::Render, "GraphTargets: transient heap unavailable");
         // No targets yet: this only records the output size the registry resolves against.
         return m_pool.resizeAfterDrain(width, height);
     }
@@ -30,6 +33,7 @@ namespace Dark
     void GraphTargets::shutdown()
     {
         m_pool.clear();
+        m_transients.shutdown();
         m_backend.retireAfter(0);
         m_backend.collect(UINT64_MAX);
         m_allocator.shutdown();

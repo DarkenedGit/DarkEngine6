@@ -398,6 +398,7 @@ namespace Dark::Rg
                 {
                     const uint32_t q = kQ(a.queue);
                     c.queueMask      = static_cast<uint8_t>(c.queueMask | (1u << q));
+                    c.usage          = static_cast<uint8_t>(c.usage | usageBits(a.state.access));
                     if (c.firstOn[q] == kNoPass)
                         c.firstOn[q] = a.pass;
                     c.lastOn[q] = a.pass;
@@ -800,12 +801,47 @@ namespace Dark::Rg
                       });
         }
 
+        static uint8_t usageBits(Access a)
+        {
+            uint8_t u = 0;
+            if ((a & Access::RenderTarget) != Access::Common)
+                u |= kUsageRenderTarget;
+            if ((a & (Access::DepthStencilWrite | Access::DepthStencilRead)) != Access::Common)
+                u |= kUsageDepthStencil;
+            if ((a & Access::UnorderedAccess) != Access::Common)
+                u |= kUsageUnordered;
+            if ((a & Access::ShaderResource) != Access::Common)
+                u |= kUsageShaderResource;
+            return a == Access::NoAccess ? 0 : u;
+        }
+
+        static uint64_t alignUp(uint64_t v, uint64_t a)
+        {
+            return a == 0 ? v : (v + a - 1) / a * a;
+        }
+
+        // Placed size of a live transient, rounded to its alignment (bytes 0: cannot be placed).
+        void sizeTransient(uint16_t r)
+        {
+            CompiledResource&   c    = g.m_cRes[r];
+            const ResourceNode& node = g.m_resources[r];
+            TransientSize       s{ c.bytes, kPlacementAlignment };
+            if (node.kind == ResourceKind::Texture && g.m_sizer)
+                s = g.m_sizer(g.m_sizerUser, node.width, node.height, node.tex, c.usage);
+            if (s.alignment == 0)
+                s.alignment = kPlacementAlignment;
+            c.alignment = s.alignment;
+            c.bytes     = alignUp(s.bytes, s.alignment);
+        }
+
         // ---- 7. alias plan ---------------------------------------------------
         void planAliasing()
         {
             g.m_aliasSlots.clear();
             g.m_transientBytesUnaliased = 0;
             g.m_transientBytesAliased   = 0;
+            g.m_transientHeapBytes      = 0;
+            g.m_transientHeapAlignment  = 0;
             aliasedAfter.assign(g.m_resources.size(), kInvalidIndex);
 
             std::vector<uint16_t> transients;
@@ -817,6 +853,7 @@ namespace Dark::Rg
             std::vector<uint8_t> shareable;
             for (const uint16_t r : transients)
             {
+                sizeTransient(r);
                 const uint64_t bytes = g.m_cRes[r].bytes;
                 g.m_transientBytesUnaliased += bytes;
                 uint32_t best = kNoPass;
@@ -851,11 +888,20 @@ namespace Dark::Rg
                 }
                 AliasSlot& slot = g.m_aliasSlots[best];
                 slot.bytes      = std::max(slot.bytes, bytes);
+                slot.alignment  = std::max(slot.alignment, g.m_cRes[r].alignment);
                 slot.resources.push_back(r);
                 g.m_cRes[r].aliasSlot = best;
             }
-            for (const AliasSlot& s : g.m_aliasSlots)
+            uint64_t end = 0;
+            for (AliasSlot& s : g.m_aliasSlots)
+            {
                 g.m_transientBytesAliased += s.bytes;
+                s.bytes                    = alignUp(s.bytes, s.alignment);
+                s.offset                   = alignUp(end, s.alignment);
+                end                        = s.offset + s.bytes;
+                g.m_transientHeapAlignment = std::max(g.m_transientHeapAlignment, s.alignment);
+            }
+            g.m_transientHeapBytes = end;
         }
 
         // The first barrier of a transient that reuses memory waits for the previous occupant's work on
@@ -966,6 +1012,8 @@ namespace Dark::Rg
     {
         Fnv f;
         f.value(m_options);
+        f.value(reinterpret_cast<uintptr_t>(m_sizer));
+        f.value(reinterpret_cast<uintptr_t>(m_sizerUser));
         f.value(m_outputWidth);
         f.value(m_outputHeight);
         f.value(m_passes.size());
@@ -1183,6 +1231,17 @@ namespace Dark::Rg
             for (size_t i = 1; i < slot.resources.size(); ++i)
                 if (!resourceFollows(slot.resources[i - 1], slot.resources[i]))
                     return fail(std::string("alias slot overlaps '") + m_resources[slot.resources[i - 1]].name + "' and '" + m_resources[slot.resources[i]].name + "'");
+        // Regions are aligned, in order, disjoint in memory, inside the heap, and hold every occupant.
+        uint64_t end = 0;
+        for (const AliasSlot& slot : m_aliasSlots)
+        {
+            if (slot.alignment == 0 || slot.offset % slot.alignment != 0 || slot.offset < end || slot.offset + slot.bytes > m_transientHeapBytes)
+                return fail("alias region misplaced in the transient heap");
+            end = slot.offset + slot.bytes;
+            for (const uint16_t r : slot.resources)
+                if (m_cRes[r].bytes > slot.bytes || (m_cRes[r].alignment != 0 && slot.alignment % m_cRes[r].alignment != 0))
+                    return fail(std::string("'") + m_resources[r].name + "' does not fit its alias region");
+        }
         return true;
     }
 

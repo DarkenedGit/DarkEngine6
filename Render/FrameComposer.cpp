@@ -46,6 +46,9 @@ namespace Dark
         Rg::CompileOptions options = m_graph.options();
         options.asyncCompute       = false; // one graphics queue until Phase 10
         m_graph.setOptions(options);
+        // Transients are sized as the device places them (heap offsets and alignment).
+        if (GraphTargets* targets = renderer.targets())
+            m_graph.setTransientSizer(&TransientHeap::sizeTransient, &targets->transients());
         m_graph.beginFrame(renderer.width(), renderer.height());
         m_features.begin(list, count);
         // A held frame's image must not reach a history, and the frame after it reads none.
@@ -126,6 +129,9 @@ namespace Dark
         if (GraphTargets* targets = m_renderer->targets())
             m_histories.collect(m_graph, targets->pool());
         if (!m_features.compileFrame(m_graph, host))
+            return false;
+        // Transients need their placed resources and views before any pass records.
+        if (GraphTargets* targets = m_renderer->targets(); targets && !targets->transients().realize(m_graph))
             return false;
         m_executor.beginFrame(*m_renderer, m_graph);
         const bool ran = m_graph.execute(&m_executor);

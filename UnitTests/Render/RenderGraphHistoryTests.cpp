@@ -504,7 +504,8 @@ TEST(RenderGraphAlias, ReusedBufferMemoryGetsAnAliasBarrier)
     EXPECT_TRUE(bb2[0].aliased);
     EXPECT_EQ(bb2[0].pass, g.findPass("C"));
     EXPECT_TRUE(any(bb2[0].before.sync & (Sync::AllShading | Sync::ComputeShading)));
-    EXPECT_EQ(g.aliasSlots()[g.resourceInfo(b1.index).aliasSlot].bytes, 4096u);
+    // Placed buffers take whole 64 KiB placement units, so both fit one unit.
+    EXPECT_EQ(g.aliasSlots()[g.resourceInfo(b1.index).aliasSlot].bytes, kPlacementAlignment);
 }
 
 // ---------------------------------------------------------------- history slots (Phase 5)
