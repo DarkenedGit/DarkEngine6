@@ -10,7 +10,7 @@ namespace Dark
 
     struct FrameView
     {
-        // A strobe-like frame (echolocation pulse) whose image must not feed temporal filters:
+        // A strobe-like frame (a game pulse effect) whose image must not feed temporal filters:
         // every graph history reads as invalid this frame and the next, and motion blur is off.
         bool holdTemporal = false;
         // The engine passes that run (Render/FrameSetup.h). FrameComposer::resolveSetup (or begin, if that was not called)

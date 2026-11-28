@@ -10,6 +10,7 @@
 #include "Sky/CloudVolumePipeline.h"
 #include "Game/CamouflageFeature.h"
 #include "Game/EchoFeature.h"
+#include "Game/VisionModesFeature.h"
 #include "Render/DrawList.h"
 #include "Terrain/FoliagePipeline.h"
 #include "Render/FrameComposer.h"
@@ -46,6 +47,7 @@ public:
     Dark::ShadowFeature&              shadowFeature() { return m_shadowFeature; }
     Dark::EchoFeature&                echo() { return m_echo; }
     Dark::CamouflageFeature&          camouflage() { return m_camouflage; }
+    Dark::VisionModesFeature&         visionModes() { return m_visionModes; }
     Dark::FrameComposer&              composer() { return m_frameComposer; }
     const Dark::FrameComposer&        composer() const { return m_frameComposer; }
     Dark::DrawList&                   drawList() { return m_drawList; }
@@ -92,6 +94,7 @@ private:
     Dark::ShadowFeature                         m_shadowFeature;
     Dark::EchoFeature                           m_echo;
     Dark::CamouflageFeature                     m_camouflage;
+    Dark::VisionModesFeature                    m_visionModes;
     Dark::FrameComposer                         m_frameComposer; // the frame graph (render-graph plan Phase 4)
     Dark::WalkabilityDebug                      m_walkDebug;
     std::unordered_map<Dark::EntityID, Dark::Math::Matrix4f> m_prevWorldByEntity;
